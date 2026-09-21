@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { SolveAnalysis, SolveStep } from "../cube/analysis";
+import { ollShapeForCase } from "../cube/lastLayerCases";
 import { formatTime } from "../state/stats";
 import type { Solve } from "../state/types";
 
@@ -106,17 +107,46 @@ function Breakdown({ analysis }: { analysis: SolveAnalysis }) {
   );
 }
 
+/**
+ * Split a case into the bit that identifies it and the bit that describes it.
+ *
+ * An OLL is a number, and its shape group is the hint. An F2L case is written
+ * `FL->FR 22`: the number identifies it, the slots say where the pair came from.
+ */
+function describeCase(step: SolveStep): { id: string; hint?: string } | null {
+  if (!step.case) return null;
+  const slots = /^(.*?)->(\S+)\s+(\S+)$/.exec(step.case);
+  if (slots) {
+    const from = slots[1].replace(/[[\]]/g, "").replace(",", "/");
+    return { id: slots[3], hint: `${from}→${slots[2]}` };
+  }
+  if (step.name === "OLL") {
+    return { id: step.case, hint: ollShapeForCase(step.case) ?? undefined };
+  }
+  return { id: step.case };
+}
+
 function StepRow({ step, total }: { step: SolveStep; total: number }) {
   const width = (step.timeMs / total) * 100;
   const recognitionShare =
     step.timeMs > 0 ? (step.recognitionMs / step.timeMs) * 100 : 0;
+  const described = describeCase(step);
+  const isSkip = step.skipped || described?.id === "Solved";
+
   return (
     <div className="phase-row" title={step.moves || undefined}>
-      <span className="phase-name">
-        {step.name}
-        {step.case ? <small>{step.case}</small> : null}
-        {step.skipped ? <small>skip</small> : null}
+      <span className="phase-head">
+        <span className="phase-name">{step.name}</span>
+        {described ? (
+          <span className={`phase-case${isSkip ? " muted" : ""}`}>
+            {described.id === "Solved" ? "skip" : described.id}
+          </span>
+        ) : step.skipped ? (
+          <span className="phase-case muted">skip</span>
+        ) : null}
+        {described?.hint ? <span className="phase-hint">{described.hint}</span> : null}
       </span>
+      <span className="phase-time">{formatTime(step.timeMs)}</span>
       <span className="phase-bar">
         <span
           className="recognition"
@@ -130,11 +160,8 @@ function StepRow({ step, total }: { step: SolveStep; total: number }) {
           }}
         />
       </span>
-      <span className="phase-time">
-        {formatTime(step.timeMs)}
-        <small>
-          {step.sliceTurns} mv · {step.tps.toFixed(1)} tps
-        </small>
+      <span className="phase-sub">
+        {step.sliceTurns} mv · {step.tps.toFixed(1)} tps
       </span>
     </div>
   );

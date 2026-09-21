@@ -1,7 +1,17 @@
 import { describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
-import { OLL_ALGORITHMS, PLL_ALGORITHMS } from "./lastLayerCases";
-import { lastLayerTables, recogniseOll, recognisePll } from "./recognise";
+import {
+  OLL_ALGORITHMS,
+  OLL_SHAPE_GROUPS,
+  PLL_ALGORITHMS,
+  ollShapeForCase,
+} from "./lastLayerCases";
+import {
+  lastLayerTables,
+  ollShape,
+  recogniseOll,
+  recognisePll,
+} from "./recognise";
 import { get3x3x3 } from "./puzzle";
 
 const kpuzzle = await get3x3x3();
@@ -70,5 +80,22 @@ describe("recognisePll", () => {
     );
     const ollOnly = kpuzzle.defaultPattern().applyAlg(new Alg(OLL_ALGORITHMS[27]).invert());
     expect(recognisePll(kpuzzle, ollOnly)).toBeNull();
+  });
+});
+
+describe("ollShape", () => {
+  it("matches the group each case is listed in", () => {
+    for (const [number, algorithm] of Object.entries(OLL_ALGORITHMS)) {
+      const state = kpuzzle.defaultPattern().applyAlg(new Alg(algorithm).invert());
+      expect(ollShape(state), `OLL ${number}`).toBe(ollShapeForCase(number));
+    }
+  });
+
+  it("puts every case in exactly one group", () => {
+    const all = Object.values(OLL_SHAPE_GROUPS).flat();
+    expect(all).toHaveLength(57);
+    expect(new Set(all).size).toBe(57);
+    // The seven cases with the last layer's edges already done are OLL 21 to 27.
+    expect([...OLL_SHAPE_GROUPS.cross]).toEqual([21, 22, 23, 24, 25, 26, 27]);
   });
 });

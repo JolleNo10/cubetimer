@@ -42,7 +42,8 @@ for the cube protocols.
 - CFOP breakdown: time, moves and TPS for the cross, each F2L pair, OLL and PLL, split
   into recognition and execution, plus a per-move time graph and a list of pauses.
 - Names the OLL case (1–57) and PLL case (Aa … Z) you were looking at, whichever way
-  you were holding the cube, and says so when one was skipped.
+  you were holding the cube, with the OLL's shape group alongside it, and marks a step
+  as a skip when there was nothing to do.
 - Turns counted three ways — STM, ETM and QTM — per step and per solve.
 - The analysis works whatever colour you cross on and however you hold the cube.
 - Move-by-move replay at the speed you actually turned, with scrubbing.

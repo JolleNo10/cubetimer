@@ -94,5 +94,36 @@ export const PLL_ALGORITHMS: Record<string, string> = {
   Z: "(M2 U) (M2 U) (M' U2) M2 (U2 M')",
 };
 
+/**
+ * Which last-layer edges already point up — how solvers narrow an OLL down before
+ * reading the corners. Only four arrangements are possible; parity rules out the rest.
+ */
+export type OllShape = "dot" | "L shape" | "line" | "cross";
+
+/**
+ * The OLL cases in each group. Derived from the cases themselves rather than copied
+ * from anywhere, and checked against them in the tests.
+ */
+export const OLL_SHAPE_GROUPS: Record<OllShape, readonly number[]> = {
+  dot: [1, 2, 3, 4, 17, 18, 19, 20],
+  "L shape": [
+    5, 6, 7, 8, 9, 10, 11, 12, 28, 29, 30, 31, 32, 35, 36, 37, 38, 41, 42, 43, 44,
+    47, 48, 49, 50, 53, 54,
+  ],
+  line: [13, 14, 15, 16, 33, 34, 39, 40, 45, 46, 51, 52, 55, 56, 57],
+  cross: [21, 22, 23, 24, 25, 26, 27],
+};
+
+const SHAPE_BY_CASE = new Map<string, OllShape>(
+  Object.entries(OLL_SHAPE_GROUPS).flatMap(([shape, cases]) =>
+    cases.map((n) => [String(n), shape as OllShape] as const),
+  ),
+);
+
+/** The shape group of an OLL case, by its number. */
+export function ollShapeForCase(caseName: string): OllShape | null {
+  return SHAPE_BY_CASE.get(caseName) ?? null;
+}
+
 /** What a step's case is called when there was nothing left to do. */
 export const SOLVED_CASE = "Solved";
