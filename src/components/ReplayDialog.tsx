@@ -25,8 +25,8 @@ export function ReplayDialog({
   const [speed, setSpeed] = useState(1);
 
   const moves = solve.moves;
-  const currentPhase = solve.analysis?.phases.find(
-    (p) => index > p.fromMove && index <= p.toMove,
+  const currentStep = solve.analysis?.steps.find(
+    (step) => index > step.fromMove && index <= step.toMove,
   );
 
   useEffect(() => {
@@ -196,10 +196,13 @@ export function ReplayDialog({
             <span className="dim">
               move {index} / {moves.length}
             </span>
-            {currentPhase ? (
+            {currentStep ? (
               <>
                 <span className="faint">·</span>
-                <span className="dim">{currentPhase.name}</span>
+                <span className="dim">
+                  {currentStep.name}
+                  {currentStep.case ? ` · ${currentStep.case}` : ""}
+                </span>
               </>
             ) : null}
             <span className="grow" />

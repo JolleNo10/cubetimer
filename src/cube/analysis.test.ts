@@ -5,7 +5,7 @@ import { get3x3x3 } from "./puzzle";
 
 const kpuzzle = await get3x3x3();
 
-/** Turn an alg into moves timed 200 ms apart, so phase boundaries are easy to read. */
+/** Turn an alg into moves timed `step` ms apart, so phase boundaries are easy to read. */
 function timed(alg: string, step = 200): TimedMove[] {
   return Array.from(new Alg(alg).expand().childAlgNodes()).map((n, i) => ({
     move: n.toString(),
@@ -26,60 +26,107 @@ describe("analyseSolve", () => {
   const oll = "R U R' U R U2' R'"; // Sune
   const pll = "R U R' U' R' F R2 U' R' U' R U R' F'"; // T-perm
 
-  const solution = new Alg(
+  const solution =
     [...extractions].reverse().map((e) => new Alg(e).invert().toString()).join(" ") +
-      " " + oll + " " + pll,
-  );
+    " " + oll + " " + pll;
   const scrambled = kpuzzle
     .defaultPattern()
     .applyAlg(new Alg(pll).invert())
     .applyAlg(new Alg(oll).invert())
     .applyAlg(new Alg(extractions.join(" ")));
 
-  it("recovers the CFOP phase structure of a constructed solve", () => {
-    const moves = timed(solution.toString());
-    const analysis = analyseSolve(scrambled, moves);
-    expect(analysis).not.toBeNull();
-    expect(analysis!.crossFace).toBe("D");
+  const analysis = analyseSolve(scrambled, timed(solution))!;
+  const byName = Object.fromEntries(analysis.steps.map((s) => [s.name, s]));
 
-    const byName = Object.fromEntries(
-      analysis!.phases.map((p) => [p.name, p]),
+  it("recovers the CFOP phase structure", () => {
+    expect(analysis.crossFace).toBe("D");
+    expect(analysis.method).toBe("CFOP");
+    expect(analysis.steps.map((s) => s.name)).toEqual([
+      "Cross",
+      "F2L Slot 1",
+      "F2L Slot 2",
+      "F2L Slot 3",
+      "F2L Slot 4",
+      "OLL",
+      "PLL",
+    ]);
+    expect(byName["Cross"].sliceTurns).toBe(0);
+    expect(byName["Cross"].skipped).toBe(true);
+    for (const slot of ["F2L Slot 1", "F2L Slot 2", "F2L Slot 3", "F2L Slot 4"]) {
+      expect(byName[slot].sliceTurns, slot).toBe(4);
+      expect(byName[slot].skipped, slot).toBe(false);
+    }
+    expect(byName["OLL"].sliceTurns).toBe(7);
+    expect(byName["PLL"].sliceTurns).toBe(14);
+  });
+
+  it("counts turns in all three metrics", () => {
+    // Sune is R U R' U R U2' R': seven moves, one of them a half turn.
+    expect(byName["OLL"]).toMatchObject({
+      sliceTurns: 7,
+      faceTurns: 7,
+      quarterTurns: 8,
+    });
+    expect(analysis.sliceTurns).toBe(16 + 7 + 14);
+    // The T-perm contains an R2, so PLL is 14 moves but 15 quarter turns.
+    expect(analysis.quarterTurns).toBe(16 + 8 + 15);
+    // Step counts always add up to the solve's counts.
+    expect(analysis.steps.reduce((n, s) => n + s.sliceTurns, 0)).toBe(
+      analysis.sliceTurns,
     );
-    expect(byName["Cross"].moveCount).toBe(0);
-    expect(byName["F2L #1"].moveCount).toBe(4);
-    expect(byName["F2L #2"].moveCount).toBe(4);
-    expect(byName["F2L #3"].moveCount).toBe(4);
-    expect(byName["F2L #4"].moveCount).toBe(4);
-    expect(byName["OLL"].moveCount).toBe(7);
-    expect(byName["PLL"].moveCount).toBe(14);
-
-    // The slots must be reported in the order they were finished.
-    expect(
-      ["F2L #1", "F2L #2", "F2L #3", "F2L #4"].map((n) => byName[n].detail),
-    ).toEqual(["FR", "BR", "BL", "FL"]);
-
-    expect(analysis!.moveCount).toBe(16 + 7 + 14);
-    expect(analysis!.durationMs).toBe(analysis!.moveCount * 200);
-    expect(analysis!.tps).toBeCloseTo(5, 5);
   });
 
   it("dates a milestone by when it sticks, not by a lucky moment", () => {
     // PLL breaks and restores F2L slots; none of that may be credited to F2L.
-    const moves = timed(solution.toString());
-    const analysis = analyseSolve(scrambled, moves)!;
-    const f2l4 = analysis.phases.find((p) => p.name === "F2L #4")!;
-    expect(f2l4.toMove).toBe(16);
+    expect(byName["F2L Slot 4"].toMove).toBe(16);
+    expect(byName["F2L Slot 4"].cumulativeMs).toBe(3200);
+  });
+
+  it("splits each step into recognition and execution", () => {
+    for (const step of analysis.steps) {
+      expect(step.recognitionMs + step.executionMs, step.name).toBe(step.timeMs);
+    }
+    expect(byName["Cross"].recognitionMs).toBe(0);
+    // Every F2L trigger here starts with a U, which is an AUF: recognition runs to the
+    // second move, 400 ms after the previous step ended.
+    expect(byName["F2L Slot 2"].recognitionMs).toBe(400);
+    expect(analysis.totalRecognitionMs + analysis.totalExecutionMs).toBe(
+      analysis.steps.reduce((sum, s) => sum + s.timeMs, 0),
+    );
+  });
+
+  it("measures turns per second against turning time, not thinking time", () => {
+    const oll = byName["OLL"];
+    expect(oll.tps).toBeCloseTo((oll.sliceTurns / oll.executionMs) * 1000, 6);
+    expect(analysis.tps).toBeCloseTo(
+      (analysis.sliceTurns / analysis.solvingMs) * 1000,
+      6,
+    );
+  });
+
+  it("rewrites the solve into the frame the solver held", () => {
+    // Cross on D means the cube was held as scrambled: no rotation needed.
+    expect(analysis.rotation).toBe("DB");
+    expect(byName["OLL"].moves).toBe("R U R' U R U2' R'");
   });
 
   it("reports pauses between moves", () => {
-    const moves = timed(solution.toString(), 100);
+    const moves = timed(solution, 100);
     moves.forEach((m, i) => {
       if (i >= 4) m.t += 900; // a long think after the first pair
     });
-    const analysis = analyseSolve(scrambled, moves)!;
-    expect(analysis.pauses).toHaveLength(1);
-    expect(analysis.pauses[0].durationMs).toBe(1000);
-    expect(analysis.phases[1].durationMs).toBe(400); // F2L #1 unaffected
+    const paused = analyseSolve(scrambled, moves)!;
+    expect(paused.pauses).toHaveLength(1);
+    expect(paused.pauses[0].durationMs).toBe(1000);
+    expect(paused.steps[1].timeMs).toBe(400); // F2L #1 unaffected
+  });
+
+  it("does not credit turns made after the cube was solved to any step", () => {
+    const extra = [...timed(solution), { move: "R", t: 8000 }];
+    const after = analyseSolve(scrambled, extra)!;
+    expect(after.turnsAfterSolution).toBe(1);
+    expect(after.sliceTurns).toBe(37);
+    expect(after.steps.at(-1)!.toMove).toBe(37);
   });
 
   it("returns null for a solve that does not finish solved", () => {

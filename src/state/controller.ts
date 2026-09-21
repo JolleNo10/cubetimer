@@ -21,6 +21,7 @@ import {
   type Quaternion,
 } from "../bluetooth/smartCube";
 import * as db from "./db";
+import { countSolveCsvRows, solveCsvBatches, formatSolveCsv } from "./solveCsv";
 import { Store } from "./store";
 import {
   DEFAULT_SETTINGS,
@@ -750,6 +751,49 @@ export class Controller {
     this.state.update((s) => ({ ...s, sessions }));
     await this.selectSession(this.state.get().sessionId);
     return { sessions: data.sessions.length, solves };
+  }
+
+  /**
+   * Import a solve analysis CSV export.
+   *
+   * Solves keep their original ids, so importing the same archive twice updates rather
+   * than duplicates. Work is done in batches with a yield between them, so a very large
+   * archive imports without locking up the page.
+   */
+  async importSolveCsv(
+    text: string,
+    onProgress?: (done: number, total: number) => void,
+  ): Promise<{ solves: number; sessions: number }> {
+    const total = countSolveCsvRows(text);
+    const sessionIds = new Set<string>();
+    let done = 0;
+
+    for (const batch of solveCsvBatches(text)) {
+      for (const session of batch.sessions) {
+        if (sessionIds.has(session.id)) continue;
+        sessionIds.add(session.id);
+        await db.saveSession(session);
+      }
+      for (const solve of batch.solves) await db.saveSolve(solve);
+      done += batch.solves.length;
+      onProgress?.(done, total);
+      // Let the browser paint between batches.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    const sessions = await db.loadSessions();
+    this.state.update((s) => ({ ...s, sessions }));
+    await this.selectSession(this.state.get().sessionId);
+    return { solves: done, sessions: sessionIds.size };
+  }
+
+  /** Write the current session, or everything, in the solve analysis CSV format. */
+  async exportSolveCsv(scope: "session" | "all"): Promise<string> {
+    const { sessions, solves } = this.state.get();
+    const names = new Map(sessions.map((s) => [s.id, s.name]));
+    const rows = scope === "all" ? await db.loadAllSolves() : solves;
+    const ordered = [...rows].sort((a, b) => a.createdAt - b.createdAt);
+    return formatSolveCsv(ordered, names);
   }
 
   dismissError(): void {

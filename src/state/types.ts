@@ -19,13 +19,32 @@ export type Solve = {
   penalty: Penalty;
   scramble: string;
   event: EventId;
-  source: "smartcube" | "keyboard";
+  source: "smartcube" | "keyboard" | "import";
   /** Move stream, present only for smart cube solves. */
   moves: TimedMove[];
   /** Cube state the solve started from, as a facelet string. */
   scrambledFacelets?: string;
   analysis?: SolveAnalysis | null;
   comment?: string;
+
+  // Fields carried by the solve analysis model. They are optional because a solve
+  // recorded here only fills in what it actually knows, but they survive a
+  // round-trip through an export so nothing is lost by importing into this app.
+
+  /** How long inspection lasted, in milliseconds. */
+  inspectionMs?: number;
+  device?: { name?: string; model?: string; colorScheme?: string };
+  user?: string;
+  /** Which rules the solve was judged under, e.g. `custom_rules`. */
+  ruleset?: string;
+  sessionRuleset?: string;
+  /** Where the scramble came from, e.g. `random_state`. */
+  scrambleProvider?: string;
+  /** Solving method the analysis assumed, e.g. `CFOP`. */
+  solvingMethod?: string;
+  analysisVersion?: number;
+  /** The +2 given for finishing one turn away from solved. */
+  oneTurnAwayPenalty?: boolean;
 };
 
 /** The time a solve counts for, with its penalty applied. `null` means DNF. */

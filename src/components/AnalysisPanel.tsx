@@ -1,21 +1,21 @@
 import { useMemo } from "react";
-import type { Phase, SolveAnalysis, TimedMove } from "../cube/analysis";
+import type { SolveAnalysis, SolveStep } from "../cube/analysis";
 import { formatTime } from "../state/stats";
 import type { Solve } from "../state/types";
 
-const PHASE_COLORS: Record<string, string> = {
+const STEP_COLORS: Record<string, string> = {
   Cross: "var(--blue)",
-  "F2L #1": "var(--accent)",
-  "F2L #2": "var(--accent)",
-  "F2L #3": "var(--accent)",
-  "F2L #4": "var(--accent)",
+  "F2L Slot 1": "var(--accent)",
+  "F2L Slot 2": "var(--accent)",
+  "F2L Slot 3": "var(--accent)",
+  "F2L Slot 4": "var(--accent)",
   OLL: "var(--amber)",
   PLL: "var(--violet)",
 };
 
 /**
- * CFOP breakdown of a solve: how long each phase took, how much of that was spent
- * looking rather than turning, and where the long pauses were.
+ * CFOP breakdown of a solve: how long each step took, how much of that was spent
+ * looking rather than turning, which case came up, and where the long pauses were.
  */
 export function AnalysisPanel({
   solve,
@@ -43,52 +43,52 @@ export function AnalysisPanel({
           <div className="empty">
             {solve.source === "keyboard"
               ? "Connect a smart cube to get a move-by-move breakdown."
-              : "This solve could not be broken into phases."}
+              : "This solve has no step analysis."}
           </div>
         ) : (
-          <Breakdown analysis={analysis} moves={solve.moves} />
+          <Breakdown analysis={analysis} />
         )}
       </div>
     </div>
   );
 }
 
-function Breakdown({
-  analysis,
-  moves,
-}: {
-  analysis: SolveAnalysis;
-  moves: TimedMove[];
-}) {
-  const total = Math.max(1, analysis.durationMs);
+function Breakdown({ analysis }: { analysis: SolveAnalysis }) {
+  const total = Math.max(1, analysis.solvingMs);
   return (
     <>
-      <div className="row small faint" style={{ marginBottom: 6 }}>
+      <div className="row small faint" style={{ marginBottom: 8, flexWrap: "wrap" }}>
         <span>
           cross on <b className="dim">{analysis.crossFace}</b>
         </span>
         <span className="grow" />
-        <span>
-          {analysis.moveCount} moves · {analysis.tps.toFixed(2)} tps
+        <span title="Slice turn metric · quarter turn metric">
+          {analysis.sliceTurns} STM · {analysis.quarterTurns} QTM
         </span>
+        <span>{analysis.tps.toFixed(2)} tps</span>
       </div>
 
-      {analysis.phases.map((phase) => (
-        <PhaseRow key={phase.name} phase={phase} total={total} />
+      {analysis.steps.map((step) => (
+        <StepRow key={step.name} step={step} total={total} />
       ))}
 
       <div className="legend">
         <span>
           <i style={{ background: "color-mix(in oklab, var(--blue) 55%, transparent)" }} />
-          look ahead / recognition
+          recognition
         </span>
         <span>
           <i style={{ background: "var(--accent)" }} />
-          turning
+          execution
+        </span>
+        <span className="grow" />
+        <span>
+          {formatTime(analysis.totalRecognitionMs)} looking ·{" "}
+          {formatTime(analysis.totalExecutionMs)} turning
         </span>
       </div>
 
-      <MoveGraph analysis={analysis} moves={moves} />
+      <MoveGraph analysis={analysis} />
 
       {analysis.pauses.length > 0 ? (
         <div className="small faint" style={{ marginTop: 10 }}>
@@ -97,24 +97,27 @@ function Breakdown({
             analysis.pauses.reduce((sum, p) => sum + p.durationMs, 0),
           )}
           s in total
+          {analysis.turnsAfterSolution > 0
+            ? ` · ${analysis.turnsAfterSolution} turns after the cube was solved`
+            : ""}
         </div>
       ) : null}
     </>
   );
 }
 
-function PhaseRow({ phase, total }: { phase: Phase; total: number }) {
-  const width = (phase.durationMs / total) * 100;
+function StepRow({ step, total }: { step: SolveStep; total: number }) {
+  const width = (step.timeMs / total) * 100;
   const recognitionShare =
-    phase.durationMs > 0 ? (phase.recognitionMs / phase.durationMs) * 100 : 0;
+    step.timeMs > 0 ? (step.recognitionMs / step.timeMs) * 100 : 0;
   return (
-    <div className="phase-row">
+    <div className="phase-row" title={step.moves || undefined}>
       <span className="phase-name">
-        {phase.name}
-        {phase.detail ? <small>{phase.detail} slot</small> : null}
-        {phase.moveCount === 0 && phase.name !== "Cross" ? <small>skip</small> : null}
+        {step.name}
+        {step.case ? <small>{step.case}</small> : null}
+        {step.skipped ? <small>skip</small> : null}
       </span>
-      <span className="phase-bar" title={`${phase.moveCount} moves`}>
+      <span className="phase-bar">
         <span
           className="recognition"
           style={{ width: `${(width * recognitionShare) / 100}%` }}
@@ -123,42 +126,34 @@ function PhaseRow({ phase, total }: { phase: Phase; total: number }) {
           className="execution"
           style={{
             width: `${(width * (100 - recognitionShare)) / 100}%`,
-            background: PHASE_COLORS[phase.name] ?? "var(--accent)",
+            background: STEP_COLORS[step.name] ?? "var(--accent)",
           }}
         />
       </span>
       <span className="phase-time">
-        {formatTime(phase.durationMs)}
+        {formatTime(step.timeMs)}
         <small>
-          {phase.moveCount} mv · {phase.tps.toFixed(1)} tps
+          {step.sliceTurns} mv · {step.tps.toFixed(1)} tps
         </small>
       </span>
     </div>
   );
 }
 
-/** Per-move time, coloured by phase — the shape of a solve at a glance. */
-function MoveGraph({
-  analysis,
-  moves,
-}: {
-  analysis: SolveAnalysis;
-  moves: TimedMove[];
-}) {
+/** Per-move time, coloured by step — the shape of a solve at a glance. */
+function MoveGraph({ analysis }: { analysis: SolveAnalysis }) {
   const bars = useMemo(() => {
-    const colorOf = (index: number) => {
-      const phase = analysis.phases.find(
-        (p) => index >= p.fromMove && index < p.toMove,
-      );
-      return PHASE_COLORS[phase?.name ?? ""] ?? "var(--accent)";
-    };
+    const result: { gap: number; color: string; move: string }[] = [];
     let previous = 0;
-    return moves.map((move, i) => {
-      const gap = move.t - previous;
-      previous = move.t;
-      return { gap, color: colorOf(i), move: move.move, t: move.t };
-    });
-  }, [analysis, moves]);
+    for (const step of analysis.steps) {
+      const color = STEP_COLORS[step.name] ?? "var(--accent)";
+      for (const { move, t } of step.recordedMoves) {
+        result.push({ gap: Math.max(0, t - previous), color, move });
+        previous = t;
+      }
+    }
+    return result;
+  }, [analysis]);
 
   if (bars.length === 0) return null;
   const max = Math.max(...bars.map((b) => b.gap), 1);
@@ -174,7 +169,15 @@ function MoveGraph({
       {bars.map((bar, i) => {
         const height = Math.max(2, (bar.gap / max) * 100);
         return (
-          <rect key={i} x={i + 0.15} y={100 - height} width={0.7} height={height} fill={bar.color} opacity={0.85}>
+          <rect
+            key={i}
+            x={i + 0.15}
+            y={100 - height}
+            width={0.7}
+            height={height}
+            fill={bar.color}
+            opacity={0.85}
+          >
             <title>{`${bar.move} — ${Math.round(bar.gap)} ms`}</title>
           </rect>
         );

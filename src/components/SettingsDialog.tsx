@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { forgetStoredMacs } from "../bluetooth/smartCube";
 import { EVENTS } from "../cube/scramble";
 import { useController } from "../hooks/useController";
@@ -11,6 +12,7 @@ export function SettingsDialog({
   onClose: () => void;
 }) {
   const controller = useController();
+  const [progress, setProgress] = useState<string | null>(null);
   const set = (changes: Partial<Settings>) => void controller.updateSettings(changes);
 
   return (
@@ -122,10 +124,14 @@ export function SettingsDialog({
           </Section>
 
           <Section title="Your data">
-            <div className="row wrap" style={{ paddingTop: 8 }}>
-              <button onClick={() => void exportSolves(controller)}>Export as JSON</button>
+            <div className="small faint" style={{ margin: "6px 0 10px" }}>
+              Solves are stored in this browser only. Everything here merges by solve
+              id, so importing the same file twice will not duplicate anything.
+            </div>
+            <div className="row wrap">
+              <button onClick={() => void exportSolves(controller)}>Export JSON</button>
               <label className="row" style={{ cursor: "pointer" }}>
-                <span className="chip">Import…</span>
+                <span className="chip">Import JSON…</span>
                 <input
                   type="file"
                   accept="application/json,.json"
@@ -138,10 +144,37 @@ export function SettingsDialog({
                 />
               </label>
             </div>
-            <div className="small faint" style={{ marginTop: 6 }}>
-              Solves are stored in this browser only. Export keeps a copy you can move
-              elsewhere; importing merges without creating duplicates.
+
+            <div className="row wrap" style={{ marginTop: 10 }}>
+              <button onClick={() => void exportCsv(controller, "session")}>
+                Export session CSV
+              </button>
+              <button onClick={() => void exportCsv(controller, "all")}>
+                Export all CSV
+              </button>
+              <label className="row" style={{ cursor: "pointer" }}>
+                <span className="chip">Import CSV…</span>
+                <input
+                  type="file"
+                  accept="text/csv,.csv"
+                  className="sr-only"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) void importCsv(controller, file, setProgress);
+                  }}
+                />
+              </label>
             </div>
+            <div className="small faint" style={{ marginTop: 6 }}>
+              CSV uses the full solve analysis format — every step, case, turn count and
+              timestamp — so solves move between the two without losing anything.
+            </div>
+            {progress ? (
+              <div className="small" style={{ marginTop: 8 }}>
+                {progress}
+              </div>
+            ) : null}
           </Section>
 
           <Section title="Bluetooth">
@@ -164,13 +197,47 @@ export function SettingsDialog({
 }
 
 async function exportSolves(controller: ReturnType<typeof useController>) {
-  const json = await controller.exportData();
-  const url = URL.createObjectURL(new Blob([json], { type: "application/json" }));
+  download(
+    `cubetimer-${new Date().toISOString().slice(0, 10)}.json`,
+    await controller.exportData(),
+    "application/json",
+  );
+}
+
+function download(name: string, text: string, type: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
   const link = document.createElement("a");
   link.href = url;
-  link.download = `cubetimer-${new Date().toISOString().slice(0, 10)}.json`;
+  link.download = name;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+async function exportCsv(
+  controller: ReturnType<typeof useController>,
+  scope: "session" | "all",
+) {
+  const csv = await controller.exportSolveCsv(scope);
+  download(`solves-${new Date().toISOString().slice(0, 10)}.csv`, csv, "text/csv");
+}
+
+async function importCsv(
+  controller: ReturnType<typeof useController>,
+  file: File,
+  setProgress: (value: string | null) => void,
+) {
+  setProgress("Reading file…");
+  try {
+    const result = await controller.importSolveCsv(
+      await file.text(),
+      (done, total) => setProgress(`Imported ${done} of ${total} solves…`),
+    );
+    setProgress(
+      `Imported ${result.solves} solves across ${result.sessions} sessions.`,
+    );
+  } catch (error) {
+    setProgress(`Could not import that file: ${String(error)}`);
+  }
 }
 
 async function importSolves(

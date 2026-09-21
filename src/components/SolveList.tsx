@@ -49,7 +49,12 @@ export function SolveList({ solves, selectedId, onSelect }: Props) {
                   {isPb ? <span className="pb small">PB</span> : null}
                 </span>
                 <span className="badges">
-                  {solve.moves.length > 0 ? <span>{solve.moves.length}&nbsp;mv</span> : null}
+                  {/* Count moves the way the breakdown does, so the two agree. */}
+                  {solve.analysis || solve.moves.length > 0 ? (
+                    <span>
+                      {solve.analysis?.sliceTurns ?? solve.moves.length}&nbsp;mv
+                    </span>
+                  ) : null}
                   <button
                     className="ghost"
                     style={{ padding: "0 6px" }}

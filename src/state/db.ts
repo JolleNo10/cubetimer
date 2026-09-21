@@ -48,6 +48,21 @@ async function store(
   return db.transaction(name, mode).objectStore(name);
 }
 
+/**
+ * Bring a stored solve up to the current model.
+ *
+ * Analyses written before the solve model gained steps used a different shape, and
+ * cannot be converted: those records never held turn counts or per-step moves. They
+ * are dropped rather than half-read, so the solve simply shows no breakdown.
+ */
+export function migrateSolve(solve: Solve): Solve {
+  const analysis = solve.analysis as { steps?: unknown } | null | undefined;
+  if (analysis && !Array.isArray(analysis.steps)) {
+    return { ...solve, analysis: null };
+  }
+  return { ...solve, moves: solve.moves ?? [] };
+}
+
 export async function loadSessions(): Promise<Session[]> {
   const sessions = await promisify(
     (await store("sessions", "readonly")).getAll() as IDBRequest<Session[]>,
@@ -71,13 +86,14 @@ export async function loadSolves(sessionId: string): Promise<Solve[]> {
   const solves = await promisify(
     index.getAll(sessionId) as IDBRequest<Solve[]>,
   );
-  return solves.sort((a, b) => a.createdAt - b.createdAt);
+  return solves.map(migrateSolve).sort((a, b) => a.createdAt - b.createdAt);
 }
 
 export async function loadAllSolves(): Promise<Solve[]> {
-  return promisify(
+  const solves = await promisify(
     (await store("solves", "readonly")).getAll() as IDBRequest<Solve[]>,
   );
+  return solves.map(migrateSolve);
 }
 
 export async function saveSolve(solve: Solve): Promise<void> {
