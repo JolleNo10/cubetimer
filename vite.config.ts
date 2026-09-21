@@ -24,6 +24,10 @@ const allowedHosts = [
  */
 const https = process.env.HTTPS === "1" || process.env.HTTPS === "true";
 
+// Docker Desktop can drop file change events from bind mounts, especially on Windows.
+// Compose opts into polling; native dev keeps Vite’s default watcher.
+const watchUsePolling = process.env.WATCH_USE_POLLING === "1" || process.env.WATCH_USE_POLLING === "true";
+
 export default defineConfig({
   plugins: [react(), cubingSearchWorker(), ...(https ? [basicSsl()] : [])],
   server: {
@@ -31,6 +35,7 @@ export default defineConfig({
     // Bind to every interface so the port is reachable when running in a container.
     host: true,
     strictPort: true,
+    ...(watchUsePolling ? { watch: { usePolling: true } } : {}),
     // Vite rejects unknown Host headers. Allow OrbStack's container domains and
     // anything else named in ALLOWED_HOSTS (comma separated).
     allowedHosts,

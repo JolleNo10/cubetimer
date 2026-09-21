@@ -6,6 +6,7 @@ services:
       target: dev
     environment:
       PORT: ${PORT:-5173}
+      WATCH_USE_POLLING: "1"
     ports:
       - "${PORT:-5173}:${PORT:-5173}"
     volumes:

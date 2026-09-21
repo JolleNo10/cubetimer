@@ -89,6 +89,9 @@ npm run dev -- --port 4123    # a flag still wins
 ```sh
 PORT=4123 docker compose up dev     # Vite with hot reloading, source bind-mounted
 PORT=4123 docker compose up prod    # production build behind nginx
+
+The dev container polls the bind-mounted source files so edits are picked up reliably
+by Docker Desktop on Windows.
 ```
 
 Then open **http://localhost:4123**.
