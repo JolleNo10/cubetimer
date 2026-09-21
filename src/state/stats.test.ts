@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { averageOf, bestAverage, formatTime, meanOf } from "./stats";
+import {
+  averageOf,
+  bestAverage,
+  countedSolves,
+  formatTime,
+  meanOf,
+  sessionStats,
+} from "./stats";
 import type { Penalty, Solve } from "./types";
 
 function solve(rawMs: number, penalty: Penalty = "none"): Solve {
@@ -89,5 +96,26 @@ describe("formatTime", () => {
     expect(formatTime(3_600_000)).toBe("60:00.00");
     expect(formatTime(null)).toBe("DNF");
     expect(formatTime(undefined)).toBe("—");
+  });
+});
+
+describe("slow solves", () => {
+  it("are left out of every figure", () => {
+    const timed = [10, 12, 14, 16, 18].map((s) => solve(s * 1000));
+    const withPractice = [
+      ...timed.slice(0, 2),
+      { ...solve(90_000), practice: true },
+      ...timed.slice(2),
+      { ...solve(1_000), practice: true },
+    ];
+    // A very slow practice solve must not drag the average, nor a fast one become a PB.
+    expect(sessionStats(withPractice).ao5).toBe(sessionStats(timed).ao5);
+    expect(sessionStats(withPractice).best).toBe(10_000);
+    expect(sessionStats(withPractice).count).toBe(5);
+  });
+
+  it("are the only thing countedSolves removes", () => {
+    const solves = [solve(1000), { ...solve(2000), practice: true }, solve(3000, "DNF")];
+    expect(countedSolves(solves)).toHaveLength(2);
   });
 });

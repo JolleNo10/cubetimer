@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { forgetStoredMacs } from "../bluetooth/smartCube";
-import { FACE_COLOURS, FACES } from "../cube/colours";
+import { FACE_COLOURS, FACES, faceOfColour } from "../cube/colours";
+import { frontsFor } from "../cube/orientation";
 import { EVENTS } from "../cube/scramble";
 import { useController } from "../hooks/useController";
 import type { Settings } from "../state/types";
@@ -14,6 +15,8 @@ export function SettingsDialog({
 }) {
   const controller = useController();
   const [progress, setProgress] = useState<string | null>(null);
+  const bottomFace = faceOfColour(settings.crossColour);
+  const fronts = bottomFace ? frontsFor(bottomFace) : [];
   const set = (changes: Partial<Settings>) => void controller.updateSettings(changes);
 
   return (
@@ -50,9 +53,16 @@ export function SettingsDialog({
 
           <Section title="Timing">
             <Toggle
+              title="Slow solve"
+              help="Takes the clock away. Solves are still recorded and broken down, but never timed or counted in the statistics."
+              checked={settings.slowSolve}
+              onChange={(slowSolve) => set({ slowSolve })}
+            />
+            <Toggle
               title="WCA inspection"
               help="15 seconds, with +2 and DNF penalties."
               checked={settings.inspection}
+              disabled={settings.slowSolve}
               onChange={(inspection) => set({ inspection })}
             />
             <Toggle
@@ -117,10 +127,25 @@ export function SettingsDialog({
                   </option>
                 ))}
               </select>
+            </div>
+            <div className="field">
+              <label htmlFor="frontColour">Front colour</label>
+              <select
+                id="frontColour"
+                value={settings.frontColour}
+                onChange={(e) => set({ frontColour: e.target.value })}
+                disabled={!bottomFace}
+              >
+                {fronts.map((face) => (
+                  <option key={face} value={FACE_COLOURS[face].name}>
+                    {FACE_COLOURS[face].name} facing you
+                  </option>
+                ))}
+              </select>
               <span className="help">
                 Scrambles are applied white on top and green in front. During a solve
-                the cube is shown with your cross colour underneath instead, the way
-                you are holding it. A cube with a working gyroscope overrides this.
+                the cube is turned to the grip set here, so the screen matches the cube
+                in your hands. A cube with a working gyroscope overrides this.
               </span>
             </div>
             <Toggle

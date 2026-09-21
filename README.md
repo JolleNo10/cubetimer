@@ -19,6 +19,8 @@ for the cube protocols.
   you are actually holding it.
 - Turn the top face three times, while nothing is being timed, to line the 3D view up
   with however you are holding the cube — no need to put it down and reach for a button.
+- Set which colour goes underneath and which faces you, so the cube on screen is turned
+  the way the one in your hands is.
 - Battery level, firmware and hardware details.
 - State sync: re-read the cube at any time, or tell it that it is solved.
 
@@ -42,6 +44,20 @@ for the cube protocols.
   count and move timestamp. A 47,000-solve archive imports in under 20 seconds.
 - Solves keep their ids, so re-importing the same file updates rather than duplicates.
 - Solves recorded here export in the same format, so they are not trapped in this app.
+
+**Slow solve**
+- Takes the clock away. Solves are still recorded, broken down and replayable, but the
+  timer counts moves instead of seconds and these solves never touch your averages or
+  personal bests.
+
+**Analysis tools**
+- The best cross available from the scramble, solved exactly rather than estimated —
+  the whole problem is four edges, so it fits in a table and has no depth limit.
+- For each step, the shortest way to have reached the same position, searched
+  exhaustively up to eleven moves, so "already the shortest" means there is nothing
+  better rather than that nothing was found.
+- The standard algorithm for the OLL and PLL case you had, to compare yours against.
+- A solver's solution to the whole scramble, as a yardstick for the move count.
 
 **After the solve**
 - CFOP breakdown: time, moves and TPS for the cross, each F2L pair, OLL and PLL, split
@@ -139,6 +155,7 @@ npm run test:import ~/Downloads/solves.csv   # imports a real export through the
 npm run test:repair  # checks an old-format solve gets its breakdown rebuilt
 npm run test:gesture # checks the recentre gesture fires only when it should
 npm run test:replay  # checks each step jumps to the moment it began
+npm run test:slow    # checks slow solves are recorded but never counted
 ```
 
 The end-to-end script needs a server already running and Chrome installed. Point it
@@ -221,6 +238,8 @@ src/
     notation   Move parsing, turn metrics, timestamped move streams
     orientation Rewriting a solve into the frame the solver held the cube in
     analysis   CFOP step detection and per-step metrics
+    crossSolver Exact shortest cross, by breadth-first search over all 331,776 states
+    optimise   Searching for a shorter way to have done a step
     recognise  Naming the OLL and PLL case a solver faced
     solver     Shortest sequence between two states
   bluetooth/   The GAN connection, and move timestamp fitting

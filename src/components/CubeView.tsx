@@ -3,7 +3,11 @@ import { Alg } from "cubing/alg";
 import { TwistyPlayer } from "cubing/twisty";
 import type { KPattern } from "cubing/kpuzzle";
 import { faceOfColour } from "../cube/colours";
-import { reorientMove, rotationForCrossFace } from "../cube/orientation";
+import {
+  reorientMove,
+  rotationForCrossFace,
+  rotationForGrip,
+} from "../cube/orientation";
 import { solveAlg } from "../cube/solver";
 import { useController } from "../hooks/useController";
 import type { Settings } from "../state/types";
@@ -53,9 +57,14 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
   const gyroDriven = settings.useGyroscope && gyroSupported;
   const solveOrientation = useMemo(() => {
     if (!live || gyroDriven) return null;
-    const face = faceOfColour(settings.crossColour);
-    return face ? rotationForCrossFace(face) : null;
-  }, [live, gyroDriven, settings.crossColour]);
+    const bottom = faceOfColour(settings.crossColour);
+    if (!bottom) return null;
+    const front = faceOfColour(settings.frontColour);
+    // Both chosen faces if they can both be had; otherwise just the bottom one.
+    return (
+      (front && rotationForGrip(bottom, front)) ?? rotationForCrossFace(bottom)
+    );
+  }, [live, gyroDriven, settings.crossColour, settings.frontColour]);
 
   useEffect(() => {
     if (!use3D) return;

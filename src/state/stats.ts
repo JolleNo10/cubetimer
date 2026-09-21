@@ -1,6 +1,16 @@
 import { effectiveMs, type Solve } from "./types";
 
 /**
+ * The solves a session's figures are built from.
+ *
+ * Slow solves are deliberately untimed practice, so counting them would drag every
+ * average towards meaninglessness.
+ */
+export function countedSolves(solves: readonly Solve[]): Solve[] {
+  return solves.filter((solve) => !solve.practice);
+}
+
+/**
  * WCA average of `n`: drop the fastest and slowest result, mean the rest.
  * A single DNF counts as the slowest result and is dropped; two or more make the
  * average a DNF. Returns `null` for DNF and `undefined` when there are too few solves.
@@ -69,7 +79,8 @@ export type SessionStats = {
   averageTps?: number;
 };
 
-export function sessionStats(solves: Solve[]): SessionStats {
+export function sessionStats(all: Solve[]): SessionStats {
+  const solves = countedSolves(all);
   const finished = solves.filter((s) => s.penalty !== "DNF");
   const withMoves = solves.filter((s) => s.moves.length > 0 && s.penalty !== "DNF");
   const totalMoves = withMoves.reduce((sum, s) => sum + s.moves.length, 0);

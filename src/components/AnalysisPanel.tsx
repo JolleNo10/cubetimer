@@ -8,9 +8,11 @@ import type { Solve } from "../state/types";
 export function AnalysisPanel({
   solve,
   onReplay,
+  onAnalyse,
 }: {
   solve: Solve | null;
   onReplay: (solve: Solve) => void;
+  onAnalyse: (solve: Solve) => void;
 }) {
   const analysis = solve?.analysis ?? null;
 
@@ -19,9 +21,20 @@ export function AnalysisPanel({
       <div className="panel-head">
         <span className="panel-title">Solve breakdown</span>
         {solve && solve.moves.length > 0 ? (
-          <button className="ghost" onClick={() => onReplay(solve)}>
-            Replay
-          </button>
+          <div className="row">
+            {solve.analysis ? (
+              <button
+                className="ghost"
+                onClick={() => onAnalyse(solve)}
+                title="Look for shorter ways to have done each step"
+              >
+                Tools
+              </button>
+            ) : null}
+            <button className="ghost" onClick={() => onReplay(solve)}>
+              Replay
+            </button>
+          </div>
         ) : null}
       </div>
       <div className="panel-body">

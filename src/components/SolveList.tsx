@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useController } from "../hooks/useController";
-import { bestSingle, formatSolveTime } from "../state/stats";
+import { bestSingle, countedSolves, formatSolveTime } from "../state/stats";
 import { effectiveMs, type Solve } from "../state/types";
 
 type Props = {
@@ -11,7 +11,8 @@ type Props = {
 
 export function SolveList({ solves, selectedId, onSelect }: Props) {
   const controller = useController();
-  const best = useMemo(() => bestSingle(solves), [solves]);
+  // A slow solve is never a personal best; it was never a race.
+  const best = useMemo(() => bestSingle(countedSolves(solves)), [solves]);
 
   return (
     <div className="panel" style={{ flex: 1, minHeight: 0 }}>
@@ -26,7 +27,7 @@ export function SolveList({ solves, selectedId, onSelect }: Props) {
           [...solves].reverse().map((solve, reverseIndex) => {
             const index = solves.length - reverseIndex;
             const time = effectiveMs(solve);
-            const isPb = time !== null && time === best;
+            const isPb = time !== null && time === best && !solve.practice;
             return (
               <div
                 key={solve.id}
@@ -47,6 +48,11 @@ export function SolveList({ solves, selectedId, onSelect }: Props) {
                     {formatSolveTime(solve)}
                   </span>
                   {isPb ? <span className="pb small">PB</span> : null}
+                  {solve.practice ? (
+                    <span className="phase-case muted" title="Slow solve, not counted">
+                      slow
+                    </span>
+                  ) : null}
                 </span>
                 <span className="badges">
                   {/* Count moves the way the breakdown does, so the two agree. */}

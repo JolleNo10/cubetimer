@@ -23,6 +23,7 @@ import {
 } from "../bluetooth/smartCube";
 import * as db from "./db";
 import { rebuildAnalysis } from "./repair";
+import { normaliseSettings } from "./settings";
 import { countSolveCsvRows, solveCsvBatches, formatSolveCsv } from "./solveCsv";
 import { Store } from "./store";
 import {
@@ -336,7 +337,7 @@ export class Controller {
       void this.newScramble();
       return;
     }
-    if (settings.inspection && phase !== "inspection") {
+    if (settings.inspection && !settings.slowSolve && phase !== "inspection") {
       this.#startInspection();
       return;
     }
@@ -549,7 +550,7 @@ export class Controller {
     if (progress.done || !settings.requireScramble) {
       this.#recoveryToken++;
       this.state.update((s) => ({ ...s, recovery: null }));
-      if (settings.inspection && settings.autoInspection) {
+      if (settings.inspection && settings.autoInspection && !settings.slowSolve) {
         this.#startInspection();
       } else {
         this.state.update((s) => ({ ...s, phase: "ready" }));
@@ -640,6 +641,7 @@ export class Controller {
       event: settings.event,
       source,
       moves,
+      practice: settings.slowSolve || undefined,
       scrambledFacelets: patternToFacelets(scrambledPattern),
       analysis:
         source === "smartcube" ? analyseSolve(scrambledPattern, moves) : null,
@@ -757,7 +759,10 @@ export class Controller {
   // ---------------------------------------------------------------- settings
 
   async updateSettings(changes: Partial<Settings>): Promise<void> {
-    const settings = { ...this.state.get().settings, ...changes };
+    const settings = normaliseSettings({
+      ...this.state.get().settings,
+      ...changes,
+    });
     this.state.update((s) => ({ ...s, settings }));
     await db.saveSettings(settings);
     if (changes.event) {

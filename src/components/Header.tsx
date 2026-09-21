@@ -94,6 +94,18 @@ export function Header({
         <Icon name="trash" />
       </button>
 
+      <label
+        className={`chip toggle${state.settings.slowSolve ? " on" : ""}`}
+        title="Solve at your own pace. These solves are analysed but never timed or counted."
+      >
+        <input
+          type="checkbox"
+          checked={state.settings.slowSolve}
+          onChange={(e) => void controller.updateSettings({ slowSolve: e.target.checked })}
+        />
+        slow solve
+      </label>
+
       <span className="header-spacer" />
 
       {!smartEvent ? (

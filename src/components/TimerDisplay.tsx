@@ -23,6 +23,7 @@ export function TimerDisplay({
   const elapsed = useStore(controller.elapsed);
   const inspectionLeft = useStore(controller.inspectionLeft);
   const { phase, settings, lastSolve } = state;
+  const slow = settings.slowSolve;
 
   const smart = state.cubeStatus === "connected" || state.virtualCube;
   let text: string;
@@ -33,12 +34,17 @@ export function TimerDisplay({
     text = left > 0 ? String(left) : state.inspectionPenalty === "DNF" ? "DNF" : "+2";
     tone = state.inspectionPenalty === "none" ? "inspect" : "danger";
   } else if (phase === "solving") {
-    text = settings.hideTimeWhileSolving
-      ? "solving"
-      : formatTime(elapsed, { decimals: elapsed < 60_000 ? 2 : 2 });
+    // Slow solving counts moves, not seconds: the clock is not the point.
+    text = slow
+      ? String(state.liveMoves.length)
+      : settings.hideTimeWhileSolving
+        ? "solving"
+        : formatTime(elapsed);
     tone = "running";
   } else if (phase === "finished" && lastSolve) {
-    text = formatTime(effectiveMs(lastSolve));
+    text = slow
+      ? String(lastSolve.analysis?.sliceTurns ?? lastSolve.moves.length)
+      : formatTime(effectiveMs(lastSolve));
     tone = lastSolve.penalty === "DNF" ? "danger" : "running";
   } else if (holding) {
     text = formatTime(0);
@@ -47,11 +53,13 @@ export function TimerDisplay({
     text = formatTime(elapsed || 0);
     tone = "armed";
   } else {
-    text = formatTime(lastSolve ? effectiveMs(lastSolve) : 0);
+    text = slow ? "—" : formatTime(lastSolve ? effectiveMs(lastSolve) : 0);
     tone = "waiting";
   }
 
-  const hint = buildHint({ phase, smart, holding, state });
+  const hint = slow
+    ? slowHint(phase, smart)
+    : buildHint({ phase, smart, holding, state });
 
   return (
     <div
@@ -67,6 +75,9 @@ export function TimerDisplay({
     >
       <div className={`timer-value ${tone}`} aria-live="off">
         {text}
+        {slow && (phase === "solving" || phase === "finished") ? (
+          <span className="timer-unit">moves</span>
+        ) : null}
       </div>
       <div className="timer-hint">{hint}</div>
       {phase === "solving" || phase === "finished" ? (
@@ -90,6 +101,21 @@ export function TimerDisplay({
       ) : null}
     </div>
   );
+}
+
+/** In slow solve mode nothing is being raced, so the prompts say so. */
+function slowHint(phase: AppState["phase"], smart: boolean) {
+  switch (phase) {
+    case "scrambling":
+      return smart ? "Apply the scramble, then solve at your own pace" : "Slow solve";
+    case "ready":
+      return "Take your time — nothing is being timed";
+    case "inspection":
+    case "solving":
+      return "Solving slowly. The breakdown is the point, not the clock.";
+    case "finished":
+      return "Look at the breakdown, then scramble again";
+  }
 }
 
 function formatTps(moves: number, ms: number): string {

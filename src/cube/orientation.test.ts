@@ -3,9 +3,11 @@ import { Alg } from "cubing/alg";
 import { FACES } from "./moves";
 import {
   describeGrip,
+  frontsFor,
   reorientMove,
   reorientMoves,
   rotationForCrossFace,
+  rotationForGrip,
 } from "./orientation";
 import { get3x3x3 } from "./puzzle";
 import { patternToFacelets } from "./facelets";
@@ -107,5 +109,36 @@ describe("describeGrip", () => {
   it("reports the faces placed at the bottom and the back", () => {
     expect(describeGrip(rotationForCrossFace("D").orientation)).toBe("DB");
     expect(describeGrip(rotationForCrossFace("U").orientation)).toBe("UB");
+  });
+});
+
+describe("rotationForGrip", () => {
+  it("puts both the chosen faces where they were asked for", () => {
+    for (const bottom of FACES) {
+      for (const front of frontsFor(bottom)) {
+        const grip = rotationForGrip(bottom, front);
+        expect(grip, `${bottom}/${front}`).not.toBeNull();
+        expect(grip!.orientation[bottom], `${bottom} down`).toBe("D");
+        expect(grip!.orientation[front], `${front} front`).toBe("F");
+      }
+    }
+  });
+
+  it("offers four fronts for any bottom, never the opposite face", () => {
+    expect(frontsFor("D")).toEqual(["R", "F", "L", "B"]);
+    expect(frontsFor("F")).toEqual(["U", "R", "D", "L"]);
+    for (const bottom of FACES) expect(frontsFor(bottom)).toHaveLength(4);
+  });
+
+  it("refuses a grip that cannot exist", () => {
+    expect(rotationForGrip("U", "U")).toBeNull();
+    expect(rotationForGrip("U", "D")).toBeNull();
+  });
+
+  it("agrees with the cross-face grip when the front is left alone", () => {
+    // White underneath with green still in front is the z2 the cross setting picks.
+    expect(rotationForGrip("U", "F")!.tokens).toEqual(
+      rotationForCrossFace("U").tokens,
+    );
   });
 });

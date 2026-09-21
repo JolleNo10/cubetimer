@@ -8,7 +8,7 @@
  * split and every OLL/PLL case lookup depend on.
  */
 import { formatMove, parseMove, type MoveFamily, type TimedMove } from "./notation";
-import { FACES, type Face } from "./moves";
+import { FACES, OPPOSITE, type Face } from "./moves";
 
 /** Where each face ends up after the rotation, keyed by the face it started as. */
 export type Orientation = Record<Face, Face>;
@@ -92,6 +92,34 @@ export function rotationForCrossFace(crossFace: Face): Rotation {
     }
   }
   return best ?? { tokens: [], orientation: IDENTITY };
+}
+
+/**
+ * Hold the cube with one colour underneath and another facing you.
+ *
+ * `null` when the two are the same face or opposite ones, since no grip puts those
+ * where they were asked for.
+ */
+export function rotationForGrip(bottom: Face, front: Face): Rotation | null {
+  if (bottom === front || OPPOSITE[bottom] === front) return null;
+  let best: Rotation | null = null;
+  for (const candidate of ROTATION_CHOICES) {
+    if (
+      candidate.orientation[bottom] !== "D" ||
+      candidate.orientation[front] !== "F"
+    ) {
+      continue;
+    }
+    if (best === null || candidate.tokens.length < best.tokens.length) {
+      best = candidate;
+    }
+  }
+  return best;
+}
+
+/** The faces that can be at the front with `bottom` underneath. */
+export function frontsFor(bottom: Face): Face[] {
+  return FACES.filter((face) => face !== bottom && face !== OPPOSITE[bottom]);
 }
 
 /** Rewrite a move into the rotated frame. Non-face moves are passed through. */

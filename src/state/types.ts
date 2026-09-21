@@ -26,6 +26,11 @@ export type Solve = {
   scrambledFacelets?: string;
   analysis?: SolveAnalysis | null;
   comment?: string;
+  /**
+   * A solve done deliberately rather than quickly. It is still recorded and analysed,
+   * but its time means nothing, so it is kept out of averages and personal bests.
+   */
+  practice?: boolean;
 
   // Fields carried by the solve analysis model. They are optional because a solve
   // recorded here only fills in what it actually knows, but they survive a
@@ -55,6 +60,11 @@ export function effectiveMs(solve: Solve): number | null {
 
 export type Settings = {
   event: EventId;
+  /**
+   * Take the clock away: solve slowly and deliberately, and study the breakdown.
+   * These solves are still recorded and analysed but never counted in the statistics.
+   */
+  slowSolve: boolean;
   inspection: boolean;
   /** Begin inspection as soon as the cube reaches the scrambled state. */
   autoInspection: boolean;
@@ -69,6 +79,8 @@ export type Settings = {
    * most solvers then turn the cube over, and the live view follows suit.
    */
   crossColour: string;
+  /** Colour you keep facing you, so the on-screen cube matches the one in your hands. */
+  frontColour: string;
   showBackView: boolean;
   useGyroscope: boolean;
   sound: boolean;
@@ -77,6 +89,7 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = {
   event: "333",
+  slowSolve: false,
   inspection: false,
   autoInspection: true,
   requireScramble: true,
@@ -84,6 +97,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hideTimeWhileSolving: false,
   visualization: "3D",
   crossColour: "white",
+  frontColour: "green",
   showBackView: true,
   useGyroscope: true,
   sound: true,

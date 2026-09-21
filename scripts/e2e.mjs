@@ -33,7 +33,7 @@ await page.goto(process.env.BASE_URL ?? "http://localhost:5173/", { waitUntil: "
 await page.waitForSelector(".scramble-move");
 
 // Turn on the virtual cube.
-await page.locator('input[type="checkbox"]').first().check();
+await page.locator('.panel', { hasText: 'SMART CUBE' }).locator('input[type="checkbox"]').check();
 await page.waitForTimeout(300);
 
 const scramble = (await page.locator(".scramble").innerText()).split("\n").join(" ");

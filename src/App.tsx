@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnalysisPanel } from "./components/AnalysisPanel";
+import { AnalyticsDialog } from "./components/AnalyticsDialog";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { CubeView } from "./components/CubeView";
 import { Header } from "./components/Header";
@@ -22,6 +23,7 @@ export function App() {
   const state = useAppState();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [replaySolve, setReplaySolve] = useState<Solve | null>(null);
+  const [analyseSolve, setAnalyseSolve] = useState<Solve | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [holding, setHolding] = useState(false);
   const [holdReady, setHoldReady] = useState(false);
@@ -191,7 +193,11 @@ export function App() {
 
         <div className="column right">
           <StatsPanel solves={state.solves} />
-          <AnalysisPanel solve={selectedSolve} onReplay={setReplaySolve} />
+          <AnalysisPanel
+            solve={selectedSolve}
+            onReplay={setReplaySolve}
+            onAnalyse={setAnalyseSolve}
+          />
           {selectedSolve ? <SolveDetail solve={selectedSolve} /> : null}
         </div>
       </div>
@@ -201,6 +207,9 @@ export function App() {
       ) : null}
       {replaySolve ? (
         <ReplayDialog solve={replaySolve} onClose={() => setReplaySolve(null)} />
+      ) : null}
+      {analyseSolve ? (
+        <AnalyticsDialog solve={analyseSolve} onClose={() => setAnalyseSolve(null)} />
       ) : null}
     </div>
   );
