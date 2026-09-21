@@ -5,10 +5,15 @@ import { faceColour, faceOfColour, slotColours } from "../cube/colours";
 import { planCross, type CrossPlans } from "../cube/crossPlans";
 import { faceletsToPattern } from "../cube/facelets";
 import { EDGES_OF_FACE, f2lSlotsForCrossFace } from "../cube/moves";
-import { rotationForCrossFace, rotationForGrip } from "../cube/orientation";
+import {
+  gripFaces,
+  rotationForCrossFace,
+  rotationForGrip,
+} from "../cube/orientation";
 import { get3x3x3 } from "../cube/puzzle";
 import { reframe } from "../cube/recognise";
 import type { Settings } from "../state/types";
+import { GripLabel } from "./GripLabel";
 
 /** Wait this long after the last turn before thinking, so turning stays smooth. */
 const SETTLE_MS = 180;
@@ -59,6 +64,15 @@ export function CoachPanel({
   }, [facelets, settings, wide]);
 
   const crossColour = faceOfColour(settings.crossColour) ?? "D";
+  const frontColour = faceOfColour(settings.frontColour);
+  // The plans are moves, and moves mean nothing without knowing which way the cube is
+  // being held, so the grip they assume is part of the heading.
+  const grip = frontColour
+    ? gripFaces(
+        (rotationForGrip(crossColour, frontColour) ??
+          rotationForCrossFace(crossColour)).orientation,
+      )
+    : gripFaces(rotationForCrossFace(crossColour).orientation);
 
   return (
     <div className="panel">
@@ -71,6 +85,7 @@ export function CoachPanel({
           {faceColour(crossColour).name} cross
         </span>
         <div className="row">
+          <GripLabel bottom={grip.bottom} front={grip.front} />
           {thinking ? <span className="faint small">thinking…</span> : null}
           {progress && !progress.crossDone ? (
             <button

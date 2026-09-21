@@ -141,6 +141,13 @@ export function reorientMoves(
   }));
 }
 
+/** Which faces of the scrambled cube end up underneath and facing the solver. */
+export function gripFaces(orientation: Orientation): { bottom: Face; front: Face } {
+  const faceAt = (position: Face) =>
+    FACES.find((face) => orientation[face] === position) ?? position;
+  return { bottom: faceAt("D"), front: faceAt("F") };
+}
+
 /**
  * Two-letter summary of the grip: the faces of the *scrambled* cube that the solver put
  * at the bottom and the back. `DB` therefore means the cube was held as scrambled.

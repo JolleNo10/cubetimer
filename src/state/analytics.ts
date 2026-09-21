@@ -18,7 +18,8 @@ import type { SolveStep } from "../cube/analysis";
 import { crossSolver } from "../cube/crossSolver";
 import { OLL_ALGORITHMS, PLL_ALGORITHMS } from "../cube/lastLayerCases";
 import { Move } from "cubing/alg";
-import { rotationForCrossFace } from "../cube/orientation";
+import { gripFaces, rotationForCrossFace } from "../cube/orientation";
+import type { Face } from "../cube/moves";
 import { findShorter, shortestWholeSolve, type Improvement } from "../cube/optimise";
 import { reframe } from "../cube/recognise";
 import type { Solve } from "./types";
@@ -32,6 +33,11 @@ export type StepAnalytics = Improvement & {
 };
 
 export type SolveAnalytics = {
+  /**
+   * How the cube was held for every sequence here. Moves are meaningless without it:
+   * which face is `R` depends entirely on which way up the cube is.
+   */
+  grip: { bottom: Face; front: Face };
   steps: StepAnalytics[];
   /** The shortest cross available from the scramble, which is always worth knowing. */
   cross: { used: number; length: number; alg: string } | null;
@@ -84,21 +90,22 @@ export async function analyseAlternatives(
   onStep?: (step: StepAnalytics) => void,
 ): Promise<SolveAnalytics> {
   const analysis = solve.analysis;
-  if (!analysis) return { steps: [], cross: null, wholeSolve: null };
+  const rotation = rotationForCrossFace(analysis?.crossFace ?? "D");
+  const rotationAlg = new Alg(rotation.tokens.join(" "));
+  const grip = gripFaces(rotation.orientation);
+  if (!analysis) return { grip, steps: [], cross: null, wholeSolve: null };
 
   // States after each move, so any step's boundaries can be looked up.
   const patterns: KPattern[] = [scrambled];
   for (const { move } of solve.moves) {
     patterns.push(patterns[patterns.length - 1].applyMove(move));
   }
-  const at = (index: number) => patterns[Math.min(index, patterns.length - 1)];
+  // Everything is searched with the cube the way the solver held it, so the sequences
+  // that come back can be compared with the ones they actually turned — and applied.
+  const at = (index: number) =>
+    reframe(kpuzzle, patterns[Math.min(index, patterns.length - 1)], rotationAlg);
 
-  // The cross solver works on a cube held cross-down, whichever face that was.
-  const facing = reframe(
-    kpuzzle,
-    scrambled,
-    new Alg(rotationForCrossFace(analysis.crossFace).tokens.join(" ")),
-  );
+  const facing = at(0);
   const solver = crossSolver(kpuzzle);
   const crossStep = analysis.steps[0];
   const cross = {
@@ -123,8 +130,9 @@ export async function analyseAlternatives(
     onStep?.(entry);
   }
 
-  const whole = await shortestWholeSolve(scrambled);
+  const whole = await shortestWholeSolve(facing);
   return {
+    grip,
     steps,
     cross,
     wholeSolve: whole

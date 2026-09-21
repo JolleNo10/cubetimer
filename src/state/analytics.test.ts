@@ -60,3 +60,40 @@ describe("analyseAlternatives", () => {
     expect(pll?.reference?.length).toBe(14);
   }, 30_000);
 });
+
+describe("which way up the sequences are written", () => {
+  // A solve done with the cube upside down: the frame matters here, and a sequence
+  // written in the wrong one would quietly turn the wrong faces.
+  const scramble = "R U R' U' R' F R2 U' R' U' R U R' F'";
+  const flipped = new Alg(scramble)
+    .invert()
+    .toString()
+    .replace(/U/g, "§").replace(/D/g, "U").replace(/§/g, "D")
+    .replace(/R/g, "¤").replace(/L/g, "R").replace(/¤/g, "L");
+  const scrambled = kpuzzle.defaultPattern().applyAlg(new Alg(flipped).invert());
+  const solve = buildSolve(flipped, new Alg(flipped).invert().toString());
+
+  it("says which faces are down and in front", async () => {
+    const result = await analyseAlternatives(kpuzzle, solve, scrambled);
+    // The cross face is the one underneath, by definition.
+    expect(result.grip.bottom).toBe(solve.analysis!.crossFace);
+    expect(result.grip.front).not.toBe(result.grip.bottom);
+  }, 30_000);
+
+  it("writes the cross in that frame, not the cube's", async () => {
+    const { rotationForCrossFace } = await import("../cube/orientation");
+    const { reframe } = await import("../cube/recognise");
+    const result = await analyseAlternatives(kpuzzle, solve, scrambled);
+    const facing = reframe(
+      kpuzzle,
+      scrambled,
+      new Alg(rotationForCrossFace(solve.analysis!.crossFace).tokens.join(" ")),
+    );
+    // Read as the solver holds it, the sequence finishes the cross underneath.
+    const after = facing.applyAlg(new Alg(result.cross!.alg));
+    for (const slot of [4, 5, 6, 7]) {
+      expect(after.patternData.EDGES.pieces[slot]).toBe(slot);
+      expect(after.patternData.EDGES.orientation[slot]).toBe(0);
+    }
+  }, 30_000);
+});

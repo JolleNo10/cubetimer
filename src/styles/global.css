@@ -438,6 +438,15 @@ button.phase-row.selectable.active {
   white-space: nowrap;
 }
 .phase-case.muted { background: var(--panel-2); color: var(--text-faint); }
+.grip-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
 .colour-dot {
   display: inline-block;
   width: 8px;

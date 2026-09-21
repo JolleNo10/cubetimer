@@ -53,6 +53,8 @@ for the cube protocols.
   finishing the cross within a couple of moves of the shortest — with the ones that
   also finish an F2L pair (an XCross) or two (an XXCross) at the top, named by the
   colours of the slot they fill. Stop whenever you like and look.
+- Anywhere moves are printed, the grip they are written in is printed with them —
+  which colour is underneath and which is facing you. `R` means nothing without it.
 
 **Analysis tools**
 - The best cross available from the scramble, solved exactly rather than estimated —

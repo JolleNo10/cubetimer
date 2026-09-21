@@ -5,6 +5,7 @@ import { analyseAlternatives, type SolveAnalytics, type StepAnalytics } from "..
 import { MAX_SEARCH_DEPTH } from "../cube/optimise";
 import { formatTime } from "../state/stats";
 import { effectiveMs, type Solve } from "../state/types";
+import { GripLabel } from "./GripLabel";
 
 /**
  * What a solve could have been: the best cross available, the shortest way to have
@@ -68,6 +69,13 @@ export function AnalyticsDialog({
           <div className="mono small faint" style={{ wordBreak: "break-word" }}>
             {solve.scramble}
           </div>
+          {result ? (
+            <GripLabel
+              bottom={result.grip.bottom}
+              front={result.grip.front}
+              prefix="Every sequence below is written as you held the cube:"
+            />
+          ) : null}
 
           {failed ? (
             <div className="notice error">{failed}</div>
