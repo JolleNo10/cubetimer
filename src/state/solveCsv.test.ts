@@ -188,3 +188,41 @@ describe("solves recorded here, written in the export format", () => {
     );
   });
 });
+
+describe("case recognition against the export's own labels", () => {
+  const { solves } = parseSolveCsv(sample);
+
+  it("names the same OLL and PLL cases the file does", async () => {
+    const { Alg } = await import("cubing/alg");
+    const { analyseSolve } = await import("../cube/analysis");
+    const { get3x3x3 } = await import("../cube/puzzle");
+    const kpuzzle = await get3x3x3();
+
+    let compared = 0;
+    for (const solve of solves) {
+      const theirs = solve.analysis;
+      if (!theirs || solve.moves.length === 0) continue;
+      const mine = analyseSolve(
+        kpuzzle.defaultPattern().applyAlg(new Alg(solve.scramble)),
+        solve.moves,
+      );
+      if (!mine) continue;
+
+      // Only comparable where both put the step boundary in the same place.
+      for (const index of [5, 6]) {
+        const mineStep = mine.steps[index];
+        const theirStep = theirs.steps[index];
+        if (
+          !theirStep.case ||
+          mineStep.cumulativeMs !== theirStep.cumulativeMs ||
+          mine.steps[index - 1].cumulativeMs !== theirs.steps[index - 1].cumulativeMs
+        ) {
+          continue;
+        }
+        compared++;
+        expect(mineStep.case, `${solve.id} ${theirStep.name}`).toBe(theirStep.case);
+      }
+    }
+    expect(compared).toBeGreaterThan(0);
+  });
+});

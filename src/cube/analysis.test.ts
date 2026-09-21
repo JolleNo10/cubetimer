@@ -104,6 +104,28 @@ describe("analyseSolve", () => {
     );
   });
 
+  it("names the last-layer cases", () => {
+    // The solve was built with a Sune and a T-perm.
+    expect(byName["OLL"].case).toBe("27");
+    expect(byName["PLL"].case).toBe("T");
+    expect(byName["Cross"].case).toBeNull();
+    expect(byName["F2L Slot 1"].case).toBeNull();
+  });
+
+  it("calls a skipped last-layer step solved", () => {
+    // Same solve without the OLL: the last layer arrives already oriented.
+    const skipped = solution.replace(oll + " ", "");
+    const from = kpuzzle
+      .defaultPattern()
+      .applyAlg(new Alg(pll).invert())
+      .applyAlg(new Alg(extractions.join(" ")));
+    const analysed = analyseSolve(from, timed(skipped))!;
+    const ollStep = analysed.steps.find((s) => s.name === "OLL")!;
+    expect(ollStep.skipped).toBe(true);
+    expect(ollStep.case).toBe("Solved");
+    expect(analysed.steps.find((s) => s.name === "PLL")!.case).toBe("T");
+  });
+
   it("rewrites the solve into the frame the solver held", () => {
     // Cross on D means the cube was held as scrambled: no rotation needed.
     expect(analysis.rotation).toBe("DB");

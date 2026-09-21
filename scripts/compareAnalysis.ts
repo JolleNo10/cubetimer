@@ -25,6 +25,10 @@ const tally = {
   noAnalysis: 0,
   mineNull: 0,
   crossFace: 0,
+  ollCase: 0,
+  ollCompared: 0,
+  pllCase: 0,
+  pllCompared: 0,
   stepBoundaries: 0,
   turnCounts: 0,
   recognition: 0,
@@ -73,6 +77,26 @@ for (const solve of solves.slice(0, limit)) {
   ) {
     tally.recognition++;
   }
+
+  // Cases are only comparable where both agree the step began at the same moment.
+  for (const [index, label] of [[5, "oll"], [6, "pll"]] as const) {
+    const mineStep = mine.steps[index];
+    const theirStep = theirs.steps[index];
+    if (!theirStep?.case || mineStep.cumulativeMs !== theirStep.cumulativeMs) continue;
+    if (index > 0 && mine.steps[index - 1].cumulativeMs !== theirs.steps[index - 1].cumulativeMs) {
+      continue;
+    }
+    if (label === "oll") tally.ollCompared++;
+    else tally.pllCompared++;
+    if (mineStep.case === theirStep.case) {
+      if (label === "oll") tally.ollCase++;
+      else tally.pllCase++;
+    } else if (examples.length < 8) {
+      examples.push(
+        `${solve.id.slice(0, 8)} ${label.toUpperCase()} mine=${mineStep.case} theirs=${theirStep.case}`,
+      );
+    }
+  }
 }
 
 const pct = (n: number) => `${((n / tally.compared) * 100).toFixed(1)}%`;
@@ -83,6 +107,8 @@ compared:          ${tally.compared}
   turn counts:     ${tally.turnCounts} (${pct(tally.turnCounts)})
   recognition:     ${tally.recognition} (${pct(tally.recognition)})
   grip string:     ${tally.rotation} (${pct(tally.rotation)})
+  OLL case:        ${tally.ollCase} / ${tally.ollCompared} (${tally.ollCompared ? ((tally.ollCase / tally.ollCompared) * 100).toFixed(1) : "0"}%)
+  PLL case:        ${tally.pllCase} / ${tally.pllCompared} (${tally.pllCompared ? ((tally.pllCase / tally.pllCompared) * 100).toFixed(1) : "0"}%)
 skipped (no data): ${tally.noAnalysis}
 my analysis null:  ${tally.mineNull}`);
 for (const line of examples) console.log("  " + line);

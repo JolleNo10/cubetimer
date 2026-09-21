@@ -1,3 +1,4 @@
+import { Alg } from "cubing/alg";
 import type { KPattern } from "cubing/kpuzzle";
 import { patternToFacelets } from "./facelets";
 import {
@@ -18,6 +19,7 @@ import {
   type TurnMetrics,
 } from "./notation";
 import { describeGrip, reorientMoves, rotationForCrossFace } from "./orientation";
+import { recogniseOll, recognisePll, reframe } from "./recognise";
 
 export type { TimedMove };
 
@@ -176,6 +178,18 @@ export function analyseSolve(
   const rotation = rotationForCrossFace(crossFace);
   const steps: SolveStep[] = [];
 
+  /**
+   * The state a step started from, turned so the cross is on the bottom — which is how
+   * every last-layer case is defined, whichever way the solver was holding the cube.
+   */
+  const rotationAlg = new Alg(rotation.tokens.join(" "));
+  const stateFacing = (index: number) =>
+    reframe(
+      scrambledState.kpuzzle,
+      patterns[Math.min(index, patterns.length - 1)],
+      rotationAlg,
+    );
+
   let from = 0;
   let previousCumulative = 0;
   let totals: TurnMetrics = { sliceTurns: 0, faceTurns: 0, quarterTurns: 0 };
@@ -206,6 +220,14 @@ export function analyseSolve(
     const recognitionMs =
       index === 0 ? 0 : recognitionTime(turning, previousCumulative, timeMs);
     const metrics = countTurns(recorded.map((m) => m.move));
+    // A case is whatever the solver was looking at when the step began.
+    const kpuzzle = scrambledState.kpuzzle;
+    const caseName =
+      name === "OLL"
+        ? recogniseOll(kpuzzle, stateFacing(from))
+        : name === "PLL"
+          ? recognisePll(kpuzzle, stateFacing(from))
+          : null;
     totals = addTurns(totals, metrics);
     const executionMs = Math.max(0, timeMs - recognitionMs);
 
@@ -220,7 +242,7 @@ export function analyseSolve(
       executionMs,
       cumulativeMs,
       tps: executionMs > 0 ? (metrics.sliceTurns / executionMs) * 1000 : 0,
-      case: null,
+      case: caseName,
       fromMove: from,
       toMove: to,
       ...metrics,
