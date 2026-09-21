@@ -47,6 +47,62 @@ export function isSlice(family: MoveFamily): boolean {
   return family === "M" || family === "E" || family === "S";
 }
 
+/** A quarter turn, a half turn, or nothing; a half turn is never written `2'`. */
+function shortestWay(quarters: number): number {
+  const turns = ((quarters % 4) + 4) % 4;
+  return turns === 3 ? -1 : turns;
+}
+
+/**
+ * Stitch sequences of moves together, adding up the turns that meet at the joins.
+ *
+ * A `U2` running into a `U'` is one `U`, and a face turned straight back to where it
+ * was disappears — which is what makes a lined-up algorithm read like one sequence
+ * rather than like the two it was assembled from. Only turns that end up next to each
+ * other are combined; anything between them, a rotation included, keeps them apart.
+ * Tokens that are not moves are passed through untouched.
+ *
+ * This is the one place amounts are reduced modulo 4. A recorded move stream keeps
+ * what the solver did, `U4'` and all; a sequence being handed to someone to perform
+ * should say the shortest thing that gets there.
+ */
+export function joinMoves(...sequences: readonly (readonly string[])[]): string[] {
+  const joined: (ParsedMove | string)[] = [];
+  for (const move of sequences.flat()) {
+    const parsed = parseMove(move);
+    if (!parsed) {
+      joined.push(move);
+      continue;
+    }
+    const previous = joined[joined.length - 1];
+    let quarters = parsed.amount;
+    if (typeof previous === "object" && previous.family === parsed.family) {
+      quarters += previous.amount;
+      joined.pop();
+    }
+    const amount = shortestWay(quarters);
+    if (amount !== 0) joined.push({ family: parsed.family, amount });
+  }
+  return joined.map((move) => (typeof move === "string" ? move : formatMove(move)));
+}
+
+/**
+ * The moves that put the cube back where the sequence started: the same turns
+ * backwards, each the other way round.
+ *
+ * Turns of the same face that meet once the order is reversed are added up, so undoing
+ * `R U U' R'` is nothing at all rather than four moves that cancel under your fingers.
+ */
+export function invertMoves(moves: readonly string[]): string[] {
+  return joinMoves(
+    [...moves].reverse().map((move) => {
+      const parsed = parseMove(move);
+      if (!parsed) return move;
+      return formatMove({ family: parsed.family, amount: -parsed.amount });
+    }),
+  );
+}
+
 /**
  * The three turn counts every solve is measured in. Rotations count for nothing in all
  * three; a slice move is one turn in STM but two faces moving in the other two.

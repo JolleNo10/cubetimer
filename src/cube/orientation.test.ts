@@ -1,13 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
-import { FACES } from "./moves";
+import { FACES, OPPOSITE } from "./moves";
 import {
   describeGrip,
+  faceAtPosition,
   frontsFor,
   reorientMove,
   reorientMoves,
   rotationForCrossFace,
   rotationForGrip,
+  slotInCubeFrame,
 } from "./orientation";
 import { get3x3x3 } from "./puzzle";
 import { patternToFacelets } from "./facelets";
@@ -140,5 +142,50 @@ describe("rotationForGrip", () => {
     expect(rotationForGrip("U", "F")!.tokens).toEqual(
       rotationForCrossFace("U").tokens,
     );
+  });
+});
+
+describe("slotInCubeFrame", () => {
+  it("leaves the slots alone when the cube is held as scrambled", () => {
+    const { orientation } = rotationForCrossFace("D");
+    for (const slot of ["FR", "FL", "BL", "BR"]) {
+      expect(slotInCubeFrame(orientation, slot)).toBe(slot);
+    }
+  });
+
+  it("turns the slots over with the cube for a white cross", () => {
+    // z2 puts white underneath and leaves green in front, so the right of the cube in
+    // the hand is the orange face. The back-right slot is blue-orange, not blue-red.
+    const { orientation } = rotationForGrip("U", "F")!;
+    expect(slotInCubeFrame(orientation, "BR")).toBe("BL");
+    expect(slotInCubeFrame(orientation, "FR")).toBe("FL");
+    expect(slotInCubeFrame(orientation, "FL")).toBe("FR");
+    expect(slotInCubeFrame(orientation, "BL")).toBe("BR");
+  });
+
+  it("names the same four slots whatever the grip", () => {
+    for (const bottom of FACES) {
+      for (const front of frontsFor(bottom)) {
+        const grip = rotationForGrip(bottom, front)!;
+        const named = ["FR", "FL", "BL", "BR"].map((slot) =>
+          slotInCubeFrame(grip.orientation, slot),
+        );
+        // The slots of the cross face, by whatever route: four of them, all distinct,
+        // and none of them touching the face the cross is on.
+        expect(new Set(named).size, `${bottom}/${front}`).toBe(4);
+        for (const slot of named) {
+          expect(slot.includes(bottom), `${bottom}/${front}: ${slot}`).toBe(false);
+          expect(slot.includes(OPPOSITE[bottom]), `${bottom}/${front}: ${slot}`).toBe(
+            false,
+          );
+        }
+      }
+    }
+  });
+
+  it("reads a position straight off the grip", () => {
+    const { orientation } = rotationForGrip("U", "F")!;
+    expect(faceAtPosition(orientation, "D")).toBe("U");
+    expect(faceAtPosition(orientation, "R")).toBe("L");
   });
 });

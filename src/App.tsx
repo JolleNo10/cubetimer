@@ -175,7 +175,13 @@ export function App() {
           ) : null}
           <ScramblePanel state={state} />
           {state.settings.slowSolve && live ? (
-            <CoachPanel facelets={state.cubeFacelets} settings={state.settings} />
+            <CoachPanel
+              facelets={state.cubeFacelets}
+              settings={state.settings}
+              phase={state.phase}
+              scramble={state.scramble}
+              liveMoves={state.liveMoves}
+            />
           ) : null}
           <div className="stage">
             <TimerDisplay

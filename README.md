@@ -49,10 +49,22 @@ for the cube protocols.
 - Takes the clock away. Solves are still recorded, broken down and replayable, but the
   timer counts moves instead of seconds and these solves never touch your averages or
   personal bests.
-- While you are in one, a panel reads the cube as it stands and shows every way of
-  finishing the cross within a couple of moves of the shortest — with the ones that
-  also finish an F2L pair (an XCross) or two (an XXCross) at the top, named by the
-  colours of the slot they fill. Stop whenever you like and look.
+- While you are in one, a panel reads the cube as it stands and follows you through
+  the solve. Nothing is worked out while the scramble is still going on — the cube is
+  not yet at the position the answer is about.
+- Until the cross is done it shows every way of finishing it within a couple of moves
+  of the shortest, with the ones that also finish an F2L pair (an XCross) or two (an
+  XXCross) at the top, named by the colours of the slot they fill. Stop whenever you
+  like and look.
+- The moment the cross is finished it stops planning crosses — the question has been
+  answered — and names the F2L case standing in each remaining slot instead, with the
+  algorithm for it from [speedcubedb](https://www.speedcubedb.com/a/3x3/F2L), turned
+  round to the slot you are looking at and lined up with the last layer as it stands.
+  A slot whose pieces are buried in another one says so: that pair comes out when its
+  neighbour goes in.
+- Underneath, the way back to the scramble: everything you have turned so far, in
+  reverse, with the turns that cancel already taken out. Try a plan, rewind, and look
+  at the same position again without counting moves back off your fingers.
 - Anywhere moves are printed, the grip they are written in is printed with them —
   which colour is underneath and which is facing you. `R` means nothing without it.
 
@@ -163,7 +175,7 @@ npm run test:repair  # checks an old-format solve gets its breakdown rebuilt
 npm run test:gesture # checks the recentre gesture fires only when it should
 npm run test:replay  # checks each step jumps to the moment it began
 npm run test:slow    # checks slow solves are recorded but never counted
-npm run test:coach   # follows a suggested cross and checks it really finishes it
+npm run test:coach   # follows a suggested cross and F2L pair, and checks they go in
 ```
 
 The end-to-end script needs a server already running and Chrome installed. Point it
@@ -248,6 +260,8 @@ src/
     analysis   CFOP step detection and per-step metrics
     crossSolver Exact shortest cross, by breadth-first search over all 331,776 states
     crossPlans Every cross within a few moves of the shortest, and the XCrosses in them
+    f2lCases   The 41 F2L cases: the setup that makes each one, and the algorithm for it
+    f2l        Which case is in each slot, and the moves for it in the grip you hold
     optimise   Searching for a shorter way to have done a step
     recognise  Naming the OLL and PLL case a solver faced
     solver     Shortest sequence between two states

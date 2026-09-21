@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { Alg } from "cubing/alg";
 import {
   countTurns,
   formatTimedMoves,
+  invertMoves,
   mergeSameFaceTurns,
   parseMove,
   parseTimedMoves,
 } from "./notation";
+import { get3x3x3 } from "./puzzle";
 
 describe("parseMove", () => {
   it("reads every form that appears in solve data", () => {
@@ -110,5 +113,29 @@ describe("mergeSameFaceTurns", () => {
       { move: "R", t: 3 },
     ];
     expect(mergeSameFaceTurns(moves)).toEqual(moves);
+  });
+});
+
+describe("invertMoves", () => {
+  it("runs the sequence backwards, each turn the other way", () => {
+    expect(invertMoves(["R", "U", "F'", "D2"])).toEqual(["D2", "F", "U'", "R'"]);
+  });
+
+  it("adds up the turns that meet once the order is reversed", () => {
+    expect(invertMoves(["R", "U", "U'", "R'"])).toEqual([]);
+    expect(invertMoves(["R", "U", "U", "R"])).toEqual(["R'", "U2", "R'"]);
+    expect(invertMoves(["F", "L", "L", "L"])).toEqual(["L", "F'"]);
+  });
+
+  it("leaves turns of different faces where they are", () => {
+    expect(invertMoves(["R", "L", "R"])).toEqual(["R'", "L'", "R'"]);
+  });
+
+  it("really does undo the cube", async () => {
+    const kpuzzle = await get3x3x3();
+    const moves = "R U2 F' L D' B2 R' U".split(" ");
+    const scrambled = kpuzzle.defaultPattern().applyAlg(new Alg(moves.join(" ")));
+    const back = scrambled.applyAlg(new Alg(invertMoves(moves).join(" ")));
+    expect(back.isIdentical(kpuzzle.defaultPattern())).toBe(true);
   });
 });

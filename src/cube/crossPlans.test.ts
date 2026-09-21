@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
 import { planCross } from "./crossPlans";
 import { crossSolver } from "./crossSolver";
-import { EDGES_OF_FACE, f2lSlotsForCrossFace } from "./moves";
+import { FACES, EDGES_OF_FACE, f2lSlotsForCrossFace } from "./moves";
+import { frontsFor, rotationForGrip, slotInCubeFrame } from "./orientation";
 import { get3x3x3 } from "./puzzle";
+import { reframe } from "./recognise";
 
 const kpuzzle = await get3x3x3();
 const PAIRS = f2lSlotsForCrossFace("D");
@@ -24,19 +26,23 @@ const crossDone = (pattern: ReturnType<typeof kpuzzle.defaultPattern>) => {
   );
 };
 
+const slotDone = (
+  pattern: ReturnType<typeof kpuzzle.defaultPattern>,
+  slot: { corner: number; edge: number },
+) => {
+  const { EDGES, CORNERS } = pattern.patternData;
+  return (
+    CORNERS.pieces[slot.corner] === slot.corner &&
+    CORNERS.orientation[slot.corner] === 0 &&
+    EDGES.pieces[slot.edge] === slot.edge &&
+    EDGES.orientation[slot.edge] === 0
+  );
+};
+
 const pairDone = (
   pattern: ReturnType<typeof kpuzzle.defaultPattern>,
   name: string,
-) => {
-  const pair = PAIRS.find((p) => p.name === name)!;
-  const { EDGES, CORNERS } = pattern.patternData;
-  return (
-    CORNERS.pieces[pair.corner] === pair.corner &&
-    CORNERS.orientation[pair.corner] === 0 &&
-    EDGES.pieces[pair.edge] === pair.edge &&
-    EDGES.orientation[pair.edge] === 0
-  );
-};
+) => slotDone(pattern, PAIRS.find((p) => p.name === name)!);
 
 describe("planCross", () => {
   it("every plan really does finish the cross, and claims its pairs honestly", () => {
@@ -95,6 +101,38 @@ describe("planCross", () => {
       .applyAlg(new Alg("D2 L' D"));
     const { plans } = planCross(kpuzzle, pattern, { extra: 4 });
     expect(plans[0].pairs.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("names the pairs it finishes by the faces they really have", () => {
+    // The plans are worked out on a cube turned cross-face down, so their slot names
+    // are positions in the hand. Translated back, they must name the pair that is
+    // actually solved on the cube in front of the solver — for every grip, not just
+    // the one where the two frames happen to coincide.
+    for (const bottom of FACES) {
+      for (const front of frontsFor(bottom)) {
+        const grip = rotationForGrip(bottom, front)!;
+        const rotation = new Alg(grip.tokens.join(" "));
+        const scramble = randomScramble();
+        const cube = kpuzzle.defaultPattern().applyAlg(new Alg(scramble));
+        const held = reframe(kpuzzle, cube, rotation);
+        const slots = f2lSlotsForCrossFace(bottom);
+        for (const plan of planCross(kpuzzle, held, { extra: 2 }).plans.slice(0, 4)) {
+          // What the cube really looks like afterwards, back in its own frame.
+          const after = reframe(
+            kpuzzle,
+            held.applyAlg(new Alg(plan.moves.join(" "))),
+            rotation.invert(),
+          );
+          for (const pair of plan.pairs) {
+            const where = `${bottom} down, ${front} front: ${pair}`;
+            const named = slotInCubeFrame(grip.orientation, pair);
+            const slot = slots.find((s) => s.name === named);
+            expect(slot, `${where} -> ${named}`).toBeDefined();
+            expect(slotDone(after, slot!), `${where} -> ${named}`).toBe(true);
+          }
+        }
+      }
+    }
   });
 
   it("stays quick enough to run while someone is holding the cube", () => {

@@ -8,7 +8,7 @@
  * split and every OLL/PLL case lookup depend on.
  */
 import { formatMove, parseMove, type MoveFamily, type TimedMove } from "./notation";
-import { FACES, OPPOSITE, type Face } from "./moves";
+import { EDGE_NAMES, FACES, OPPOSITE, type Face } from "./moves";
 
 /** Where each face ends up after the rotation, keyed by the face it started as. */
 export type Orientation = Record<Face, Face>;
@@ -141,11 +141,38 @@ export function reorientMoves(
   }));
 }
 
+/** Which face of the scrambled cube is at a given position once it is held this way. */
+export function faceAtPosition(orientation: Orientation, position: Face): Face {
+  return FACES.find((face) => orientation[face] === position) ?? position;
+}
+
 /** Which faces of the scrambled cube end up underneath and facing the solver. */
 export function gripFaces(orientation: Orientation): { bottom: Face; front: Face } {
-  const faceAt = (position: Face) =>
-    FACES.find((face) => orientation[face] === position) ?? position;
-  return { bottom: faceAt("D"), front: faceAt("F") };
+  return {
+    bottom: faceAtPosition(orientation, "D"),
+    front: faceAtPosition(orientation, "F"),
+  };
+}
+
+/**
+ * Name a slot of the cube in the hand by the faces of the scrambled cube that meet
+ * there.
+ *
+ * Everything worked out for a solver is worked out on a cube turned cross-face down,
+ * where the slots are `FR`, `FL`, `BL` and `BR` by position. Those letters are not
+ * faces: with white underneath the cube has been turned over, so the slot at the back
+ * right holds blue and orange, not the blue and red that `BR` reads as. A slot has to
+ * come back to the cube's own frame before it can be called by its colours.
+ */
+export function slotInCubeFrame(orientation: Orientation, slot: string): string {
+  const faces = [...slot].map((position) =>
+    faceAtPosition(orientation, position as Face),
+  );
+  // Written the way the rest of the app writes slots, whichever order they came in.
+  return (
+    EDGE_NAMES.find((name) => faces.every((face) => name.includes(face))) ??
+    faces.join("")
+  );
 }
 
 /**
@@ -156,7 +183,5 @@ export function gripFaces(orientation: Orientation): { bottom: Face; front: Face
  * and not reproduced here; imported values are preserved as they were written.
  */
 export function describeGrip(orientation: Orientation): string {
-  const faceAt = (position: Face) =>
-    FACES.find((face) => orientation[face] === position) ?? position;
-  return `${faceAt("D")}${faceAt("B")}`;
+  return `${faceAtPosition(orientation, "D")}${faceAtPosition(orientation, "B")}`;
 }
