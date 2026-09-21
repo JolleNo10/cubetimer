@@ -104,6 +104,17 @@ describe("analyseSolve", () => {
     );
   });
 
+  it("says which slot each F2L pair filled", () => {
+    // The pairs were opened FR, BR, BL, FL, so they are finished in that order.
+    expect(
+      ["F2L Slot 1", "F2L Slot 2", "F2L Slot 3", "F2L Slot 4"].map(
+        (n) => byName[n].slot,
+      ),
+    ).toEqual(["FR", "BR", "BL", "FL"]);
+    expect(byName["Cross"].slot).toBeNull();
+    expect(byName["OLL"].slot).toBeNull();
+  });
+
   it("names the last-layer cases", () => {
     // The solve was built with a Sune and a T-perm.
     expect(byName["OLL"].case).toBe("27");

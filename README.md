@@ -14,6 +14,9 @@ for the cube protocols.
 **Smart cube**
 - Connects over Web Bluetooth, with automatic protocol detection.
 - Live 3D cube mirroring the real one, including gyroscope orientation.
+- Scrambles are shown white on top and green in front, the orientation they are applied
+  in; during a solve the cube is turned over so your cross colour is underneath, the way
+  you are actually holding it.
 - Battery level, firmware and hardware details.
 - State sync: re-read the cube at any time, or tell it that it is solved.
 
@@ -44,6 +47,8 @@ for the cube protocols.
 - Names the OLL case (1–57) and PLL case (Aa … Z) you were looking at, whichever way
   you were holding the cube, with the OLL's shape group beside it (fish, awkward,
   knight move …), and marks a step as a skip when there was nothing to do.
+- Says which pair went into which slot, by the colours that meet there — the
+  green-red slot, not "FR" — and which colour you crossed on.
 - Turns counted three ways — STM, ETM and QTM — per step and per solve.
 - The analysis works whatever colour you cross on and however you hold the cube.
 - Move-by-move replay at the speed you actually turned, with scrubbing.
@@ -146,6 +151,12 @@ The unit of data is a solve: a scramble, a stream of timestamped moves, and a CF
 analysis of seven steps (cross, four F2L slots, OLL, PLL). It is the same model the
 solve analysis CSV format uses, which is what lets solves move in and out of this app
 without losing anything.
+
+Faces are reported by colour rather than by letter. A cube reports its turns as `U`,
+`R`, `F` and so on relative to its own centres, which never move — so a solver who
+scrambles with white on top and then turns the cube over to build the cross is, as far
+as the cube is concerned, crossing on `U`. The breakdown says "cross on white" and names
+each slot by the two colours that meet in it, because that is what the solver saw.
 
 A breakdown is derived data, not a record: the scramble and the move stream are the
 facts, and the steps are what this app makes of them. So a solve whose breakdown cannot

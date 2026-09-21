@@ -134,6 +134,10 @@ function readStep(
       quarterTurns: num(row[`step_${slot}_quarter_turns`]),
       tps: num(row[`step_${slot}_turns_per_second`]),
       case: row[`step_${slot}_case`] || null,
+      // The export names the slot in the frame the solver held the cube in, which says
+      // nothing about which colours meet there, so it is left unset and the case string
+      // carries that information instead.
+      slot: null,
       fromMove,
       toMove,
     },

@@ -62,6 +62,11 @@ export type SolveStep = TurnMetrics & {
   tps: number;
   /** Case identifier, when one is known: an OLL number, a PLL name. */
   case: string | null;
+  /**
+   * Which F2L slot this step filled, as the pair of faces that meet there — `"FR"`,
+   * `"BL"` and so on, in the scrambled cube's own frame, so its colours are fixed.
+   */
+  slot: string | null;
   /** Range of this step within the solve's raw move stream. */
   fromMove: number;
   toMove: number;
@@ -174,7 +179,7 @@ export function analyseSolve(
   const boundaries = findPhaseBoundaries(states, endIdx);
   if (!boundaries) return null;
 
-  const { crossFace, cuts } = boundaries;
+  const { crossFace, cuts, slots } = boundaries;
   const rotation = rotationForCrossFace(crossFace);
   const steps: SolveStep[] = [];
 
@@ -243,6 +248,8 @@ export function analyseSolve(
       cumulativeMs,
       tps: executionMs > 0 ? (metrics.sliceTurns / executionMs) * 1000 : 0,
       case: caseName,
+      // Steps one to four are the F2L pairs, in the order they were finished.
+      slot: index >= 1 && index <= 4 ? (slots[index - 1] ?? null) : null,
       fromMove: from,
       toMove: to,
       ...metrics,
@@ -300,8 +307,13 @@ function recognitionTime(
 function findPhaseBoundaries(
   states: StateFlags[],
   endIdx: number,
-): { crossFace: Face; cuts: number[] } | null {
-  let best: { crossFace: Face; cuts: number[]; f2lIdx: number } | null = null;
+): { crossFace: Face; cuts: number[]; slots: (string | null)[] } | null {
+  let best: {
+    crossFace: Face;
+    cuts: number[];
+    slots: (string | null)[];
+    f2lIdx: number;
+  } | null = null;
 
   for (const face of FACES) {
     const slotDefs = f2lSlotsForCrossFace(face);
@@ -327,11 +339,24 @@ function findPhaseBoundaries(
     const solvedSlotCount = (st: StateFlags) =>
       slotDefs.filter((d) => isSlotSolved(st, d)).length;
     const slotCuts: number[] = [];
+    const slotNames: (string | null)[] = [];
+    const filled = new Set<string>();
     let previous = crossIdx;
     for (let k = 1; k <= 4; k++) {
       const idx = firstFrom(states, previous, (st) => solvedSlotCount(st) >= k);
       if (idx === -1) break;
+      // Whichever slot was not done a moment ago but is now is the one just filled.
+      const justFilled =
+        slotDefs.find(
+          (d) =>
+            !filled.has(d.name) &&
+            isSlotSolved(states[idx], d) &&
+            (idx === 0 || !isSlotSolved(states[idx - 1], d)),
+        ) ??
+        slotDefs.find((d) => !filled.has(d.name) && isSlotSolved(states[idx], d));
+      if (justFilled) filled.add(justFilled.name);
       slotCuts.push(idx);
+      slotNames.push(justFilled?.name ?? null);
       previous = idx;
     }
     if (slotCuts.length < 4) continue;
@@ -346,11 +371,13 @@ function findPhaseBoundaries(
     ];
 
     if (best === null || f2lIdx < best.f2lIdx) {
-      best = { crossFace: face, cuts, f2lIdx };
+      best = { crossFace: face, cuts, slots: slotNames, f2lIdx };
     }
   }
 
-  return best ? { crossFace: best.crossFace, cuts: best.cuts } : null;
+  return best
+    ? { crossFace: best.crossFace, cuts: best.cuts, slots: best.slots }
+    : null;
 }
 
 /** Lightweight live check used by the timer to know when to stop. */

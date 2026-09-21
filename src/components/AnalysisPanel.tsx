@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { SolveAnalysis, SolveStep } from "../cube/analysis";
+import { faceColour, slotColours } from "../cube/colours";
 import { ollGroupForCase } from "../cube/lastLayerCases";
 import { formatTime } from "../state/stats";
 import type { Solve } from "../state/types";
@@ -60,7 +61,14 @@ function Breakdown({ analysis }: { analysis: SolveAnalysis }) {
     <>
       <div className="row small faint" style={{ marginBottom: 8, flexWrap: "wrap" }}>
         <span>
-          cross on <b className="dim">{analysis.crossFace}</b>
+          cross on{" "}
+          <b className="dim" title={`${analysis.crossFace} face`}>
+            <span
+              className="colour-dot"
+              style={{ background: faceColour(analysis.crossFace).hex }}
+            />
+            {faceColour(analysis.crossFace).name}
+          </b>
         </span>
         <span className="grow" />
         <span title="Slice turn metric · quarter turn metric">
@@ -114,11 +122,13 @@ function Breakdown({ analysis }: { analysis: SolveAnalysis }) {
  * `FL->FR 22`: the number identifies it, the slots say where the pair came from.
  */
 function describeCase(step: SolveStep): { id: string; hint?: string } | null {
-  if (!step.case) return null;
+  // A pair is named by the colours that meet in the slot it filled.
+  const pair = step.slot ? slotColours(step.slot) : null;
+  if (!step.case) return pair ? { id: pair } : null;
   const slots = /^(.*?)->(\S+)\s+(\S+)$/.exec(step.case);
   if (slots) {
     const from = slots[1].replace(/[[\]]/g, "").replace(",", "/");
-    return { id: slots[3], hint: `${from}→${slots[2]}` };
+    return { id: pair ?? slots[3], hint: pair ? slots[3] : `${from}→${slots[2]}` };
   }
   if (step.name === "OLL") {
     const group = ollGroupForCase(step.case);
@@ -127,6 +137,7 @@ function describeCase(step: SolveStep): { id: string; hint?: string } | null {
       group && group.length === 1 ? `${group} shape` : (group ?? undefined);
     return { id: step.case, hint };
   }
+  if (pair) return { id: pair, hint: step.case };
   return { id: step.case };
 }
 

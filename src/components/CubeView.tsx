@@ -1,6 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Alg } from "cubing/alg";
 import { TwistyPlayer } from "cubing/twisty";
 import type { KPattern } from "cubing/kpuzzle";
+import { faceOfColour } from "../cube/colours";
+import { reorientMove, rotationForCrossFace } from "../cube/orientation";
 import { solveAlg } from "../cube/solver";
 import { useController } from "../hooks/useController";
 import type { Settings } from "../state/types";
@@ -42,6 +45,17 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
 
   const use3D = settings.visualization === "3D";
 
+  // A solver applies the scramble white on top, then turns the cube over to build the
+  // cross. Showing the live cube the same way up means the screen matches their hands.
+  // When the cube's own gyroscope is driving the view it already knows better, so the
+  // fixed orientation steps aside.
+  const gyroDriven = settings.useGyroscope && gyroSupported;
+  const solveOrientation = useMemo(() => {
+    if (!live || gyroDriven) return null;
+    const face = faceOfColour(settings.crossColour);
+    return face ? rotationForCrossFace(face) : null;
+  }, [live, gyroDriven, settings.crossColour]);
+
   useEffect(() => {
     if (!use3D) return;
     const host = hostRef.current;
@@ -70,7 +84,12 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
       try {
         const setup = (await solveAlg(pattern)).invert();
         player.alg = "";
-        player.experimentalSetupAlg = setup;
+        // Turn the cube over after building the state, so the cross colour ends up
+        // underneath. The moves fed in afterwards are relabelled to match, which is
+        // what keeps `U` turning the face that is now on top.
+        player.experimentalSetupAlg = solveOrientation
+          ? setup.concat(new Alg(solveOrientation.tokens.join(" ")))
+          : setup;
         appended = 0;
       } catch {
         // Leave the view as it is; the next reset will try again.
@@ -88,7 +107,10 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
     }
 
     const offMove = controller.onCubeMove((move) => {
-      player.experimentalAddMove(move, { cancel: false });
+      player.experimentalAddMove(
+        solveOrientation ? reorientMove(move, solveOrientation.orientation) : move,
+        { cancel: false },
+      );
       appended++;
       if (appended > COMPACT_AFTER_MOVES && !compacting) {
         // The alg is replayed from the start on every change, so fold it back into
@@ -110,7 +132,7 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
       player.remove();
       playerRef.current = null;
     };
-  }, [controller, use3D, settings.showBackView, live, scramble]);
+  }, [controller, use3D, settings.showBackView, live, scramble, solveOrientation]);
 
   // Gyroscope: drive the 3D object directly rather than through React state, since
   // orientation updates arrive far faster than a component should re-render.

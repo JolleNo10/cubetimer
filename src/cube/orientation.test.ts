@@ -3,6 +3,7 @@ import { Alg } from "cubing/alg";
 import { FACES } from "./moves";
 import {
   describeGrip,
+  reorientMove,
   reorientMoves,
   rotationForCrossFace,
 } from "./orientation";
@@ -65,6 +66,40 @@ describe("rotationForCrossFace", () => {
         );
       expect(patternToFacelets(rotated), face).toBe(patternToFacelets(direct));
     }
+  });
+});
+
+describe("showing the cube the way it is held", () => {
+  /**
+   * The live view turns the cube over and then relabels the moves coming from it. For
+   * that to stay honest, turning the displayed cube by the relabelled move has to land
+   * on the same state as turning the real cube and then turning it over.
+   */
+  it("keeps the turned-over view in step with the real cube", () => {
+    for (const face of FACES) {
+      const { tokens, orientation } = rotationForCrossFace(face);
+      const rotation = new Alg(tokens.join(" "));
+      let real = kpuzzle.defaultPattern().applyAlg(new Alg("R U2 F' L D'"));
+      let shown = real.applyAlg(rotation);
+
+      for (const move of ["U", "R'", "F2", "D", "B'", "L2"]) {
+        real = real.applyMove(move);
+        shown = shown.applyMove(reorientMove(move, orientation));
+        expect(patternToFacelets(shown), `${face} after ${move}`).toBe(
+          patternToFacelets(real.applyAlg(rotation)),
+        );
+      }
+    }
+  });
+
+  it("puts the cross colour underneath", () => {
+    // Held white down and green forward, the top face becomes yellow.
+    const { tokens } = rotationForCrossFace("U");
+    const shown = kpuzzle.defaultPattern().applyAlg(new Alg(tokens.join(" ")));
+    const facelets = patternToFacelets(shown);
+    expect(facelets.slice(0, 9)).toBe("DDDDDDDDD"); // yellow on top
+    expect(facelets.slice(27, 36)).toBe("UUUUUUUUU"); // white underneath
+    expect(facelets.slice(18, 27)).toBe("FFFFFFFFF"); // green still in front
   });
 });
 

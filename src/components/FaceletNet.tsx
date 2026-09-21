@@ -1,13 +1,5 @@
+import { FACE_COLOURS } from "../cube/colours";
 import { FACE_OFFSET, type Face } from "../cube/moves";
-
-const COLORS: Record<string, string> = {
-  U: "#f2f4f8",
-  R: "#e5484d",
-  F: "#30a46c",
-  D: "#ffd400",
-  L: "#ff8b3d",
-  B: "#3b82f6",
-};
 
 /** Grid position of each face in the unfolded net. */
 const LAYOUT: { face: Face; column: number; row: number }[] = [
@@ -42,9 +34,8 @@ export function FaceletNet({
           style={{ gridColumn: column, gridRow: row }}
         >
           {Array.from({ length: 9 }, (_, i) => {
-            const color = valid
-              ? COLORS[facelets[FACE_OFFSET[face] + i]]
-              : undefined;
+            const sticker = facelets[FACE_OFFSET[face] + i] as Face;
+            const color = valid ? FACE_COLOURS[sticker]?.hex : undefined;
             return (
               <div
                 key={i}

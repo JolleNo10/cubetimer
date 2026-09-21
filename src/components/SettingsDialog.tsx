@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { forgetStoredMacs } from "../bluetooth/smartCube";
+import { FACE_COLOURS, FACES } from "../cube/colours";
 import { EVENTS } from "../cube/scramble";
 import { useController } from "../hooks/useController";
 import type { Settings } from "../state/types";
@@ -101,6 +102,26 @@ export function SettingsDialog({
                 <option value="2D">Flat net</option>
                 <option value="off">Off</option>
               </select>
+            </div>
+            <div className="field">
+              <label htmlFor="crossColour">Cross colour</label>
+              <select
+                id="crossColour"
+                value={settings.crossColour}
+                onChange={(e) => set({ crossColour: e.target.value })}
+              >
+                <option value="">Show as scrambled</option>
+                {FACES.map((face) => (
+                  <option key={face} value={FACE_COLOURS[face].name}>
+                    {FACE_COLOURS[face].name} on the bottom
+                  </option>
+                ))}
+              </select>
+              <span className="help">
+                Scrambles are applied white on top and green in front. During a solve
+                the cube is shown with your cross colour underneath instead, the way
+                you are holding it. A cube with a working gyroscope overrides this.
+              </span>
             </div>
             <Toggle
               title="Back view"

@@ -63,6 +63,12 @@ export type Settings = {
   holdToStart: boolean;
   hideTimeWhileSolving: boolean;
   visualization: "3D" | "2D" | "off";
+  /**
+   * Colour you put on the bottom to solve, by name, or `""` to show the cube the way
+   * it was scrambled. Scrambles are always applied white on top and green in front;
+   * most solvers then turn the cube over, and the live view follows suit.
+   */
+  crossColour: string;
   showBackView: boolean;
   useGyroscope: boolean;
   sound: boolean;
@@ -77,6 +83,7 @@ export const DEFAULT_SETTINGS: Settings = {
   holdToStart: true,
   hideTimeWhileSolving: false,
   visualization: "3D",
+  crossColour: "white",
   showBackView: true,
   useGyroscope: true,
   sound: true,
