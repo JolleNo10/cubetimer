@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnalysisPanel } from "./components/AnalysisPanel";
 import { AnalyticsDialog } from "./components/AnalyticsDialog";
+import { CoachPanel } from "./components/CoachPanel";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { CubeView } from "./components/CubeView";
 import { Header } from "./components/Header";
@@ -173,6 +174,9 @@ export function App() {
             </div>
           ) : null}
           <ScramblePanel state={state} />
+          {state.settings.slowSolve && live ? (
+            <CoachPanel facelets={state.cubeFacelets} settings={state.settings} />
+          ) : null}
           <div className="stage">
             <TimerDisplay
               state={state}

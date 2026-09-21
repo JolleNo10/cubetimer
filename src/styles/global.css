@@ -518,6 +518,21 @@ button.phase-row.selectable.active {
 .switch-row .title { font-size: 13px; }
 .switch-row .help { font-size: 11.5px; color: var(--text-faint); }
 
+/* ----------------------------------------------------------------- coach */
+.plan-row {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 7px 0;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 45%, transparent);
+}
+.plan-row:last-of-type { border-bottom: none; }
+.plan-kind { font-weight: 600; font-size: 12.5px; color: var(--text-dim); }
+.plan-kind small { display: block; font-weight: 400; font-size: 10.5px; color: var(--text-faint); }
+.plan-moves { font-size: 13px; word-break: break-word; }
+.plan-pairs { display: flex; gap: 4px; flex-wrap: wrap; }
+
 /* ------------------------------------------------------------- analytics */
 .headline {
   border: 1px solid var(--border);

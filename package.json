@@ -15,7 +15,8 @@
     "test:repair": "node scripts/repairCheck.mjs",
     "test:gesture": "node scripts/gestureCheck.mjs",
     "test:replay": "node scripts/replayCheck.mjs",
-    "test:slow": "node scripts/slowSolveCheck.mjs"
+    "test:slow": "node scripts/slowSolveCheck.mjs",
+    "test:coach": "node scripts/coachCheck.mjs"
   },
   "dependencies": {
     "cubing": "^0.63.6",

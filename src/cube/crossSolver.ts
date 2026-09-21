@@ -15,9 +15,19 @@ import { FACES } from "./moves";
 
 const EDGE_SLOTS = 12;
 const CODES = EDGE_SLOTS * 2; // a slot, and which way round the piece sits in it
+
 const STATES = CODES ** 4;
 
-const QUARTER_TURNS = FACES.flatMap((face) => [face, `${face}2`, `${face}'`]);
+export const CROSS_MOVES = FACES.flatMap((face) => [face, `${face}2`, `${face}'`]);
+const QUARTER_TURNS = CROSS_MOVES;
+
+/** How many distinct (slot, orientation) an edge can be in. */
+export const EDGE_CODES = CODES;
+
+/** Where each edge code goes, per move. Shared with the cross planner. */
+export function edgeMoveTables(kpuzzle: KPuzzle): MoveTable {
+  return buildMoveTable(kpuzzle);
+}
 
 /** Where a piece in each (slot, orientation) ends up after a move. */
 type MoveTable = Uint8Array[];
@@ -111,6 +121,16 @@ export class CrossSolver {
   /** How many moves the cross needs from here, at best. */
   lengthFrom(pattern: KPattern): number {
     return this.#distance[encode(this.#codesFor(pattern))];
+  }
+
+  /** The same, for a state already reduced to its four cross edges. */
+  lengthForCodes(codes: readonly number[]): number {
+    return this.#distance[encode(codes)];
+  }
+
+  /** The cross pieces of a state, as codes. */
+  codesFor(pattern: KPattern): number[] {
+    return this.#codesFor(pattern);
   }
 
   /**
