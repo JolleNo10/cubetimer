@@ -95,34 +95,43 @@ export const PLL_ALGORITHMS: Record<string, string> = {
 };
 
 /**
- * Which last-layer edges already point up — how solvers narrow an OLL down before
- * reading the corners. Only four arrangements are possible; parity rules out the rest.
+ * The shape groups solvers sort the OLL cases into, from speedcubedb.com/a/3x3.
+ *
+ * These are names for what the yellow stickers look like on top, so they cannot be
+ * derived from the cube — a "fish" is a fish because it looks like one. They are
+ * checked for completeness in the tests, and cross-checked against the cube wherever a
+ * group has a definition that can be computed: the dot cases are exactly the ones with
+ * no last-layer edge pointing up, OCLL exactly the ones with all four, and so on.
+ *
+ * The reference lists case 55 under both "L shapes" and "line shapes"; its two
+ * oriented edges are opposite each other, which makes it a line.
  */
-export type OllShape = "dot" | "L shape" | "line" | "cross";
-
-/**
- * The OLL cases in each group. Derived from the cases themselves rather than copied
- * from anywhere, and checked against them in the tests.
- */
-export const OLL_SHAPE_GROUPS: Record<OllShape, readonly number[]> = {
+export const OLL_GROUPS: Record<string, readonly number[]> = {
   dot: [1, 2, 3, 4, 17, 18, 19, 20],
-  "L shape": [
-    5, 6, 7, 8, 9, 10, 11, 12, 28, 29, 30, 31, 32, 35, 36, 37, 38, 41, 42, 43, 44,
-    47, 48, 49, 50, 53, 54,
-  ],
-  line: [13, 14, 15, 16, 33, 34, 39, 40, 45, 46, 51, 52, 55, 56, 57],
-  cross: [21, 22, 23, 24, 25, 26, 27],
+  square: [5, 6],
+  lightning: [7, 8, 11, 12, 39, 40],
+  fish: [9, 10, 35, 37],
+  "knight move": [13, 14, 15, 16],
+  OCLL: [21, 22, 23, 24, 25, 26, 27],
+  "corners oriented": [28, 57],
+  awkward: [29, 30, 41, 42],
+  P: [31, 32, 43, 44],
+  T: [33, 45],
+  C: [34, 46],
+  W: [36, 38],
+  L: [47, 48, 49, 50, 53, 54],
+  line: [51, 52, 55, 56],
 };
 
-const SHAPE_BY_CASE = new Map<string, OllShape>(
-  Object.entries(OLL_SHAPE_GROUPS).flatMap(([shape, cases]) =>
-    cases.map((n) => [String(n), shape as OllShape] as const),
+const GROUP_BY_CASE = new Map<string, string>(
+  Object.entries(OLL_GROUPS).flatMap(([group, cases]) =>
+    cases.map((n) => [String(n), group] as const),
   ),
 );
 
-/** The shape group of an OLL case, by its number. */
-export function ollShapeForCase(caseName: string): OllShape | null {
-  return SHAPE_BY_CASE.get(caseName) ?? null;
+/** The shape group an OLL case belongs to, by its number. */
+export function ollGroupForCase(caseName: string): string | null {
+  return GROUP_BY_CASE.get(caseName) ?? null;
 }
 
 /** What a step's case is called when there was nothing left to do. */

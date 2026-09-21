@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
 import {
   OLL_ALGORITHMS,
-  OLL_SHAPE_GROUPS,
+  OLL_GROUPS,
   PLL_ALGORITHMS,
-  ollShapeForCase,
+  ollGroupForCase,
 } from "./lastLayerCases";
 import {
+  lastLayerCornersOriented,
+  lastLayerEdges,
   lastLayerTables,
-  ollShape,
   recogniseOll,
   recognisePll,
 } from "./recognise";
@@ -83,19 +84,52 @@ describe("recognisePll", () => {
   });
 });
 
-describe("ollShape", () => {
-  it("matches the group each case is listed in", () => {
-    for (const [number, algorithm] of Object.entries(OLL_ALGORITHMS)) {
-      const state = kpuzzle.defaultPattern().applyAlg(new Alg(algorithm).invert());
-      expect(ollShape(state), `OLL ${number}`).toBe(ollShapeForCase(number));
+const caseState = (algorithm: string) =>
+  kpuzzle.defaultPattern().applyAlg(new Alg(algorithm).invert());
+
+describe("OLL shape groups", () => {
+  it("puts every case in exactly one group", () => {
+    const all = Object.values(OLL_GROUPS).flat();
+    expect(all).toHaveLength(57);
+    expect(new Set(all).size).toBe(57);
+    for (let n = 1; n <= 57; n++) {
+      expect(ollGroupForCase(String(n)), `OLL ${n}`).not.toBeNull();
     }
   });
 
-  it("puts every case in exactly one group", () => {
-    const all = Object.values(OLL_SHAPE_GROUPS).flat();
-    expect(all).toHaveLength(57);
-    expect(new Set(all).size).toBe(57);
-    // The seven cases with the last layer's edges already done are OLL 21 to 27.
-    expect([...OLL_SHAPE_GROUPS.cross]).toEqual([21, 22, 23, 24, 25, 26, 27]);
+  /**
+   * Most group names describe what the case looks like and cannot be checked against
+   * anything. Four of them are statements about the cube, and those must hold.
+   */
+  it("agrees with the cube wherever a group has a computable meaning", () => {
+    const groupOf = (n: number) => ollGroupForCase(String(n))!;
+    for (const [number, algorithm] of Object.entries(OLL_ALGORITHMS)) {
+      const state = caseState(algorithm);
+      const edges = lastLayerEdges(state);
+      const group = groupOf(Number(number));
+
+      // A dot case is one with no last-layer edge pointing up, and vice versa.
+      expect(edges === "dot", `OLL ${number} (${group})`).toBe(group === "dot");
+      // OCLL is the set with all four edges already up.
+      expect(edges === "cross", `OLL ${number} (${group})`).toBe(group === "OCLL");
+      // An L needs two edges up side by side; a line needs them facing each other.
+      if (group === "L") expect(edges, `OLL ${number}`).toBe("adjacent");
+      if (group === "line") expect(edges, `OLL ${number}`).toBe("opposite");
+      // And the two cases named for their corners are the ones with corners done.
+      if (group === "corners oriented") {
+        expect(lastLayerCornersOriented(state), `OLL ${number}`).toBe(true);
+      }
+    }
+  });
+
+  it("names the group of the example that was wrong before", () => {
+    // OLL 42 is an awkward shape. It has two adjacent edges up, which is why a
+    // classification by edge arrangement alone mislabelled it an "L shape".
+    expect(ollGroupForCase("42")).toBe("awkward");
+    expect(lastLayerEdges(caseState(OLL_ALGORITHMS[42]))).toBe("adjacent");
+    expect(ollGroupForCase("47")).toBe("L");
+    expect(ollGroupForCase("55")).toBe("line");
+    expect(ollGroupForCase("27")).toBe("OCLL");
+    expect(ollGroupForCase("9")).toBe("fish");
   });
 });

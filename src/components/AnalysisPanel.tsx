@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { SolveAnalysis, SolveStep } from "../cube/analysis";
-import { ollShapeForCase } from "../cube/lastLayerCases";
+import { ollGroupForCase } from "../cube/lastLayerCases";
 import { formatTime } from "../state/stats";
 import type { Solve } from "../state/types";
 
@@ -121,7 +121,11 @@ function describeCase(step: SolveStep): { id: string; hint?: string } | null {
     return { id: slots[3], hint: `${from}→${slots[2]}` };
   }
   if (step.name === "OLL") {
-    return { id: step.case, hint: ollShapeForCase(step.case) ?? undefined };
+    const group = ollGroupForCase(step.case);
+    // "C" on its own is cryptic; "C shape" is what a cuber would say.
+    const hint =
+      group && group.length === 1 ? `${group} shape` : (group ?? undefined);
+    return { id: step.case, hint };
   }
   return { id: step.case };
 }

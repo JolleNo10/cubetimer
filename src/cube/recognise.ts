@@ -12,12 +12,7 @@
  */
 import { Alg } from "cubing/alg";
 import type { KPattern, KPuzzle } from "cubing/kpuzzle";
-import {
-  OLL_ALGORITHMS,
-  PLL_ALGORITHMS,
-  SOLVED_CASE,
-  type OllShape,
-} from "./lastLayerCases";
+import { OLL_ALGORITHMS, PLL_ALGORITHMS, SOLVED_CASE } from "./lastLayerCases";
 
 /** Last-layer slots, which are the first four of each orbit in cubing.js's ordering. */
 const LAST_LAYER_SLOTS = 4;
@@ -198,8 +193,16 @@ export function lastLayerTables(kpuzzle: KPuzzle): LastLayerTables {
   return built;
 }
 
-/** Which edges of the last layer already point up. */
-export function ollShape(pattern: KPattern): OllShape {
+/**
+ * How the last layer's edges are arranged — the first thing a solver reads off an OLL.
+ * Only these four are possible; parity rules out one edge up, or three.
+ *
+ * Deliberately not named after the shape groups: "L" and "line" mean particular sets
+ * of cases to cubers, and two adjacent edges pointing up is not the same statement.
+ */
+export type EdgeArrangement = "dot" | "adjacent" | "opposite" | "cross";
+
+export function lastLayerEdges(pattern: KPattern): EdgeArrangement {
   const orientation = pattern.patternData.EDGES.orientation;
   const up: number[] = [];
   for (let i = 0; i < LAST_LAYER_SLOTS; i++) {
@@ -208,7 +211,16 @@ export function ollShape(pattern: KPattern): OllShape {
   if (up.length === 0) return "dot";
   if (up.length === 4) return "cross";
   // UF and UB are opposite, as are UR and UL: two apart in the orbit's ordering.
-  return up[1] - up[0] === 2 ? "line" : "L shape";
+  return up[1] - up[0] === 2 ? "opposite" : "adjacent";
+}
+
+/** True when every corner of the last layer already points up. */
+export function lastLayerCornersOriented(pattern: KPattern): boolean {
+  const orientation = pattern.patternData.CORNERS.orientation;
+  for (let i = 0; i < LAST_LAYER_SLOTS; i++) {
+    if (orientation[i] !== 0) return false;
+  }
+  return true;
 }
 
 /**

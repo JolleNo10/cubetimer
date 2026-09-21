@@ -42,8 +42,8 @@ for the cube protocols.
 - CFOP breakdown: time, moves and TPS for the cross, each F2L pair, OLL and PLL, split
   into recognition and execution, plus a per-move time graph and a list of pauses.
 - Names the OLL case (1–57) and PLL case (Aa … Z) you were looking at, whichever way
-  you were holding the cube, with the OLL's shape group alongside it, and marks a step
-  as a skip when there was nothing to do.
+  you were holding the cube, with the OLL's shape group beside it (fish, awkward,
+  knight move …), and marks a step as a skip when there was nothing to do.
 - Turns counted three ways — STM, ETM and QTM — per step and per solve.
 - The analysis works whatever colour you cross on and however you hold the cube.
 - Move-by-move replay at the speed you actually turned, with scrubbing.
@@ -171,6 +171,10 @@ and the case that came up. A few conventions matter:
 Those rules were derived from, and checked against, a real 47,000-solve export: the
 turn counts, recognition/execution split, cumulative times and rate formatting all
 reproduce its figures exactly.
+
+OLL shape groups come from speedcubedb.com/a/3x3, since a "fish" is a fish because it
+looks like one and cannot be worked out from the cube. The four groups that *are*
+statements about the cube — dot, OCLL, L and line — are checked against it in the tests.
 
 Last-layer cases are read from the state at the moment the step begins. Each case is
 stored as its whole orbit — every AUF before the algorithm, every AUF after it, and
