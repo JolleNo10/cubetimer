@@ -1,0 +1,21 @@
+# Pick the port with PORT, e.g.  PORT=4000 docker compose up dev
+services:
+  dev:
+    build:
+      context: .
+      target: dev
+    environment:
+      PORT: ${PORT:-5173}
+    ports:
+      - "${PORT:-5173}:${PORT:-5173}"
+    volumes:
+      - .:/app
+      # Keep the image's Linux node_modules; the host's are built for macOS.
+      - /app/node_modules
+
+  prod:
+    build:
+      context: .
+      target: prod
+    ports:
+      - "${PORT:-5173}:80"
