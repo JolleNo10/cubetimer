@@ -2,6 +2,7 @@ import type { GanCubeMove } from "gan-web-bluetooth";
 import { Alg } from "cubing/alg";
 import type { KPattern } from "cubing/kpuzzle";
 import { analyseSolve, isSolvedPattern, type TimedMove } from "../cube/analysis";
+import { isRecentreGesture, RECENTRE_GESTURE_TURNS } from "../cube/gestures";
 import { parseFaceMove } from "../cube/moves";
 import { CubeModel, patternToFacelets } from "../cube/model";
 import { get3x3x3 } from "../cube/puzzle";
@@ -114,6 +115,8 @@ export class Controller {
   #recoveryToken = 0;
   #beeped = new Set<number>();
   #gyroListeners = new Set<(q: Quaternion) => void>();
+  #recentreListeners = new Set<() => void>();
+  #recentTurns: string[] = [];
   #moveListeners = new Set<(move: string) => void>();
   #patternListeners = new Set<(pattern: KPattern) => void>();
 
@@ -177,6 +180,15 @@ export class Controller {
   onGyro(listener: (q: Quaternion) => void): () => void {
     this.#gyroListeners.add(listener);
     return () => this.#gyroListeners.delete(listener);
+  }
+
+  /**
+   * Fires when the solver asks, on the cube, for the view to be lined up with how they
+   * are holding it.
+   */
+  onRecentreView(listener: () => void): () => void {
+    this.#recentreListeners.add(listener);
+    return () => this.#recentreListeners.delete(listener);
   }
 
   /** Every cube move, for driving the 3D view without going through React state. */
@@ -440,6 +452,7 @@ export class Controller {
     for (const listener of this.#moveListeners) listener(move.move);
 
     const { phase } = this.state.get();
+    this.#checkRecentreGesture(move.move, phase);
 
     if (phase === "ready" || phase === "inspection") {
       // The first turn is what starts the clock, and it counts as part of the solve.
@@ -468,6 +481,22 @@ export class Controller {
       void this.newScramble();
     }
     this.#afterStateChange(false);
+  }
+
+  /**
+   * Watch for the recentre gesture. It is only offered while nothing is being timed —
+   * mid-solve those would be three ordinary turns.
+   */
+  #checkRecentreGesture(move: string, phase: TimerPhase): void {
+    if (phase === "solving" || phase === "inspection") {
+      this.#recentTurns = [];
+      return;
+    }
+    this.#recentTurns.push(move);
+    if (this.#recentTurns.length > RECENTRE_GESTURE_TURNS) this.#recentTurns.shift();
+    if (!isRecentreGesture(this.#recentTurns)) return;
+    this.#recentTurns = [];
+    for (const listener of this.#recentreListeners) listener();
   }
 
   #onFacelets(facelets: string): void {
