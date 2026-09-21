@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { SolveAnalysis, SolveStep } from "../cube/analysis";
 import { faceColour, slotColours } from "../cube/colours";
 import { ollGroupForCase } from "../cube/lastLayerCases";
@@ -58,11 +58,13 @@ function StepRow({
   step,
   total,
   active,
+  showMoves,
   onSelect,
 }: {
   step: SolveStep;
   total: number;
   active: boolean;
+  showMoves: boolean;
   onSelect?: () => void;
 }) {
   const width = (step.timeMs / total) * 100;
@@ -101,15 +103,14 @@ function StepRow({
       <span className="phase-sub">
         {step.sliceTurns} mv · {step.tps.toFixed(1)} tps
       </span>
+      {showMoves && step.moves ? (
+        <span className="phase-moves mono">{step.moves}</span>
+      ) : null}
     </>
   );
 
   if (!onSelect) {
-    return (
-      <div className="phase-row" title={step.moves || undefined}>
-        {content}
-      </div>
-    );
+    return <div className="phase-row">{content}</div>;
   }
   return (
     <button
@@ -120,6 +121,29 @@ function StepRow({
     >
       {content}
     </button>
+  );
+}
+
+function Solution({ solution }: { solution: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="solution">
+      <div className="row">
+        <span className="panel-title">Solution</span>
+        <span className="grow" />
+        <button
+          className="ghost small"
+          onClick={() => {
+            void navigator.clipboard?.writeText(solution);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1400);
+          }}
+        >
+          {copied ? "copied" : "copy"}
+        </button>
+      </div>
+      <div className="mono solution-moves">{solution}</div>
+    </div>
   );
 }
 
@@ -184,20 +208,37 @@ function MoveGraph({
  * Given `onSelectStep` the rows become buttons, which is how the replay lets you jump
  * to the moment a step began.
  */
+/**
+ * The solve written out.
+ *
+ * Joining the steps gives the solution as the solver turned it, in the frame they held
+ * the cube in — the leading rotation included, since without it the moves would refer
+ * to the wrong faces.
+ */
+export function fullSolution(analysis: SolveAnalysis): string {
+  return analysis.steps
+    .map((step) => step.moves)
+    .filter((moves) => moves.length > 0)
+    .join(" ");
+}
+
 export function StepBreakdown({
   analysis,
   activeStep,
   onSelectStep,
   showDetail = true,
+  showMoves = true,
   position,
 }: {
   analysis: SolveAnalysis;
   activeStep?: number;
   onSelectStep?: (step: SolveStep) => void;
   showDetail?: boolean;
+  showMoves?: boolean;
   position?: number;
 }) {
   const total = Math.max(1, analysis.solvingMs);
+  const solution = fullSolution(analysis);
   return (
     <>
       <div className="row small faint" style={{ marginBottom: 8, flexWrap: "wrap" }}>
@@ -224,6 +265,7 @@ export function StepBreakdown({
           step={step}
           total={total}
           active={activeStep === i}
+          showMoves={showMoves}
           onSelect={onSelectStep ? () => onSelectStep(step) : undefined}
         />
       ))}
@@ -243,6 +285,8 @@ export function StepBreakdown({
           {formatTime(analysis.totalExecutionMs)} turning
         </span>
       </div>
+
+      {showMoves && solution ? <Solution solution={solution} /> : null}
 
       <MoveGraph analysis={analysis} position={position} />
 

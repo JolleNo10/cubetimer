@@ -25,6 +25,8 @@ import type { Solve } from "./types";
 
 export type StepAnalytics = Improvement & {
   name: string;
+  /** What the solver actually turned, for comparison. */
+  moves: string;
   /** A named alternative worth knowing, rather than one the search turned up. */
   reference?: { label: string; alg: string; length: number };
 };
@@ -114,6 +116,7 @@ export async function analyseAlternatives(
     const entry: StepAnalytics = {
       ...improvement,
       name: step.name,
+      moves: step.moves,
       reference: referenceFor(step),
     };
     steps.push(entry);

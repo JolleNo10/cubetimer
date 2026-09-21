@@ -162,6 +162,11 @@ function StepResult({ step }: { step: StepAnalytics }) {
       <span className="phase-name">{step.name}</span>
       <span className="mono small dim">{step.used} mv</span>
       <span className="analytics-verdict">
+        {step.moves ? (
+          <div className="mono small dim" style={{ marginBottom: 3 }}>
+            {step.moves}
+          </div>
+        ) : null}
         {step.used === 0 ? (
           <span className="faint">skipped</span>
         ) : step.best ? (

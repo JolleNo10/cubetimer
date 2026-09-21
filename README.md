@@ -73,6 +73,7 @@ for the cube protocols.
   green-red slot, not "FR" — and which colour you crossed on.
 - Turns counted three ways — STM, ETM and QTM — per step and per solve.
 - The analysis works whatever colour you cross on and however you hold the cube.
+- The moves of each step, and the whole solution written out and copyable.
 - Move-by-move replay at the speed you actually turned, with scrubbing, the breakdown
   beside it, and the solve replayed in the grip it was done with. Pick a step to jump
   to the state it began from — click F2L Slot 1 and the cross is done with the first

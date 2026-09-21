@@ -206,10 +206,12 @@ export function analyseSolve(
     const recorded = mergeSameFaceTurns(
       reorientMoves(moves.slice(from, to), rotation.orientation),
     );
-    if (index === 0 && rotation.tokens.length > 0 && recorded.length > 0) {
-      recorded.unshift(
-        ...rotation.tokens.map((token) => ({ move: token, t: recorded[0].t })),
-      );
+    // The rotation goes in front of the whole solve, and has to be there even when
+    // the cross itself took no moves: every step after it is written in the turned
+    // frame, so without it the solution would refer to the wrong faces.
+    if (index === 0 && rotation.tokens.length > 0) {
+      const at = recorded[0]?.t ?? moves[0]?.t ?? 0;
+      recorded.unshift(...rotation.tokens.map((token) => ({ move: token, t: at })));
     }
 
     const turning = recorded.filter((m) => {
