@@ -13,7 +13,8 @@
     "test:e2e": "node scripts/e2e.mjs",
     "test:import": "node scripts/importCheck.mjs",
     "test:repair": "node scripts/repairCheck.mjs",
-    "test:gesture": "node scripts/gestureCheck.mjs"
+    "test:gesture": "node scripts/gestureCheck.mjs",
+    "test:replay": "node scripts/replayCheck.mjs"
   },
   "dependencies": {
     "cubing": "^0.63.6",

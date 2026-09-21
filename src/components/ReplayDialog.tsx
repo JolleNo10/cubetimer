@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alg } from "cubing/alg";
 import { TwistyPlayer } from "cubing/twisty";
+import { reorientMove, rotationForCrossFace } from "../cube/orientation";
 import { formatTime } from "../state/stats";
+import { StepBreakdown, stepAt } from "./StepBreakdown";
 import { effectiveMs, type Solve } from "../state/types";
 
 const SPEEDS = [0.25, 0.5, 1, 2];
@@ -25,9 +27,22 @@ export function ReplayDialog({
   const [speed, setSpeed] = useState(1);
 
   const moves = solve.moves;
-  const currentStep = solve.analysis?.steps.find(
-    (step) => index > step.fromMove && index <= step.toMove,
+  const steps = solve.analysis?.steps;
+
+  // Replay the solve the way it was held: the cross face underneath, as the solver
+  // had it. Turning the cube over means relabelling the moves so they still act on
+  // the faces they did at the time.
+  const crossFace = solve.analysis?.crossFace;
+  const grip = useMemo(
+    () => (crossFace ? rotationForCrossFace(crossFace) : null),
+    [crossFace],
   );
+  const asHeld = useCallback(
+    (move: string) => (grip ? reorientMove(move, grip.orientation) : move),
+    [grip],
+  );
+  const activeStep = steps ? stepAt(steps, index) : -1;
+  const currentStep = steps?.[activeStep];
 
   useEffect(() => {
     const host = hostRef.current;
@@ -40,7 +55,9 @@ export function ReplayDialog({
       hintFacelets: "floating",
       backView: "top-right",
       experimentalSetupAnchor: "start",
-      experimentalSetupAlg: solve.scramble,
+      experimentalSetupAlg: grip
+        ? new Alg(solve.scramble).concat(new Alg(grip.tokens.join(" ")))
+        : solve.scramble,
       cameraLatitude: 27,
       cameraLongitude: -32,
       tempoScale: 6,
@@ -53,7 +70,7 @@ export function ReplayDialog({
       player.remove();
       playerRef.current = null;
     };
-  }, [solve.scramble]);
+  }, [solve.scramble, grip]);
 
   const seek = useCallback(
     (target: number) => {
@@ -63,13 +80,13 @@ export function ReplayDialog({
       const applied = appliedRef.current;
       if (clamped > applied && clamped - applied <= 4) {
         for (let i = applied; i < clamped; i++) {
-          player.experimentalAddMove(moves[i].move, { cancel: false });
+          player.experimentalAddMove(asHeld(moves[i].move), { cancel: false });
         }
       } else if (clamped !== applied) {
         player.alg = new Alg(
           moves
             .slice(0, clamped)
-            .map((m) => m.move)
+            .map((m) => asHeld(m.move))
             .join(" "),
         );
         player.jumpToEnd({ flash: false });
@@ -77,7 +94,7 @@ export function ReplayDialog({
       appliedRef.current = clamped;
       setIndex(clamped);
     },
-    [moves],
+    [moves, asHeld],
   );
 
   // Playback follows the recorded timestamps, so pauses and bursts look like they did.
@@ -138,7 +155,8 @@ export function ReplayDialog({
             ×
           </button>
         </div>
-        <div className="dialog-body">
+        <div className="dialog-body replay-body">
+          <div className="replay-main">
           <div className="mono small dim" style={{ wordBreak: "break-word" }}>
             {solve.scramble}
           </div>
@@ -213,6 +231,30 @@ export function ReplayDialog({
                 .join(" ")}
             </span>
           </div>
+          </div>
+
+          {solve.analysis ? (
+            <div className="replay-steps">
+              <div className="panel-title" style={{ marginBottom: 8 }}>
+                Breakdown
+              </div>
+              <StepBreakdown
+                analysis={solve.analysis}
+                activeStep={activeStep}
+                position={index}
+                showDetail={false}
+                // Jumping to a step means the state it started from: click F2L Slot 1
+                // and the cross is done with the first pair still to come.
+                onSelectStep={(step) => {
+                  setPlaying(false);
+                  seek(step.fromMove);
+                }}
+              />
+              <div className="small faint" style={{ marginTop: 10 }}>
+                Pick a step to jump to the moment it began.
+              </div>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

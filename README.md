@@ -53,7 +53,10 @@ for the cube protocols.
   green-red slot, not "FR" — and which colour you crossed on.
 - Turns counted three ways — STM, ETM and QTM — per step and per solve.
 - The analysis works whatever colour you cross on and however you hold the cube.
-- Move-by-move replay at the speed you actually turned, with scrubbing.
+- Move-by-move replay at the speed you actually turned, with scrubbing, the breakdown
+  beside it, and the solve replayed in the grip it was done with. Pick a step to jump
+  to the state it began from — click F2L Slot 1 and the cross is done with the first
+  pair still to come.
 - Sessions, ao5/ao12/ao50/ao100 with WCA trimming rules, PB tracking, +2/DNF, notes.
 - Everything is stored locally in IndexedDB, and can be exported and re-imported.
 
@@ -135,6 +138,7 @@ npm run test:e2e   # drives a full scramble and solve through a real browser
 npm run test:import ~/Downloads/solves.csv   # imports a real export through the UI
 npm run test:repair  # checks an old-format solve gets its breakdown rebuilt
 npm run test:gesture # checks the recentre gesture fires only when it should
+npm run test:replay  # checks each step jumps to the moment it began
 ```
 
 The end-to-end script needs a server already running and Chrome installed. Point it

@@ -388,6 +388,24 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 }
 .phase-row:last-of-type { border-bottom: none; }
 
+/* In the replay each step is a button that jumps to where it began. */
+button.phase-row.selectable {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border-radius: 0;
+  border-width: 0 0 1px 0;
+  padding: 8px 6px;
+  margin: 0 -6px;
+  cursor: pointer;
+  font-size: 12.5px;
+}
+button.phase-row.selectable:hover { background: var(--panel-2); border-color: var(--border); }
+button.phase-row.selectable.active {
+  background: color-mix(in oklab, var(--accent) 13%, transparent);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
 .phase-head { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
 .phase-name { color: var(--text); font-weight: 600; white-space: nowrap; }
 
@@ -446,7 +464,22 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
   flex-direction: column;
   overflow: hidden;
 }
-.dialog.wide { width: min(880px, 100%); }
+.dialog.wide { width: min(1080px, 100%); }
+
+/* Needs to out-rank `.dialog-body`, which sets a flex column further down. */
+.dialog-body.replay-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 340px);
+  gap: 18px;
+  align-items: start;
+}
+.replay-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.replay-steps { min-width: 0; border-left: 1px solid var(--border); padding-left: 18px; }
+
+@media (max-width: 860px) {
+  .dialog-body.replay-body { grid-template-columns: minmax(0, 1fr); }
+  .replay-steps { border-left: none; border-top: 1px solid var(--border); padding: 14px 0 0; }
+}
 .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
 .dialog-body { padding: 16px; overflow: auto; display: flex; flex-direction: column; gap: 14px; }
 .dialog-foot { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
