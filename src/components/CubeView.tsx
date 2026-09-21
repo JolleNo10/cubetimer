@@ -41,6 +41,7 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
   const hostRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<TwistyPlayer | null>(null);
   const [gyroActive, setGyroActive] = useState(false);
+  const [flash, setFlash] = useState(false);
   const resetGyroRef = useRef<() => void>(() => {});
 
   const use3D = settings.visualization === "3D";
@@ -194,6 +195,16 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
     };
   }, [controller, use3D, live, settings.useGyroscope, gyroSupported, settings.showBackView]);
 
+  // Turning U three times lines the view up with however the cube is being held, so
+  // the solver never has to put it down to reach the button.
+  useEffect(() => {
+    return controller.onRecentreView(() => {
+      resetGyroRef.current();
+      setFlash(true);
+      setTimeout(() => setFlash(false), 1400);
+    });
+  }, [controller]);
+
   if (settings.visualization === "off") return null;
 
   return (
@@ -202,7 +213,11 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
         <span className="panel-title">{live ? "Cube" : "Scramble preview"}</span>
         <div className="row">
           {gyroActive ? (
-            <button className="ghost small" onClick={() => resetGyroRef.current()}>
+            <button
+              className="ghost small"
+              onClick={() => resetGyroRef.current()}
+              title="Or turn the top face three times on the cube"
+            >
               Centre view
             </button>
           ) : null}
@@ -214,6 +229,13 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
         </div>
       </div>
       <div className="cube-view">
+        {flash ? (
+          <div className="cube-flash" role="status">
+            {gyroActive
+              ? "View centred"
+              : "Nothing to centre — this cube has no gyroscope"}
+          </div>
+        ) : null}
         {use3D ? (
           <div ref={hostRef} style={{ width: "100%", height: "100%" }} />
         ) : (

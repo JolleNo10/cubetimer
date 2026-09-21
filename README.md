@@ -17,6 +17,8 @@ for the cube protocols.
 - Scrambles are shown white on top and green in front, the orientation they are applied
   in; during a solve the cube is turned over so your cross colour is underneath, the way
   you are actually holding it.
+- Turn the top face three times, while nothing is being timed, to line the 3D view up
+  with however you are holding the cube — no need to put it down and reach for a button.
 - Battery level, firmware and hardware details.
 - State sync: re-read the cube at any time, or tell it that it is solved.
 
@@ -128,7 +130,8 @@ npm run preview    # serve dist/ locally
 npm test           # unit tests
 npm run test:e2e   # drives a full scramble and solve through a real browser
 npm run test:import ~/Downloads/solves.csv   # imports a real export through the UI
-npm run test:repair # checks an old-format solve gets its breakdown rebuilt
+npm run test:repair  # checks an old-format solve gets its breakdown rebuilt
+npm run test:gesture # checks the recentre gesture fires only when it should
 ```
 
 The end-to-end script needs a server already running and Chrome installed. Point it
