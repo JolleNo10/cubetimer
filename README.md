@@ -123,6 +123,7 @@ npm run preview    # serve dist/ locally
 npm test           # unit tests
 npm run test:e2e   # drives a full scramble and solve through a real browser
 npm run test:import ~/Downloads/solves.csv   # imports a real export through the UI
+npm run test:repair # checks an old-format solve gets its breakdown rebuilt
 ```
 
 The end-to-end script needs a server already running and Chrome installed. Point it
@@ -145,6 +146,11 @@ The unit of data is a solve: a scramble, a stream of timestamped moves, and a CF
 analysis of seven steps (cross, four F2L slots, OLL, PLL). It is the same model the
 solve analysis CSV format uses, which is what lets solves move in and out of this app
 without losing anything.
+
+A breakdown is derived data, not a record: the scramble and the move stream are the
+facts, and the steps are what this app makes of them. So a solve whose breakdown cannot
+be read — because it was stored under an earlier version of the model — is re-analysed
+from its moves when it loads, and the result is saved back.
 
 Each step carries its moves in the frame the solver held the cube in, the time it took,
 that time split into recognition and execution, a cumulative time, three turn counts

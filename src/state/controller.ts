@@ -21,6 +21,7 @@ import {
   type Quaternion,
 } from "../bluetooth/smartCube";
 import * as db from "./db";
+import { rebuildAnalysis } from "./repair";
 import { countSolveCsvRows, solveCsvBatches, formatSolveCsv } from "./solveCsv";
 import { Store } from "./store";
 import {
@@ -133,8 +134,10 @@ export class Controller {
       allSessions = [session];
     }
     const sessionId = allSessions[allSessions.length - 1].id;
-    const solves = await db.loadSolves(sessionId);
+    // The model has to exist before solves are loaded, since repairing a breakdown
+    // needs the puzzle.
     this.#model = await CubeModel.create();
+    const solves = await this.#loadSolves(sessionId);
 
     this.cube.setHandlers({
       onMove: (move) => this.#onMove(move),
@@ -653,8 +656,33 @@ export class Controller {
 
   // ---------------------------------------------------------------- sessions
 
-  async selectSession(sessionId: string): Promise<void> {
+  /**
+   * Load a session's solves, rebuilding any breakdown that could not be read.
+   *
+   * The breakdown is derived from the scramble and the move stream, both of which are
+   * stored, so a solve analysed under an older model gets re-analysed rather than
+   * losing its detail. Repairs are saved, so each solve is only done once.
+   */
+  async #loadSolves(sessionId: string): Promise<Solve[]> {
     const solves = await db.loadSolves(sessionId);
+    const kpuzzle = this.#model?.kpuzzle;
+    if (!kpuzzle) return solves;
+
+    const result: Solve[] = [];
+    for (const solve of solves) {
+      const rebuilt = rebuildAnalysis(kpuzzle, solve);
+      if (rebuilt) {
+        await db.saveSolve(rebuilt);
+        result.push(rebuilt);
+      } else {
+        result.push(solve);
+      }
+    }
+    return result;
+  }
+
+  async selectSession(sessionId: string): Promise<void> {
+    const solves = await this.#loadSolves(sessionId);
     this.state.update((s) => ({
       ...s,
       sessionId,
