@@ -24,6 +24,11 @@ export function ScramblePanel({ state }: { state: AppState }) {
               {done} / {progress.total}
             </span>
           ) : null}
+          {state.settings.slowSolve && state.scramble ? (
+            <button className="ghost" onClick={() => controller.setScramble(state.scramble)}>
+              Replay
+            </button>
+          ) : null}
           <button className="ghost" onClick={() => void controller.newScramble()}>
             New
           </button>

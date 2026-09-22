@@ -656,6 +656,7 @@ export class Controller {
       solves: [...s.solves, solve],
       inspectionPenalty: "none",
     }));
+    void this.newScramble();
   }
 
   // ------------------------------------------------------------------ solves
