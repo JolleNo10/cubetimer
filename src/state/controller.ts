@@ -2,8 +2,12 @@ import type { GanCubeMove } from "gan-web-bluetooth";
 import { Alg } from "cubing/alg";
 import type { KPattern } from "cubing/kpuzzle";
 import { analyseSolve, isSolvedPattern, type TimedMove } from "../cube/analysis";
+import { faceOfColour } from "../cube/colours";
+import { hasXCrossIn } from "../cube/crossPlans";
 import { isRecentreGesture, RECENTRE_GESTURE_TURNS } from "../cube/gestures";
 import { parseFaceMove } from "../cube/moves";
+import { rotationForCrossFace, rotationForGrip } from "../cube/orientation";
+import { reframe } from "../cube/recognise";
 import { CubeModel, patternToFacelets } from "../cube/model";
 import { get3x3x3 } from "../cube/puzzle";
 import {
@@ -108,6 +112,8 @@ export class Controller {
 
   #model: CubeModel | null = null;
   #tracker: ScrambleTracker | null = null;
+  #isReplay = false;
+  #xCrossToken = 0;
   #rafHandle: number | null = null;
   #startedAt = 0;
   #inspectionStartedAt = 0;
@@ -264,6 +270,8 @@ export class Controller {
   // --------------------------------------------------------------- scrambles
 
   async newScramble(): Promise<void> {
+    this.#isReplay = false;
+    this.#xCrossToken++;
     const { settings } = this.state.get();
     this.state.update((s) => ({
       ...s,
@@ -290,6 +298,12 @@ export class Controller {
     this.setScramble(scramble);
   }
 
+  /** Load a scramble and mark the resulting solve as a replay (excluded from stats). */
+  replayScramble(scramble: string): void {
+    this.#isReplay = true;
+    this.setScramble(scramble);
+  }
+
   setScramble(scramble: string): void {
     const kpuzzle = this.#model?.kpuzzle;
     const usesSmartCube = eventInfo(this.state.get().settings.event).smart;
@@ -304,6 +318,65 @@ export class Controller {
       liveMoves: [],
     }));
     this.#updateScrambleProgress();
+  }
+
+  /**
+   * Keep generating scrambles until one has an XCross in five moves or fewer, then
+   * set that as the current scramble. Cancels automatically if a new scramble is
+   * requested while the search is running.
+   */
+  async findXCrossScramble(): Promise<void> {
+    const kpuzzle = this.#model?.kpuzzle;
+    if (!kpuzzle) return;
+
+    this.#isReplay = false;
+    const token = ++this.#xCrossToken;
+    const { settings } = this.state.get();
+
+    this.state.update((s) => ({
+      ...s,
+      phase: "scrambling",
+      scramble: "",
+      scrambleProgress: null,
+      recovery: null,
+      liveMoves: [],
+      inspectionPenalty: "none",
+    }));
+    this.elapsed.set(0);
+    this.inspectionLeft.set(null);
+
+    const bottom = faceOfColour(settings.crossColour) ?? "D";
+    const front = faceOfColour(settings.frontColour);
+    const grip = (front && rotationForGrip(bottom, front)) ?? rotationForCrossFace(bottom);
+    const rotation = new Alg(grip.tokens.join(" "));
+
+    for (let attempt = 0; attempt < 200; attempt++) {
+      if (token !== this.#xCrossToken) return;
+      let scramble: string;
+      try {
+        scramble = await generateScramble(settings.event);
+      } catch (error) {
+        if (token === this.#xCrossToken) {
+          this.state.update((s) => ({
+            ...s,
+            error: `Could not generate a scramble: ${String(error)}`,
+          }));
+        }
+        return;
+      }
+      if (token !== this.#xCrossToken) return;
+
+      const scrambledPattern = kpuzzle.defaultPattern().applyAlg(new Alg(scramble));
+      const oriented = reframe(kpuzzle, scrambledPattern, rotation);
+
+      if (hasXCrossIn(kpuzzle, oriented, 5)) {
+        if (token === this.#xCrossToken) this.setScramble(scramble);
+        return;
+      }
+    }
+
+    // 200 misses is extremely unlikely; fall back to whatever was last generated.
+    if (token === this.#xCrossToken) await this.newScramble();
   }
 
   /**
@@ -346,6 +419,8 @@ export class Controller {
 
   /** Discard the running solve without recording it. */
   cancel(): void {
+    this.#isReplay = false;
+    this.#xCrossToken++;
     this.#stopLoop();
     this.elapsed.set(0);
     this.inspectionLeft.set(null);
@@ -627,6 +702,8 @@ export class Controller {
     source: Solve["source"],
   ): Promise<void> {
     const { sessionId, scramble, settings, inspectionPenalty } = this.state.get();
+    const isReplay = this.#isReplay;
+    this.#isReplay = false;
     const scrambledPattern =
       this.#scrambledPattern ??
       (await get3x3x3()).defaultPattern().applyAlg(new Alg(scramble));
@@ -641,7 +718,8 @@ export class Controller {
       event: settings.event,
       source,
       moves,
-      practice: settings.slowSolve || undefined,
+      practice: settings.slowSolve || isReplay || undefined,
+      replay: isReplay || undefined,
       scrambledFacelets: patternToFacelets(scrambledPattern),
       analysis:
         source === "smartcube" ? analyseSolve(scrambledPattern, moves) : null,

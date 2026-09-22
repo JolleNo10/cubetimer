@@ -35,7 +35,7 @@ export function SolveDetail({ solve }: { solve: Solve }) {
           <span className="grow" />
           <button
             className="ghost"
-            onClick={() => controller.setScramble(solve.scramble)}
+            onClick={() => controller.replayScramble(solve.scramble)}
             title="Load this scramble so you can solve it again"
           >
             Replay

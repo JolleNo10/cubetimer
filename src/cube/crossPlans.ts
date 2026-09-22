@@ -196,4 +196,16 @@ export function planCross(
   return { shortest, plans, exhausted };
 }
 
+/**
+ * True when the given pattern (already oriented with the cross face on D) has at least
+ * one XCross solution — cross plus one F2L pair — in `maxMoves` or fewer moves.
+ */
+export function hasXCrossIn(kpuzzle: KPuzzle, pattern: KPattern, maxMoves: number): boolean {
+  const solver = crossSolver(kpuzzle);
+  const shortest = solver.lengthFrom(pattern);
+  if (shortest > maxMoves) return false;
+  const plans = planCross(kpuzzle, pattern, { extra: maxMoves - shortest });
+  return plans.plans.some((p) => p.pairs.length >= 1 && p.moves.length <= maxMoves);
+}
+
 export { FACES };

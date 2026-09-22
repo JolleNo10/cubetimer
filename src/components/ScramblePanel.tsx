@@ -1,4 +1,5 @@
 import { useController } from "../hooks/useController";
+import { eventInfo } from "../cube/scramble";
 import type { AppState } from "../state/controller";
 
 /**
@@ -25,8 +26,17 @@ export function ScramblePanel({ state }: { state: AppState }) {
             </span>
           ) : null}
           {state.settings.slowSolve && state.lastSolve ? (
-            <button className="ghost" onClick={() => controller.setScramble(state.lastSolve!.scramble)}>
+            <button className="ghost" onClick={() => controller.replayScramble(state.lastSolve!.scramble)}>
               Replay last
+            </button>
+          ) : null}
+          {state.settings.slowSolve && eventInfo(state.settings.event).smart ? (
+            <button
+              className="ghost"
+              onClick={() => void controller.findXCrossScramble()}
+              title="Find a scramble with an XCross in 5 moves or fewer"
+            >
+              XCross
             </button>
           ) : null}
           <button className="ghost" onClick={() => void controller.newScramble()}>
