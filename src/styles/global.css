@@ -152,6 +152,27 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .panel-body { padding: 14px; overflow: auto; min-height: 0; }
 .panel-body.tight { padding: 0; }
 
+.generation-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 38px;
+  color: var(--text-dim);
+}
+.spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--border-strong);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 1.4s; }
+}
+
 /* ------------------------------------------------------------------ header */
 .header {
   display: flex;

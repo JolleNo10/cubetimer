@@ -54,6 +54,8 @@ export type AppState = {
   battery: number | null;
   error: string | null;
   scramble: string;
+  /** True while the XCross search is replacing the current scramble. */
+  xCrossGenerating: boolean;
   scrambleProgress: ScrambleProgress | null;
   /** How to get the cube back onto the scramble after a wrong turn. */
   recovery: { alg: string; resumeAt: number } | null;
@@ -94,6 +96,7 @@ export class Controller {
     battery: null,
     error: null,
     scramble: "",
+    xCrossGenerating: false,
     scrambleProgress: null,
     recovery: null,
     recoveryPending: false,
@@ -281,6 +284,7 @@ export class Controller {
       ...s,
       phase: "scrambling",
       scramble: "",
+      xCrossGenerating: false,
       scrambleProgress: null,
       recovery: null,
       liveMoves: [],
@@ -316,6 +320,7 @@ export class Controller {
     this.state.update((s) => ({
       ...s,
       scramble,
+      xCrossGenerating: false,
       phase: "scrambling",
       scrambleProgress: null,
       recovery: null,
@@ -331,7 +336,7 @@ export class Controller {
    */
   async findXCrossScramble(): Promise<void> {
     const kpuzzle = this.#model?.kpuzzle;
-    if (!kpuzzle) return;
+    if (!kpuzzle || this.state.get().xCrossGenerating) return;
 
     this.#isReplay = false;
     const token = ++this.#xCrossToken;
@@ -344,6 +349,7 @@ export class Controller {
       ...s,
       phase: "scrambling",
       scramble: "",
+      xCrossGenerating: true,
       scrambleProgress: null,
       recovery: null,
       liveMoves: [],
@@ -366,6 +372,7 @@ export class Controller {
         if (token === this.#xCrossToken) {
           this.state.update((s) => ({
             ...s,
+            xCrossGenerating: false,
             error: `Could not generate a scramble: ${String(error)}`,
           }));
         }
@@ -385,6 +392,7 @@ export class Controller {
     if (token === this.#xCrossToken) {
       this.state.update((s) => ({
         ...s,
+        xCrossGenerating: false,
         error: `Could not find an XCross in ${maxMoves} moves after ${maxAttempts} attempts. Try again.`,
       }));
     }
@@ -439,6 +447,7 @@ export class Controller {
     this.state.update((s) => ({
       ...s,
       phase: "scrambling",
+      xCrossGenerating: false,
       liveMoves: [],
       solveSource: null,
       inspectionPenalty: "none",
@@ -849,12 +858,19 @@ export class Controller {
   // ---------------------------------------------------------------- settings
 
   async updateSettings(changes: Partial<Settings>): Promise<void> {
-    if (changes.xCrossMaxMoves !== undefined) this.#xCrossToken++;
+    if (changes.xCrossMaxMoves !== undefined) {
+      this.#xCrossToken++;
+    }
     const settings = normaliseSettings({
       ...this.state.get().settings,
       ...changes,
     });
-    this.state.update((s) => ({ ...s, settings }));
+    this.state.update((s) => ({
+      ...s,
+      settings,
+      xCrossGenerating:
+        changes.xCrossMaxMoves !== undefined ? false : s.xCrossGenerating,
+    }));
     await db.saveSettings(settings);
     if (changes.event) {
       await this.newScramble();

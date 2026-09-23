@@ -52,6 +52,7 @@ export function ScramblePanel({ state }: { state: AppState }) {
               </label>
               <button
                 className="ghost"
+                disabled={state.xCrossGenerating}
                 onClick={() => void controller.findXCrossScramble()}
                 title={`Find a scramble with an XCross in ${state.settings.xCrossMaxMoves} moves or fewer`}
               >
@@ -65,7 +66,12 @@ export function ScramblePanel({ state }: { state: AppState }) {
         </div>
       </div>
       <div className="panel-body">
-        {scramble ? (
+        {state.xCrossGenerating ? (
+          <div className="generation-status" role="status" aria-live="polite">
+            <span className="spinner" aria-hidden="true" />
+            Generating XCross…
+          </div>
+        ) : scramble ? (
           <div className="scramble">
             {moves.map((move, i) => (
               <span
