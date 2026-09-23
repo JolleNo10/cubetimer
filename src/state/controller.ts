@@ -321,9 +321,9 @@ export class Controller {
   }
 
   /**
-   * Keep generating scrambles until one has an XCross in five moves or fewer, then
-   * set that as the current scramble. Cancels automatically if a new scramble is
-   * requested while the search is running.
+   * Keep generating scrambles until one has an XCross within the selected move limit,
+   * then set that as the current scramble. Cancels automatically if a new scramble
+   * is requested while the search is running.
    */
   async findXCrossScramble(): Promise<void> {
     const kpuzzle = this.#model?.kpuzzle;
@@ -332,6 +332,7 @@ export class Controller {
     this.#isReplay = false;
     const token = ++this.#xCrossToken;
     const { settings } = this.state.get();
+    const maxMoves = settings.xCrossMaxMoves;
 
     this.state.update((s) => ({
       ...s,
@@ -369,7 +370,7 @@ export class Controller {
       const scrambledPattern = kpuzzle.defaultPattern().applyAlg(new Alg(scramble));
       const oriented = reframe(kpuzzle, scrambledPattern, rotation);
 
-      if (hasXCrossIn(kpuzzle, oriented, 5)) {
+      if (hasXCrossIn(kpuzzle, oriented, maxMoves)) {
         if (token === this.#xCrossToken) this.setScramble(scramble);
         return;
       }
@@ -838,6 +839,7 @@ export class Controller {
   // ---------------------------------------------------------------- settings
 
   async updateSettings(changes: Partial<Settings>): Promise<void> {
+    if (changes.xCrossMaxMoves !== undefined) this.#xCrossToken++;
     const settings = normaliseSettings({
       ...this.state.get().settings,
       ...changes,

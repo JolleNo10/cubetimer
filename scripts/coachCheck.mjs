@@ -56,6 +56,16 @@ const coach = page.locator(".panel.coach");
 check("the coach appears in slow solve", (await coach.count()) === 1);
 check("it is headed with the cross colour", (await coach.innerText()).includes("YELLOW CROSS"));
 
+const xCrossLimit = page.locator('[aria-label="XCross maximum moves"]');
+check(
+  "XCross offers 4, 5 and 6 move limits",
+  (await xCrossLimit.count()) === 1 &&
+    (await xCrossLimit.locator("option").allTextContents()).join(",") === "4,5,6",
+);
+await xCrossLimit.selectOption("4");
+check("the XCross limit can be changed", (await xCrossLimit.inputValue()) === "4");
+await xCrossLimit.selectOption("5");
+
 // A scramble of our own rather than the generated one, so every run of this script
 // faces the same cube and the same cases. The app is told to adopt whatever state the
 // cube ends up in, which is the same door a solver who scrambles by hand comes in by.

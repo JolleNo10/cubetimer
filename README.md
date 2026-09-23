@@ -52,6 +52,8 @@ for the cube protocols.
 - While you are in one, a panel reads the cube as it stands and follows you through
   the solve. Nothing is worked out while the scramble is still going on — the cube is
   not yet at the position the answer is about.
+- For 3x3x3 smart-cube sessions, the XCross scramble button can search for an XCross
+  in 4, 5 or 6 moves or fewer.
 - Until the cross is done it shows every way of finishing it within a couple of moves
   of the shortest, with the ones that also finish an F2L pair (an XCross) or two (an
   XXCross) at the top, named by the colours of the slot they fill. Stop whenever you

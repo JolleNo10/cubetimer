@@ -111,7 +111,13 @@ export async function loadSettings(): Promise<Settings> {
         Partial<Settings> | undefined
       >,
     );
-    return { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
+    const settings = { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
+    // Settings are persisted data, so keep an older or hand-edited value from
+    // leaking past the typed boundary if the allowed choices ever change.
+    if (![4, 5, 6].includes(settings.xCrossMaxMoves)) {
+      return { ...settings, xCrossMaxMoves: DEFAULT_SETTINGS.xCrossMaxMoves };
+    }
+    return settings;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

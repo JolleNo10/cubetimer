@@ -3,6 +3,8 @@ import type { EventId } from "../cube/scramble";
 
 export type Penalty = "none" | "+2" | "DNF";
 
+export type XCrossMaxMoves = 4 | 5 | 6;
+
 export type Session = {
   id: string;
   name: string;
@@ -67,6 +69,8 @@ export type Settings = {
    * These solves are still recorded and analysed but never counted in the statistics.
    */
   slowSolve: boolean;
+  /** Maximum solution length used when looking for an XCross scramble. */
+  xCrossMaxMoves: XCrossMaxMoves;
   inspection: boolean;
   /** Begin inspection as soon as the cube reaches the scrambled state. */
   autoInspection: boolean;
@@ -92,6 +96,7 @@ export type Settings = {
 export const DEFAULT_SETTINGS: Settings = {
   event: "333",
   slowSolve: false,
+  xCrossMaxMoves: 5,
   inspection: false,
   autoInspection: true,
   requireScramble: true,

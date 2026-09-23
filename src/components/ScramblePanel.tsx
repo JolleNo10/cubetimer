@@ -31,13 +31,33 @@ export function ScramblePanel({ state }: { state: AppState }) {
             </button>
           ) : null}
           {state.settings.slowSolve && eventInfo(state.settings.event).smart ? (
-            <button
-              className="ghost"
-              onClick={() => void controller.findXCrossScramble()}
-              title="Find a scramble with an XCross in 5 moves or fewer"
-            >
-              XCross
-            </button>
+            <>
+              <label className="row small" title="Maximum length of the XCross solution">
+                <span className="faint">XCross ≤</span>
+                <select
+                  aria-label="XCross maximum moves"
+                  value={state.settings.xCrossMaxMoves}
+                  onChange={(e) =>
+                    void controller.updateSettings({
+                      xCrossMaxMoves: Number(e.target.value) as 4 | 5 | 6,
+                    })
+                  }
+                >
+                  {[4, 5, 6].map((moves) => (
+                    <option key={moves} value={moves}>
+                      {moves}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="ghost"
+                onClick={() => void controller.findXCrossScramble()}
+                title={`Find a scramble with an XCross in ${state.settings.xCrossMaxMoves} moves or fewer`}
+              >
+                XCross
+              </button>
+            </>
           ) : null}
           <button className="ghost" onClick={() => void controller.newScramble()}>
             New
