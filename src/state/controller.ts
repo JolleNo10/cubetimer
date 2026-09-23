@@ -72,6 +72,10 @@ export type AppState = {
 
 const INSPECTION_MS = 15_000;
 const INSPECTION_PLUS2_MS = 17_000;
+// Four-move XCrosses are rare, so the normal retry budget can silently fall back
+// to an ordinary scramble before finding one.
+const XCROSS_ATTEMPTS_FOR_LIMIT = 200;
+const XCROSS_ATTEMPTS_FOR_FOUR_MOVES = 2_000;
 
 /**
  * Everything that is not rendering.
@@ -333,6 +337,8 @@ export class Controller {
     const token = ++this.#xCrossToken;
     const { settings } = this.state.get();
     const maxMoves = settings.xCrossMaxMoves;
+    const maxAttempts =
+      maxMoves === 4 ? XCROSS_ATTEMPTS_FOR_FOUR_MOVES : XCROSS_ATTEMPTS_FOR_LIMIT;
 
     this.state.update((s) => ({
       ...s,
@@ -351,7 +357,7 @@ export class Controller {
     const grip = (front && rotationForGrip(bottom, front)) ?? rotationForCrossFace(bottom);
     const rotation = new Alg(grip.tokens.join(" "));
 
-    for (let attempt = 0; attempt < 200; attempt++) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
       if (token !== this.#xCrossToken) return;
       let scramble: string;
       try {
@@ -376,8 +382,12 @@ export class Controller {
       }
     }
 
-    // 200 misses is extremely unlikely; fall back to whatever was last generated.
-    if (token === this.#xCrossToken) await this.newScramble();
+    if (token === this.#xCrossToken) {
+      this.state.update((s) => ({
+        ...s,
+        error: `Could not find an XCross in ${maxMoves} moves after ${maxAttempts} attempts. Try again.`,
+      }));
+    }
   }
 
   /**

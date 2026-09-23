@@ -64,6 +64,20 @@ check(
 );
 await xCrossLimit.selectOption("4");
 check("the XCross limit can be changed", (await xCrossLimit.inputValue()) === "4");
+
+await page.getByRole("button", { name: "XCross" }).click();
+await page.locator(".scramble-move").first().waitFor({ state: "visible", timeout: 60000 });
+const generatedXCross = (await page.locator(".scramble").innerText()).split(/\s+/).filter(Boolean).join(" ");
+await type(generatedXCross, 6);
+await page.waitForTimeout(700);
+const generatedKinds = await page.locator(".panel.coach .plan-kind").allInnerTexts();
+check(
+  "a generated 4-move XCross is available in the coach",
+  generatedKinds.some((kind) => /(?:XCross|XXCross)\n[1-4] moves/.test(kind)),
+  generatedXCross,
+);
+await type(new Alg(generatedXCross).invert().toString(), 6);
+await page.waitForTimeout(300);
 await xCrossLimit.selectOption("5");
 
 // A scramble of our own rather than the generated one, so every run of this script
