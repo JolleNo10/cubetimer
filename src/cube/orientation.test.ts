@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
 import { FACES, OPPOSITE } from "./moves";
 import {
+  ALL_ORIENTATIONS,
+  GENERATORS,
+  IDENTITY,
+  compose,
   describeGrip,
   faceAtPosition,
   frontsFor,
@@ -9,6 +13,7 @@ import {
   reorientMoves,
   rotationForCrossFace,
   rotationForGrip,
+  rotationTokensBetween,
   slotInCubeFrame,
 } from "./orientation";
 import { get3x3x3 } from "./puzzle";
@@ -187,5 +192,51 @@ describe("slotInCubeFrame", () => {
     const { orientation } = rotationForGrip("U", "F")!;
     expect(faceAtPosition(orientation, "D")).toBe("U");
     expect(faceAtPosition(orientation, "R")).toBe("L");
+  });
+});
+
+describe("ALL_ORIENTATIONS", () => {
+  it("is each of the twenty-four grips exactly once", () => {
+    const keys = ALL_ORIENTATIONS.map(({ orientation }) =>
+      FACES.map((face) => orientation[face]).join(""),
+    );
+    expect(new Set(keys).size).toBe(24);
+  });
+
+  it("reaches every grip in at most two rotations", () => {
+    for (const { tokens } of ALL_ORIENTATIONS) {
+      expect(tokens.length).toBeLessThanOrEqual(2);
+    }
+  });
+});
+
+describe("rotationTokensBetween", () => {
+  it("asks for nothing when the cube is already held that way", () => {
+    for (const { orientation } of ALL_ORIENTATIONS) {
+      expect(rotationTokensBetween(orientation, orientation)).toEqual([]);
+    }
+  });
+
+  it("names the turn from one grip to the next", () => {
+    // Held as scrambled, a single y is all it takes to face the next side.
+    expect(rotationTokensBetween(IDENTITY, GENERATORS.y)).toEqual(["y"]);
+  });
+
+  it("gets from any grip to any other", () => {
+    for (const from of ALL_ORIENTATIONS) {
+      for (const to of ALL_ORIENTATIONS) {
+        const tokens = rotationTokensBetween(from.orientation, to.orientation);
+        // Turning the cube by those tokens really has to land on the target grip.
+        let reached = from.orientation;
+        for (const token of tokens) {
+          const axis = token[0] as "x" | "y" | "z";
+          const amount = token.endsWith("'") ? 3 : token.endsWith("2") ? 2 : 1;
+          for (let i = 0; i < amount; i++) {
+            reached = compose(reached, GENERATORS[axis]);
+          }
+        }
+        expect(reached, `${from.tokens} -> ${to.tokens}`).toEqual(to.orientation);
+      }
+    }
   });
 });

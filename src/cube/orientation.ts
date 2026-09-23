@@ -13,10 +13,10 @@ import { EDGE_NAMES, FACES, OPPOSITE, type Face } from "./moves";
 /** Where each face ends up after the rotation, keyed by the face it started as. */
 export type Orientation = Record<Face, Face>;
 
-const IDENTITY: Orientation = { U: "U", R: "R", F: "F", D: "D", L: "L", B: "B" };
+export const IDENTITY: Orientation = { U: "U", R: "R", F: "F", D: "D", L: "L", B: "B" };
 
 /** Single quarter-turn rotations, written as "the face here moves to there". */
-const GENERATORS: Record<"x" | "y" | "z", Orientation> = {
+export const GENERATORS: Record<"x" | "y" | "z", Orientation> = {
   // x turns the cube the way R does: F goes to U, U goes to B, and so on.
   x: { F: "U", U: "B", B: "D", D: "F", R: "R", L: "L" },
   // y turns the cube the way U does.
@@ -25,7 +25,7 @@ const GENERATORS: Record<"x" | "y" | "z", Orientation> = {
   z: { U: "R", R: "D", D: "L", L: "U", F: "F", B: "B" },
 };
 
-function compose(first: Orientation, second: Orientation): Orientation {
+export function compose(first: Orientation, second: Orientation): Orientation {
   return Object.fromEntries(
     FACES.map((face) => [face, second[first[face]]]),
   ) as Orientation;
@@ -69,6 +69,52 @@ const ROTATION_CHOICES: Rotation[] = (() => {
   }
   return all;
 })();
+
+function orientationKey(orientation: Orientation): string {
+  return FACES.map((face) => orientation[face]).join("");
+}
+
+/**
+ * The twenty-four ways a cube can be held, each with the shortest rotations that reach
+ * it.
+ *
+ * `ROTATION_CHOICES` lists ninety-one sequences because it enumerates pairs, and most
+ * orientations are reachable several ways. Anything that has to reason over
+ * orientations rather than over the rotations that produce them wants each one once.
+ */
+export const ALL_ORIENTATIONS: readonly Rotation[] = (() => {
+  const best = new Map<string, Rotation>();
+  for (const candidate of ROTATION_CHOICES) {
+    const key = orientationKey(candidate.orientation);
+    const existing = best.get(key);
+    if (!existing || candidate.tokens.length < existing.tokens.length) {
+      best.set(key, candidate);
+    }
+  }
+  return [...best.values()];
+})();
+
+/** The orientation that undoes this one. */
+export function invert(orientation: Orientation): Orientation {
+  return Object.fromEntries(
+    FACES.map((face) => [orientation[face], face]),
+  ) as Orientation;
+}
+
+/**
+ * The rotations that take a cube held one way to being held another.
+ *
+ * Written as the solver would do them: `from` is where their hands already are, so the
+ * tokens are applied after it, in the frame they are looking at. Empty when the two are
+ * the same.
+ */
+export function rotationTokensBetween(from: Orientation, to: Orientation): string[] {
+  const needed = orientationKey(compose(invert(from), to));
+  const match = ALL_ORIENTATIONS.find(
+    (candidate) => orientationKey(candidate.orientation) === needed,
+  );
+  return match ? [...match.tokens] : [];
+}
 
 /**
  * Find the simplest way to hold the cube so `crossFace` is at the bottom.

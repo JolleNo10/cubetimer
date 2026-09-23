@@ -2,11 +2,17 @@ import type { GanCubeMove } from "gan-web-bluetooth";
 import { Alg } from "cubing/alg";
 import type { KPattern } from "cubing/kpuzzle";
 import { analyseSolve, isSolvedPattern, type TimedMove } from "../cube/analysis";
-import { faceOfColour } from "../cube/colours";
+import { faceColour, faceOfColour } from "../cube/colours";
 import { hasXCrossIn } from "../cube/crossPlans";
 import { isRecentreGesture, RECENTRE_GESTURE_TURNS } from "../cube/gestures";
-import { parseFaceMove } from "../cube/moves";
-import { rotationForCrossFace, rotationForGrip } from "../cube/orientation";
+import { facesAtPositions } from "../cube/gyroGrip";
+import { LiveGrip } from "../cube/liveGrip";
+import { parseFaceMove, type Face } from "../cube/moves";
+import {
+  reorientMove,
+  rotationForCrossFace,
+  rotationForGrip,
+} from "../cube/orientation";
 import { reframe } from "../cube/recognise";
 import { CubeModel, patternToFacelets } from "../cube/model";
 import { get3x3x3 } from "../cube/puzzle";
@@ -30,6 +36,7 @@ import { rebuildAnalysis } from "./repair";
 import { normaliseSettings } from "./settings";
 import { countSolveCsvRows, solveCsvBatches, formatSolveCsv } from "./solveCsv";
 import { Store } from "./store";
+import { debugEnabled, debugLog } from "../util/debug";
 import {
   DEFAULT_SETTINGS,
   type Session,
@@ -132,6 +139,10 @@ export class Controller {
   #recoveryToken = 0;
   #beeped = new Set<number>();
   #gyroListeners = new Set<(q: Quaternion) => void>();
+  /** Where the cube is pointing, measured against the pose it was scrambled in. */
+  #grip = new LiveGrip();
+  /** The grip last written to the trace, so only changes are reported. */
+  #tracedGrip = "";
   #recentreListeners = new Set<() => void>();
   #recentTurns: string[] = [];
   #moveListeners = new Set<(move: string) => void>();
@@ -163,6 +174,8 @@ export class Controller {
       onMove: (move) => this.#onMove(move),
       onFacelets: (facelets) => this.#onFacelets(facelets),
       onGyro: (q) => {
+        this.#grip.sample(q, performance.now());
+        this.#traceGrip();
         for (const listener of this.#gyroListeners) listener(q);
       },
       onBattery: (battery) => this.state.update((s) => ({ ...s, battery })),
@@ -197,6 +210,104 @@ export class Controller {
   onGyro(listener: (q: Quaternion) => void): () => void {
     this.#gyroListeners.add(listener);
     return () => this.#gyroListeners.delete(listener);
+  }
+
+  /**
+   * The pose the cube was in when the scramble finished, which is white on top and
+   * green in front. Everything that has to know which way the cube is facing — the 3D
+   * view included — measures from here, so there is one reference and not several.
+   */
+  get gripReference(): Quaternion | null {
+    return this.#grip.reference;
+  }
+
+  /** How the cube is being held right now, or null before the scramble is finished. */
+  get grip(): { bottom: Face; front: Face } | null {
+    const orientation = this.#grip.orientation;
+    if (!orientation) return null;
+    const at = facesAtPositions(orientation);
+    return { bottom: at.D, front: at.F };
+  }
+
+  /**
+   * Take the cube's current pose as the reference.
+   *
+   * Normally this happens on its own when the scramble is finished. The solver can also
+   * ask for it, which is what the recentre gesture and the button under the 3D view do.
+   *
+   * Refused mid-solve. The reference means "white on top, green in front", which is not
+   * true of a cube halfway through a solve, and moving it would throw away the readings
+   * the reconstruction is built from.
+   */
+  recentreGrip(): void {
+    if (this.state.get().phase === "solving") return;
+    this.#grip.reset();
+    this.#grip.lockReference();
+    this.#tracedGrip = "";
+  }
+
+  /**
+   * Write one line per move: what the cube reported, how it was being held, and what
+   * that turn therefore was from the solver's side.
+   *
+   * This is the whole point of the trace. A grip estimate is only ever wrong in terms
+   * of the moves it mislabels, so the two have to be read together.
+   */
+  #traceMove(move: string, phase: TimerPhase): void {
+    if (!debugEnabled("grip")) return;
+    if (phase !== "solving" && phase !== "ready" && phase !== "inspection") return;
+    const orientation = this.#grip.orientation;
+    const snapped = this.#grip.snapped;
+    const grip = this.grip;
+    if (!orientation || !snapped || !grip) return;
+    // The first turn of a solve arrives before the clock is started, so there is no
+    // elapsed time to quote for it yet.
+    const when =
+      phase === "solving"
+        ? `+${Math.round(performance.now() - this.#startedAt)}ms`.padStart(9)
+        : "    start".padStart(9);
+    debugLog(
+      "grip",
+      when,
+      move.padEnd(3),
+      `front=${faceColour(grip.front).name}`.padEnd(16),
+      `m=${snapped.margin.toFixed(2)}`,
+      "→",
+      reorientMove(move, orientation),
+    );
+  }
+
+  #lockGripReference(): void {
+    if (this.#grip.locked) return;
+    this.#grip.lockReference();
+    this.#tracedGrip = "";
+    if (this.#grip.active) {
+      debugLog("grip", "reference locked — white top, green front");
+    }
+    this.#traceGrip();
+  }
+
+  /**
+   * Write the grip to the trace whenever it changes.
+   *
+   * Only changes, not every reading: the cube reports its pose many times a second and
+   * almost all of those say the same thing.
+   */
+  #traceGrip(): void {
+    if (!debugEnabled("grip")) return;
+    const snapped = this.#grip.snapped;
+    const grip = this.grip;
+    if (!snapped || !grip) return;
+    const key = `${grip.bottom}${grip.front}`;
+    if (key === this.#tracedGrip) return;
+    const from = this.#tracedGrip;
+    this.#tracedGrip = key;
+    debugLog(
+      "grip",
+      from === "" ? "grip" : `grip ${from} →`,
+      `${faceColour(grip.front).name} front, ${faceColour(grip.bottom).name} down`,
+      `(${snapped.tokens.join(" ") || "as scrambled"}, m=${snapped.margin.toFixed(2)})`,
+    );
   }
 
   /**
@@ -321,6 +432,10 @@ export class Controller {
     const usesSmartCube = eventInfo(this.state.get().settings.event).smart;
     this.#tracker =
       kpuzzle && usesSmartCube ? new ScrambleTracker(kpuzzle, scramble) : null;
+    // A new scramble is about to be applied, so the cube is about to be back in the
+    // pose the reference means. Start sighting it again.
+    this.#grip.reset();
+    this.#tracedGrip = "";
     this.state.update((s) => ({
       ...s,
       scramble,
@@ -564,6 +679,7 @@ export class Controller {
 
     const { phase } = this.state.get();
     this.#checkRecentreGesture(move.move, phase);
+    this.#traceMove(move.move, phase);
 
     if (phase === "ready" || phase === "inspection") {
       // The first turn is what starts the clock, and it counts as part of the solve.
@@ -659,6 +775,12 @@ export class Controller {
 
     if (progress.done || !settings.requireScramble) {
       this.#recoveryToken++;
+      // The scramble is on the cube, so it is being held white on top and green in
+      // front. This is the one moment in a solve when the pose is known outright, and
+      // everything afterwards is measured from it. Deliberately keyed off the scramble
+      // rather than off the phase: with auto-inspection off the solver inspects while
+      // still in `ready`, and turning the cube over then must be measured, not absorbed.
+      this.#lockGripReference();
       this.state.update((s) => ({ ...s, recovery: null }));
       if (settings.inspection && settings.autoInspection && !settings.slowSolve) {
         this.#startInspection();

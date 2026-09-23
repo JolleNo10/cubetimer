@@ -33,6 +33,37 @@ export function fromEuler(x: number, y: number, z: number): Quat {
   };
 }
 
+/**
+ * The rotation that takes `from` to `to`, expressed in `from`'s own coordinates.
+ *
+ * Both arguments map the cube's body frame onto the world, so conjugating one by the
+ * other cancels the world out: whatever frame the gyroscope thinks it is measuring
+ * against, and however far that frame has drifted, falls away. Every question about
+ * how the cube has turned since some reference pose is asked through this.
+ */
+export function relative(from: Quat, to: Quat): Quat {
+  return multiply(conjugate(from), to);
+}
+
+/**
+ * The quaternion as a 3x3 rotation matrix, in row-major order.
+ *
+ * Columns are where the body's own axes end up, which is what makes a matrix easier to
+ * reason about than the quaternion here: comparing two orientations becomes a dot
+ * product over nine numbers.
+ */
+export function toMatrix(q: Quat): number[] {
+  const { x, y, z, w } = normalize(q);
+  const [xx, yy, zz] = [x * x, y * y, z * z];
+  const [xy, xz, yz] = [x * y, x * z, y * z];
+  const [wx, wy, wz] = [w * x, w * y, w * z];
+  return [
+    1 - 2 * (yy + zz), 2 * (xy - wz), 2 * (xz + wy),
+    2 * (xy + wz), 1 - 2 * (xx + zz), 2 * (yz - wx),
+    2 * (xz - wy), 2 * (yz + wx), 1 - 2 * (xx + yy),
+  ];
+}
+
 export function slerp(a: Quat, b: Quat, t: number): Quat {
   let cos = a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
   let end = b;

@@ -154,14 +154,17 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
     }
 
     let cancelled = false;
-    let basis: Quat | null = null;
     let current: Quat = HOME_ORIENTATION;
     let object: { quaternion: { set(x: number, y: number, z: number, w: number): void } } | null =
       null;
     let vantages: { scheduleRender(): void }[] = [];
 
+    // The reference is the pose the cube was scrambled in, which is white on top and
+    // green in front — exactly what HOME_ORIENTATION draws. Sharing it with the grip
+    // tracker means the view and the reconstruction can never disagree about which way
+    // the cube is facing, and the cube snaps upright the moment a scramble is finished.
     resetGyroRef.current = () => {
-      basis = null;
+      controller.recentreGrip();
     };
 
     void (async () => {
@@ -177,9 +180,11 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
     const off = controller.onGyro((raw) => {
       if (cancelled || !object) return;
       const measured = cubeToSceneQuaternion(raw);
-      // The first reading defines "home", so the cube appears upright wherever the
-      // solver happens to be holding it when they connect.
-      basis ??= conjugate(measured);
+      // Before a scramble has been finished there is no reference yet, so fall back to
+      // treating this reading as home; the cube still appears upright wherever the
+      // solver happens to be holding it.
+      const reference = controller.gripReference;
+      const basis = conjugate(reference ? cubeToSceneQuaternion(reference) : measured);
       const target = normalize(
         multiply(multiply(basis, measured), HOME_ORIENTATION),
       );
