@@ -3,3 +3,23 @@ dist
 .git
 .DS_Store
 *.log
+
+node_modules
+dist
+.vite
+*.log
+
+# Repository / tooling metadata not needed by the app build
+.codex
+.github
+.impeccable
+.vscode
+.repowise
+
+# Documentation / reviews
+docs
+*.md
+
+# Local/editor files
+.DS_Store
+Thumbs.db
