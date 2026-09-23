@@ -102,7 +102,7 @@ export function reframe(
  * Undo any whole-cube rotation an algorithm left behind, so every case state is
  * expressed with the last layer on top and the centres where they belong.
  */
-function withCentresHome(kpuzzle: KPuzzle, pattern: KPattern): KPattern {
+export function withCentresHome(kpuzzle: KPuzzle, pattern: KPattern): KPattern {
   const solvedCentres = kpuzzle.defaultPattern().patternData.CENTERS.pieces;
   const centresMatch = (candidate: KPattern) =>
     candidate.patternData.CENTERS.pieces.every(

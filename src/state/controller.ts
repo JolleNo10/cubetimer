@@ -81,6 +81,8 @@ export type AppState = {
   settings: Settings;
 };
 
+/** How often the grip trace says where it has got to while nothing is changing. */
+const GRIP_HEARTBEAT_MS = 2_000;
 const INSPECTION_MS = 15_000;
 const INSPECTION_PLUS2_MS = 17_000;
 // Four-move XCrosses are rare, so the normal retry budget can silently fall back
@@ -143,6 +145,8 @@ export class Controller {
   #grip = new LiveGrip();
   /** The grip last written to the trace, so only changes are reported. */
   #tracedGrip = "";
+  #gyroReadings = 0;
+  #gripHeartbeatAt = 0;
   #recentreListeners = new Set<() => void>();
   #recentTurns: string[] = [];
   #moveListeners = new Set<(move: string) => void>();
@@ -174,12 +178,24 @@ export class Controller {
       onMove: (move) => this.#onMove(move),
       onFacelets: (facelets) => this.#onFacelets(facelets),
       onGyro: (q) => {
+        if (this.#gyroReadings === 0) {
+          debugLog("grip", "first gyro reading — following the cube");
+        }
+        this.#gyroReadings++;
         this.#grip.sample(q, performance.now());
         this.#traceGrip();
         for (const listener of this.#gyroListeners) listener(q);
       },
       onBattery: (battery) => this.state.update((s) => ({ ...s, battery })),
-      onHardware: (hardware) => this.state.update((s) => ({ ...s, hardware })),
+      onHardware: (hardware) => {
+        debugLog(
+          "grip",
+          hardware.gyroSupported === false
+            ? `${hardware.hardwareName ?? "cube"} reports no gyroscope — there is nothing to track`
+            : `${hardware.hardwareName ?? "cube"} connected, gyroscope supported`,
+        );
+        this.state.update((s) => ({ ...s, hardware }));
+      },
       onStatus: (cubeStatus, error) =>
         this.state.update((s) => ({
           ...s,
@@ -255,17 +271,21 @@ export class Controller {
    */
   #traceMove(move: string, phase: TimerPhase): void {
     if (!debugEnabled("grip")) return;
-    if (phase !== "solving" && phase !== "ready" && phase !== "inspection") return;
     const orientation = this.#grip.orientation;
     const snapped = this.#grip.snapped;
     const grip = this.grip;
-    if (!orientation || !snapped || !grip) return;
     // The first turn of a solve arrives before the clock is started, so there is no
     // elapsed time to quote for it yet.
     const when =
       phase === "solving"
         ? `+${Math.round(performance.now() - this.#startedAt)}ms`.padStart(9)
-        : "    start".padStart(9);
+        : phase.padStart(9);
+    if (!orientation || !snapped || !grip) {
+      // Still worth a line. A move with no grip beside it is the clearest possible
+      // sign that the tracking has not started, and why.
+      debugLog("grip", when, move.padEnd(3), this.#whyNoGrip());
+      return;
+    }
     debugLog(
       "grip",
       when,
@@ -277,13 +297,48 @@ export class Controller {
     );
   }
 
+  /** Why there is no reading to report, in the words of whatever is missing. */
+  #whyNoGrip(): string {
+    if (this.#gyroReadings === 0) {
+      return this.hasCube
+        ? "no gyro readings from the cube yet"
+        : "no cube connected";
+    }
+    if (!this.#grip.locked) return "waiting for the scramble to be finished";
+    return "no reading since the scramble finished";
+  }
+
+  /**
+   * Say where the tracking has got to, every so often.
+   *
+   * The trace otherwise only speaks when something changes, and a solver holding the
+   * cube still cannot tell that apart from the tracking being broken.
+   */
+  #traceHeartbeat(): void {
+    const now = performance.now();
+    if (now - this.#gripHeartbeatAt < GRIP_HEARTBEAT_MS) return;
+    this.#gripHeartbeatAt = now;
+    const grip = this.grip;
+    const snapped = this.#grip.snapped;
+    debugLog(
+      "grip",
+      `${this.#gyroReadings} readings ·`,
+      grip && snapped
+        ? `${faceColour(grip.front).name} front, ${faceColour(grip.bottom).name} down (${snapped.tokens.join(" ") || "as scrambled"}, m=${snapped.margin.toFixed(2)})`
+        : this.#whyNoGrip(),
+    );
+  }
+
   #lockGripReference(): void {
     if (this.#grip.locked) return;
     this.#grip.lockReference();
     this.#tracedGrip = "";
-    if (this.#grip.active) {
-      debugLog("grip", "reference locked — white top, green front");
-    }
+    debugLog(
+      "grip",
+      this.#grip.active
+        ? "scramble finished — reference locked at white top, green front"
+        : "scramble finished, but the cube has sent no gyro readings, so there is nothing to lock on to",
+    );
     this.#traceGrip();
   }
 
@@ -295,6 +350,7 @@ export class Controller {
    */
   #traceGrip(): void {
     if (!debugEnabled("grip")) return;
+    this.#traceHeartbeat();
     const snapped = this.#grip.snapped;
     const grip = this.grip;
     if (!snapped || !grip) return;
