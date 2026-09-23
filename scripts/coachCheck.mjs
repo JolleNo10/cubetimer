@@ -67,8 +67,14 @@ check("the XCross limit can be changed", (await xCrossLimit.inputValue()) === "4
 
 const xCrossButton = page.getByRole("button", { name: "XCross" });
 await xCrossButton.click();
-await page.locator('[role="status"]').filter({ hasText: "Generating XCross" }).waitFor({ state: "visible" });
-check("XCross shows generation progress", (await xCrossButton.isDisabled()) && (await page.locator(".spinner").count()) === 1);
+const generationStatus = page.locator('[role="status"]').filter({ hasText: "Generating XCross" });
+await generationStatus.waitFor({ state: "visible" });
+check(
+  "XCross shows generation progress",
+  (await xCrossButton.isDisabled()) &&
+    (await page.locator(".spinner").count()) === 1 &&
+    /variations? tried/.test(await generationStatus.innerText()),
+);
 await page.locator(".scramble-move").first().waitFor({ state: "visible", timeout: 60000 });
 const generatedXCross = (await page.locator(".scramble").innerText()).split(/\s+/).filter(Boolean).join(" ");
 await type(generatedXCross, 6);

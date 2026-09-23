@@ -69,7 +69,8 @@ export function ScramblePanel({ state }: { state: AppState }) {
         {state.xCrossGenerating ? (
           <div className="generation-status" role="status" aria-live="polite">
             <span className="spinner" aria-hidden="true" />
-            Generating XCross…
+            Generating XCross… {state.xCrossAttempts}{" "}
+            {state.xCrossAttempts === 1 ? "variation" : "variations"} tried
           </div>
         ) : scramble ? (
           <div className="scramble">

@@ -56,6 +56,8 @@ export type AppState = {
   scramble: string;
   /** True while the XCross search is replacing the current scramble. */
   xCrossGenerating: boolean;
+  /** Number of candidate scrambles checked by the current XCross search. */
+  xCrossAttempts: number;
   scrambleProgress: ScrambleProgress | null;
   /** How to get the cube back onto the scramble after a wrong turn. */
   recovery: { alg: string; resumeAt: number } | null;
@@ -97,6 +99,7 @@ export class Controller {
     error: null,
     scramble: "",
     xCrossGenerating: false,
+    xCrossAttempts: 0,
     scrambleProgress: null,
     recovery: null,
     recoveryPending: false,
@@ -285,6 +288,7 @@ export class Controller {
       phase: "scrambling",
       scramble: "",
       xCrossGenerating: false,
+      xCrossAttempts: 0,
       scrambleProgress: null,
       recovery: null,
       liveMoves: [],
@@ -321,6 +325,7 @@ export class Controller {
       ...s,
       scramble,
       xCrossGenerating: false,
+      xCrossAttempts: 0,
       phase: "scrambling",
       scrambleProgress: null,
       recovery: null,
@@ -350,6 +355,7 @@ export class Controller {
       phase: "scrambling",
       scramble: "",
       xCrossGenerating: true,
+      xCrossAttempts: 0,
       scrambleProgress: null,
       recovery: null,
       liveMoves: [],
@@ -373,12 +379,19 @@ export class Controller {
           this.state.update((s) => ({
             ...s,
             xCrossGenerating: false,
+            xCrossAttempts: 0,
             error: `Could not generate a scramble: ${String(error)}`,
           }));
         }
         return;
       }
       if (token !== this.#xCrossToken) return;
+
+      this.state.update((s) =>
+        token === this.#xCrossToken
+          ? { ...s, xCrossAttempts: attempt + 1 }
+          : s,
+      );
 
       const scrambledPattern = kpuzzle.defaultPattern().applyAlg(new Alg(scramble));
       const oriented = reframe(kpuzzle, scrambledPattern, rotation);
@@ -393,6 +406,7 @@ export class Controller {
       this.state.update((s) => ({
         ...s,
         xCrossGenerating: false,
+        xCrossAttempts: 0,
         error: `Could not find an XCross in ${maxMoves} moves after ${maxAttempts} attempts. Try again.`,
       }));
     }
@@ -448,6 +462,7 @@ export class Controller {
       ...s,
       phase: "scrambling",
       xCrossGenerating: false,
+      xCrossAttempts: 0,
       liveMoves: [],
       solveSource: null,
       inspectionPenalty: "none",
@@ -870,6 +885,7 @@ export class Controller {
       settings,
       xCrossGenerating:
         changes.xCrossMaxMoves !== undefined ? false : s.xCrossGenerating,
+      xCrossAttempts: changes.xCrossMaxMoves !== undefined ? 0 : s.xCrossAttempts,
     }));
     await db.saveSettings(settings);
     if (changes.event) {
