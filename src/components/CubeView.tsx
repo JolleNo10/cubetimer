@@ -49,7 +49,7 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
   // rotation, rather than tumbling about after the raw readings.
   const gyroDriven = settings.useGyroscope && gyroSupported;
   const solveOrientation = useMemo(() => {
-    if (!live) return null;
+    if (!live || gyroDriven) return null;
     const bottom = faceOfColour(settings.crossColour);
     if (!bottom) return null;
     const front = faceOfColour(settings.frontColour);
@@ -57,7 +57,7 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
     return (
       (front && rotationForGrip(bottom, front)) ?? rotationForCrossFace(bottom)
     );
-  }, [live, settings.crossColour, settings.frontColour]);
+  }, [live, gyroDriven, settings.crossColour, settings.frontColour]);
 
   useEffect(() => {
     if (!use3D) return;
@@ -84,10 +84,15 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
     let compacting = false;
     // How the cube is being held. Measured when there is a gyroscope to measure it
     // with, and otherwise whatever the solver said in the settings.
-    let held: Orientation | null =
-      (gyroDriven ? controller.heldAs : null) ??
-      solveOrientation?.orientation ??
-      null;
+    //
+    // With a gyroscope the starting point is the cube as scrambled — white on top,
+    // green in front — because that is how it is being held while the scramble goes
+    // on. The solver turns it over during inspection and the view follows them. The
+    // cross colour from the settings is no help here and would have the cube upside
+    // down for the whole scramble.
+    let held: Orientation | null = gyroDriven
+      ? (controller.heldAs ?? IDENTITY)
+      : (solveOrientation?.orientation ?? null);
 
     const resync = async (pattern: KPattern) => {
       try {
