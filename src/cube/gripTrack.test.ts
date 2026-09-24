@@ -324,3 +324,114 @@ describe("encodeGripTrack", () => {
     expect(restored?.orientations).toHaveLength(2);
   });
 });
+
+describe("step boundaries", () => {
+  /**
+   * A solve where the gyroscope has come loose of reality partway through — the
+   * failure worth catching, because nothing in the reading itself notices.
+   *
+   * The drift here is a half turn, which puts the cross face on top. A quarter turn
+   * would be caught anyway: an everyday `offCross` costs more than a reading a
+   * quarter turn out can ever be worth, so the wrong grip never pays for itself.
+   * A half turn does, and that is what needs a boundary to stop it.
+   */
+  const driftedSolve = () =>
+    solve([
+      ["R", "z2", 0],
+      ["U", "z2", 150],
+      ["R'", "z2", 150],
+      ["U'", "z2 x2", 150],
+      ["R", "z2 x2", 150],
+      ["U", "z2 x2", 150],
+    ]);
+
+  it("keeps the cross face underneath where a step ends", () => {
+    const input = driftedSolve();
+    const tracked = trackGrip({
+      ...input,
+      reference: REFERENCE,
+      crossFace: "U",
+      boundaries: [5],
+    });
+    expect(tracked.orientations[5].U).toBe("D");
+  });
+
+  it("re-reads the step that led up to the boundary", () => {
+    const input = driftedSolve();
+    const loose = trackGrip({ ...input, reference: REFERENCE, crossFace: "U" });
+    const anchored = trackGrip({
+      ...input,
+      reference: REFERENCE,
+      crossFace: "U",
+      boundaries: [5],
+    });
+
+    // Left to itself the reading is believed and the cube tips over mid-solve.
+    expect(loose.orientations[4].U).not.toBe("D");
+    // Pinning the end of the step rewrites the moves before it too, not just the
+    // one that was pinned.
+    expect(anchored.orientations[4].U).toBe("D");
+    // And rewrites them to the grip actually held, front included, rather than just
+    // to any grip with white underneath.
+    expect(anchored.orientations).toEqual(
+      anchored.orientations.map(() => grip("z2").orientation),
+    );
+  });
+
+  it("says when it overruled the gyroscope, rather than doing it quietly", () => {
+    const tracked = trackGrip({
+      ...driftedSolve(),
+      reference: REFERENCE,
+      crossFace: "U",
+      boundaries: [5],
+    });
+    expect(tracked.warnings.join(" ")).toContain("overruled");
+  });
+
+  it("says nothing when the reading agreed all along", () => {
+    const tracked = trackGrip({
+      ...solve([
+        ["R", "z2", 0],
+        ["U", "z2", 150],
+      ]),
+      reference: REFERENCE,
+      crossFace: "U",
+      boundaries: [0, 1],
+    });
+    expect(tracked.warnings).toEqual([]);
+  });
+
+  it("still lets the solver turn the cube between the boundaries", () => {
+    const input = solve([
+      ["R", "z2", 0],
+      ["U", "z2", 150],
+      ["F", "z2 y", 800],
+      ["U", "z2 y", 150],
+    ]);
+    const tracked = trackGrip({
+      ...input,
+      reference: REFERENCE,
+      crossFace: "U",
+      boundaries: [0, 3],
+    });
+    // Both ends have white underneath, and the y in the middle survives: a y never
+    // takes the cross face off the bottom, so the anchors have no quarrel with it.
+    expect(tracked.orientations[0]).toEqual(grip("z2").orientation);
+    expect(tracked.orientations[3]).toEqual(grip("z2 y").orientation);
+  });
+
+  it("ignores boundaries that are not moves of the solve", () => {
+    const input = solve([
+      ["R", "z2", 0],
+      ["U", "z2", 150],
+    ]);
+    expect(() =>
+      trackGrip({
+        ...input,
+        reference: REFERENCE,
+        crossFace: "U",
+        boundaries: [-1, 0, 99],
+      }),
+    ).not.toThrow();
+  });
+});

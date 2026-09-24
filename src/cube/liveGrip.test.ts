@@ -150,3 +150,57 @@ describe("LiveGrip reference", () => {
     expect(front(grip)).toBe("F");
   });
 });
+
+describe("holdBottom", () => {
+  /** A solve in progress: white underneath, green facing the solver. */
+  function solving(): LiveGrip {
+    const grip = new LiveGrip();
+    grip.sample(DRIFTED, 0);
+    grip.lockReference();
+    grip.sample(turn(DRIFTED, Z2), 100);
+    grip.holdBottom("U");
+    return grip;
+  }
+
+  it("will not tip the cube over, whatever the reading says", () => {
+    const grip = solving();
+    // The reading comes loose and claims the cube is on its side.
+    grip.sample(turn(DRIFTED, aboutAxis(FACE_AXES.R, -90)), 1000);
+    expect(facesAtPositions(grip.orientation!).D).toBe("U");
+  });
+
+  it("still follows the side facing the solver", () => {
+    const grip = solving();
+    // z2 then y: white stays underneath, and orange comes round to the front. The
+    // later turn goes on the left, since each one acts in the frame already reached.
+    const z2y = normalize(multiply(aboutAxis(FACE_AXES.U, -90), Z2));
+    grip.sample(turn(DRIFTED, z2y), 1000);
+    grip.sample(turn(DRIFTED, z2y), 2000);
+    expect(facesAtPositions(grip.steady!).D).toBe("U");
+    expect(facesAtPositions(grip.steady!).F).toBe("L");
+  });
+
+  it("goes back to considering every grip when the hold is lifted", () => {
+    const grip = solving();
+    const onItsSide = turn(DRIFTED, aboutAxis(FACE_AXES.R, -90));
+    grip.sample(onItsSide, 1000);
+    expect(facesAtPositions(grip.orientation!).D).toBe("U");
+
+    grip.holdBottom(null);
+    expect(facesAtPositions(grip.orientation!).D).not.toBe("U");
+  });
+
+  it("re-reads the latest reading as soon as the hold changes", () => {
+    const grip = solving();
+    grip.sample(turn(DRIFTED, aboutAxis(FACE_AXES.R, -90)), 1000);
+    // Without re-reading, the grip would still reflect the old constraint.
+    grip.holdBottom("F");
+    expect(facesAtPositions(grip.orientation!).D).toBe("F");
+  });
+
+  it("is forgotten when a new scramble starts", () => {
+    const grip = solving();
+    grip.reset();
+    expect(grip.heldBottom).toBeNull();
+  });
+});

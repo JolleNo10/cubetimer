@@ -12,8 +12,9 @@
  * Samples are kept from the moment the scramble finishes, because the turn of the cube
  * during inspection is part of what has to be reconstructed.
  */
-import { snapOrientation, type Snapped } from "./gyroGrip";
+import { snapOrientation, snapWithBottom, type Snapped } from "./gyroGrip";
 import type { Orientation } from "./orientation";
+import type { Face } from "./moves";
 import type { Quat } from "../util/quat";
 
 export type GyroSample = { q: Quat; t: number };
@@ -47,6 +48,7 @@ export class LiveGrip {
   #steady: Orientation | null = null;
   #candidate: Orientation | null = null;
   #candidateSince = 0;
+  #bottom: Face | null = null;
 
   /**
    * Take a reading.
@@ -62,7 +64,10 @@ export class LiveGrip {
       this.#reference = q;
       return;
     }
-    this.#snapped = snapOrientation(q, this.#reference ?? q);
+    const reference = this.#reference ?? q;
+    this.#snapped = this.#bottom
+      ? snapWithBottom(q, reference, this.#bottom)
+      : snapOrientation(q, reference);
     this.#settle(this.#snapped.orientation, t);
     const previous = this.#samples[this.#samples.length - 1];
     if (
@@ -96,6 +101,7 @@ export class LiveGrip {
     this.#snapped = null;
     this.#steady = null;
     this.#candidate = null;
+    this.#bottom = null;
     this.#keptAt = Number.NEGATIVE_INFINITY;
     // The reference is deliberately kept. It is still the best guess at the scrambling
     // pose, so the live view has something to work from before the next reading lands.
@@ -142,6 +148,31 @@ export class LiveGrip {
    */
   get steady(): Orientation | null {
     return this.#steady;
+  }
+
+  /**
+   * Hold one face underneath until told otherwise.
+   *
+   * Through a solve the cross face stays down — the solver turns the cube about the
+   * vertical axis and no other way — so once the solve is under way the only real
+   * question is which side is facing them. Asking that narrower question keeps a
+   * drifting reading from tipping the cube over on screen, which is the one kind of
+   * mistake that makes the view useless rather than merely wrong.
+   *
+   * `null` to go back to considering every way of holding it.
+   */
+  holdBottom(face: Face | null): void {
+    if (face === this.#bottom) return;
+    this.#bottom = face;
+    // The constraint changes what the last reading meant, so do not let a grip
+    // settled under the old one linger.
+    this.#candidate = null;
+    if (this.#locked && this.#latest) this.sample(this.#latest, this.#latestAt);
+  }
+
+  /** The face being held underneath, if any. */
+  get heldBottom(): Face | null {
+    return this.#bottom;
   }
 
   /** Adopt a new grip once it has been the answer for long enough to believe. */

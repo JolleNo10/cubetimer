@@ -661,6 +661,7 @@ export class Controller {
     this.inspectionLeft.set(null);
     this.#solveMoves = [];
     this.#solveReadings = [];
+    this.#grip.holdBottom(null);
     this.state.update((s) => ({
       ...s,
       phase: "scrambling",
@@ -695,6 +696,15 @@ export class Controller {
     this.#startedAt = atMs;
     this.#solveMoves = [];
     this.#solveReadings = [];
+    // Inspection is over, so whichever face is underneath now is the one the cross
+    // is going on, and it stays there for the solve. Holding the view to it means a
+    // reading that drifts can get the side facing the solver wrong, but can never
+    // tip the cube over on screen.
+    const bottom = this.grip?.bottom ?? null;
+    this.#grip.holdBottom(bottom);
+    if (bottom) {
+      debugLog("grip", `solve started with ${faceColour(bottom).name} underneath`);
+    }
     this.elapsed.set(0);
     this.inspectionLeft.set(null);
     this.state.update((s) => ({
@@ -930,6 +940,8 @@ export class Controller {
 
   #finishSmartSolve(): void {
     this.#stopLoop();
+    // The solve is over; the cube can be turned any way again.
+    this.#grip.holdBottom(null);
     const raw = this.#solveMoves;
     const offsets = fitMoveTimestamps(raw);
     const timed: TimedMove[] = raw.map((m, i) => ({
@@ -941,25 +953,37 @@ export class Controller {
     if (this.state.get().settings.sound) {
       void import("../util/sound").then((m) => m.beep(520, 160));
     }
-    void this.#recordSolve(rawMs, timed, "smartcube", this.#trackSolveGrip(timed));
+    void this.#recordSolve(rawMs, timed, "smartcube");
   }
 
   /**
    * Work out how the cube was held for every move of the solve just finished.
    *
+   * The solve is analysed once first, unaided, purely to find where its steps end.
+   * Those are the only places in a solve where the grip is known for certain rather
+   * than measured — a solver finishes the cross, and each pair, with the cross face
+   * underneath — and they are what keeps a drifting reading honest. They can be had
+   * up front because which pieces are solved does not depend on which way the cube
+   * was being held, so this first pass finds exactly the same steps as the real one.
+   *
    * Null when there is nothing to work from — no gyroscope, or a scramble that was
    * never finished, so no reference to measure against. The analysis falls back to
    * guessing the grip from the solve, as it always did.
    */
-  #trackSolveGrip(moves: TimedMove[]): GripTrack | null {
+  #trackSolveGrip(moves: TimedMove[], scrambled: KPattern): GripTrack | null {
     const reference = this.#grip.reference;
     if (!reference || !this.#grip.locked) return null;
     if (!this.#solveReadings.some(Boolean)) return null;
 
+    const unaided = analyseSolve(scrambled, moves);
     const track = trackGrip({
       moves,
       readings: this.#solveReadings,
       reference,
+      crossFace: unaided?.crossFace,
+      // The last move of each step, and the first of the solve: after inspection the
+      // cross face is already underneath.
+      boundaries: [0, ...(unaided?.steps ?? []).map((step) => step.toMove - 1)],
     });
     if (debugEnabled("grip")) {
       debugLog(
@@ -977,7 +1001,6 @@ export class Controller {
     rawMs: number,
     moves: TimedMove[],
     source: Solve["source"],
-    grip: GripTrack | null = null,
   ): Promise<void> {
     const { sessionId, scramble, settings, inspectionPenalty } = this.state.get();
     const isReplay = this.#isReplay;
@@ -985,6 +1008,8 @@ export class Controller {
     const scrambledPattern =
       this.#scrambledPattern ??
       (await get3x3x3()).defaultPattern().applyAlg(new Alg(scramble));
+    const grip =
+      source === "smartcube" ? this.#trackSolveGrip(moves, scrambledPattern) : null;
 
     const solve: Solve = {
       id: crypto.randomUUID(),
