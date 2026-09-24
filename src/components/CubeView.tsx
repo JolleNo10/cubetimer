@@ -4,31 +4,21 @@ import { TwistyPlayer } from "cubing/twisty";
 import type { KPattern } from "cubing/kpuzzle";
 import { faceOfColour } from "../cube/colours";
 import {
+  IDENTITY,
   reorientMove,
   rotationForCrossFace,
   rotationForGrip,
+  rotationTokensBetween,
+  type Orientation,
 } from "../cube/orientation";
 import { solveAlg } from "../cube/solver";
 import { useController } from "../hooks/useController";
 import type { Settings } from "../state/types";
-import {
-  IDENTITY,
-  conjugate,
-  cubeToSceneQuaternion,
-  fromEuler,
-  multiply,
-  normalize,
-  slerp,
-  type Quat,
-} from "../util/quat";
 import { FaceletNet } from "./FaceletNet";
 import { previewFacelets } from "../cube/preview";
 
 /** Rebuild the player's setup alg once the appended move list gets this long. */
 const COMPACT_AFTER_MOVES = 400;
-
-/** A pleasant resting angle, matching how the cube is drawn when the gyro is off. */
-const HOME_ORIENTATION = fromEuler((30 * Math.PI) / 180, (-30 * Math.PI) / 180, 0);
 
 type Props = {
   settings: Settings;
@@ -52,11 +42,14 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
 
   // A solver applies the scramble white on top, then turns the cube over to build the
   // cross. Showing the live cube the same way up means the screen matches their hands.
-  // When the cube's own gyroscope is driving the view it already knows better, so the
-  // fixed orientation steps aside.
+  //
+  // With a gyroscope the grip is measured rather than declared, and the settings step
+  // aside — but only as the starting point. The cube is drawn square on and stays that
+  // way; when the solver turns it, the view turns with them by the same whole-cube
+  // rotation, rather than tumbling about after the raw readings.
   const gyroDriven = settings.useGyroscope && gyroSupported;
   const solveOrientation = useMemo(() => {
-    if (!live || gyroDriven) return null;
+    if (!live) return null;
     const bottom = faceOfColour(settings.crossColour);
     if (!bottom) return null;
     const front = faceOfColour(settings.frontColour);
@@ -64,7 +57,7 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
     return (
       (front && rotationForGrip(bottom, front)) ?? rotationForCrossFace(bottom)
     );
-  }, [live, gyroDriven, settings.crossColour, settings.frontColour]);
+  }, [live, settings.crossColour, settings.frontColour]);
 
   useEffect(() => {
     if (!use3D) return;
@@ -89,6 +82,12 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
 
     let appended = 0;
     let compacting = false;
+    // How the cube is being held. Measured when there is a gyroscope to measure it
+    // with, and otherwise whatever the solver said in the settings.
+    let held: Orientation | null =
+      (gyroDriven ? controller.heldAs : null) ??
+      solveOrientation?.orientation ??
+      null;
 
     const resync = async (pattern: KPattern) => {
       try {
@@ -97,8 +96,9 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
         // Turn the cube over after building the state, so the cross colour ends up
         // underneath. The moves fed in afterwards are relabelled to match, which is
         // what keeps `U` turning the face that is now on top.
-        player.experimentalSetupAlg = solveOrientation
-          ? setup.concat(new Alg(solveOrientation.tokens.join(" ")))
+        const tokens = held ? rotationTokensBetween(IDENTITY, held) : [];
+        player.experimentalSetupAlg = tokens.length
+          ? setup.concat(new Alg(tokens.join(" ")))
           : setup;
         appended = 0;
       } catch {
@@ -116,11 +116,24 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
       };
     }
 
+    // Turning the real cube over turns the drawn one over the same way, so the two
+    // stay in step and the moves fed in afterwards go on meaning what they say.
+    const offGrip = gyroDriven
+      ? controller.onGripChange((orientation) => {
+          if (held) {
+            for (const token of rotationTokensBetween(held, orientation)) {
+              player.experimentalAddMove(token, { cancel: false });
+              appended++;
+            }
+          }
+          held = orientation;
+        })
+      : () => {};
+
     const offMove = controller.onCubeMove((move) => {
-      player.experimentalAddMove(
-        solveOrientation ? reorientMove(move, solveOrientation.orientation) : move,
-        { cancel: false },
-      );
+      player.experimentalAddMove(held ? reorientMove(move, held) : move, {
+        cancel: false,
+      });
       appended++;
       if (appended > COMPACT_AFTER_MOVES && !compacting) {
         // The alg is replayed from the start on every change, so fold it back into
@@ -137,77 +150,34 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
     if (initial) void resync(initial);
 
     return () => {
+      offGrip();
       offMove();
       offReset();
       player.remove();
       playerRef.current = null;
     };
-  }, [controller, use3D, settings.showBackView, live, scramble, solveOrientation]);
+  }, [
+    controller,
+    use3D,
+    settings.showBackView,
+    live,
+    scramble,
+    solveOrientation,
+    gyroDriven,
+  ]);
 
-  // Gyroscope: drive the 3D object directly rather than through React state, since
-  // orientation updates arrive far faster than a component should re-render.
+  // The gyroscope no longer turns the drawn cube directly — the grip it settles into
+  // does, through the rotations added above. All that is left here is knowing whether
+  // there is a grip being followed at all, which is what the centring button acts on.
   useEffect(() => {
-    const player = playerRef.current;
-    if (!use3D || !player || !live || !settings.useGyroscope || !gyroSupported) {
+    if (!use3D || !live || !gyroDriven) {
       setGyroActive(false);
       return;
     }
-
-    let cancelled = false;
-    let current: Quat = HOME_ORIENTATION;
-    let object: { quaternion: { set(x: number, y: number, z: number, w: number): void } } | null =
-      null;
-    let vantages: { scheduleRender(): void }[] = [];
-
-    // The reference is the pose the cube was scrambled in, which is white on top and
-    // green in front — exactly what HOME_ORIENTATION draws. Sharing it with the grip
-    // tracker means the view and the reconstruction can never disagree about which way
-    // the cube is facing, and the cube snaps upright the moment a scramble is finished.
-    resetGyroRef.current = () => {
-      controller.recentreGrip();
-    };
-
-    void (async () => {
-      try {
-        object = (await player.experimentalCurrentThreeJSPuzzleObject()) as never;
-        vantages = [...(await player.experimentalCurrentVantages())] as never;
-        if (!cancelled) setGyroActive(true);
-      } catch {
-        // No WebGL object available (2D fallback, or the player was torn down).
-      }
-    })();
-
-    const off = controller.onGyro((raw) => {
-      if (cancelled || !object) return;
-      const measured = cubeToSceneQuaternion(raw);
-      // Before a scramble has been finished there is no reference yet, so fall back to
-      // treating this reading as home; the cube still appears upright wherever the
-      // solver happens to be holding it.
-      const reference = controller.gripReference;
-      const basis = conjugate(reference ? cubeToSceneQuaternion(reference) : measured);
-      const target = normalize(
-        multiply(multiply(basis, measured), HOME_ORIENTATION),
-      );
-      current = slerp(current, target, 0.35);
-      object.quaternion.set(current.x, current.y, current.z, current.w);
-      for (const vantage of vantages) vantage.scheduleRender();
-    });
-
-    return () => {
-      cancelled = true;
-      off();
-      setGyroActive(false);
-      if (object) {
-        object.quaternion.set(
-          IDENTITY.x,
-          IDENTITY.y,
-          IDENTITY.z,
-          IDENTITY.w,
-        );
-      }
-      for (const vantage of vantages) vantage.scheduleRender();
-    };
-  }, [controller, use3D, live, settings.useGyroscope, gyroSupported, settings.showBackView]);
+    resetGyroRef.current = () => controller.recentreGrip();
+    setGyroActive(true);
+    return () => setGyroActive(false);
+  }, [controller, use3D, live, gyroDriven]);
 
   // Turning U three times lines the view up with however the cube is being held, so
   // the solver never has to put it down to reach the button.

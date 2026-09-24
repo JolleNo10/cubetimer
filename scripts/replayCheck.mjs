@@ -43,7 +43,7 @@ const startTimes = durations.map((_, i) =>
 console.log("step durations:", durations.join(", "));
 console.log("expected start times:", startTimes.map((t) => t.toFixed(2)).join(", "));
 
-await page.getByRole("button", { name: "Replay" }).click();
+await page.locator(".panel", { hasText: "Solve breakdown" }).getByRole("button", { name: "Replay" }).click();
 await page.waitForTimeout(900);
 
 const dialog = page.locator(".dialog");

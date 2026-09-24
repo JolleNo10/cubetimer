@@ -20,6 +20,14 @@ export type GyroSample = { q: Quat; t: number };
 
 /** Two readings this close together and this alike say nothing new. */
 const MIN_SAMPLE_GAP_MS = 20;
+/**
+ * How long a new grip has to hold before it counts as the grip.
+ *
+ * Roughly how long turning the cube takes. Anything that comes and goes faster than
+ * this is a hand moving over the cube, not the cube moving in the hand, and following
+ * it would only make the view flicker.
+ */
+const STEADY_MS = 120;
 const SAME_POSE_DOT = 0.9999;
 /** A very slow solve at full reporting rate is a few thousand; this is only a backstop. */
 const MAX_SAMPLES = 20_000;
@@ -36,6 +44,9 @@ export class LiveGrip {
   #latestAt = 0;
   #keptAt = Number.NEGATIVE_INFINITY;
   #snapped: Snapped | null = null;
+  #steady: Orientation | null = null;
+  #candidate: Orientation | null = null;
+  #candidateSince = 0;
 
   /**
    * Take a reading.
@@ -52,6 +63,7 @@ export class LiveGrip {
       return;
     }
     this.#snapped = snapOrientation(q, this.#reference ?? q);
+    this.#settle(this.#snapped.orientation, t);
     const previous = this.#samples[this.#samples.length - 1];
     if (
       previous &&
@@ -82,6 +94,8 @@ export class LiveGrip {
     this.#locked = false;
     this.#samples = [];
     this.#snapped = null;
+    this.#steady = null;
+    this.#candidate = null;
     this.#keptAt = Number.NEGATIVE_INFINITY;
     // The reference is deliberately kept. It is still the best guess at the scrambling
     // pose, so the live view has something to work from before the next reading lands.
@@ -118,6 +132,28 @@ export class LiveGrip {
 
   get orientation(): Orientation | null {
     return this.#snapped?.orientation ?? null;
+  }
+
+  /**
+   * The grip once it has stopped changing its mind.
+   *
+   * `orientation` is the latest reading and jumps about as hands move over the cube.
+   * Anything a person looks at wants this one instead.
+   */
+  get steady(): Orientation | null {
+    return this.#steady;
+  }
+
+  /** Adopt a new grip once it has been the answer for long enough to believe. */
+  #settle(candidate: Orientation, t: number): void {
+    if (candidate !== this.#candidate) {
+      this.#candidate = candidate;
+      this.#candidateSince = t;
+    }
+    // The first reading has nothing to flicker against, so it is taken as read.
+    if (this.#steady === null || t - this.#candidateSince >= STEADY_MS) {
+      this.#steady = candidate;
+    }
   }
 
   get samples(): readonly GyroSample[] {

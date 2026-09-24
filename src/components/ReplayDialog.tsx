@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alg } from "cubing/alg";
 import { TwistyPlayer } from "cubing/twisty";
 import { reorientMove, rotationForCrossFace } from "../cube/orientation";
+import { decodeGripTrack, rewriteWithRotations } from "../cube/gripTrack";
 import { formatTime } from "../state/stats";
 import { StepBreakdown, stepAt } from "./StepBreakdown";
 import { effectiveMs, type Solve } from "../state/types";
@@ -29,17 +30,44 @@ export function ReplayDialog({
   const moves = solve.moves;
   const steps = solve.analysis?.steps;
 
-  // Replay the solve the way it was held: the cross face underneath, as the solver
-  // had it. Turning the cube over means relabelling the moves so they still act on
-  // the faces they did at the time.
+  // Replay the solve the way it was held. With a recorded grip track that is exactly
+  // how it was held, rotations and all; without one, all that is known is which face
+  // the cross went on, so the cube is turned once and left there.
   const crossFace = solve.analysis?.crossFace;
-  const grip = useMemo(
-    () => (crossFace ? rotationForCrossFace(crossFace) : null),
-    [crossFace],
+  const track = useMemo(
+    () => (solve.gripTrack ? decodeGripTrack(solve.gripTrack) : null),
+    [solve.gripTrack],
   );
+  const grip = useMemo(
+    () => (track || !crossFace ? null : rotationForCrossFace(crossFace)),
+    [track, crossFace],
+  );
+  /** The turn the cube starts the replay in, before any move. */
+  const opening = useMemo(
+    () => (track ? [...track.inspection] : (grip?.tokens ?? [])),
+    [track, grip],
+  );
+
+  /**
+   * The moves to show for a stretch of the solve, as the solver turned them.
+   *
+   * `held` is the grip the cube is already in, so a rotation made between one move
+   * and the next belongs to the stretch it starts and is not lost at the seam.
+   */
   const asHeld = useCallback(
-    (move: string) => (grip ? reorientMove(move, grip.orientation) : move),
-    [grip],
+    (from: number, to: number): string[] => {
+      if (track) {
+        return rewriteWithRotations(
+          moves.slice(from, to),
+          track.orientations.slice(from, to),
+          from > 0 ? (track.orientations[from - 1] ?? null) : null,
+        ).map((m) => m.move);
+      }
+      return moves
+        .slice(from, to)
+        .map((m) => (grip ? reorientMove(m.move, grip.orientation) : m.move));
+    },
+    [track, grip, moves],
   );
   const activeStep = steps ? stepAt(steps, index) : -1;
   const currentStep = steps?.[activeStep];
@@ -55,9 +83,9 @@ export function ReplayDialog({
       hintFacelets: "floating",
       backView: "top-right",
       experimentalSetupAnchor: "start",
-      experimentalSetupAlg: grip
-        ? new Alg(solve.scramble).concat(new Alg(grip.tokens.join(" ")))
-        : solve.scramble,
+      experimentalSetupAlg: opening.length
+        ? new Alg(solve.scramble).concat(new Alg(opening.join(" ")))
+        : new Alg(solve.scramble),
       cameraLatitude: 27,
       cameraLongitude: -32,
       tempoScale: 6,
@@ -70,7 +98,7 @@ export function ReplayDialog({
       player.remove();
       playerRef.current = null;
     };
-  }, [solve.scramble, grip]);
+  }, [solve.scramble, opening]);
 
   const seek = useCallback(
     (target: number) => {
@@ -79,16 +107,11 @@ export function ReplayDialog({
       const clamped = Math.max(0, Math.min(moves.length, target));
       const applied = appliedRef.current;
       if (clamped > applied && clamped - applied <= 4) {
-        for (let i = applied; i < clamped; i++) {
-          player.experimentalAddMove(asHeld(moves[i].move), { cancel: false });
+        for (const move of asHeld(applied, clamped)) {
+          player.experimentalAddMove(move, { cancel: false });
         }
       } else if (clamped !== applied) {
-        player.alg = new Alg(
-          moves
-            .slice(0, clamped)
-            .map((m) => asHeld(m.move))
-            .join(" "),
-        );
+        player.alg = new Alg(asHeld(0, clamped).join(" "));
         player.jumpToEnd({ flash: false });
       }
       appliedRef.current = clamped;

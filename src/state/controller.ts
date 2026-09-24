@@ -18,6 +18,7 @@ import {
   reorientMove,
   rotationForCrossFace,
   rotationForGrip,
+  type Orientation,
 } from "../cube/orientation";
 import { reframe } from "../cube/recognise";
 import { CubeModel, patternToFacelets } from "../cube/model";
@@ -153,6 +154,7 @@ export class Controller {
   #grip = new LiveGrip();
   /** The grip last written to the trace, so only changes are reported. */
   #tracedGrip = "";
+  #gripListeners = new Set<(orientation: Orientation) => void>();
   #gyroReadings = 0;
   #gripHeartbeatAt = 0;
   #recentreListeners = new Set<() => void>();
@@ -190,7 +192,12 @@ export class Controller {
           debugLog("grip", "first gyro reading — following the cube");
         }
         this.#gyroReadings++;
+        const before = this.#grip.steady;
         this.#grip.sample(q, performance.now());
+        const after = this.#grip.steady;
+        if (after && after !== before) {
+          for (const listener of this.#gripListeners) listener(after);
+        }
         this.#traceGrip();
         for (const listener of this.#gyroListeners) listener(q);
       },
@@ -387,6 +394,22 @@ export class Controller {
   onCubeMove(listener: (move: string) => void): () => void {
     this.#moveListeners.add(listener);
     return () => this.#moveListeners.delete(listener);
+  }
+
+  /**
+   * Fires when the cube settles into a different grip.
+   *
+   * The settled grip, not the latest reading: this drives what is on screen, and a
+   * view that followed every reading would flicker as hands moved over the cube.
+   */
+  onGripChange(listener: (orientation: Orientation) => void): () => void {
+    this.#gripListeners.add(listener);
+    return () => this.#gripListeners.delete(listener);
+  }
+
+  /** How the cube has settled into being held, for drawing it that way. */
+  get heldAs(): Orientation | null {
+    return this.#grip.steady;
   }
 
   /** Fires when the cube state is replaced wholesale rather than turned. */

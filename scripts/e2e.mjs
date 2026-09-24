@@ -85,7 +85,7 @@ console.log("stats best:", await page.locator(".stat").nth(1).innerText());
 await page.screenshot({ path: "/tmp/e2e.png" });
 
 // Replay dialog.
-await page.getByRole("button", { name: "Replay" }).click();
+await page.locator(".panel", { hasText: "Solve breakdown" }).getByRole("button", { name: "Replay" }).click();
 await page.waitForTimeout(1200);
 check("the replay opens", (await page.locator(".dialog").count()) === 1);
 await page.screenshot({ path: "/tmp/e2e-replay.png" });
