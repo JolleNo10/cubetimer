@@ -38,7 +38,7 @@ export function SolveDetail({ solve }: { solve: Solve }) {
             onClick={() => controller.replayScramble(solve.scramble)}
             title="Load this scramble so you can solve it again"
           >
-            Replay
+            Solve again
           </button>
           <button
             className="ghost danger"

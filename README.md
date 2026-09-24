@@ -180,8 +180,16 @@ npm run test:slow    # checks slow solves are recorded but never counted
 npm run test:coach   # follows a suggested cross and F2L pair, and checks they go in
 ```
 
-The end-to-end script needs a server already running and Chrome installed. Point it
-wherever you like: `BASE_URL=http://localhost:4123/ npm run test:e2e`.
+The browser-driven scripts need a server already running and Chrome installed. They
+all look at `http://localhost:5199/`, which is deliberately not the port `npm run dev`
+picks — so a browser you are working in is never driven out from under you:
+
+```sh
+PORT=5199 npm run dev     # in one terminal
+npm run test:e2e          # in another
+```
+
+Point them wherever you like instead: `BASE_URL=http://localhost:4123/ npm run test:e2e`.
 
 ## Browser support
 

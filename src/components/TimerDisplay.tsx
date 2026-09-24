@@ -1,7 +1,7 @@
 import { useController, useStore } from "../hooks/useController";
 import { formatTime } from "../state/stats";
 import type { AppState } from "../state/controller";
-import { effectiveMs } from "../state/types";
+import { effectiveMs, type Solve } from "../state/types";
 
 type Props = {
   state: AppState;
@@ -42,9 +42,7 @@ export function TimerDisplay({
         : formatTime(elapsed);
     tone = "running";
   } else if (phase === "finished" && lastSolve) {
-    text = slow
-      ? String(lastSolve.analysis?.sliceTurns ?? lastSolve.moves.length)
-      : formatTime(effectiveMs(lastSolve));
+    text = slow ? String(moveCount(lastSolve)) : formatTime(effectiveMs(lastSolve));
     tone = lastSolve.penalty === "DNF" ? "danger" : "running";
   } else if (holding) {
     text = formatTime(0);
@@ -53,9 +51,19 @@ export function TimerDisplay({
     text = formatTime(elapsed || 0);
     tone = "armed";
   } else {
-    text = slow ? "—" : formatTime(lastSolve ? effectiveMs(lastSolve) : 0);
+    // The next scramble loads the moment a solve is recorded, so this is what the
+    // solver is looking at straight afterwards — and what they want to see is the
+    // solve they just did, the same as the clock shows its last time.
+    text = slow
+      ? lastSolve
+        ? String(moveCount(lastSolve))
+        : "—"
+      : formatTime(lastSolve ? effectiveMs(lastSolve) : 0);
     tone = "waiting";
   }
+
+  // The unit belongs with a count, not with a dash.
+  const showsMoves = slow && (phase === "solving" || lastSolve !== null);
 
   const hint = slow
     ? slowHint(phase, smart)
@@ -75,9 +83,7 @@ export function TimerDisplay({
     >
       <div className={`timer-value ${tone}`} aria-live="off">
         {text}
-        {slow && (phase === "solving" || phase === "finished") ? (
-          <span className="timer-unit">moves</span>
-        ) : null}
+        {showsMoves ? <span className="timer-unit">moves</span> : null}
       </div>
       <div className="timer-hint">{hint}</div>
       {phase === "solving" || phase === "finished" ? (
@@ -116,6 +122,11 @@ function slowHint(phase: AppState["phase"], smart: boolean) {
     case "finished":
       return "Look at the breakdown, then scramble again";
   }
+}
+
+/** How many turns a solve took, by the analysis if there is one and the raw stream if not. */
+function moveCount(solve: Solve): number {
+  return solve.analysis?.sliceTurns ?? solve.moves.length;
 }
 
 function formatTps(moves: number, ms: number): string {

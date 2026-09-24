@@ -70,15 +70,6 @@ export const GRIP_WEIGHTS = {
    * could physically have been turned out and back, did not happen.
    */
   minExcursionMs: 250,
-  /**
-   * What it costs to claim the cross face was off the bottom at the end of a step.
-   *
-   * A solver finishes the cross, and each pair, and the last layer, with the cross
-   * face underneath — the next step is worked out from that. Ten times the everyday
-   * cost, so nothing but an unambiguous reading can buy it, but not forbidden: the
-   * occasional solve really does end a step mid-slice.
-   */
-  boundaryOffCross: 6,
 } as const;
 
 export type GripTrackInput = {
@@ -99,12 +90,11 @@ export type GripTrackInput = {
    * Moves at which a CFOP step finishes, and the cross face is therefore underneath.
    *
    * These are the fixed points of the whole reconstruction. A reading can drift a
-   * long way over a solve, and nothing in the gyroscope itself ever notices; a step
+   * long way over a solve and nothing in the gyroscope itself ever notices; a step
    * boundary is somewhere the answer is known independently, from what the solver
-   * actually solved. Pinning those and letting the path between them fall where it
-   * must is what stops drift accumulating — and because the cheapest path is chosen
-   * over the whole solve at once, pinning the end of a step re-reads the step that
-   * led up to it.
+   * actually solved. They are not used to pin the grip at that one move — the cost
+   * of being the wrong way up already does that everywhere — but to measure how far
+   * the reading has wandered, and re-aim it.
    */
   boundaries?: readonly number[];
 };
@@ -240,12 +230,10 @@ export function trackGrip(input: GripTrackInput): GripTrack {
     moves.map((_, i) => {
       const pose = readings[i] ?? null;
       const scores = pose ? scoreAll(pose, references[i]) : null;
-      const offCrossCost = anchors.has(i)
-        ? GRIP_WEIGHTS.boundaryOffCross
-        : GRIP_WEIGHTS.offCross;
       return ALL_ORIENTATIONS.map((candidate, s) => {
         const fit = scores ? 1 - scores[s] : 0;
-        const offCross = candidate.orientation[crossFace] === "D" ? 0 : offCrossCost;
+        const offCross =
+          candidate.orientation[crossFace] === "D" ? 0 : GRIP_WEIGHTS.offCross;
         return fit + offCross;
       });
     });

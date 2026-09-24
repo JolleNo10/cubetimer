@@ -29,7 +29,7 @@ page.on("console", (m) => {
   if (m.type() === "error" && !m.text().includes("favicon")) problems.push(`[console] ${m.text()}`);
 });
 
-await page.goto(process.env.BASE_URL ?? "http://localhost:5173/", { waitUntil: "networkidle" });
+await page.goto(process.env.BASE_URL ?? "http://localhost:5199/", { waitUntil: "networkidle" });
 await page.waitForSelector(".scramble-move");
 
 // Turn on the virtual cube.

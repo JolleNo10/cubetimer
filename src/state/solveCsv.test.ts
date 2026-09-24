@@ -226,3 +226,51 @@ describe("case recognition against the export's own labels", () => {
     expect(compared).toBeGreaterThan(0);
   });
 });
+
+describe("a solve turned partway through", () => {
+  /**
+   * The export has no column for the grip track, deliberately: it is a format shared
+   * with other tools and carries only what they know about. The rotations still have
+   * to survive, because they are written into the step moves themselves — and if they
+   * did not, an exported solve would come back claiming turns the solver never made.
+   */
+  it("keeps its rotations through an export and back", async () => {
+    const { Alg } = await import("cubing/alg");
+    const { analyseSolve } = await import("../cube/analysis");
+    const { get3x3x3 } = await import("../cube/puzzle");
+    const { GENERATORS, IDENTITY } = await import("../cube/orientation");
+
+    const kpuzzle = await get3x3x3();
+    const scramble = "R U R' U' R' F R2 U' R' U' R U R' F'";
+    const scrambled = kpuzzle.defaultPattern().applyAlg(new Alg(scramble));
+    const moves = new Alg(scramble)
+      .invert()
+      .expand()
+      .toString()
+      .split(" ")
+      .flatMap((move) => (move.endsWith("2") ? [move[0], move[0]] : [move]))
+      .map((move, i) => ({ move, t: (i + 1) * 150 }));
+
+    const analysis = analyseSolve(scrambled, moves, {
+      orientations: moves.map((_, i) => (i < 5 ? IDENTITY : GENERATORS.y)),
+      inspection: ["z2"],
+    })!;
+    const written = analysis.steps.map((step) => step.moves).join(" ");
+    expect(written).toMatch(/\by\b/);
+    expect(written).toMatch(/\bz2\b/);
+
+    const solve = {
+      id: "turned", sessionId: "s", createdAt: 0, rawMs: moves[moves.length - 1].t,
+      penalty: "none" as const, scramble, event: "333" as const,
+      source: "smartcube" as const, moves, analysis,
+    };
+    const csv = formatSolveCsv([solve], new Map([["s", "Session 1"]]));
+    const back = parseSolveCsv(csv).solves[0];
+
+    expect(back.analysis!.steps.map((step) => step.moves)).toEqual(
+      analysis.steps.map((step) => step.moves),
+    );
+    // And the turn counts still ignore the rotations, so nothing inflates on the way.
+    expect(back.analysis!.sliceTurns).toBe(analysis.sliceTurns);
+  });
+});
