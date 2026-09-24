@@ -1032,6 +1032,7 @@ export class Controller {
       moves,
       practice: settings.slowSolve || isReplay || undefined,
       replay: isReplay || undefined,
+      slowSolve: settings.slowSolve || undefined,
       scrambledFacelets: patternToFacelets(scrambledPattern),
       // Kept alongside the analysis so the breakdown can be rebuilt later without the
       // cube: the readings themselves are gone, but what they were taken to mean is

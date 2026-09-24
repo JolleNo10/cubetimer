@@ -14,6 +14,54 @@ export const STEP_COLORS: Record<string, string> = {
   PLL: "var(--violet)",
 };
 
+export type StepTimeScale = {
+  maxMs: number;
+  tickMs: number;
+  ticks: number[];
+};
+
+const NICE_INTERVALS = [1, 2, 2.5, 5];
+
+/** Choose one shared, human-readable linear scale for all step timing bars. */
+export function stepTimeScale(steps: readonly SolveStep[]): StepTimeScale {
+  const slowestMs = Math.max(0, ...steps.map((step) => step.timeMs));
+  if (slowestMs === 0) return buildStepTimeScale(100, 500);
+
+  const order = Math.floor(Math.log10(slowestMs));
+  const candidates = [...new Set(
+    Array.from({ length: 5 }, (_, offset) => order - 2 + offset).flatMap((exponent) =>
+      NICE_INTERVALS.map((interval) => interval * 10 ** exponent),
+    ),
+  )].sort((a, b) => a - b);
+  const firstAcceptable = candidates.find((tickMs) => Math.ceil(slowestMs / tickMs) <= 7);
+  const firstIntervals = firstAcceptable
+    ? Math.ceil(slowestMs / firstAcceptable)
+    : undefined;
+  const tickMs = firstIntervals === 6
+    ? candidates.find((candidate) => Math.ceil(slowestMs / candidate) === 5) ?? firstAcceptable
+    : firstAcceptable;
+  const selectedTickMs = tickMs ?? candidates[candidates.length - 1];
+  return buildStepTimeScale(selectedTickMs, Math.ceil(slowestMs / selectedTickMs) * selectedTickMs);
+}
+
+function buildStepTimeScale(tickMs: number, maxMs: number): StepTimeScale {
+  const ticks = Array.from({ length: Math.max(1, Math.ceil(maxMs / tickMs)) }, (_, i) =>
+    (i + 1) * tickMs,
+  );
+  return { maxMs: ticks[ticks.length - 1], tickMs, ticks };
+}
+
+function scalePositionPercent(tick: number, scale: StepTimeScale): number {
+  return (tick / scale.maxMs) * 100;
+}
+
+/** Format a scale label without trailing zeroes: `500` → `0.5s`, `1000` → `1s`. */
+export function formatScaleSeconds(ms: number): string {
+  const seconds = ms / 1000;
+  const decimals = seconds >= 0.1 ? 2 : 3;
+  return `${seconds.toFixed(decimals).replace(/\.?0+$/, "")}s`;
+}
+
 /**
  * Which step a position in the move stream falls in.
  *
@@ -60,6 +108,7 @@ function StepRow({
   active,
   showMoves,
   showSplitTimes,
+  timeScale,
   onSelect,
 }: {
   step: SolveStep;
@@ -67,11 +116,18 @@ function StepRow({
   active: boolean;
   showMoves: boolean;
   showSplitTimes: boolean;
+  timeScale?: StepTimeScale;
   onSelect?: () => void;
 }) {
-  const width = (step.timeMs / total) * 100;
-  const recognitionShare =
-    step.timeMs > 0 ? (step.recognitionMs / step.timeMs) * 100 : 0;
+  const totalWidth = timeScale
+    ? (step.timeMs / timeScale.maxMs) * 100
+    : (step.timeMs / total) * 100;
+  const recognitionWidth = timeScale
+    ? (step.recognitionMs / timeScale.maxMs) * 100
+    : (totalWidth * (step.timeMs > 0 ? (step.recognitionMs / step.timeMs) * 100 : 0)) / 100;
+  const executionWidth = timeScale
+    ? (step.executionMs / timeScale.maxMs) * 100
+    : totalWidth - recognitionWidth;
   const described = describeCase(step);
   const isSkip = step.skipped || described?.id === "Solved";
 
@@ -115,14 +171,24 @@ function StepRow({
       <span className="phase-time">{formatTime(step.timeMs)}</span>
       {splitValues}
       <span className="phase-bar">
+        {timeScale ? (
+          <span className="phase-time-guides" aria-hidden="true">
+            {timeScale.ticks.map((tick) => (
+              <i
+                key={tick}
+                style={{ left: `${scalePositionPercent(tick, timeScale)}%` }}
+              />
+            ))}
+          </span>
+        ) : null}
         <span
           className="recognition"
-          style={{ width: `${(width * recognitionShare) / 100}%` }}
+          style={{ width: `${recognitionWidth}%` }}
         />
         <span
           className="execution"
           style={{
-            width: `${(width * (100 - recognitionShare)) / 100}%`,
+            width: `${executionWidth}%`,
             background: STEP_COLORS[step.name] ?? "var(--accent)",
           }}
         />
@@ -148,6 +214,27 @@ function StepRow({
     >
       {content}
     </button>
+  );
+}
+
+function TimeScaleAxis({ scale }: { scale: StepTimeScale }) {
+  return (
+    <div
+      className="phase-time-axis"
+      aria-label="Step time scale"
+      data-scale-max-ms={scale.maxMs}
+      data-tick-ms={scale.tickMs}
+    >
+      {scale.ticks.map((tick, index) => (
+        <span
+          key={tick}
+          className={`phase-time-axis-label${index === scale.ticks.length - 1 ? " last" : ""}`}
+          style={{ left: `${scalePositionPercent(tick, scale)}%` }}
+        >
+          {formatScaleSeconds(tick)}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -256,6 +343,7 @@ export function StepBreakdown({
   showDetail = true,
   showMoves = true,
   showSplitTimes = false,
+  showTimeScale = false,
   position,
 }: {
   analysis: SolveAnalysis;
@@ -264,9 +352,11 @@ export function StepBreakdown({
   showDetail?: boolean;
   showMoves?: boolean;
   showSplitTimes?: boolean;
+  showTimeScale?: boolean;
   position?: number;
 }) {
   const total = Math.max(1, analysis.solvingMs);
+  const timeScale = showTimeScale ? stepTimeScale(analysis.steps) : undefined;
   const solution = fullSolution(analysis);
   return (
     <>
@@ -288,6 +378,8 @@ export function StepBreakdown({
         <span>{analysis.tps.toFixed(2)} tps</span>
       </div>
 
+      {timeScale ? <TimeScaleAxis scale={timeScale} /> : null}
+
       {analysis.steps.map((step, i) => (
         <StepRow
           key={step.name}
@@ -296,6 +388,7 @@ export function StepBreakdown({
           active={activeStep === i}
           showMoves={showMoves}
           showSplitTimes={showSplitTimes}
+          timeScale={timeScale}
           onSelect={onSelectStep ? () => onSelectStep(step) : undefined}
         />
       ))}

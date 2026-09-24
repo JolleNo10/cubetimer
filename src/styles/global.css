@@ -301,6 +301,23 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .result-breakdown .phase-row .phase-bar { grid-column: 1 / -1; grid-row: 2; }
 .result-breakdown .phase-row .phase-sub { display: none; }
 .result-breakdown .row.small { display: none; }
+.phase-time-axis {
+  position: relative;
+  height: 18px;
+  margin: 0 0 2px;
+  border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent);
+  color: var(--text-faint);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+.phase-time-axis-label {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.phase-time-axis-label.last { transform: translateX(-100%); }
 .result-note { margin: 12px 0 0; color: var(--text-faint); font-size: 11px; line-height: 1.45; }
 .result-no-analysis { padding: 30px 10px; }
 .result-foot { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--border); }
@@ -583,7 +600,16 @@ button.phase-row.selectable.active {
   margin-top: 4px;
 }
 
-.phase-bar { height: 8px; border-radius: 99px; background: var(--panel-2); overflow: hidden; display: flex; }
+.phase-bar { position: relative; height: 8px; border-radius: 99px; background: var(--panel-2); overflow: hidden; display: flex; }
+.phase-time-guides { position: absolute; inset: 0; pointer-events: none; z-index: 2; opacity: 0.35; }
+.phase-time-guides i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in oklab, var(--border-strong) 70%, transparent);
+}
+.phase-bar .recognition, .phase-bar .execution { position: relative; z-index: 1; }
 .phase-bar .recognition { background: color-mix(in oklab, var(--blue) 55%, transparent); }
 .phase-bar .execution { background: var(--accent); }
 .phase-time { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; font-weight: 600; }

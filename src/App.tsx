@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnalysisPanel } from "./components/AnalysisPanel";
 import { AnalyticsDialog } from "./components/AnalyticsDialog";
 import { CoachPanel } from "./components/CoachPanel";
@@ -30,7 +30,6 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [holding, setHolding] = useState(false);
   const [holdReady, setHoldReady] = useState(false);
-  const resultPointerStarted = useRef(false);
 
   const live = state.cubeStatus === "connected" || state.virtualCube;
 
@@ -162,23 +161,6 @@ export function App() {
     [controller],
   );
 
-  const handleStagePointerDown = useCallback(
-    (event: PointerEvent<HTMLDivElement>) => {
-      if (!resultSolve) return;
-      const target = event.target;
-      if (target instanceof Element && target.closest("button")) return;
-      resultPointerStarted.current = true;
-      pressStart();
-    },
-    [pressStart, resultSolve],
-  );
-
-  const handleStagePointerUp = useCallback(() => {
-    if (!resultPointerStarted.current) return;
-    resultPointerStarted.current = false;
-    pressEnd();
-  }, [pressEnd]);
-
   if (!state.ready) {
     return (
       <div className="app">
@@ -225,12 +207,7 @@ export function App() {
               liveMoves={state.liveMoves}
             />
           ) : null}
-          <div
-            className="stage"
-            onPointerDown={handleStagePointerDown}
-            onPointerUp={handleStagePointerUp}
-            onPointerCancel={handleStagePointerUp}
-          >
+          <div className="stage">
             {resultSolve ? (
               <SolveResult
                 solve={resultSolve}

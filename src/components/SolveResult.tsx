@@ -18,14 +18,16 @@ export function SolveResult({
   const canReplay = solve.moves.length > 0;
   const canAnalyse = Boolean(analysis && solve.moves.length > 0);
   const pauseMs = analysis?.pauses.reduce((sum, pause) => sum + pause.durationMs, 0) ?? 0;
-  const primary = solve.practice ? `${moveCount} moves` : formatSolveTime(solve);
+  const slowSolve = solve.slowSolve === true
+    || (solve.slowSolve === undefined && solve.practice === true && solve.replay !== true);
+  const primary = slowSolve ? `${moveCount} moves` : formatSolveTime(solve);
 
   return (
     <section className="panel solve-result" aria-label="Solve result">
       <div className="result-head">
         <div>
           <div className="panel-title">Result</div>
-          {solve.practice ? <span className="phase-case muted">slow solve</span> : null}
+          {slowSolve ? <span className="phase-case muted">slow solve</span> : null}
         </div>
         <div className="row">
           {canAnalyse ? (
@@ -44,7 +46,7 @@ export function SolveResult({
       <div className="solve-result-body">
         <div className="result-hero">
           <div className="result-primary mono">{primary}</div>
-          {solve.practice ? (
+          {slowSolve ? (
             <div className="result-secondary">
               elapsed <b>{formatSolveTime(solve)}</b>
             </div>
@@ -61,7 +63,7 @@ export function SolveResult({
         {analysis ? (
           <>
             <div className="result-metrics">
-              <ResultMetric label="Recognition" value={formatTime(analysis.totalRecognitionMs)} />
+              <ResultMetric label="Measured recognition" value={formatTime(analysis.totalRecognitionMs)} />
               <ResultMetric label="Execution" value={formatTime(analysis.totalExecutionMs)} />
               <ResultMetric label="Moves / STM" value={String(analysis.sliceTurns)} />
               <ResultMetric label="TPS" value={analysis.tps.toFixed(2)} />
@@ -89,6 +91,7 @@ export function SolveResult({
                 showMoves={false}
                 showDetail={false}
                 showSplitTimes
+                showTimeScale
               />
             </div>
             <p className="result-note">
@@ -105,7 +108,7 @@ export function SolveResult({
       </div>
 
       <div className="result-foot">
-        <span className="faint small">Next scramble is ready when you are.</span>
+        <span className="faint small">Continue when ready.</span>
         <button className="primary" onClick={onContinue}>
           Continue
         </button>

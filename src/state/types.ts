@@ -43,6 +43,8 @@ export type Solve = {
   practice?: boolean;
   /** True when the solve was started from a replayed scramble rather than a fresh one. */
   replay?: boolean;
+  /** True when the solve was deliberately made in slow/practice timing mode. */
+  slowSolve?: boolean;
 
   // Fields carried by the solve analysis model. They are optional because a solve
   // recorded here only fills in what it actually knows, but they survive a

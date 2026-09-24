@@ -46,6 +46,19 @@ const press = async (keys, delay = 12) => {
   }
 };
 
+const solveFreshScramble = async (delay = 25) => {
+  const freshScramble = (await page.locator(".scramble").innerText()).split("\n").join(" ");
+  const freshScrambleKeys = quarterTurns(freshScramble).map((m) => KEY_FOR_MOVE[m]);
+  const freshSolutionKeys = quarterTurns(new Alg(freshScramble).invert().toString()).map(
+    (m) => KEY_FOR_MOVE[m],
+  );
+  await press(freshScrambleKeys);
+  await page.waitForTimeout(300);
+  await press(freshSolutionKeys, delay);
+  await page.waitForTimeout(600);
+  return { freshScrambleKeys, freshSolutionKeys };
+};
+
 // Apply the scramble one quarter turn at a time.
 const scrambleKeys = quarterTurns(scramble).map((m) => KEY_FOR_MOVE[m]);
 await press(scrambleKeys);
@@ -83,10 +96,34 @@ const rightRows = await page.locator(".column.right .phase-row").count();
 check("the right breakdown remains present", rightRows === 7, `${rightRows} phases`);
 check("recognition and execution values are numeric", await result.locator(".recognition-value").nth(1).innerText() !== "—" && await result.locator(".execution-value").nth(1).innerText() !== "");
 check("cross recognition is unavailable", await result.locator(".recognition-value").first().innerText() === "—");
+check("recognition label is explicit", (await result.innerText()).includes("Measured recognition"));
 check("move and TPS information is present", (await result.innerText()).includes("Moves / STM") && (await result.innerText()).includes("TPS"));
 check("the next scramble is available", await page.locator(".scramble-move").count() > 0);
+const timeAxis = result.locator(".phase-time-axis");
+const timeLabels = await timeAxis.locator(".phase-time-axis-label").allInnerTexts();
+const axisPositions = await timeAxis.locator(".phase-time-axis-label").evaluateAll((labels) =>
+  labels.map((label) => label.style.left),
+);
+const guideTracks = result.locator(".phase-time-guides");
+const guideScaleCount = await guideTracks.evaluateAll((guides) => new Set(
+  guides.map((guide) => `${guide.dataset.scaleMaxMs}/${guide.dataset.tickMs}`),
+).size);
+const matchingGuidePositions = await guideTracks.evaluateAll((guides, expectedPositions) => guides.length === 7
+  && guides.every((guide) => {
+    const positions = Array.from(guide.querySelectorAll("i"), (tick) => tick.style.left);
+    return positions.length === expectedPositions.length
+      && positions.every((position, index) => position === expectedPositions[index]);
+  }), axisPositions);
+check("the result has a shared time axis", await timeAxis.count() === 1);
+check("the time axis has multiple second labels", timeLabels.length >= 2 && timeLabels.every((label) => /s$/.test(label)));
+check("all result bars share one time scale", await guideTracks.count() === 7 && guideScaleCount === 1);
+check("guide lines align with the shared axis", matchingGuidePositions);
 console.log("stats best:", await page.locator(".stat").nth(1).innerText());
 
+await result.locator(".solve-result-body").dispatchEvent("pointerdown", { pointerType: "touch" });
+check("touch interaction leaves the result visible", await result.count() === 1);
+await page.keyboard.press("Escape");
+check("Escape dismisses the result", await result.count() === 0);
 
 await page.screenshot({ path: "/tmp/e2e.png" });
 
@@ -97,8 +134,62 @@ check("the replay opens", (await page.locator(".dialog").count()) === 1);
 await page.screenshot({ path: "/tmp/e2e-replay.png" });
 
 await page.locator(".dialog").getByRole("button", { name: "Close" }).click();
+
+await solveFreshScramble();
+check("a later solve shows a result again", await result.count() === 1);
+
+// The first move of the auto-generated next scramble must dismiss the result while
+// still reaching the scramble tracker.
+const nextScramble = (await page.locator(".scramble").innerText()).split("\n").join(" ");
+const nextScrambleKeys = quarterTurns(nextScramble).map((m) => KEY_FOR_MOVE[m]);
+const nextSolutionKeys = quarterTurns(new Alg(nextScramble).invert().toString()).map(
+  (m) => KEY_FOR_MOVE[m],
+);
+await page.keyboard.press(nextScrambleKeys[0]);
+await page.waitForTimeout(180);
+check("the first next-scramble move dismisses the result", await result.count() === 0);
+check("the first next-scramble move is processed", await page.locator(".scramble-move.done").count() >= 1);
+await press(nextScrambleKeys.slice(1));
+await page.waitForTimeout(250);
+await press(nextSolutionKeys, 25);
+await page.waitForTimeout(600);
+
+// Selecting an older solve dismisses the transient result before changing the right panel.
+await page.locator(".solve-row").nth(1).click();
+await page.waitForTimeout(150);
+check("historical solve selection dismisses the result", await result.count() === 0);
+
+// Solve again is a replay practice solve, but it is not a slow solve.
+await page.locator(".column.right").getByRole("button", { name: "Solve again" }).click();
+await page.waitForTimeout(300);
+await solveFreshScramble();
+check("replay result is visible", await result.count() === 1);
+check("replay is not labelled slow solve", await result.getByText("slow solve", { exact: true }).count() === 0);
+check("replay keeps elapsed time as the primary result", !/moves$/.test((await result.locator(".result-primary").innerText()).trim()));
+
 await result.getByRole("button", { name: "Continue" }).click();
 check("Continue restores the timer", await page.locator(".timer-card").count() === 1);
+
+// A keyboard-timed solve has no move stream, so its elapsed time remains primary.
+await page.locator('.panel', { hasText: 'SMART CUBE' }).locator('input[type="checkbox"]').uncheck();
+await page.waitForTimeout(300);
+await page.evaluate(() => (document.activeElement instanceof HTMLElement ? document.activeElement.blur() : undefined));
+await page.keyboard.down(" ");
+await page.waitForTimeout(400);
+await page.keyboard.up(" ");
+await page.waitForTimeout(50);
+await page.keyboard.down(" ");
+await page.waitForTimeout(100);
+await page.keyboard.up(" ");
+await page.waitForTimeout(600);
+const keyboardResult = page.locator(".solve-result");
+check("keyboard result is visible", await keyboardResult.count() === 1);
+if (await keyboardResult.count() === 1) {
+  const keyboardPrimary = (await keyboardResult.locator(".result-primary").innerText()).trim();
+  check("keyboard result does not fabricate zero moves", !/^0\s+moves$/.test(keyboardPrimary), keyboardPrimary);
+  check("keyboard result explains missing move data", (await keyboardResult.innerText()).includes("keyboard-timed solves"));
+  check("keyboard result has no Replay action", await keyboardResult.getByRole("button", { name: "Replay" }).count() === 0);
+}
 
 check("no console or page errors", problems.length === 0, problems.join(" | "));
 await browser.close();
