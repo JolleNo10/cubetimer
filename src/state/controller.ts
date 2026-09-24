@@ -149,7 +149,6 @@ export class Controller {
   #scrambledPattern: KPattern | null = null;
   #recoveryToken = 0;
   #beeped = new Set<number>();
-  #gyroListeners = new Set<(q: Quaternion) => void>();
   /** Where the cube is pointing, measured against the pose it was scrambled in. */
   #grip = new LiveGrip();
   /** The grip last written to the trace, so only changes are reported. */
@@ -199,7 +198,6 @@ export class Controller {
           for (const listener of this.#gripListeners) listener(after);
         }
         this.#traceGrip();
-        for (const listener of this.#gyroListeners) listener(q);
       },
       onBattery: (battery) => this.state.update((s) => ({ ...s, battery })),
       onHardware: (hardware) => {
@@ -237,11 +235,6 @@ export class Controller {
   }
 
   // ---------------------------------------------------------------- listeners
-
-  onGyro(listener: (q: Quaternion) => void): () => void {
-    this.#gyroListeners.add(listener);
-    return () => this.#gyroListeners.delete(listener);
-  }
 
   /**
    * The pose the cube was in when the scramble finished, which is white on top and
@@ -330,6 +323,7 @@ export class Controller {
    * cube still cannot tell that apart from the tracking being broken.
    */
   #traceHeartbeat(): void {
+    if (!this.#grip.locked) return;
     const now = performance.now();
     if (now - this.#gripHeartbeatAt < GRIP_HEARTBEAT_MS) return;
     this.#gripHeartbeatAt = now;
@@ -661,7 +655,10 @@ export class Controller {
     this.inspectionLeft.set(null);
     this.#solveMoves = [];
     this.#solveReadings = [];
-    this.#grip.holdBottom(null);
+    // Abandoned, so the same applies as when one is finished: stop following the
+    // cube until the next scramble is on it.
+    this.#grip.reset();
+    this.#tracedGrip = "";
     this.state.update((s) => ({
       ...s,
       phase: "scrambling",
@@ -1010,6 +1007,11 @@ export class Controller {
       (await get3x3x3()).defaultPattern().applyAlg(new Alg(scramble));
     const grip =
       source === "smartcube" ? this.#trackSolveGrip(moves, scrambledPattern) : null;
+    // The solve is read; nothing is watching the cube again until the next scramble
+    // is on it, and the readings taken between now and then are sightings of the
+    // pose that scramble will be applied in.
+    this.#grip.reset();
+    this.#tracedGrip = "";
 
     const solve: Solve = {
       id: crypto.randomUUID(),
