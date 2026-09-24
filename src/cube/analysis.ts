@@ -19,6 +19,7 @@ import {
   type TurnMetrics,
 } from "./notation";
 import { describeGrip, reorientMoves, rotationForCrossFace } from "./orientation";
+import { rewriteWithRotations, type SolveGrip } from "./gripTrack";
 import { recogniseOll, recognisePll, reframe } from "./recognise";
 
 export type { TimedMove };
@@ -161,6 +162,7 @@ function firstFrom(
 export function analyseSolve(
   scrambledState: KPattern,
   moves: TimedMove[],
+  grip?: SolveGrip | null,
 ): SolveAnalysis | null {
   if (moves.length === 0) return null;
 
@@ -203,15 +205,23 @@ export function analyseSolve(
     const to = Math.max(from, Math.min(cuts[index], endIdx));
     // Merging happens inside a step, never across one, so that the turn counts of the
     // steps always add up to the turn count of the solve.
+    const turned = moves.slice(from, to);
     const recorded = mergeSameFaceTurns(
-      reorientMoves(moves.slice(from, to), rotation.orientation),
+      grip
+        ? rewriteWithRotations(
+            turned,
+            grip.orientations.slice(from, to),
+            from > 0 ? (grip.orientations[from - 1] ?? null) : null,
+          )
+        : reorientMoves(turned, rotation.orientation),
     );
     // The rotation goes in front of the whole solve, and has to be there even when
     // the cross itself took no moves: every step after it is written in the turned
     // frame, so without it the solution would refer to the wrong faces.
-    if (index === 0 && rotation.tokens.length > 0) {
+    const opening = grip ? grip.inspection : rotation.tokens;
+    if (index === 0 && opening.length > 0) {
       const at = recorded[0]?.t ?? moves[0]?.t ?? 0;
-      recorded.unshift(...rotation.tokens.map((token) => ({ move: token, t: at })));
+      recorded.unshift(...opening.map((token) => ({ move: token, t: at })));
     }
 
     const turning = recorded.filter((m) => {
@@ -273,7 +283,9 @@ export function analyseSolve(
   return {
     method: "CFOP",
     crossFace,
-    rotation: describeGrip(rotation.orientation),
+    // The grip the solve was written in: the one measured, when there was a gyroscope
+    // to measure it, and otherwise the one the cross face implies.
+    rotation: describeGrip(grip?.orientations[0] ?? rotation.orientation),
     steps,
     solvingMs,
     tps: solvingMs > 0 ? (totals.sliceTurns / solvingMs) * 1000 : 0,

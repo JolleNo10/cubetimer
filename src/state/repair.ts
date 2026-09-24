@@ -1,6 +1,7 @@
 import { Alg } from "cubing/alg";
 import type { KPattern, KPuzzle } from "cubing/kpuzzle";
 import { analyseSolve } from "../cube/analysis";
+import { decodeGripTrack } from "../cube/gripTrack";
 import { faceletsToPattern } from "../cube/facelets";
 import type { Solve } from "./types";
 
@@ -39,7 +40,10 @@ export function rebuildAnalysis(kpuzzle: KPuzzle, solve: Solve): Solve | null {
   if (solve.analysis || solve.moves.length === 0) return null;
   const from = startingPattern(kpuzzle, solve);
   if (!from) return null;
-  const analysis = analyseSolve(from, solve.moves);
+  // The readings are long gone, but what they were taken to mean was kept, so the
+  // rebuilt breakdown still names the faces the solver was actually looking at.
+  const grip = solve.gripTrack ? decodeGripTrack(solve.gripTrack) : null;
+  const analysis = analyseSolve(from, solve.moves, grip);
   if (!analysis) return null;
   return { ...solve, analysis };
 }

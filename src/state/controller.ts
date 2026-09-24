@@ -6,6 +6,12 @@ import { faceColour, faceOfColour } from "../cube/colours";
 import { hasXCrossIn } from "../cube/crossPlans";
 import { isRecentreGesture, RECENTRE_GESTURE_TURNS } from "../cube/gestures";
 import { facesAtPositions } from "../cube/gyroGrip";
+import {
+  encodeGripTrack,
+  rewriteWithRotations,
+  trackGrip,
+  type GripTrack,
+} from "../cube/gripTrack";
 import { LiveGrip } from "../cube/liveGrip";
 import { parseFaceMove, type Face } from "../cube/moves";
 import {
@@ -137,6 +143,8 @@ export class Controller {
   #startedAt = 0;
   #inspectionStartedAt = 0;
   #solveMoves: GanCubeMove[] = [];
+  /** The cube's pose as each move landed, in step with `#solveMoves`. */
+  #solveReadings: (Quaternion | null)[] = [];
   #scrambledPattern: KPattern | null = null;
   #recoveryToken = 0;
   #beeped = new Set<number>();
@@ -629,6 +637,7 @@ export class Controller {
     this.elapsed.set(0);
     this.inspectionLeft.set(null);
     this.#solveMoves = [];
+    this.#solveReadings = [];
     this.state.update((s) => ({
       ...s,
       phase: "scrambling",
@@ -662,6 +671,7 @@ export class Controller {
     this.#scrambledPattern = from;
     this.#startedAt = atMs;
     this.#solveMoves = [];
+    this.#solveReadings = [];
     this.elapsed.set(0);
     this.inspectionLeft.set(null);
     this.state.update((s) => ({
@@ -741,6 +751,7 @@ export class Controller {
       // The first turn is what starts the clock, and it counts as part of the solve.
       this.#startSolve(performance.now(), before, "smartcube");
       this.#solveMoves = [move];
+      this.#solveReadings = [this.#grip.pose];
       this.state.update((s) => ({ ...s, liveMoves: [move.move] }));
       this.#afterStateChange(false);
       return;
@@ -748,6 +759,7 @@ export class Controller {
 
     if (phase === "solving") {
       this.#solveMoves.push(move);
+      this.#solveReadings.push(this.#grip.pose);
       this.state.update((s) => ({
         ...s,
         liveMoves: [...s.liveMoves, move.move],
@@ -906,13 +918,43 @@ export class Controller {
     if (this.state.get().settings.sound) {
       void import("../util/sound").then((m) => m.beep(520, 160));
     }
-    void this.#recordSolve(rawMs, timed, "smartcube");
+    void this.#recordSolve(rawMs, timed, "smartcube", this.#trackSolveGrip(timed));
+  }
+
+  /**
+   * Work out how the cube was held for every move of the solve just finished.
+   *
+   * Null when there is nothing to work from — no gyroscope, or a scramble that was
+   * never finished, so no reference to measure against. The analysis falls back to
+   * guessing the grip from the solve, as it always did.
+   */
+  #trackSolveGrip(moves: TimedMove[]): GripTrack | null {
+    const reference = this.#grip.reference;
+    if (!reference || !this.#grip.locked) return null;
+    if (!this.#solveReadings.some(Boolean)) return null;
+
+    const track = trackGrip({
+      moves,
+      readings: this.#solveReadings,
+      reference,
+    });
+    if (debugEnabled("grip")) {
+      debugLog(
+        "grip",
+        `solve tracked: ${track.inspection.join(" ") || "no inspection turn"} ·`,
+        `${rewriteWithRotations(moves, track.orientations).map((m) => m.move).join(" ")}`,
+      );
+      debugLog("grip", `confidence ${track.confidence.toFixed(2)}`);
+      for (const warning of track.warnings) debugLog("grip", `⚠ ${warning}`);
+    }
+    return track;
   }
 
   async #recordSolve(
     rawMs: number,
     moves: TimedMove[],
     source: Solve["source"],
+    grip: GripTrack | null = null,
   ): Promise<void> {
     const { sessionId, scramble, settings, inspectionPenalty } = this.state.get();
     const isReplay = this.#isReplay;
@@ -934,8 +976,14 @@ export class Controller {
       practice: settings.slowSolve || isReplay || undefined,
       replay: isReplay || undefined,
       scrambledFacelets: patternToFacelets(scrambledPattern),
+      // Kept alongside the analysis so the breakdown can be rebuilt later without the
+      // cube: the readings themselves are gone, but what they were taken to mean is
+      // not, and that is what the move text is written from.
+      gripTrack: grip ? encodeGripTrack(grip) : undefined,
       analysis:
-        source === "smartcube" ? analyseSolve(scrambledPattern, moves) : null,
+        source === "smartcube"
+          ? analyseSolve(scrambledPattern, moves, grip)
+          : null,
     };
 
     await db.saveSolve(solve);

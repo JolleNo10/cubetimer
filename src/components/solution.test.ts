@@ -5,6 +5,7 @@ import { analyseSolve } from "../cube/analysis";
 import { patternToFacelets } from "../cube/facelets";
 import { FACES, FACE_OFFSET } from "../cube/moves";
 import { get3x3x3 } from "../cube/puzzle";
+import { GENERATORS, IDENTITY, compose } from "../cube/orientation";
 
 const kpuzzle = await get3x3x3();
 
@@ -62,6 +63,28 @@ describe("fullSolution", () => {
     expect(isSolvedAnyWayUp(scrambled.applyAlg(new Alg(fullSolution(analysis))))).toBe(
       true,
     );
+  });
+
+  it("is still a solution when the solver turned the cube partway through", () => {
+    // The whole point of tracking the grip: the rotations go into the solution, and
+    // every move after one is named for the face it was from the solver's new side.
+    const scramble = "R U R' U' R' F R2 U' R' U' R U R' F'";
+    const scrambled = kpuzzle.defaultPattern().applyAlg(new Alg(scramble));
+    const moves = quarterTurns(new Alg(scramble).invert().toString()).map(
+      (move, i) => ({ move, t: (i + 1) * 150 }),
+    );
+    // Held as scrambled to begin with, then turned a quarter and a half turn round.
+    const orientations = moves.map((_, i) =>
+      i < 4 ? IDENTITY : i < 9 ? GENERATORS.y : compose(GENERATORS.y, GENERATORS.y),
+    );
+    const analysis = analyseSolve(scrambled, moves, {
+      orientations,
+      inspection: [],
+    })!;
+
+    const solution = fullSolution(analysis);
+    expect(solution).toMatch(/\by\b/);
+    expect(isSolvedAnyWayUp(scrambled.applyAlg(new Alg(solution)))).toBe(true);
   });
 
   it("contains every step's moves, in order", () => {

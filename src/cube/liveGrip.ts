@@ -100,6 +100,17 @@ export class LiveGrip {
     return this.#latest !== null;
   }
 
+  /**
+   * The latest raw reading, once there is a reference to measure it against.
+   *
+   * Raw rather than snapped: a reading taken as a move lands is often caught between
+   * two grips, and which one it settles on is a question for the whole solve to
+   * answer, not for this one reading.
+   */
+  get pose(): Quat | null {
+    return this.#locked ? this.#latest : null;
+  }
+
   /** The best current reading, or null before the reference is locked. */
   get snapped(): Snapped | null {
     return this.#snapped;

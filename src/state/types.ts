@@ -26,6 +26,14 @@ export type Solve = {
   moves: TimedMove[];
   /** Cube state the solve started from, as a facelet string. */
   scrambledFacelets?: string;
+  /**
+   * How the cube was held for each move, when the gyroscope was there to say.
+   *
+   * Written by `encodeGripTrack`: the turn made during inspection, then two letters a
+   * move. Kept so a rebuilt breakdown can still name the faces the solver was looking
+   * at, long after the readings themselves are gone.
+   */
+  gripTrack?: string;
   analysis?: SolveAnalysis | null;
   comment?: string;
   /**

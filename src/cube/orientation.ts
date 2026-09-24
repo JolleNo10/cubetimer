@@ -231,3 +231,16 @@ export function slotInCubeFrame(orientation: Orientation, slot: string): string 
 export function describeGrip(orientation: Orientation): string {
   return `${faceAtPosition(orientation, "D")}${faceAtPosition(orientation, "B")}`;
 }
+
+/**
+ * Read a grip back from the two letters `describeGrip` wrote.
+ *
+ * Which faces are underneath and behind is enough to pin the cube down completely:
+ * the face in front is the opposite of the one behind, and a bottom and a front leave
+ * nothing to choose. `null` for anything that is not a grip a cube can be held in.
+ */
+export function gripFromDescription(code: string): Orientation | null {
+  const [bottom, back] = [...code] as Face[];
+  if (!FACES.includes(bottom) || !FACES.includes(back)) return null;
+  return rotationForGrip(bottom, OPPOSITE[back])?.orientation ?? null;
+}

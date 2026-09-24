@@ -67,13 +67,26 @@ const CANDIDATES: readonly { rotation: Rotation; matrix: number[] }[] =
  * How alike two rotation matrices are, on a scale where 1 is identical and 0 is a half
  * turn away.
  *
- * The Frobenius inner product of two rotation matrices is `1 + 2cos θ`, so this is just
- * that angle read off without the arc cosine.
+ * The Frobenius inner product of two rotation matrices is `1 + 2cos θ`, so this works
+ * out as `(1 + cos θ) / 2` — the angle between them, read off without the arc cosine.
+ * Two grips a quarter turn apart therefore score 0.5, which is as close as two
+ * different ways of holding a cube ever get.
  */
 function similarity(a: readonly number[], b: readonly number[]): number {
   let sum = 0;
   for (let i = 0; i < 9; i++) sum += a[i] * b[i];
   return (sum + 1) / 4;
+}
+
+/**
+ * Score all twenty-four grips, in `ALL_ORIENTATIONS` order.
+ *
+ * The sorted form below is for reading; this one is for the tracker, which walks the
+ * same twenty-four every move and wants them where it left them.
+ */
+export function scoreAll(measured: Quat, reference: Quat): number[] {
+  const matrix = toMatrix(relative(reference, measured));
+  return CANDIDATES.map(({ matrix: candidate }) => similarity(matrix, candidate));
 }
 
 export type OrientationScore = {
