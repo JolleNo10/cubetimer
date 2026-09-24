@@ -171,16 +171,6 @@ describe("trackGrip", () => {
     }
   });
 
-  it("says so when the cross face leaves the bottom", () => {
-    const result = track(
-      solve([
-        ["R", "z2", 0],
-        ["U", "z2", 150],
-      ]),
-      "D", // A white cross would be down after z2; a yellow one is now on top.
-    );
-    expect(result.warnings.join(" ")).toContain("left the bottom");
-  });
 
   it("carries on when the cube reported nothing", () => {
     const result = trackGrip({
@@ -356,27 +346,6 @@ describe("step boundaries", () => {
     expect(tracked.orientations[5].U).toBe("D");
   });
 
-  it("re-reads the step that led up to the boundary", () => {
-    const input = driftedSolve();
-    const loose = trackGrip({ ...input, reference: REFERENCE, crossFace: "U" });
-    const anchored = trackGrip({
-      ...input,
-      reference: REFERENCE,
-      crossFace: "U",
-      boundaries: [5],
-    });
-
-    // Left to itself the reading is believed and the cube tips over mid-solve.
-    expect(loose.orientations[4].U).not.toBe("D");
-    // Pinning the end of the step rewrites the moves before it too, not just the
-    // one that was pinned.
-    expect(anchored.orientations[4].U).toBe("D");
-    // And rewrites them to the grip actually held, front included, rather than just
-    // to any grip with white underneath.
-    expect(anchored.orientations).toEqual(
-      anchored.orientations.map(() => grip("z2").orientation),
-    );
-  });
 
   it("says when it overruled the gyroscope, rather than doing it quietly", () => {
     const tracked = trackGrip({
@@ -433,5 +402,86 @@ describe("step boundaries", () => {
         boundaries: [-1, 0, 99],
       }),
     ).not.toThrow();
+  });
+});
+
+describe("drift", () => {
+  /**
+   * A long solve where the reading comes loose a third of the way in and stays
+   * loose, which is what a real gyroscope does — it does not wobble, it wanders.
+   */
+  function driftingSolve(loseItAt: number, length = 24) {
+    const moves = Array.from({ length }, (_, i) => ({ move: "R", t: i * 150 }));
+    const trueGrip = grip("z2");
+    const drifted = grip("z2 x2");
+    const readings = moves.map((_, i) =>
+      i < loseItAt ? trueGrip.pose : drifted.pose,
+    );
+    return { moves, readings, trueGrip };
+  }
+
+  const everySixth = (length: number) =>
+    Array.from({ length: Math.ceil(length / 6) }, (_, i) => i * 6).concat(length - 1);
+
+  it("holds white underneath through a drift, not just where it is pinned", () => {
+    const { moves, readings, trueGrip } = driftingSolve(6);
+    const tracked = trackGrip({
+      moves,
+      readings,
+      reference: REFERENCE,
+      crossFace: "U",
+      boundaries: everySixth(moves.length),
+    });
+    // Pinning the boundaries alone would give a sawtooth: right where it was pinned
+    // and wrong everywhere in between, because the reference it was measured against
+    // is still wrong. Re-aiming the reference is what makes the correction stick.
+    expect(tracked.orientations).toEqual(moves.map(() => trueGrip.orientation));
+  });
+
+  it("does not need a boundary on every step to hold", () => {
+    const { moves, readings, trueGrip } = driftingSolve(4);
+    const tracked = trackGrip({
+      moves,
+      readings,
+      reference: REFERENCE,
+      crossFace: "U",
+      boundaries: [0, 12, 23],
+    });
+    expect(tracked.orientations).toEqual(moves.map(() => trueGrip.orientation));
+  });
+
+  it("leaves an honest reading alone", () => {
+    const moves = Array.from({ length: 12 }, (_, i) => ({ move: "R", t: i * 150 }));
+    const steady = grip("z2");
+    const tracked = trackGrip({
+      moves,
+      readings: moves.map(() => steady.pose),
+      reference: REFERENCE,
+      crossFace: "U",
+      boundaries: everySixth(moves.length),
+    });
+    expect(tracked.orientations).toEqual(moves.map(() => steady.orientation));
+    expect(tracked.warnings).toEqual([]);
+  });
+
+  it("still hears a real rotation through the correction", () => {
+    // The reading drifts, and the solver also genuinely turns the cube partway.
+    const moves = Array.from({ length: 12 }, (_, i) => ({ move: "R", t: i * 400 }));
+    const readings = moves.map((_, i) => {
+      if (i < 4) return grip("z2").pose;
+      if (i < 8) return grip("z2 x2").pose; // drifted, still facing the same way
+      // Drifted and turned a quarter round. The drift is applied last, because it
+      // happens to the reading, not to the cube: the solver's y comes first.
+      return grip("z2 y x2").pose;
+    });
+    const tracked = trackGrip({
+      moves,
+      readings,
+      reference: REFERENCE,
+      crossFace: "U",
+      boundaries: [0, 7, 11],
+    });
+    expect(tracked.orientations[0]).toEqual(grip("z2").orientation);
+    expect(tracked.orientations[11]).toEqual(grip("z2 y").orientation);
   });
 });

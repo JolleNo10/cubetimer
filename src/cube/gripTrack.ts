@@ -26,10 +26,15 @@ import {
   rotationTokensBetween,
   type Orientation,
 } from "./orientation";
-import { facesAtPositions, scoreAll, snapOrientation } from "./gyroGrip";
+import {
+  ORIENTATION_QUATS,
+  facesAtPositions,
+  scoreAll,
+  snapOrientation,
+} from "./gyroGrip";
 import type { TimedMove } from "./notation";
 import type { Face } from "./moves";
-import type { Quat } from "../util/quat";
+import { conjugate, multiply, normalize, type Quat } from "../util/quat";
 
 /**
  * How the tracker weighs one explanation of a solve against another.
@@ -48,10 +53,18 @@ export const GRIP_WEIGHTS = {
   maxRegripFactor: 12,
   /**
    * Cost per move of holding the cube with the cross face anywhere but the bottom.
-   * It happens — an M slice takes the centres with it — but it is never the likelier
-   * reading of a wobble.
+   *
+   * Deliberately above 1, which is the most a reading can ever be worth — the gap
+   * between a perfect fit and a hopeless one. So no reading, however confident, can
+   * buy its way off the bottom on its own; only a boundary saying otherwise can.
+   * Below 1 and a drift that lasts a few moves outvotes the prior and takes the whole
+   * stretch with it, which is the failure this is here to prevent.
+   *
+   * The cost is that a genuine M slice, which really does take the centres off the
+   * bottom for a move or two, is read as though it had not. That is the better way
+   * round while slices are still written out as the face turns the cube reports.
    */
-  offCross: 0.6,
+  offCross: 1.2,
   /**
    * An excursion that returns to the grip it left, and was over faster than the cube
    * could physically have been turned out and back, did not happen.
@@ -140,6 +153,40 @@ function steadiestBottom(
   return best;
 }
 
+/** Corrections smaller than this are the ordinary wobble of a hand, not drift. */
+const DRIFT_THRESHOLD = 1e-6;
+
+function dot(a: Quat, b: Quat): number {
+  return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
+}
+
+/**
+ * The first boundary whose reading disagrees with what the solve says was true.
+ *
+ * A boundary is a place where the grip is known independently of the gyroscope, so
+ * the difference between what was read there and what was held is exactly how far
+ * the gyroscope has wandered. `null` once every boundary agrees.
+ */
+function firstDrift(
+  readings: readonly (Quat | null)[],
+  references: readonly Quat[],
+  anchors: ReadonlySet<number>,
+  path: readonly number[],
+): { index: number; correction: Quat } | null {
+  for (const index of [...anchors].sort((a, b) => a - b)) {
+    const pose = readings[index];
+    if (!pose) continue;
+    // The reference that would have read this pose as the grip actually held.
+    const correction = normalize(
+      multiply(pose, conjugate(ORIENTATION_QUATS[path[index]])),
+    );
+    if (1 - Math.abs(dot(correction, references[index])) > DRIFT_THRESHOLD) {
+      return { index, correction };
+    }
+  }
+  return null;
+}
+
 /** How many quarter turns of rotation separate two grips. */
 function turnsBetween(from: Orientation, to: Orientation): number {
   let turns = 0;
@@ -188,48 +235,75 @@ export function trackGrip(input: GripTrackInput): GripTrack {
     (input.boundaries ?? []).filter((i) => i >= 0 && i < moves.length),
   );
 
-  // Emission costs: how badly each grip fits the reading taken at each move.
-  const emission: number[][] = moves.map((_, i) => {
-    const pose = readings[i] ?? null;
-    const scores = pose ? scoreAll(pose, reference) : null;
-    const offCrossCost = anchors.has(i)
-      ? GRIP_WEIGHTS.boundaryOffCross
-      : GRIP_WEIGHTS.offCross;
-    return ALL_ORIENTATIONS.map((candidate, s) => {
-      const fit = scores ? 1 - scores[s] : 0;
-      const offCross = candidate.orientation[crossFace] === "D" ? 0 : offCrossCost;
-      return fit + offCross;
+  /** How badly each grip fits the reading at each move, given what to measure from. */
+  const emissionFor = (references: readonly Quat[]): number[][] =>
+    moves.map((_, i) => {
+      const pose = readings[i] ?? null;
+      const scores = pose ? scoreAll(pose, references[i]) : null;
+      const offCrossCost = anchors.has(i)
+        ? GRIP_WEIGHTS.boundaryOffCross
+        : GRIP_WEIGHTS.offCross;
+      return ALL_ORIENTATIONS.map((candidate, s) => {
+        const fit = scores ? 1 - scores[s] : 0;
+        const offCross = candidate.orientation[crossFace] === "D" ? 0 : offCrossCost;
+        return fit + offCross;
+      });
     });
-  });
 
-  const cost = emission[0].slice();
-  const from: number[][] = [];
-
-  for (let i = 1; i < moves.length; i++) {
-    const gap = Math.max(0, moves[i].t - moves[i - 1].t);
-    const factor = regripFactor(gap) * GRIP_WEIGHTS.rotation;
-    const next = new Array<number>(states).fill(Number.POSITIVE_INFINITY);
-    const back = new Array<number>(states).fill(0);
-    for (let to = 0; to < states; to++) {
-      for (let prev = 0; prev < states; prev++) {
-        const total = cost[prev] + TURN_COSTS[prev][to] * factor;
-        if (total < next[to]) {
-          next[to] = total;
-          back[to] = prev;
+  const solve = (emission: number[][]): number[] => {
+    const cost = emission[0].slice();
+    const from: number[][] = [];
+    for (let i = 1; i < moves.length; i++) {
+      const gap = Math.max(0, moves[i].t - moves[i - 1].t);
+      const factor = regripFactor(gap) * GRIP_WEIGHTS.rotation;
+      const next = new Array<number>(states).fill(Number.POSITIVE_INFINITY);
+      const back = new Array<number>(states).fill(0);
+      for (let to = 0; to < states; to++) {
+        for (let prev = 0; prev < states; prev++) {
+          const total = cost[prev] + TURN_COSTS[prev][to] * factor;
+          if (total < next[to]) {
+            next[to] = total;
+            back[to] = prev;
+          }
         }
+        next[to] += emission[i][to];
       }
-      next[to] += emission[i][to];
+      from.push(back);
+      for (let s = 0; s < states; s++) cost[s] = next[s];
     }
-    from.push(back);
-    for (let s = 0; s < states; s++) cost[s] = next[s];
-  }
+    // Walk the cheapest path back to the first move.
+    let best = 0;
+    for (let s = 1; s < states; s++) if (cost[s] < cost[best]) best = s;
+    const path = new Array<number>(moves.length);
+    path[moves.length - 1] = best;
+    for (let i = moves.length - 1; i > 0; i--) path[i - 1] = from[i - 1][path[i]];
+    return path;
+  };
 
-  // Walk the cheapest path back to the first move.
-  let best = 0;
-  for (let s = 1; s < states; s++) if (cost[s] < cost[best]) best = s;
-  const path = new Array<number>(moves.length);
-  path[moves.length - 1] = best;
-  for (let i = moves.length - 1; i > 0; i--) path[i - 1] = from[i - 1][path[i]];
+  // Holding the cross face down keeps the cube the right way up, but it says nothing
+  // about which way it is facing — and a reading that has wandered takes every later
+  // rotation with it, so a `y` the solver really made goes unheard. What a boundary
+  // knows is the grip at that move; the gap between that and what was read there is
+  // the wander itself, so re-aim the reference at it and read the solve again.
+  //
+  // One boundary at a time, earliest first. Correcting from all of them at once does
+  // not work: the first read of a drifted solve has the boundaries disagreeing with
+  // each other, and that disagreement would be set in stone. Fixing the earliest
+  // usually brings the rest good on its own.
+  let references: Quat[] = moves.map(() => reference);
+  let emission = emissionFor(references);
+  let path = solve(emission);
+  for (let fixes = 0; fixes <= anchors.size; fixes++) {
+    const drift = firstDrift(readings, references, anchors, path);
+    if (!drift) break;
+    // Carried forward, never back. Whatever the gyroscope has lost it stays lost, so
+    // the correction holds until a later boundary revises it — while a step whose
+    // readings were honest is left alone rather than spoiled by a drift that only set
+    // in at its end.
+    references = references.map((was, i) => (i >= drift.index ? drift.correction : was));
+    emission = emissionFor(references);
+    path = solve(emission);
+  }
 
   let orientations = path.map((s) => ALL_ORIENTATIONS[s].orientation);
   orientations = dropBriefExcursions(orientations, moves, warnings);
@@ -248,12 +322,6 @@ export function trackGrip(input: GripTrackInput): GripTrack {
     );
   }
 
-  const offCross = orientations.filter((o) => o[crossFace] !== "D").length;
-  if (offCross > 0) {
-    warnings.push(
-      `${crossFace} left the bottom for ${offCross} of ${moves.length} moves`,
-    );
-  }
 
   return {
     orientations,

@@ -14,7 +14,7 @@
  * — so the rotation away from it *is* the `Orientation` the rest of the cube code
  * already speaks.
  */
-import { toMatrix, relative, type Quat } from "../util/quat";
+import { multiply, normalize, relative, toMatrix, type Quat } from "../util/quat";
 import {
   ALL_ORIENTATIONS,
   type Orientation,
@@ -57,11 +57,48 @@ function matrixFor(orientation: Orientation): number[] {
   ];
 }
 
-const CANDIDATES: readonly { rotation: Rotation; matrix: number[] }[] =
-  ALL_ORIENTATIONS.map((rotation) => ({
-    rotation,
-    matrix: matrixFor(rotation.orientation),
-  }));
+function aboutAxis(axis: readonly [number, number, number], radians: number): Quat {
+  const s = Math.sin(radians / 2);
+  return { x: axis[0] * s, y: axis[1] * s, z: axis[2] * s, w: Math.cos(radians / 2) };
+}
+
+/**
+ * The three whole-cube rotations as quaternions.
+ *
+ * `x` turns the way `R` does, `y` the way `U` does and `z` the way `F` does — and a
+ * face turn is clockwise as you look at that face, which is a *negative* turn about
+ * the axis pointing out of it under the right-hand rule. Hence the minus.
+ */
+const TURN_QUATS: Record<"x" | "y" | "z", Quat> = {
+  x: aboutAxis(FACE_AXES.R, -Math.PI / 2),
+  y: aboutAxis(FACE_AXES.U, -Math.PI / 2),
+  z: aboutAxis(FACE_AXES.F, -Math.PI / 2),
+};
+
+/** The pose reached from the reference by a sequence of whole-cube rotations. */
+export function quatForTokens(tokens: readonly string[]): Quat {
+  let pose: Quat = { x: 0, y: 0, z: 0, w: 1 };
+  for (const token of tokens) {
+    const axis = token[0] as "x" | "y" | "z";
+    const amount = token.endsWith("'") ? 3 : token.endsWith("2") ? 2 : 1;
+    // Each turn acts in the frame already reached, so it goes on the left.
+    for (let i = 0; i < amount; i++) pose = multiply(TURN_QUATS[axis], pose);
+  }
+  return normalize(pose);
+}
+
+const CANDIDATES: readonly {
+  rotation: Rotation;
+  matrix: number[];
+  quat: Quat;
+}[] = ALL_ORIENTATIONS.map((rotation) => ({
+  rotation,
+  matrix: matrixFor(rotation.orientation),
+  quat: quatForTokens(rotation.tokens),
+}));
+
+/** The pose each of the twenty-four grips corresponds to, in `ALL_ORIENTATIONS` order. */
+export const ORIENTATION_QUATS: readonly Quat[] = CANDIDATES.map((c) => c.quat);
 
 /**
  * How alike two rotation matrices are, on a scale where 1 is identical and 0 is a half
