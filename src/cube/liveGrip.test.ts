@@ -37,7 +37,6 @@ describe("LiveGrip", () => {
     grip.sample(DRIFTED, 0);
     expect(grip.locked).toBe(false);
     expect(grip.orientation).toBeNull();
-    expect(grip.samples).toHaveLength(0);
   });
 
   it("takes the last pose seen while scrambling as the reference", () => {
@@ -67,42 +66,9 @@ describe("LiveGrip", () => {
     expect(at.F).toBe("F");
   });
 
-  it("keeps readings from the moment the reference is locked", () => {
-    const grip = new LiveGrip();
-    grip.sample(DRIFTED, 0);
-    grip.lockReference();
-    for (let i = 1; i <= 5; i++) grip.sample(turn(DRIFTED, aboutAxis(FACE_AXES.U, -i * 15)), i * 100);
-    expect(grip.samples.length).toBe(6);
-    expect(grip.samples[0].t).toBe(0);
-  });
 
-  it("drops readings that are too close together to say anything new", () => {
-    const grip = new LiveGrip();
-    grip.sample(DRIFTED, 0);
-    grip.lockReference();
-    for (let t = 1; t < 20; t++) grip.sample(DRIFTED, t);
-    expect(grip.samples).toHaveLength(1);
-  });
 
-  it("keeps a reading that is close in time but a real movement", () => {
-    const grip = new LiveGrip();
-    grip.sample(DRIFTED, 0);
-    grip.lockReference();
-    grip.sample(turn(DRIFTED, aboutAxis(FACE_AXES.U, -20)), 5);
-    expect(grip.samples).toHaveLength(2);
-  });
 
-  it("finds the reading nearest a moment", () => {
-    const grip = new LiveGrip();
-    grip.sample(DRIFTED, 0);
-    grip.lockReference();
-    grip.sample(turn(DRIFTED, Y), 1000);
-    expect(grip.sampleAt(-50)?.t).toBe(0);
-    expect(grip.sampleAt(400)?.t).toBe(0);
-    expect(grip.sampleAt(600)?.t).toBe(1000);
-    expect(grip.sampleAt(5000)?.t).toBe(1000);
-    expect(facesAtPositions(grip.at(900)!.orientation).F).toBe("R");
-  });
 
   it("starts sighting the scrambling pose again for the next solve", () => {
     const grip = new LiveGrip();
@@ -112,7 +78,6 @@ describe("LiveGrip", () => {
 
     grip.reset();
     expect(grip.locked).toBe(false);
-    expect(grip.samples).toHaveLength(0);
 
     // The solver turns the cube back to scramble the next one; that becomes the reference.
     const nextPose = turn(DRIFTED, aboutAxis(FACE_AXES.R, -90));
@@ -137,8 +102,8 @@ describe("LiveGrip", () => {
     grip.lockReference();
     expect(grip.active).toBe(false);
     expect(grip.orientation).toBeNull();
-    expect(grip.at(0)).toBeNull();
-    expect(grip.sampleAt(0)).toBeNull();
+    expect(grip.steady).toBeNull();
+    expect(grip.pose).toBeNull();
   });
 });
 
