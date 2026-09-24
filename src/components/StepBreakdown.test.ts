@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatScaleSeconds, stepAt, stepTimeScale } from "./StepBreakdown";
+import { formatScaleSeconds, stepAt, stepBarWidths, stepTimeScale } from "./StepBreakdown";
 import type { SolveStep } from "../cube/analysis";
 
 /** Cross 0-8, a skipped pair, then three pairs, OLL and PLL. */
@@ -85,6 +85,14 @@ describe("stepTimeScale", () => {
       tickMs: 100,
       maxMs: 500,
       ticks: [100, 200, 300, 400, 500],
+    });
+  });
+
+  it("does not fill recognition or execution for a zero-duration step", () => {
+    const scale = stepTimeScale(timedSteps(0, 2340));
+    expect(stepBarWidths(timedSteps(0)[0], 2340, scale)).toEqual({
+      recognitionWidth: 0,
+      executionWidth: 0,
     });
   });
 });

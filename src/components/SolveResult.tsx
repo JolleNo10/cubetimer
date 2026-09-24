@@ -78,21 +78,23 @@ export function SolveResult({
             ) : null}
 
             <div className="result-breakdown">
-              <div className="result-step-heading" aria-hidden="true">
-                <span>Step</span>
-                <span>Total</span>
-                <span>Recognition</span>
-                <span>Execution</span>
-                <span>Moves</span>
-                <span>TPS</span>
+              <div className="result-breakdown-grid">
+                <div className="result-step-heading" aria-hidden="true">
+                  <span>Step</span>
+                  <span>Total</span>
+                  <span>Recognition</span>
+                  <span>Execution</span>
+                  <span>Moves</span>
+                  <span>TPS</span>
+                </div>
+                <StepBreakdown
+                  analysis={analysis}
+                  showMoves={false}
+                  showDetail={false}
+                  showSplitTimes
+                  showTimeScale
+                />
               </div>
-              <StepBreakdown
-                analysis={analysis}
-                showMoves={false}
-                showDetail={false}
-                showSplitTimes
-                showTimeScale
-              />
             </div>
             <p className="result-note">
               Recognition is inferred from move timing; cross planning before the first turn is not measured.

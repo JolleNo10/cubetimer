@@ -55,6 +55,25 @@ function scalePositionPercent(tick: number, scale: StepTimeScale): number {
   return (tick / scale.maxMs) * 100;
 }
 
+export function stepBarWidths(
+  step: SolveStep,
+  total: number,
+  timeScale?: StepTimeScale,
+): { recognitionWidth: number; executionWidth: number } {
+  if (step.timeMs <= 0) return { recognitionWidth: 0, executionWidth: 0 };
+
+  const totalWidth = timeScale
+    ? (step.timeMs / timeScale.maxMs) * 100
+    : (step.timeMs / total) * 100;
+  const recognitionWidth = timeScale
+    ? (step.recognitionMs / timeScale.maxMs) * 100
+    : (totalWidth * (step.timeMs > 0 ? (step.recognitionMs / step.timeMs) * 100 : 0)) / 100;
+  const executionWidth = timeScale
+    ? (step.executionMs / timeScale.maxMs) * 100
+    : totalWidth - recognitionWidth;
+  return { recognitionWidth, executionWidth };
+}
+
 /** Format a scale label without trailing zeroes: `500` → `0.5s`, `1000` → `1s`. */
 export function formatScaleSeconds(ms: number): string {
   const seconds = ms / 1000;
@@ -119,15 +138,7 @@ function StepRow({
   timeScale?: StepTimeScale;
   onSelect?: () => void;
 }) {
-  const totalWidth = timeScale
-    ? (step.timeMs / timeScale.maxMs) * 100
-    : (step.timeMs / total) * 100;
-  const recognitionWidth = timeScale
-    ? (step.recognitionMs / timeScale.maxMs) * 100
-    : (totalWidth * (step.timeMs > 0 ? (step.recognitionMs / step.timeMs) * 100 : 0)) / 100;
-  const executionWidth = timeScale
-    ? (step.executionMs / timeScale.maxMs) * 100
-    : totalWidth - recognitionWidth;
+  const { recognitionWidth, executionWidth } = stepBarWidths(step, total, timeScale);
   const described = describeCase(step);
   const isSkip = step.skipped || described?.id === "Solved";
 
@@ -172,11 +183,19 @@ function StepRow({
       {splitValues}
       <span className="phase-bar">
         {timeScale ? (
-          <span className="phase-time-guides" aria-hidden="true">
-            {timeScale.ticks.map((tick) => (
+          <span
+            className="phase-time-guides"
+            aria-hidden="true"
+            data-scale-max-ms={timeScale.maxMs}
+            data-tick-ms={timeScale.tickMs}
+          >
+            {timeScale.ticks.map((tick, index) => (
               <i
                 key={tick}
-                style={{ left: `${scalePositionPercent(tick, timeScale)}%` }}
+                style={{
+                  left: `${scalePositionPercent(tick, timeScale)}%`,
+                  transform: index === timeScale.ticks.length - 1 ? "translateX(-100%)" : undefined,
+                }}
               />
             ))}
           </span>
@@ -404,8 +423,8 @@ export function StepBreakdown({
         </span>
         <span className="grow" />
         <span>
-          {formatTime(analysis.totalRecognitionMs)} looking ·{" "}
-          {formatTime(analysis.totalExecutionMs)} turning
+          {formatTime(analysis.totalRecognitionMs)} {showTimeScale ? "measured recognition" : "looking"} ·{" "}
+          {formatTime(analysis.totalExecutionMs)} {showTimeScale ? "execution" : "turning"}
         </span>
       </div>
 

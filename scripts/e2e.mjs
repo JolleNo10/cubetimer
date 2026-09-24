@@ -118,6 +118,30 @@ check("the result has a shared time axis", await timeAxis.count() === 1);
 check("the time axis has multiple second labels", timeLabels.length >= 2 && timeLabels.every((label) => /s$/.test(label)));
 check("all result bars share one time scale", await guideTracks.count() === 7 && guideScaleCount === 1);
 check("guide lines align with the shared axis", matchingGuidePositions);
+check("result legend explains measured recognition", (await result.locator(".legend").innerText()).includes("measured recognition")
+  && (await result.locator(".legend").innerText()).includes("execution"));
+
+await page.setViewportSize({ width: 390, height: 900 });
+const narrowResultLayout = await result.evaluate((element) => {
+  const axis = element.querySelector(".phase-time-axis")?.getBoundingClientRect();
+  const bars = Array.from(element.querySelectorAll(".phase-row .phase-bar"), (bar) => bar.getBoundingClientRect());
+  const body = element.querySelector(".solve-result-body");
+  return {
+    axisWidth: axis?.width ?? 0,
+    axisLeft: axis?.left ?? 0,
+    barWidths: bars.map((bar) => bar.width),
+    barLefts: bars.map((bar) => bar.left),
+    bodyClientWidth: body?.clientWidth ?? 0,
+    bodyScrollWidth: body?.scrollWidth ?? 0,
+  };
+});
+const narrowBarsMatchAxis = narrowResultLayout.axisWidth > 0
+  && narrowResultLayout.barWidths.length === 7
+  && narrowResultLayout.barWidths.every((width) => Math.abs(width - narrowResultLayout.axisWidth) < 0.5)
+  && narrowResultLayout.barLefts.every((left) => Math.abs(left - narrowResultLayout.axisLeft) < 0.5);
+check("narrow Result keeps the axis aligned with every bar", narrowBarsMatchAxis, JSON.stringify(narrowResultLayout));
+check("narrow Result scrolls the shared plotting width", narrowResultLayout.bodyScrollWidth > narrowResultLayout.bodyClientWidth);
+await page.setViewportSize({ width: 1440, height: 900 });
 console.log("stats best:", await page.locator(".stat").nth(1).innerText());
 
 await result.locator(".solve-result-body").dispatchEvent("pointerdown", { pointerType: "touch" });
