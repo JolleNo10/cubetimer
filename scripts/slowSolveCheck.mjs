@@ -45,17 +45,22 @@ const solve = async () => {
 };
 await solve();
 
-const timer = (await page.locator(".timer-value").innerText()).trim();
-check("the clock is replaced by a move count", /^\d+\s*moves$/.test(timer.replace(/\s+/g, " ")), timer);
+const result = page.locator(".solve-result");
+check("the center result appears", await result.count() === 1);
+const primary = (await result.locator(".result-primary").innerText()).trim();
+check("the primary result is a move count", /^\d+\s+moves$/.test(primary), primary);
+check("elapsed time is secondary", await result.locator(".result-secondary").count() === 1);
 check("the solve is listed", (await page.locator(".solve-row").count()) === 1);
 check("it is marked as a slow solve",
       (await page.locator(".solve-row .phase-case").allInnerTexts()).includes("slow"));
-check("it has a breakdown", (await page.locator(".phase-row").count()) === 7);
+check("it has a breakdown", (await result.locator(".phase-row").count()) === 7);
 
 const best = (await page.locator(".stat").nth(1).innerText()).split("\n")[1].trim();
 const count = (await page.locator(".stat").first().innerText()).split("\n")[1].trim();
 check("it is not counted in the statistics", best === "—" && count === "0",
       `best ${best}, solves ${count}`);
+
+await result.getByRole("button", { name: "Continue" }).click();
 
 // Turning the mode off and solving again gives an ordinary, counted solve.
 await page.locator(".chip.toggle input").click();

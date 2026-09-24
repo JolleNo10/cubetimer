@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { AnalysisPanel } from "./components/AnalysisPanel";
 import { AnalyticsDialog } from "./components/AnalyticsDialog";
 import { CoachPanel } from "./components/CoachPanel";
@@ -10,6 +10,7 @@ import { ScramblePanel } from "./components/ScramblePanel";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { SolveDetail } from "./components/SolveDetail";
 import { SolveList } from "./components/SolveList";
+import { SolveResult } from "./components/SolveResult";
 import { StatsPanel } from "./components/StatsPanel";
 import { TimerDisplay } from "./components/TimerDisplay";
 import { VIRTUAL_CUBE_KEYS } from "./components/VirtualCubeKeys";
@@ -25,9 +26,11 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [replaySolve, setReplaySolve] = useState<Solve | null>(null);
   const [analyseSolve, setAnalyseSolve] = useState<Solve | null>(null);
+  const [resultSolve, setResultSolve] = useState<Solve | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [holding, setHolding] = useState(false);
   const [holdReady, setHoldReady] = useState(false);
+  const resultPointerStarted = useRef(false);
 
   const live = state.cubeStatus === "connected" || state.virtualCube;
 
@@ -61,6 +64,7 @@ export function App() {
   }, []);
 
   const pressStart = useCallback(() => {
+    if (resultSolve) setResultSolve(null);
     const current = controller.state.get();
     if (current.phase === "solving") {
       // A solve the cube started is stopped by solving the cube, not by a key or a tap.
@@ -75,7 +79,7 @@ export function App() {
     } else {
       setHoldReadyBoth(true);
     }
-  }, [controller, setHoldingBoth, setHoldReadyBoth]);
+  }, [controller, resultSolve, setHoldingBoth, setHoldReadyBoth]);
 
   const pressEnd = useCallback(() => {
     if (holdTimer.current) clearTimeout(holdTimer.current);
@@ -109,6 +113,10 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTextEntry(event.target)) return;
       if (event.key === "Escape") {
+        if (resultSolve) {
+          setResultSolve(null);
+          return;
+        }
         controller.cancel();
         return;
       }
@@ -138,7 +146,38 @@ export function App() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [controller, pressStart, pressEnd, replaySolve, settingsOpen]);
+  }, [controller, pressStart, pressEnd, replaySolve, resultSolve, settingsOpen]);
+
+  useEffect(
+    () =>
+      controller.onSolveRecorded((solve) => {
+        setSelectedId(null);
+        setResultSolve(solve);
+      }),
+    [controller],
+  );
+
+  useEffect(
+    () => controller.onCubeMove(() => setResultSolve(null)),
+    [controller],
+  );
+
+  const handleStagePointerDown = useCallback(
+    (event: PointerEvent<HTMLDivElement>) => {
+      if (!resultSolve) return;
+      const target = event.target;
+      if (target instanceof Element && target.closest("button")) return;
+      resultPointerStarted.current = true;
+      pressStart();
+    },
+    [pressStart, resultSolve],
+  );
+
+  const handleStagePointerUp = useCallback(() => {
+    if (!resultPointerStarted.current) return;
+    resultPointerStarted.current = false;
+    pressEnd();
+  }, [pressEnd]);
 
   if (!state.ready) {
     return (
@@ -160,7 +199,10 @@ export function App() {
           <SolveList
             solves={state.solves}
             selectedId={selectedSolve?.id ?? null}
-            onSelect={(solve) => setSelectedId(solve.id)}
+            onSelect={(solve) => {
+              setResultSolve(null);
+              setSelectedId(solve.id);
+            }}
           />
         </div>
 
@@ -174,7 +216,7 @@ export function App() {
             </div>
           ) : null}
           <ScramblePanel state={state} />
-          {state.settings.slowSolve && live ? (
+          {state.settings.slowSolve && live && !resultSolve ? (
             <CoachPanel
               facelets={state.cubeFacelets}
               settings={state.settings}
@@ -183,21 +225,37 @@ export function App() {
               liveMoves={state.liveMoves}
             />
           ) : null}
-          <div className="stage">
-            <TimerDisplay
-              state={state}
-              holding={holding}
-              holdReady={holdReady}
-              onPressStart={pressStart}
-              onPressEnd={pressEnd}
-            />
-            <CubeView
-              settings={state.settings}
-              facelets={state.cubeFacelets}
-              gyroSupported={state.hardware?.gyroSupported ?? false}
-              live={live}
-              scramble={state.scramble}
-            />
+          <div
+            className="stage"
+            onPointerDown={handleStagePointerDown}
+            onPointerUp={handleStagePointerUp}
+            onPointerCancel={handleStagePointerUp}
+          >
+            {resultSolve ? (
+              <SolveResult
+                solve={resultSolve}
+                onContinue={() => setResultSolve(null)}
+                onReplay={setReplaySolve}
+                onAnalyse={setAnalyseSolve}
+              />
+            ) : (
+              <>
+                <TimerDisplay
+                  state={state}
+                  holding={holding}
+                  holdReady={holdReady}
+                  onPressStart={pressStart}
+                  onPressEnd={pressEnd}
+                />
+                <CubeView
+                  settings={state.settings}
+                  facelets={state.cubeFacelets}
+                  gyroSupported={state.hardware?.gyroSupported ?? false}
+                  live={live}
+                  scramble={state.scramble}
+                />
+              </>
+            )}
           </div>
         </div>
 

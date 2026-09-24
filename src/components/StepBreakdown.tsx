@@ -59,12 +59,14 @@ function StepRow({
   total,
   active,
   showMoves,
+  showSplitTimes,
   onSelect,
 }: {
   step: SolveStep;
   total: number;
   active: boolean;
   showMoves: boolean;
+  showSplitTimes: boolean;
   onSelect?: () => void;
 }) {
   const width = (step.timeMs / total) * 100;
@@ -72,6 +74,30 @@ function StepRow({
     step.timeMs > 0 ? (step.recognitionMs / step.timeMs) * 100 : 0;
   const described = describeCase(step);
   const isSkip = step.skipped || described?.id === "Solved";
+
+  const splitValues = showSplitTimes ? (
+    <>
+      <span
+        className="phase-split-value recognition-value"
+        title={step.name === "Cross" ? "Cross recognition before the first turn is not timed." : "Time spent recognizing this step"}
+        aria-label={step.name === "Cross" ? "Recognition not measured" : `Recognition ${formatTime(step.recognitionMs)}`}
+      >
+        {step.name === "Cross" ? "—" : formatTime(step.recognitionMs)}
+      </span>
+      <span
+        className="phase-split-value execution-value"
+        aria-label={`Execution ${formatTime(step.executionMs)}`}
+      >
+        {formatTime(step.executionMs)}
+      </span>
+      <span className="phase-split-value moves-value" aria-label={`${step.sliceTurns} moves`}>
+        {step.sliceTurns}
+      </span>
+      <span className="phase-split-value tps-value" aria-label={`${step.tps.toFixed(1)} TPS`}>
+        {step.tps.toFixed(1)}
+      </span>
+    </>
+  ) : null;
 
   const content = (
     <>
@@ -87,6 +113,7 @@ function StepRow({
         {described?.hint ? <span className="phase-hint">{described.hint}</span> : null}
       </span>
       <span className="phase-time">{formatTime(step.timeMs)}</span>
+      {splitValues}
       <span className="phase-bar">
         <span
           className="recognition"
@@ -228,6 +255,7 @@ export function StepBreakdown({
   onSelectStep,
   showDetail = true,
   showMoves = true,
+  showSplitTimes = false,
   position,
 }: {
   analysis: SolveAnalysis;
@@ -235,6 +263,7 @@ export function StepBreakdown({
   onSelectStep?: (step: SolveStep) => void;
   showDetail?: boolean;
   showMoves?: boolean;
+  showSplitTimes?: boolean;
   position?: number;
 }) {
   const total = Math.max(1, analysis.solvingMs);
@@ -266,6 +295,7 @@ export function StepBreakdown({
           total={total}
           active={activeStep === i}
           showMoves={showMoves}
+          showSplitTimes={showSplitTimes}
           onSelect={onSelectStep ? () => onSelectStep(step) : undefined}
         />
       ))}

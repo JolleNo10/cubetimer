@@ -160,6 +160,7 @@ export class Controller {
   #recentTurns: string[] = [];
   #moveListeners = new Set<(move: string) => void>();
   #patternListeners = new Set<(pattern: KPattern) => void>();
+  #solveRecordedListeners = new Set<(solve: Solve) => void>();
 
   async init(): Promise<void> {
     const [settings, sessions] = await Promise.all([
@@ -388,6 +389,12 @@ export class Controller {
   onCubeMove(listener: (move: string) => void): () => void {
     this.#moveListeners.add(listener);
     return () => this.#moveListeners.delete(listener);
+  }
+
+  /** Fires after a solve has been persisted and application state has been updated. */
+  onSolveRecorded(listener: (solve: Solve) => void): () => void {
+    this.#solveRecordedListeners.add(listener);
+    return () => this.#solveRecordedListeners.delete(listener);
   }
 
   /**
@@ -1045,6 +1052,7 @@ export class Controller {
       solves: [...s.solves, solve],
       inspectionPenalty: "none",
     }));
+    for (const listener of this.#solveRecordedListeners) listener(solve);
     void this.newScramble();
   }
 

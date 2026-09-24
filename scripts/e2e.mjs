@@ -72,13 +72,19 @@ const check = (name, condition, detail) => {
 };
 
 check("cube reached the scrambled state", afterScramble.hint.startsWith("Ready"), afterScramble.hint);
-console.log("timer:", await page.locator(".timer-value").innerText());
-console.log("timer hint:", await page.locator(".timer-hint").innerText());
-console.log("meta:", await page.locator(".timer-meta").innerText().catch(() => "(none)"));
+const result = page.locator(".solve-result");
+check("the center result screen appears", await result.count() === 1);
+check("the final result is present", (await result.locator(".result-primary").innerText()).length > 0);
 const solveRows = await page.locator(".solve-row").count();
 check("a solve was recorded", solveRows === 1, `${solveRows} rows`);
-const phaseRows = await page.locator(".phase-row").count();
-check("the solve was broken into CFOP phases", phaseRows === 7, `${phaseRows} phases`);
+const resultRows = await result.locator(".phase-row").count();
+check("the result has seven CFOP phases", resultRows === 7, `${resultRows} phases`);
+const rightRows = await page.locator(".column.right .phase-row").count();
+check("the right breakdown remains present", rightRows === 7, `${rightRows} phases`);
+check("recognition and execution values are numeric", await result.locator(".recognition-value").nth(1).innerText() !== "—" && await result.locator(".execution-value").nth(1).innerText() !== "");
+check("cross recognition is unavailable", await result.locator(".recognition-value").first().innerText() === "—");
+check("move and TPS information is present", (await result.innerText()).includes("Moves / STM") && (await result.innerText()).includes("TPS"));
+check("the next scramble is available", await page.locator(".scramble-move").count() > 0);
 console.log("stats best:", await page.locator(".stat").nth(1).innerText());
 
 
@@ -89,6 +95,10 @@ await page.locator(".panel", { hasText: "Solve breakdown" }).getByRole("button",
 await page.waitForTimeout(1200);
 check("the replay opens", (await page.locator(".dialog").count()) === 1);
 await page.screenshot({ path: "/tmp/e2e-replay.png" });
+
+await page.locator(".dialog").getByRole("button", { name: "Close" }).click();
+await result.getByRole("button", { name: "Continue" }).click();
+check("Continue restores the timer", await page.locator(".timer-card").count() === 1);
 
 check("no console or page errors", problems.length === 0, problems.join(" | "));
 await browser.close();
