@@ -208,7 +208,7 @@ function StepRow({
           className="execution"
           style={{
             width: `${executionWidth}%`,
-            background: STEP_COLORS[step.name] ?? "var(--accent)",
+            background: timeScale ? "var(--accent)" : STEP_COLORS[step.name] ?? "var(--accent)",
           }}
         />
       </span>

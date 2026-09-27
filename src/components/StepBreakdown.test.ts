@@ -95,6 +95,20 @@ describe("stepTimeScale", () => {
       executionWidth: 0,
     });
   });
+
+  it("scales recognition and execution against the shared maximum", () => {
+    const scale = { tickMs: 500, maxMs: 2500, ticks: [500, 1000, 1500, 2000, 2500] };
+    const step = {
+      name: "F2L Slot 1",
+      timeMs: 2000,
+      recognitionMs: 500,
+      executionMs: 1500,
+    } as unknown as SolveStep;
+
+    const widths = stepBarWidths(step, 2000, scale);
+    expect(widths).toEqual({ recognitionWidth: 20, executionWidth: 60 });
+    expect(widths.recognitionWidth + widths.executionWidth).toBe(80);
+  });
 });
 
 describe("formatScaleSeconds", () => {
