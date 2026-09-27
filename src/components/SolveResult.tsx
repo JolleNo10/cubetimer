@@ -1,14 +1,17 @@
+import { SolveComparisonPanel } from "./SolveComparison";
 import { StepBreakdown } from "./StepBreakdown";
-import { formatSolveTime, formatTime } from "../state/stats";
+import { compareSolveToHistory, formatSolveTime, formatTime, isSlowSolve } from "../state/stats";
 import type { Solve } from "../state/types";
 
 export function SolveResult({
   solve,
+  solves,
   onContinue,
   onReplay,
   onAnalyse,
 }: {
   solve: Solve;
+  solves: readonly Solve[];
   onContinue: () => void;
   onReplay: (solve: Solve) => void;
   onAnalyse: (solve: Solve) => void;
@@ -18,9 +21,9 @@ export function SolveResult({
   const canReplay = solve.moves.length > 0;
   const canAnalyse = Boolean(analysis && solve.moves.length > 0);
   const pauseMs = analysis?.pauses.reduce((sum, pause) => sum + pause.durationMs, 0) ?? 0;
-  const slowSolve = solve.slowSolve === true
-    || (solve.slowSolve === undefined && solve.practice === true && solve.replay !== true);
+  const slowSolve = isSlowSolve(solve);
   const primary = slowSolve ? `${moveCount} moves` : formatSolveTime(solve);
+  const comparison = analysis ? compareSolveToHistory(solve, solves) : null;
 
   return (
     <section className="panel solve-result" aria-label="Solve result">
@@ -93,9 +96,11 @@ export function SolveResult({
                   showDetail={false}
                   showSplitTimes
                   showTimeScale
+                  showMoveGraph={false}
                 />
               </div>
             </div>
+            <SolveComparisonPanel comparison={comparison} />
             <p className="result-note">
               Recognition is inferred from move timing; cross planning before the first turn is not measured.
             </p>

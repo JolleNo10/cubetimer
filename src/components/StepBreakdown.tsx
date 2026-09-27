@@ -363,6 +363,7 @@ export function StepBreakdown({
   showMoves = true,
   showSplitTimes = false,
   showTimeScale = false,
+  showMoveGraph = true,
   position,
 }: {
   analysis: SolveAnalysis;
@@ -372,6 +373,7 @@ export function StepBreakdown({
   showMoves?: boolean;
   showSplitTimes?: boolean;
   showTimeScale?: boolean;
+  showMoveGraph?: boolean;
   position?: number;
 }) {
   const total = Math.max(1, analysis.solvingMs);
@@ -430,7 +432,7 @@ export function StepBreakdown({
 
       {showMoves && solution ? <Solution solution={solution} /> : null}
 
-      <MoveGraph analysis={analysis} position={position} />
+      {showMoveGraph ? <MoveGraph analysis={analysis} position={position} /> : null}
 
       {showDetail && analysis.pauses.length > 0 ? (
         <div className="small faint" style={{ marginTop: 10 }}>

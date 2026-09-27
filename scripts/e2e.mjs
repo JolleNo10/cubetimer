@@ -98,6 +98,8 @@ check("recognition and execution values are numeric", await result.locator(".rec
 check("cross recognition is unavailable", await result.locator(".recognition-value").first().innerText() === "—");
 check("recognition label is explicit", (await result.innerText()).includes("Measured recognition"));
 check("move and TPS information is present", (await result.innerText()).includes("Moves / STM") && (await result.innerText()).includes("TPS"));
+check("Result replaces the move histogram", await result.locator('svg[aria-label="Time taken by each move"]').count() === 0);
+check("Result explains the comparison minimum", (await result.innerText()).includes("Complete 3 comparable analyzed solves"));
 check("the next scramble is available", await page.locator(".scramble-move").count() > 0);
 const timeAxis = result.locator(".phase-time-axis");
 const timeLabels = await timeAxis.locator(".phase-time-axis-label").allInnerTexts();
@@ -161,6 +163,19 @@ check("touch interaction leaves the result visible", await result.count() === 1)
 await page.keyboard.press("Escape");
 check("Escape dismisses the result", await result.count() === 0);
 
+const solveComparable = async () => {
+  await solveFreshScramble();
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(150);
+};
+await solveComparable();
+await solveComparable();
+await solveFreshScramble();
+check("Result shows comparison after three comparable solves", (await result.innerText()).includes("median of last 3"));
+check("Result comparison has all seven steps", await result.locator(".solve-comparison-row").count() === 7);
+check("Result comparison has no move histogram", await result.locator('svg[aria-label="Time taken by each move"]').count() === 0);
+await page.keyboard.press("Escape");
+
 await page.screenshot({ path: "/tmp/e2e.png" });
 
 // Replay dialog.
@@ -182,9 +197,10 @@ const nextSolutionKeys = quarterTurns(new Alg(nextScramble).invert().toString())
   (m) => KEY_FOR_MOVE[m],
 );
 await page.keyboard.press(nextScrambleKeys[0]);
-await page.waitForTimeout(180);
+await page.waitForTimeout(300);
 check("the first next-scramble move dismisses the result", await result.count() === 0);
-check("the first next-scramble move is processed", await page.locator(".scramble-move.done").count() >= 1);
+check("the first next-scramble move is processed", await page.locator(".scramble-move.done").count() >= 1,
+  `${await page.locator(".scramble-move.done").count()} completed moves`);
 await press(nextScrambleKeys.slice(1));
 await page.waitForTimeout(250);
 await press(nextSolutionKeys, 25);

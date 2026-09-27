@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
+import { STEP_NAMES, type SolveAnalysis } from "../cube/analysis";
 import {
   averageOf,
   bestAverage,
   countedSolves,
+  compareSolveToHistory,
   formatTime,
+  isSlowSolve,
   meanOf,
   sessionStats,
 } from "./stats";
@@ -20,6 +23,22 @@ function solve(rawMs: number, penalty: Penalty = "none"): Solve {
     event: "333",
     source: "keyboard",
     moves: [],
+  };
+}
+
+function analysedSolve(
+  id: string,
+  times: number[],
+  options: Partial<Solve> = {},
+): Solve {
+  return {
+    ...solve(10_000),
+    id,
+    analysis: {
+      method: "CFOP",
+      steps: STEP_NAMES.map((name, index) => ({ name, timeMs: times[index] ?? 0 })),
+    } as unknown as SolveAnalysis,
+    ...options,
   };
 }
 
@@ -117,5 +136,158 @@ describe("slow solves", () => {
   it("are the only thing countedSolves removes", () => {
     const solves = [solve(1000), { ...solve(2000), practice: true }, solve(3000, "DNF")];
     expect(countedSolves(solves)).toHaveLength(2);
+  });
+});
+
+describe("compareSolveToHistory", () => {
+  const currentTimes = [10, 20, 30, 40, 50, 60, 70];
+
+  it("uses only solves before the current solve", () => {
+    const before = [
+      analysedSolve("before-1", [100, ...currentTimes.slice(1)]),
+      analysedSolve("before-2", [200, ...currentTimes.slice(1)]),
+      analysedSolve("before-3", [300, ...currentTimes.slice(1)]),
+    ];
+    const current = analysedSolve("current", currentTimes);
+    const after = analysedSolve("after", [900, ...currentTimes.slice(1)]);
+
+    const comparison = compareSolveToHistory(current, [...before, current, after]);
+
+    expect(comparison?.sampleSize).toBe(3);
+    expect(comparison?.steps[0]).toEqual({
+      name: "Cross",
+      currentMs: 10,
+      baselineMs: 200,
+      deltaMs: -190,
+    });
+  });
+
+  it("limits the baseline to the latest 20 comparable solves", () => {
+    const previous = Array.from({ length: 21 }, (_, index) =>
+      analysedSolve(`solve-${index}`, [(index + 1) * 1000, ...currentTimes.slice(1)]));
+    const current = analysedSolve("current", currentTimes);
+
+    const comparison = compareSolveToHistory(current, [...previous, current]);
+
+    expect(comparison?.sampleSize).toBe(20);
+    expect(comparison?.steps[0].baselineMs).toBe(11_500);
+  });
+
+  it("excludes replay solves from the baseline", () => {
+    const valid = [
+      analysedSolve("valid-1", [100, ...currentTimes.slice(1)]),
+      analysedSolve("valid-2", [200, ...currentTimes.slice(1)]),
+      analysedSolve("valid-3", [300, ...currentTimes.slice(1)]),
+    ];
+    const replay = analysedSolve("replay", [9_000, ...currentTimes.slice(1)], { replay: true });
+    const current = analysedSolve("current", currentTimes);
+
+    const comparison = compareSolveToHistory(current, [...valid, replay, current]);
+
+    expect(comparison?.sampleSize).toBe(3);
+    expect(comparison?.steps[0].baselineMs).toBe(200);
+  });
+
+  it("separates normal and slow-solve baselines", () => {
+    const normal = [
+      analysedSolve("normal-1", [100, ...currentTimes.slice(1)]),
+      analysedSolve("normal-2", [200, ...currentTimes.slice(1)]),
+      analysedSolve("normal-3", [300, ...currentTimes.slice(1)]),
+    ];
+    const slow = [
+      analysedSolve("slow-1", [900, ...currentTimes.slice(1)], { slowSolve: true }),
+      analysedSolve("slow-2", [1_000, ...currentTimes.slice(1)], { slowSolve: true }),
+      analysedSolve("slow-3", [1_100, ...currentTimes.slice(1)], { slowSolve: true }),
+    ];
+    const normalCurrent = analysedSolve("normal-current", currentTimes);
+    const slowCurrent = analysedSolve("slow-current", currentTimes, { slowSolve: true });
+
+    expect(compareSolveToHistory(normalCurrent, [...normal, ...slow, normalCurrent])?.steps[0].baselineMs)
+      .toBe(200);
+    expect(compareSolveToHistory(slowCurrent, [...normal, ...slow, slowCurrent])?.steps[0].baselineMs)
+      .toBe(1_000);
+  });
+
+  it("uses the legacy practice flag as the slow-solve fallback", () => {
+    const previous = [
+      analysedSolve("slow-1", [100, ...currentTimes.slice(1)], { practice: true }),
+      analysedSolve("slow-2", [200, ...currentTimes.slice(1)], { practice: true }),
+      analysedSolve("slow-3", [300, ...currentTimes.slice(1)], { practice: true }),
+    ];
+    const current = analysedSolve("current", currentTimes, { practice: true });
+
+    expect(isSlowSolve(current)).toBe(true);
+    expect(compareSolveToHistory(current, [...previous, current])?.steps[0].baselineMs).toBe(200);
+  });
+
+  it("ignores solves without analysis", () => {
+    const previous = [
+      analysedSolve("valid-1", [100, ...currentTimes.slice(1)]),
+      analysedSolve("valid-2", [200, ...currentTimes.slice(1)]),
+      analysedSolve("valid-3", [300, ...currentTimes.slice(1)]),
+      { ...solve(10_000), id: "missing-analysis", analysis: null },
+    ];
+    const current = analysedSolve("current", currentTimes);
+
+    expect(compareSolveToHistory(current, [...previous, current])?.sampleSize).toBe(3);
+  });
+
+  it("filters incompatible event and analysis method data", () => {
+    const valid = [
+      analysedSolve("valid-1", [100, ...currentTimes.slice(1)]),
+      analysedSolve("valid-2", [200, ...currentTimes.slice(1)]),
+      analysedSolve("valid-3", [300, ...currentTimes.slice(1)]),
+    ];
+    const otherEvent = analysedSolve("other-event", [9_000, ...currentTimes.slice(1)], { event: "222" });
+    const otherMethod = analysedSolve("other-method", [8_000, ...currentTimes.slice(1)], {
+      analysis: {
+        method: "OTHER",
+        steps: STEP_NAMES.map((name, index) => ({ name, timeMs: currentTimes[index] })),
+      } as unknown as SolveAnalysis,
+    });
+    const current = analysedSolve("current", currentTimes);
+
+    const comparison = compareSolveToHistory(current, [...valid, otherEvent, otherMethod, current]);
+
+    expect(comparison?.sampleSize).toBe(3);
+    expect(comparison?.steps[0].baselineMs).toBe(200);
+  });
+
+  it("requires at least three comparable solves", () => {
+    const previous = [
+      analysedSolve("valid-1", [100, ...currentTimes.slice(1)]),
+      analysedSolve("valid-2", [200, ...currentTimes.slice(1)]),
+    ];
+    const current = analysedSolve("current", currentTimes);
+
+    expect(compareSolveToHistory(current, [...previous, current])).toBeNull();
+  });
+
+  it("uses the median for odd and even sample counts", () => {
+    const odd = [100, 200, 900].map((time, index) =>
+      analysedSolve(`odd-${index}`, [time, ...currentTimes.slice(1)]));
+    const even = [100, 200, 900, 1_000].map((time, index) =>
+      analysedSolve(`even-${index}`, [time, ...currentTimes.slice(1)]));
+    const oddCurrent = analysedSolve("odd-current", currentTimes);
+    const evenCurrent = analysedSolve("even-current", currentTimes);
+
+    expect(compareSolveToHistory(oddCurrent, [...odd, oddCurrent])?.steps[0].baselineMs).toBe(200);
+    expect(compareSolveToHistory(evenCurrent, [...even, evenCurrent])?.steps[0].baselineMs).toBe(550);
+  });
+
+  it("returns deltas as current minus baseline", () => {
+    const previous = [1000, 2000, 3000].map((time, index) =>
+      analysedSolve(`previous-${index}`, [time, ...currentTimes.slice(1)]));
+    const current = analysedSolve("current", [5000, ...currentTimes.slice(1)]);
+
+    expect(compareSolveToHistory(current, [...previous, current])?.steps[0].deltaMs).toBe(3000);
+  });
+
+  it("preserves CFOP step order", () => {
+    const previous = [1, 2, 3].map((_, index) => analysedSolve(`previous-${index}`, currentTimes));
+    const current = analysedSolve("current", currentTimes);
+
+    expect(compareSolveToHistory(current, [...previous, current])?.steps.map((step) => step.name))
+      .toEqual(STEP_NAMES);
   });
 });

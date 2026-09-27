@@ -211,6 +211,7 @@ export function App() {
             {resultSolve ? (
               <SolveResult
                 solve={resultSolve}
+                solves={state.solves}
                 onContinue={() => setResultSolve(null)}
                 onReplay={setReplaySolve}
                 onAnalyse={setAnalyseSolve}

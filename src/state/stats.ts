@@ -1,4 +1,88 @@
+import { STEP_NAMES, type StepName } from "../cube/analysis";
 import { effectiveMs, type Solve } from "./types";
+
+const MIN_COMPARISON_SOLVES = 3;
+const MAX_COMPARISON_SOLVES = 20;
+
+export type StepComparison = {
+  name: StepName;
+  currentMs: number;
+  baselineMs: number;
+  deltaMs: number;
+};
+
+export type SolveComparison = {
+  sampleSize: number;
+  steps: StepComparison[];
+};
+
+/** Keep Result comparison mode in sync with the Result's slow-solve label. */
+export function isSlowSolve(solve: Pick<Solve, "slowSolve" | "practice" | "replay">): boolean {
+  return solve.slowSolve === true
+    || (solve.slowSolve === undefined && solve.practice === true && solve.replay !== true);
+}
+
+function compatibleAnalysis(
+  current: NonNullable<Solve["analysis"]>,
+  candidate: NonNullable<Solve["analysis"]>,
+): boolean {
+  return current.method === "CFOP"
+    && candidate.method === current.method
+    && current.steps.length === STEP_NAMES.length
+    && candidate.steps.length === current.steps.length
+    && current.steps.every((step, index) =>
+      step.name === STEP_NAMES[index] && candidate.steps[index].name === step.name);
+}
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 1
+    ? sorted[middle]
+    : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+/** Compare one completed solve with the latest comparable solves in its session. */
+export function compareSolveToHistory(
+  currentSolve: Solve,
+  solves: readonly Solve[],
+): SolveComparison | null {
+  const currentAnalysis = currentSolve.analysis;
+  if (!currentAnalysis || currentSolve.replay === true) return null;
+
+  const currentIndex = solves.findIndex((solve) => solve.id === currentSolve.id);
+  if (currentIndex < 0) return null;
+
+  const comparisonSolves = solves
+    .slice(0, currentIndex)
+    .filter((solve) => {
+      const analysis = solve.analysis;
+      return solve.event === currentSolve.event
+        && solve.replay !== true
+        && isSlowSolve(solve) === isSlowSolve(currentSolve)
+        && analysis !== null
+        && analysis !== undefined
+        && compatibleAnalysis(currentAnalysis, analysis);
+    })
+    .slice(-MAX_COMPARISON_SOLVES);
+
+  if (comparisonSolves.length < MIN_COMPARISON_SOLVES) return null;
+
+  return {
+    sampleSize: comparisonSolves.length,
+    steps: currentAnalysis.steps.map((step, index) => {
+      const baselineMs = median(
+        comparisonSolves.map((solve) => solve.analysis!.steps[index].timeMs),
+      );
+      return {
+        name: step.name,
+        currentMs: step.timeMs,
+        baselineMs,
+        deltaMs: step.timeMs - baselineMs,
+      };
+    }),
+  };
+}
 
 /**
  * The solves a session's figures are built from.
