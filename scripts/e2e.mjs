@@ -108,6 +108,13 @@ const guideTracks = result.locator(".phase-time-guides");
 const guideScaleCount = await guideTracks.evaluateAll((guides) => new Set(
   guides.map((guide) => `${guide.dataset.scaleMaxMs}/${guide.dataset.tickMs}`),
 ).size);
+const axisScale = await timeAxis.evaluate((axis) => ({
+  scaleMaxMs: axis.dataset.scaleMaxMs,
+  tickMs: axis.dataset.tickMs,
+}));
+const guideScalesMatchAxis = await guideTracks.evaluateAll((guides, expectedScale) => guides.length === 7
+  && guides.every((guide) => guide.dataset.scaleMaxMs === expectedScale.scaleMaxMs
+    && guide.dataset.tickMs === expectedScale.tickMs), axisScale);
 const matchingGuidePositions = await guideTracks.evaluateAll((guides, expectedPositions) => guides.length === 7
   && guides.every((guide) => {
     const positions = Array.from(guide.querySelectorAll("i"), (tick) => tick.style.left);
@@ -117,6 +124,7 @@ const matchingGuidePositions = await guideTracks.evaluateAll((guides, expectedPo
 check("the result has a shared time axis", await timeAxis.count() === 1);
 check("the time axis has multiple second labels", timeLabels.length >= 2 && timeLabels.every((label) => /s$/.test(label)));
 check("all result bars share one time scale", await guideTracks.count() === 7 && guideScaleCount === 1);
+check("all result bars use the axis time scale", guideScalesMatchAxis, JSON.stringify(axisScale));
 check("guide lines align with the shared axis", matchingGuidePositions);
 check("result legend explains measured recognition", (await result.locator(".legend").innerText()).includes("measured recognition")
   && (await result.locator(".legend").innerText()).includes("execution"));
@@ -126,6 +134,7 @@ const narrowResultLayout = await result.evaluate((element) => {
   const axis = element.querySelector(".phase-time-axis")?.getBoundingClientRect();
   const bars = Array.from(element.querySelectorAll(".phase-row .phase-bar"), (bar) => bar.getBoundingClientRect());
   const body = element.querySelector(".solve-result-body");
+  const breakdown = element.querySelector(".result-breakdown");
   return {
     axisWidth: axis?.width ?? 0,
     axisLeft: axis?.left ?? 0,
@@ -133,6 +142,8 @@ const narrowResultLayout = await result.evaluate((element) => {
     barLefts: bars.map((bar) => bar.left),
     bodyClientWidth: body?.clientWidth ?? 0,
     bodyScrollWidth: body?.scrollWidth ?? 0,
+    breakdownClientWidth: breakdown?.clientWidth ?? 0,
+    breakdownScrollWidth: breakdown?.scrollWidth ?? 0,
   };
 });
 const narrowBarsMatchAxis = narrowResultLayout.axisWidth > 0
@@ -140,7 +151,8 @@ const narrowBarsMatchAxis = narrowResultLayout.axisWidth > 0
   && narrowResultLayout.barWidths.every((width) => Math.abs(width - narrowResultLayout.axisWidth) < 0.5)
   && narrowResultLayout.barLefts.every((left) => Math.abs(left - narrowResultLayout.axisLeft) < 0.5);
 check("narrow Result keeps the axis aligned with every bar", narrowBarsMatchAxis, JSON.stringify(narrowResultLayout));
-check("narrow Result scrolls the shared plotting width", narrowResultLayout.bodyScrollWidth > narrowResultLayout.bodyClientWidth);
+check("narrow Result scrolls the shared plotting width", narrowResultLayout.breakdownScrollWidth > narrowResultLayout.breakdownClientWidth);
+check("narrow Result body avoids horizontal overflow", narrowResultLayout.bodyScrollWidth <= narrowResultLayout.bodyClientWidth + 1, JSON.stringify(narrowResultLayout));
 await page.setViewportSize({ width: 1440, height: 900 });
 console.log("stats best:", await page.locator(".stat").nth(1).innerText());
 
