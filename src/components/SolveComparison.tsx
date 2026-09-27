@@ -1,8 +1,19 @@
 import type { SolveComparison } from "../state/stats";
 import { formatTime } from "../state/stats";
 
-function formatDelta(deltaMs: number): string {
-  return `${deltaMs >= 0 ? "+" : "-"}${formatTime(Math.abs(deltaMs))}s`;
+export type ComparisonDelta = {
+  text: string;
+  direction: "faster" | "slower" | "same";
+};
+
+export function formatComparisonDelta(deltaMs: number): ComparisonDelta {
+  const value = formatTime(Math.abs(deltaMs));
+  if (value === "0.00") return { text: "0.00s", direction: "same" };
+
+  return {
+    text: `${deltaMs >= 0 ? "+" : "-"}${value}s`,
+    direction: deltaMs > 0 ? "slower" : "faster",
+  };
 }
 
 export function SolveComparisonPanel({ comparison }: { comparison: SolveComparison | null }) {
@@ -18,7 +29,7 @@ export function SolveComparisonPanel({ comparison }: { comparison: SolveComparis
       {comparison ? (
         <div className="solve-comparison-rows">
           {comparison.steps.map((step) => {
-            const direction = step.deltaMs < 0 ? "faster" : "slower";
+            const delta = formatComparisonDelta(step.deltaMs);
             return (
               <div className="solve-comparison-row" key={step.name}>
                 <span className="solve-comparison-step">{step.name}</span>
@@ -30,8 +41,8 @@ export function SolveComparisonPanel({ comparison }: { comparison: SolveComparis
                   <span className="solve-comparison-label">recent</span>
                   {formatTime(step.baselineMs)}s
                 </span>
-                <span className={`solve-comparison-delta ${direction}`}>
-                  {formatDelta(step.deltaMs)} {direction}
+                <span className={`solve-comparison-delta ${delta.direction}`}>
+                  {delta.text} {delta.direction}
                 </span>
               </div>
             );

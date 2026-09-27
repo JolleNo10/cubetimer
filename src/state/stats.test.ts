@@ -188,6 +188,20 @@ describe("compareSolveToHistory", () => {
     expect(comparison?.steps[0].baselineMs).toBe(200);
   });
 
+  it("compares a replay current solve against ordinary prior solves", () => {
+    const previous = [
+      analysedSolve("normal-1", [100, ...currentTimes.slice(1)]),
+      analysedSolve("normal-2", [200, ...currentTimes.slice(1)]),
+      analysedSolve("normal-3", [300, ...currentTimes.slice(1)]),
+    ];
+    const current = analysedSolve("replay-current", currentTimes, { replay: true });
+
+    const comparison = compareSolveToHistory(current, [...previous, current]);
+
+    expect(comparison?.sampleSize).toBe(3);
+    expect(comparison?.steps[0].baselineMs).toBe(200);
+  });
+
   it("separates normal and slow-solve baselines", () => {
     const normal = [
       analysedSolve("normal-1", [100, ...currentTimes.slice(1)]),

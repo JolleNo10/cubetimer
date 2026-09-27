@@ -48,7 +48,7 @@ export function compareSolveToHistory(
   solves: readonly Solve[],
 ): SolveComparison | null {
   const currentAnalysis = currentSolve.analysis;
-  if (!currentAnalysis || currentSolve.replay === true) return null;
+  if (!currentAnalysis) return null;
 
   const currentIndex = solves.findIndex((solve) => solve.id === currentSolve.id);
   if (currentIndex < 0) return null;

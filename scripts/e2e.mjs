@@ -183,6 +183,30 @@ await solveFreshScramble();
 check("Result shows comparison after three comparable solves", (await result.innerText()).includes("median of last 3"));
 check("Result comparison has all seven steps", await result.locator(".solve-comparison-row").count() === 7);
 check("Result comparison has no move histogram", await result.locator('svg[aria-label="Time taken by each move"]').count() === 0);
+await page.setViewportSize({ width: 390, height: 900 });
+const narrowComparisonLayout = await result.evaluate((element) => {
+  const body = element.querySelector(".solve-result-body");
+  const panel = element.querySelector(".solve-comparison");
+  const panelBox = panel?.getBoundingClientRect();
+  const rows = Array.from(element.querySelectorAll(".solve-comparison-row"), (row) => {
+    const box = row.getBoundingClientRect();
+    return { left: box.left, right: box.right };
+  });
+  return {
+    bodyClientWidth: body?.clientWidth ?? 0,
+    bodyScrollWidth: body?.scrollWidth ?? 0,
+    panelLeft: panelBox?.left ?? 0,
+    panelRight: panelBox?.right ?? 0,
+    rows,
+  };
+});
+const narrowComparisonRowsFit = narrowComparisonLayout.rows.length === 7
+  && narrowComparisonLayout.rows.every((row) => row.left >= narrowComparisonLayout.panelLeft - 0.5
+    && row.right <= narrowComparisonLayout.panelRight + 0.5);
+check("narrow populated comparison keeps the Result body fixed", narrowComparisonLayout.bodyScrollWidth <= narrowComparisonLayout.bodyClientWidth + 1,
+  JSON.stringify(narrowComparisonLayout));
+check("narrow populated comparison rows fit the panel", narrowComparisonRowsFit, JSON.stringify(narrowComparisonLayout));
+await page.setViewportSize({ width: 1440, height: 900 });
 await page.keyboard.press("Escape");
 
 await page.screenshot({ path: "/tmp/e2e.png" });
@@ -229,6 +253,8 @@ await page.locator(".column.right").getByRole("button", { name: "Solve again" })
 await page.waitForTimeout(300);
 await solveFreshScramble();
 check("replay result is visible", await result.count() === 1);
+check("replay Result shows the recent comparison", await result.locator(".solve-comparison-row").count() === 7
+  && !(await result.innerText()).includes("Complete 3 comparable analyzed solves"));
 check("replay is not labelled slow solve", await result.getByText("slow solve", { exact: true }).count() === 0);
 check("replay keeps elapsed time as the primary result", !/moves$/.test((await result.locator(".result-primary").innerText()).trim()));
 
