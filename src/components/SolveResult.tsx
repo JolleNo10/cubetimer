@@ -85,6 +85,7 @@ export function SolveResult({
                 <div className="result-step-heading" aria-hidden="true">
                   <span>Step</span>
                   <span>Total</span>
+                  <span>Cumulative</span>
                   <span>Recognition</span>
                   <span>Execution</span>
                   <span>Moves</span>
@@ -94,6 +95,7 @@ export function SolveResult({
                   analysis={analysis}
                   showMoves={false}
                   showDetail={false}
+                  showCumulativeTime
                   showSplitTimes
                   showTimeScale
                   showMoveGraph={false}

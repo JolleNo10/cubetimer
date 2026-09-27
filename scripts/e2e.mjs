@@ -98,6 +98,15 @@ check("recognition and execution values are numeric", await result.locator(".rec
 check("cross recognition is unavailable", await result.locator(".recognition-value").first().innerText() === "—");
 check("recognition label is explicit", (await result.innerText()).includes("Measured recognition"));
 check("move and TPS information is present", (await result.innerText()).includes("Moves / STM") && (await result.innerText()).includes("TPS"));
+const cumulativeValues = await result.locator(".cumulative-value").allInnerTexts();
+const cumulativeSeconds = cumulativeValues.map(Number);
+const cumulativeHeading = (await result.locator(".result-step-heading").textContent()) ?? "";
+check("Result includes a cumulative heading", cumulativeHeading.includes("Cumulative"));
+check("all seven Result rows include cumulative time", cumulativeValues.length === 7 && cumulativeSeconds.every(Number.isFinite));
+check("cumulative times never decrease", cumulativeSeconds.every((value, index) => index === 0 || value >= cumulativeSeconds[index - 1]), cumulativeValues.join(", "));
+check("F2L Slot 4 cumulative time includes earlier F2L steps", cumulativeSeconds[4] >= Math.max(...cumulativeSeconds.slice(1, 4)), cumulativeValues.join(", "));
+check("final cumulative time matches the solve time", cumulativeValues[6] === (await result.locator(".result-primary").innerText()).trim(),
+  `${cumulativeValues[6]} vs ${(await result.locator(".result-primary").innerText()).trim()}`);
 check("Result replaces the move histogram", await result.locator('svg[aria-label="Time taken by each move"]').count() === 0);
 check("Result explains the comparison minimum", (await result.innerText()).includes("Complete 3 comparable analyzed solves"));
 check("the next scramble is available", await page.locator(".scramble-move").count() > 0);
@@ -191,17 +200,21 @@ check("a later solve shows a result again", await result.count() === 1);
 
 // The first move of the auto-generated next scramble must dismiss the result while
 // still reaching the scramble tracker.
+await page.waitForSelector(".scramble-move.next", { state: "attached", timeout: 3000 });
 const nextScramble = (await page.locator(".scramble").innerText()).split("\n").join(" ");
 const nextScrambleKeys = quarterTurns(nextScramble).map((m) => KEY_FOR_MOVE[m]);
+const nextScrambleFirstMoveKeys = quarterTurns(nextScramble.split(/\s+/)[0]).map((m) => KEY_FOR_MOVE[m]);
 const nextSolutionKeys = quarterTurns(new Alg(nextScramble).invert().toString()).map(
   (m) => KEY_FOR_MOVE[m],
 );
-await page.keyboard.press(nextScrambleKeys[0]);
+await page.keyboard.press(nextScrambleFirstMoveKeys[0]);
 await page.waitForTimeout(300);
 check("the first next-scramble move dismisses the result", await result.count() === 0);
+await press(nextScrambleFirstMoveKeys.slice(1));
+await page.waitForTimeout(180);
 check("the first next-scramble move is processed", await page.locator(".scramble-move.done").count() >= 1,
   `${await page.locator(".scramble-move.done").count()} completed moves`);
-await press(nextScrambleKeys.slice(1));
+await press(nextScrambleKeys.slice(nextScrambleFirstMoveKeys.length));
 await page.waitForTimeout(250);
 await press(nextSolutionKeys, 25);
 await page.waitForTimeout(600);

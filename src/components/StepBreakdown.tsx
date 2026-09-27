@@ -126,6 +126,7 @@ function StepRow({
   total,
   active,
   showMoves,
+  showCumulativeTime,
   showSplitTimes,
   timeScale,
   onSelect,
@@ -134,6 +135,7 @@ function StepRow({
   total: number;
   active: boolean;
   showMoves: boolean;
+  showCumulativeTime: boolean;
   showSplitTimes: boolean;
   timeScale?: StepTimeScale;
   onSelect?: () => void;
@@ -180,6 +182,14 @@ function StepRow({
         {described?.hint ? <span className="phase-hint">{described.hint}</span> : null}
       </span>
       <span className="phase-time">{formatTime(step.timeMs)}</span>
+      {showCumulativeTime ? (
+        <span
+          className="phase-split-value cumulative-value"
+          aria-label={`Cumulative ${formatTime(step.cumulativeMs)}`}
+        >
+          {formatTime(step.cumulativeMs)}
+        </span>
+      ) : null}
       {splitValues}
       <span className="phase-bar">
         {timeScale ? (
@@ -361,6 +371,7 @@ export function StepBreakdown({
   onSelectStep,
   showDetail = true,
   showMoves = true,
+  showCumulativeTime = false,
   showSplitTimes = false,
   showTimeScale = false,
   showMoveGraph = true,
@@ -371,6 +382,7 @@ export function StepBreakdown({
   onSelectStep?: (step: SolveStep) => void;
   showDetail?: boolean;
   showMoves?: boolean;
+  showCumulativeTime?: boolean;
   showSplitTimes?: boolean;
   showTimeScale?: boolean;
   showMoveGraph?: boolean;
@@ -408,6 +420,7 @@ export function StepBreakdown({
           total={total}
           active={activeStep === i}
           showMoves={showMoves}
+          showCumulativeTime={showCumulativeTime}
           showSplitTimes={showSplitTimes}
           timeScale={timeScale}
           onSelect={onSelectStep ? () => onSelectStep(step) : undefined}
