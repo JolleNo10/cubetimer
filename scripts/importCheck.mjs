@@ -41,7 +41,7 @@ console.log("session", JSON.stringify(imported), "solves listed:", rows);
 await page.locator(".solve-row").first().click();
 await page.waitForTimeout(400);
 
-const breakdown = await page.locator(".panel", { hasText: "Solve breakdown" }).last().innerText();
+const breakdown = await page.locator(".solve-result").innerText();
 if (process.env.VERBOSE) console.log("--- breakdown ---\n" + breakdown);
 console.log("stats:", (await page.locator(".stat").nth(1).innerText()).replace("\n", " "));
 await page.screenshot({ path: "/tmp/import.png" });

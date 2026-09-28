@@ -31,11 +31,11 @@ await page.waitForTimeout(700);
 await page.locator(".solve-row").first().click();
 await page.waitForTimeout(300);
 
-// How long each step took, from the side panel. A step begins when every step before
-// it has finished, so those durations say what the clock should read after a jump.
+// How long each step took, from the selected solve's Result. A step begins when every
+// step before it has finished, so those durations say what the clock should read after
+// a jump.
 const durations = (
-  await page.locator(".panel", { hasText: "Solve breakdown" }).last()
-    .locator(".phase-time").allInnerTexts()
+  await page.locator(".solve-result .phase-time").allInnerTexts()
 ).map((t) => Number(t.trim()));
 const startTimes = durations.map((_, i) =>
   durations.slice(0, i).reduce((sum, d) => sum + d, 0),
@@ -43,7 +43,7 @@ const startTimes = durations.map((_, i) =>
 console.log("step durations:", durations.join(", "));
 console.log("expected start times:", startTimes.map((t) => t.toFixed(2)).join(", "));
 
-await page.locator(".panel", { hasText: "Solve breakdown" }).getByRole("button", { name: "Replay" }).click();
+await page.locator(".solve-result").getByRole("button", { name: "Replay", exact: true }).click();
 await page.waitForTimeout(900);
 
 const dialog = page.locator(".dialog");

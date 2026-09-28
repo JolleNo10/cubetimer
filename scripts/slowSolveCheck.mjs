@@ -87,13 +87,21 @@ check(
 );
 check("the historical Result has its seven step rows", (await historicalResult.locator(".phase-row").count()) === 7);
 check(
+  "the historical Result shows its scramble",
+  (await historicalResult.locator(".result-scramble .mono").innerText()).trim().length > 0,
+);
+for (const label of ["OK", "+2", "DNF", "Tools", "Replay", "Solve again", "Delete"]) {
+  check(`the historical Result has ${label}`, await historicalResult.getByRole("button", { name: label, exact: true }).count() === 1);
+}
+check("the historical Result has a note field", await historicalResult.locator('input[aria-label="Solve note"]').count() === 1);
+check("the historical Result shows per-step solutions", await historicalResult.locator(".phase-moves").count() > 0);
+check(
   "the older history row is selected",
   (await olderSolveRow.getAttribute("class"))?.includes("selected") === true,
 );
 
 const historicalElapsed = await historicalResult.locator(".result-secondary").innerText();
-const selectedDetail = page.locator(".panel", { hasText: "Selected solve" });
-await selectedDetail.getByRole("button", { name: "+2", exact: true }).click();
+await historicalResult.getByRole("button", { name: "+2", exact: true }).click();
 await page.waitForTimeout(300);
 check(
   "the historical Result follows an edited solve",

@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnalysisPanel } from "./components/AnalysisPanel";
 import { AnalyticsDialog } from "./components/AnalyticsDialog";
 import { CoachPanel } from "./components/CoachPanel";
 import { ConnectionPanel } from "./components/ConnectionPanel";
@@ -8,7 +7,6 @@ import { Header } from "./components/Header";
 import { ReplayDialog } from "./components/ReplayDialog";
 import { ScramblePanel } from "./components/ScramblePanel";
 import { SettingsDialog } from "./components/SettingsDialog";
-import { SolveDetail } from "./components/SolveDetail";
 import { SolveList } from "./components/SolveList";
 import { SolveResult } from "./components/SolveResult";
 import { StatsPanel } from "./components/StatsPanel";
@@ -54,6 +52,15 @@ export function App() {
       setResultSolveId(null);
     }
   }, [resultSolveId, state.solves]);
+
+  useEffect(() => {
+    if (
+      selectedId !== null &&
+      !state.solves.some((solve) => solve.id === selectedId)
+    ) {
+      setSelectedId(null);
+    }
+  }, [selectedId, state.solves]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.theme;
@@ -256,12 +263,6 @@ export function App() {
 
         <div className="column right">
           <StatsPanel solves={state.solves} />
-          <AnalysisPanel
-            solve={selectedSolve}
-            onReplay={setReplaySolve}
-            onAnalyse={setAnalyseSolve}
-          />
-          {selectedSolve ? <SolveDetail solve={selectedSolve} /> : null}
         </div>
       </div>
 

@@ -1,7 +1,14 @@
 import { SolveComparisonPanel } from "./SolveComparison";
 import { StepBreakdown } from "./StepBreakdown";
+import { useController } from "../hooks/useController";
 import { compareSolveToHistory, formatSolveTime, formatTime, isSlowSolve } from "../state/stats";
-import type { Solve } from "../state/types";
+import type { Penalty, Solve } from "../state/types";
+
+const PENALTIES: { value: Penalty; label: string }[] = [
+  { value: "none", label: "OK" },
+  { value: "+2", label: "+2" },
+  { value: "DNF", label: "DNF" },
+];
 
 export function SolveResult({
   solve,
@@ -16,6 +23,7 @@ export function SolveResult({
   onReplay: (solve: Solve) => void;
   onAnalyse: (solve: Solve) => void;
 }) {
+  const controller = useController();
   const analysis = solve.analysis ?? null;
   const moveCount = analysis?.sliceTurns ?? solve.moves.length;
   const canReplay = solve.moves.length > 0;
@@ -31,18 +39,6 @@ export function SolveResult({
         <div>
           <div className="panel-title">Result</div>
           {slowSolve ? <span className="phase-case muted">slow solve</span> : null}
-        </div>
-        <div className="row">
-          {canAnalyse ? (
-            <button className="ghost" onClick={() => onAnalyse(solve)}>
-              Tools
-            </button>
-          ) : null}
-          {canReplay ? (
-            <button className="ghost" onClick={() => onReplay(solve)}>
-              Replay
-            </button>
-          ) : null}
         </div>
       </div>
 
@@ -61,6 +57,66 @@ export function SolveResult({
           ) : solve.moves.length > 0 ? (
             <div className="result-compact">{moveCount} moves</div>
           ) : null}
+        </div>
+
+        <div className="result-context">
+          <div className="result-scramble">
+            <span className="result-context-label">SCRAMBLE</span>
+            <span className="mono">{solve.scramble}</span>
+          </div>
+          <div className="result-actions">
+            <div className="result-penalties">
+              {PENALTIES.map((penalty) => (
+                <button
+                  key={penalty.value}
+                  className={solve.penalty === penalty.value ? "primary" : ""}
+                  onClick={() => void controller.updateSolve(solve.id, { penalty: penalty.value })}
+                >
+                  {penalty.label}
+                </button>
+              ))}
+            </div>
+            <div className="result-tools">
+              {canAnalyse ? (
+                <button
+                  className="ghost"
+                  onClick={() => onAnalyse(solve)}
+                  title="Look for shorter ways to have done each step"
+                >
+                  Tools
+                </button>
+              ) : null}
+              {canReplay ? (
+                <button className="ghost" onClick={() => onReplay(solve)}>
+                  Replay
+                </button>
+              ) : null}
+              <button
+                className="ghost"
+                onClick={() => {
+                  controller.replayScramble(solve.scramble, solve.scrambleProvider);
+                  onContinue();
+                }}
+                title="Load this scramble so you can solve it again"
+              >
+                Solve again
+              </button>
+              <button
+                className="ghost danger"
+                onClick={() => void controller.deleteSolve(solve.id)}
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+          <input
+            className="result-note-input"
+            placeholder="Add a note…"
+            defaultValue={solve.comment ?? ""}
+            key={solve.id}
+            onBlur={(event) => void controller.updateSolve(solve.id, { comment: event.target.value })}
+            aria-label="Solve note"
+          />
         </div>
 
         {analysis ? (
@@ -93,7 +149,8 @@ export function SolveResult({
                 </div>
                 <StepBreakdown
                   analysis={analysis}
-                  showMoves={false}
+                  showMoves
+                  showFullSolution={false}
                   showDetail={false}
                   showCumulativeTime
                   showSplitTimes

@@ -60,7 +60,7 @@ await page.waitForSelector(".solve-row");
 await page.locator(".solve-row").first().click();
 await page.waitForTimeout(600);
 
-const breakdown = await page.locator(".panel", { hasText: "Solve breakdown" }).last().innerText();
+const breakdown = await page.locator(".solve-result").innerText();
 console.log("--- breakdown after reload ---\n" + breakdown.split("\n").slice(0, 12).join("\n"));
 
 const steps = await page.locator(".phase-row").count();

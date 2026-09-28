@@ -371,6 +371,7 @@ export function StepBreakdown({
   onSelectStep,
   showDetail = true,
   showMoves = true,
+  showFullSolution = showMoves,
   showCumulativeTime = false,
   showSplitTimes = false,
   showTimeScale = false,
@@ -382,6 +383,7 @@ export function StepBreakdown({
   onSelectStep?: (step: SolveStep) => void;
   showDetail?: boolean;
   showMoves?: boolean;
+  showFullSolution?: boolean;
   showCumulativeTime?: boolean;
   showSplitTimes?: boolean;
   showTimeScale?: boolean;
@@ -443,7 +445,7 @@ export function StepBreakdown({
         </span>
       </div>
 
-      {showMoves && solution ? <Solution solution={solution} /> : null}
+      {showFullSolution && solution ? <Solution solution={solution} /> : null}
 
       {showMoveGraph ? <MoveGraph analysis={analysis} position={position} /> : null}
 

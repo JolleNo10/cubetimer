@@ -93,7 +93,7 @@ check("a solve was recorded", solveRows === 1, `${solveRows} rows`);
 const resultRows = await result.locator(".phase-row").count();
 check("the result has seven CFOP phases", resultRows === 7, `${resultRows} phases`);
 const rightRows = await page.locator(".column.right .phase-row").count();
-check("the right breakdown remains present", rightRows === 7, `${rightRows} phases`);
+check("the side column has no duplicate breakdown", rightRows === 0, `${rightRows} phases`);
 check("recognition and execution values are numeric", await result.locator(".recognition-value").nth(1).innerText() !== "—" && await result.locator(".execution-value").nth(1).innerText() !== "");
 check("cross recognition is unavailable", await result.locator(".recognition-value").first().innerText() === "—");
 check("recognition label is explicit", (await result.innerText()).includes("Measured recognition"));
@@ -207,12 +207,11 @@ check("narrow populated comparison keeps the Result body fixed", narrowCompariso
   JSON.stringify(narrowComparisonLayout));
 check("narrow populated comparison rows fit the panel", narrowComparisonRowsFit, JSON.stringify(narrowComparisonLayout));
 await page.setViewportSize({ width: 1440, height: 900 });
-await page.keyboard.press("Escape");
 
 await page.screenshot({ path: "/tmp/e2e.png" });
 
 // Replay dialog.
-await page.locator(".panel", { hasText: "Solve breakdown" }).getByRole("button", { name: "Replay" }).click();
+await page.locator(".solve-result").getByRole("button", { name: "Replay", exact: true }).click();
 await page.waitForTimeout(1200);
 check("the replay opens", (await page.locator(".dialog").count()) === 1);
 await page.screenshot({ path: "/tmp/e2e-replay.png" });
@@ -243,13 +242,13 @@ await page.waitForTimeout(250);
 await press(nextSolutionKeys, 25);
 await page.waitForTimeout(600);
 
-// Selecting an older solve dismisses the transient result before changing the right panel.
+// Selecting an older solve reopens its center Result, including Solve again.
 await page.locator(".solve-row").nth(1).click();
 await page.waitForTimeout(150);
-check("historical solve selection dismisses the result", await result.count() === 0);
+check("historical solve selection keeps the Result visible", await result.count() === 1);
 
 // Solve again is a replay practice solve, but it is not a slow solve.
-await page.locator(".column.right").getByRole("button", { name: "Solve again" }).click();
+await result.getByRole("button", { name: "Solve again", exact: true }).click();
 await page.waitForTimeout(300);
 await solveFreshScramble();
 check("replay result is visible", await result.count() === 1);
