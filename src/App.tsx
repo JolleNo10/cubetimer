@@ -182,8 +182,8 @@ export function App() {
             solves={state.solves}
             selectedId={selectedSolve?.id ?? null}
             onSelect={(solve) => {
-              setResultSolve(null);
               setSelectedId(solve.id);
+              setResultSolve(solve);
             }}
           />
         </div>

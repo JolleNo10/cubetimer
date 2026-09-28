@@ -48,6 +48,7 @@ await solve();
 const result = page.locator(".solve-result");
 check("the center result appears", await result.count() === 1);
 const primary = (await result.locator(".result-primary").innerText()).trim();
+const slowPrimary = primary;
 check("the primary result is a move count", /^\d+\s+moves$/.test(primary), primary);
 check("elapsed time is secondary", await result.locator(".result-secondary").count() === 1);
 check("the solve is listed", (await page.locator(".solve-row").count()) === 1);
@@ -69,6 +70,33 @@ await solve();
 const best2 = (await page.locator(".stat").nth(1).innerText()).split("\n")[1].trim();
 check("an ordinary solve afterwards is counted", best2 !== "—", `best ${best2}`);
 check("both solves are still listed", (await page.locator(".solve-row").count()) === 2);
+
+const olderSolveRow = page.locator(".solve-row").nth(1);
+await olderSolveRow.click();
+await page.waitForTimeout(100);
+const historicalResult = page.locator(".solve-result");
+check("the selected historical solve opens its Result", await historicalResult.count() === 1);
+check(
+  "the historical Result keeps the original slow-solve result",
+  (await historicalResult.locator(".result-primary").innerText()).trim() === slowPrimary,
+  slowPrimary,
+);
+check(
+  "the historical Result is still marked as slow",
+  (await historicalResult.locator(".phase-case").allInnerTexts()).includes("slow solve"),
+);
+check("the historical Result has its seven step rows", (await historicalResult.locator(".phase-row").count()) === 7);
+check(
+  "the older history row is selected",
+  (await olderSolveRow.getAttribute("class"))?.includes("selected") === true,
+);
+
+await historicalResult.getByRole("button", { name: "Continue" }).click();
+check("Continue closes the historical Result", (await page.locator(".solve-result").count()) === 0);
+check(
+  "Continue keeps the historical row selected",
+  (await olderSolveRow.getAttribute("class"))?.includes("selected") === true,
+);
 
 check("no console or page errors", problems.length === 0, problems.join(" | "));
 await browser.close();
