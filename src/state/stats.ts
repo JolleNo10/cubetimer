@@ -9,6 +9,7 @@ export type StepComparison = {
   currentMs: number;
   baselineMs: number;
   deltaMs: number;
+  skipped: boolean;
 };
 
 export type SolveComparison = {
@@ -18,8 +19,10 @@ export type SolveComparison = {
 
 /** Keep Result comparison mode in sync with the Result's slow-solve label. */
 export function isSlowSolve(solve: Pick<Solve, "slowSolve" | "practice" | "replay">): boolean {
-  return solve.slowSolve === true
-    || (solve.slowSolve === undefined && solve.practice === true && solve.replay !== true);
+  return solve.replay !== true && (
+    solve.slowSolve === true
+      || (solve.slowSolve === undefined && solve.practice === true)
+  );
 }
 
 function compatibleAnalysis(
@@ -79,6 +82,7 @@ export function compareSolveToHistory(
         currentMs: step.timeMs,
         baselineMs,
         deltaMs: step.timeMs - baselineMs,
+        skipped: step.skipped === true,
       };
     }),
   };

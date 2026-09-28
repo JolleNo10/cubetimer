@@ -94,7 +94,11 @@ const resultRows = await result.locator(".phase-row").count();
 check("the result has seven CFOP phases", resultRows === 7, `${resultRows} phases`);
 const rightRows = await page.locator(".column.right .phase-row").count();
 check("the side column has no duplicate breakdown", rightRows === 0, `${rightRows} phases`);
-check("recognition and execution values are numeric", await result.locator(".recognition-value").nth(1).innerText() !== "—" && await result.locator(".execution-value").nth(1).innerText() !== "");
+const recognitionValues = await result.locator(".recognition-value").allInnerTexts();
+const executionValues = await result.locator(".execution-value").allInnerTexts();
+check("recognition and execution values are numeric",
+  recognitionValues.slice(1).some((value) => value.trim() !== "—")
+    && executionValues.slice(1).some((value) => value.trim() !== "—"));
 check("cross recognition is unavailable", await result.locator(".recognition-value").first().innerText() === "—");
 check("recognition label is explicit", (await result.innerText()).includes("Measured recognition"));
 check("move and TPS information is present", (await result.innerText()).includes("Moves / STM") && (await result.innerText()).includes("TPS"));
@@ -109,7 +113,7 @@ check("final cumulative time matches the solve time", cumulativeValues[6] === (a
   `${cumulativeValues[6]} vs ${(await result.locator(".result-primary").innerText()).trim()}`);
 check("Result replaces the move histogram", await result.locator('svg[aria-label="Time taken by each move"]').count() === 0);
 check("Result explains the comparison minimum", (await result.innerText()).includes("Complete 3 comparable analyzed solves"));
-check("the next scramble is available", await page.locator(".scramble-move").count() > 0);
+check("the live ScramblePanel is hidden while Result is open", await page.locator(".scramble-panel").count() === 0);
 const timeAxis = result.locator(".phase-time-axis");
 const timeLabels = await timeAxis.locator(".phase-time-axis-label").allInnerTexts();
 const axisPositions = await timeAxis.locator(".phase-time-axis-label").evaluateAll((labels) =>
@@ -181,14 +185,14 @@ await solveComparable();
 await solveComparable();
 await solveFreshScramble();
 check("Result shows comparison after three comparable solves", (await result.innerText()).includes("median of last 3"));
-check("Result comparison has all seven steps", await result.locator(".solve-comparison-row").count() === 7);
+check("Result comparison has all seven steps", await result.locator(".solve-comparison-row:not(.solve-comparison-heading)").count() === 7);
 check("Result comparison has no move histogram", await result.locator('svg[aria-label="Time taken by each move"]').count() === 0);
 await page.setViewportSize({ width: 390, height: 900 });
 const narrowComparisonLayout = await result.evaluate((element) => {
   const body = element.querySelector(".solve-result-body");
   const panel = element.querySelector(".solve-comparison");
   const panelBox = panel?.getBoundingClientRect();
-  const rows = Array.from(element.querySelectorAll(".solve-comparison-row"), (row) => {
+  const rows = Array.from(element.querySelectorAll(".solve-comparison-row:not(.solve-comparison-heading)"), (row) => {
     const box = row.getBoundingClientRect();
     return { left: box.left, right: box.right };
   });
@@ -218,11 +222,16 @@ await page.screenshot({ path: "/tmp/e2e-replay.png" });
 
 await page.locator(".dialog").getByRole("button", { name: "Close" }).click();
 
+await result.getByRole("button", { name: "Back to timer", exact: true }).click();
+check("Back to timer closes the Result", await result.count() === 0);
+check("Back to timer restores the ScramblePanel", await page.locator(".scramble-panel").count() === 1);
 await solveFreshScramble();
 check("a later solve shows a result again", await result.count() === 1);
 
-// The first move of the auto-generated next scramble must dismiss the result while
-// still reaching the scramble tracker.
+// Back to timer exposes the already-generated next scramble and its tracker.
+await result.getByRole("button", { name: "Back to timer", exact: true }).click();
+check("the next Result footer returns to the timer", await result.count() === 0);
+check("the next ScramblePanel is visible", await page.locator(".scramble-panel").count() === 1);
 await page.waitForSelector(".scramble-move.next", { state: "attached", timeout: 3000 });
 const nextScramble = (await page.locator(".scramble").innerText()).split("\n").join(" ");
 const nextScrambleKeys = quarterTurns(nextScramble).map((m) => KEY_FOR_MOVE[m]);
@@ -232,10 +241,9 @@ const nextSolutionKeys = quarterTurns(new Alg(nextScramble).invert().toString())
 );
 await page.keyboard.press(nextScrambleFirstMoveKeys[0]);
 await page.waitForTimeout(300);
-check("the first next-scramble move dismisses the result", await result.count() === 0);
 await press(nextScrambleFirstMoveKeys.slice(1));
 await page.waitForTimeout(180);
-check("the first next-scramble move is processed", await page.locator(".scramble-move.done").count() >= 1,
+check("the next-scramble move is processed", await page.locator(".scramble-move.done").count() >= 1,
   `${await page.locator(".scramble-move.done").count()} completed moves`);
 await press(nextScrambleKeys.slice(nextScrambleFirstMoveKeys.length));
 await page.waitForTimeout(250);
@@ -252,13 +260,14 @@ await result.getByRole("button", { name: "Solve again", exact: true }).click();
 await page.waitForTimeout(300);
 await solveFreshScramble();
 check("replay result is visible", await result.count() === 1);
-check("replay Result shows the recent comparison", await result.locator(".solve-comparison-row").count() === 7
+check("replay Result shows the recent comparison", await result.locator(".solve-comparison-row:not(.solve-comparison-heading)").count() === 7
   && !(await result.innerText()).includes("Complete 3 comparable analyzed solves"));
 check("replay is not labelled slow solve", await result.getByText("slow solve", { exact: true }).count() === 0);
 check("replay keeps elapsed time as the primary result", !/moves$/.test((await result.locator(".result-primary").innerText()).trim()));
 
-await result.getByRole("button", { name: "Continue" }).click();
-check("Continue restores the timer", await page.locator(".timer-card").count() === 1);
+await result.getByRole("button", { name: "Back to timer", exact: true }).click();
+check("Back to timer restores the timer", await page.locator(".timer-card").count() === 1);
+check("Back to timer restores the ScramblePanel", await page.locator(".scramble-panel").count() === 1);
 
 // A keyboard-timed solve has no move stream, so its elapsed time remains primary.
 await page.locator('.panel', { hasText: 'SMART CUBE' }).locator('input[type="checkbox"]').uncheck();

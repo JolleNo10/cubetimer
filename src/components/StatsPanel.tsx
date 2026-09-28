@@ -6,7 +6,7 @@ export function StatsPanel({ solves }: { solves: Solve[] }) {
   const stats = useMemo(() => sessionStats(solves), [solves]);
 
   const cells: { label: string; value: string; sub?: string }[] = [
-    { label: "solves", value: String(stats.count), sub: `${stats.solved} finished` },
+    { label: "counted solves", value: String(stats.count), sub: `${stats.solved} finished` },
     { label: "best", value: formatTime(stats.best) },
     { label: "ao5", value: formatTime(stats.ao5), sub: labelBest(stats.bestAo5) },
     { label: "ao12", value: formatTime(stats.ao12), sub: labelBest(stats.bestAo12) },
@@ -24,6 +24,7 @@ export function StatsPanel({ solves }: { solves: Solve[] }) {
     <div className="panel">
       <div className="panel-head">
         <span className="panel-title">Statistics</span>
+        <span className="faint small">slow / replay excluded</span>
       </div>
       <div className="panel-body">
         <div className="stat-grid">

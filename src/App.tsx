@@ -221,7 +221,7 @@ export function App() {
               </button>
             </div>
           ) : null}
-          <ScramblePanel state={state} />
+          {!resultSolve ? <ScramblePanel state={state} /> : null}
           {state.settings.slowSolve && live && !resultSolve ? (
             <CoachPanel
               facelets={state.cubeFacelets}

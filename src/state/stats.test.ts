@@ -137,6 +137,10 @@ describe("slow solves", () => {
     const solves = [solve(1000), { ...solve(2000), practice: true }, solve(3000, "DNF")];
     expect(countedSolves(solves)).toHaveLength(2);
   });
+
+  it("does not classify a replay as a slow solve even in slow mode", () => {
+    expect(isSlowSolve({ practice: true, slowSolve: true, replay: true })).toBe(false);
+  });
 });
 
 describe("compareSolveToHistory", () => {
@@ -159,6 +163,27 @@ describe("compareSolveToHistory", () => {
       currentMs: 10,
       baselineMs: 200,
       deltaMs: -190,
+      skipped: false,
+    });
+  });
+
+  it("marks a skipped current step without changing its baseline", () => {
+    const previous = [
+      analysedSolve("before-1", currentTimes),
+      analysedSolve("before-2", currentTimes),
+      analysedSolve("before-3", currentTimes),
+    ];
+    const current = analysedSolve("current", currentTimes);
+    current.analysis!.steps[1].skipped = true;
+
+    const comparison = compareSolveToHistory(current, [...previous, current]);
+
+    expect(comparison?.steps[1]).toMatchObject({
+      name: "F2L Slot 1",
+      currentMs: 20,
+      baselineMs: 20,
+      deltaMs: 0,
+      skipped: true,
     });
   });
 

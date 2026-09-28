@@ -16,7 +16,7 @@ export function ScramblePanel({ state }: { state: AppState }) {
   const tracking = progress !== null && state.phase === "scrambling";
 
   return (
-    <div className="panel">
+    <div className="panel scramble-panel">
       <div className="panel-head">
         <span className="panel-title">Scramble</span>
         <div className="row">

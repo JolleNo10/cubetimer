@@ -28,22 +28,28 @@ export function SolveComparisonPanel({ comparison }: { comparison: SolveComparis
 
       {comparison ? (
         <div className="solve-comparison-rows">
+          <div className="solve-comparison-row solve-comparison-heading" aria-hidden="true">
+            <span>Step</span>
+            <span>This</span>
+            <span>Recent</span>
+            <span>Δ</span>
+          </div>
           {comparison.steps.map((step) => {
             const delta = formatComparisonDelta(step.deltaMs);
             return (
               <div className="solve-comparison-row" key={step.name}>
                 <span className="solve-comparison-step">{step.name}</span>
                 <span className="solve-comparison-value mono">
-                  <span className="solve-comparison-label">this</span>
-                  {formatTime(step.currentMs)}s
+                  {step.skipped ? "—" : `${formatTime(step.currentMs)}s`}
                 </span>
-                <span className="solve-comparison-value mono">
-                  <span className="solve-comparison-label">recent</span>
-                  {formatTime(step.baselineMs)}s
-                </span>
-                <span className={`solve-comparison-delta ${delta.direction}`}>
-                  {delta.text} {delta.direction}
-                </span>
+                <span className="solve-comparison-value mono">{formatTime(step.baselineMs)}s</span>
+                {step.skipped ? (
+                  <span className="solve-comparison-delta skipped">skipped</span>
+                ) : (
+                  <span className={`solve-comparison-delta ${delta.direction}`}>
+                    {delta.text} {delta.direction}
+                  </span>
+                )}
               </div>
             );
           })}

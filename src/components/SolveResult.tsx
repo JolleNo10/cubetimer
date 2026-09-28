@@ -1,6 +1,10 @@
 import { SolveComparisonPanel } from "./SolveComparison";
 import { StepBreakdown } from "./StepBreakdown";
 import { useController } from "../hooks/useController";
+import {
+  practiceScrambleLabel,
+  practiceScrambleTitle,
+} from "../state/scrambleProvider";
 import { compareSolveToHistory, formatSolveTime, formatTime, isSlowSolve } from "../state/stats";
 import type { Penalty, Solve } from "../state/types";
 
@@ -30,6 +34,8 @@ export function SolveResult({
   const canAnalyse = Boolean(analysis && solve.moves.length > 0);
   const pauseMs = analysis?.pauses.reduce((sum, pause) => sum + pause.durationMs, 0) ?? 0;
   const slowSolve = isSlowSolve(solve);
+  const specialLabel = practiceScrambleLabel(solve.scrambleProvider);
+  const specialTitle = practiceScrambleTitle(solve.scrambleProvider);
   const primary = slowSolve ? `${moveCount} moves` : formatSolveTime(solve);
   const comparison = analysis ? compareSolveToHistory(solve, solves) : null;
 
@@ -37,8 +43,16 @@ export function SolveResult({
     <section className="panel solve-result" aria-label="Solve result">
       <div className="result-head">
         <div>
-          <div className="panel-title">Result</div>
-          {slowSolve ? <span className="phase-case muted">slow solve</span> : null}
+          <div className="result-title-row">
+            <div className="panel-title">Result</div>
+            {slowSolve ? <span className="phase-case muted">slow solve</span> : null}
+            {!slowSolve && solve.replay ? <span className="phase-case muted">replay</span> : null}
+            {specialLabel ? (
+              <span className="phase-case muted" title={specialTitle ?? specialLabel}>
+                {specialLabel}
+              </span>
+            ) : null}
+          </div>
         </div>
       </div>
 
@@ -51,21 +65,24 @@ export function SolveResult({
             </div>
           ) : null}
           {analysis ? (
-            <div className="result-compact">
-              {analysis.sliceTurns} moves · {analysis.tps.toFixed(2)} TPS
-            </div>
-          ) : solve.moves.length > 0 ? (
+            !slowSolve ? (
+              <div className="result-compact">
+                {analysis.sliceTurns} moves · {analysis.tps.toFixed(2)} TPS
+              </div>
+            ) : null
+          ) : !slowSolve && solve.moves.length > 0 ? (
             <div className="result-compact">{moveCount} moves</div>
           ) : null}
         </div>
 
         <div className="result-context">
           <div className="result-scramble">
-            <span className="result-context-label">SCRAMBLE</span>
+            <span className="result-context-label">SOLVE SCRAMBLE</span>
             <span className="mono">{solve.scramble}</span>
           </div>
           <div className="result-actions">
             <div className="result-penalties">
+              <span className="result-context-label">Penalty</span>
               {PENALTIES.map((penalty) => (
                 <button
                   key={penalty.value}
@@ -133,7 +150,9 @@ export function SolveResult({
               />
             </div>
             {analysis.stepsSkipped > 0 ? (
-              <div className="result-badge">{analysis.stepsSkipped} steps skipped</div>
+              <div className="result-badge">
+                {analysis.stepsSkipped} {analysis.stepsSkipped === 1 ? "step" : "steps"} skipped
+              </div>
             ) : null}
 
             <div className="result-breakdown">
@@ -174,9 +193,8 @@ export function SolveResult({
       </div>
 
       <div className="result-foot">
-        <span className="faint small">Continue when ready.</span>
         <button className="primary" onClick={onContinue}>
-          Continue
+          Back to timer
         </button>
       </div>
     </section>

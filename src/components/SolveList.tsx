@@ -4,7 +4,7 @@ import {
   practiceScrambleLabel,
   practiceScrambleTitle,
 } from "../state/scrambleProvider";
-import { bestSingle, countedSolves, formatSolveTime } from "../state/stats";
+import { bestSingle, countedSolves, formatSolveTime, isSlowSolve } from "../state/stats";
 import { effectiveMs, type Solve } from "../state/types";
 
 type Props = {
@@ -21,7 +21,7 @@ export function SolveList({ solves, selectedId, onSelect }: Props) {
   return (
     <div className="panel" style={{ flex: 1, minHeight: 0 }}>
       <div className="panel-head">
-        <span className="panel-title">Solves</span>
+        <span className="panel-title">History</span>
         <span className="faint small">{solves.length}</span>
       </div>
       <div className="panel-body tight" style={{ overflow: "auto" }}>
@@ -54,9 +54,13 @@ export function SolveList({ solves, selectedId, onSelect }: Props) {
                     {formatSolveTime(solve)}
                   </span>
                   {isPb ? <span className="pb small">PB</span> : null}
-                  {solve.practice ? (
+                  {isSlowSolve(solve) ? (
                     <span className="phase-case muted" title="Slow solve, not counted">
                       slow
+                    </span>
+                  ) : solve.replay ? (
+                    <span className="phase-case muted" title="Replay practice solve, not counted">
+                      replay
                     </span>
                   ) : null}
                   {specialLabel ? (

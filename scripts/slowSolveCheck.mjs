@@ -55,13 +55,16 @@ check("the solve is listed", (await page.locator(".solve-row").count()) === 1);
 check("it is marked as a slow solve",
       (await page.locator(".solve-row .phase-case").allInnerTexts()).includes("slow"));
 check("it has a breakdown", (await result.locator(".phase-row").count()) === 7);
+check("the live ScramblePanel is hidden while Result is open", await page.locator(".scramble-panel").count() === 0);
+check("the slow Result omits its repeated move/TPS summary", await result.locator(".result-compact").count() === 0);
 
 const best = (await page.locator(".stat").nth(1).innerText()).split("\n")[1].trim();
 const count = (await page.locator(".stat").first().innerText()).split("\n")[1].trim();
 check("it is not counted in the statistics", best === "—" && count === "0",
       `best ${best}, solves ${count}`);
 
-await result.getByRole("button", { name: "Continue" }).click();
+await result.getByRole("button", { name: "Back to timer" }).click();
+check("Back to timer restores the live ScramblePanel", await page.locator(".scramble-panel").count() === 1);
 
 // Turning the mode off and solving again gives an ordinary, counted solve.
 await page.locator(".chip.toggle input").click();
@@ -110,10 +113,10 @@ check(
   `${historicalElapsed} → ${await historicalResult.locator(".result-secondary").innerText()}`,
 );
 
-await historicalResult.getByRole("button", { name: "Continue" }).click();
-check("Continue closes the historical Result", (await page.locator(".solve-result").count()) === 0);
+await historicalResult.getByRole("button", { name: "Back to timer" }).click();
+check("Back to timer closes the historical Result", (await page.locator(".solve-result").count()) === 0);
 check(
-  "Continue keeps the historical row selected",
+  "Back to timer keeps the historical row selected",
   (await olderSolveRow.getAttribute("class"))?.includes("selected") === true,
 );
 

@@ -60,7 +60,7 @@ export function stepBarWidths(
   total: number,
   timeScale?: StepTimeScale,
 ): { recognitionWidth: number; executionWidth: number } {
-  if (step.timeMs <= 0) return { recognitionWidth: 0, executionWidth: 0 };
+  if (step.skipped || step.timeMs <= 0) return { recognitionWidth: 0, executionWidth: 0 };
 
   const totalWidth = timeScale
     ? (step.timeMs / timeScale.maxMs) * 100
@@ -143,27 +143,28 @@ function StepRow({
   const { recognitionWidth, executionWidth } = stepBarWidths(step, total, timeScale);
   const described = describeCase(step);
   const isSkip = step.skipped || described?.id === "Solved";
+  const isSkipped = step.skipped === true;
 
   const splitValues = showSplitTimes ? (
     <>
       <span
         className="phase-split-value recognition-value"
         title={step.name === "Cross" ? "Cross recognition before the first turn is not timed." : "Time spent recognizing this step"}
-        aria-label={step.name === "Cross" ? "Recognition not measured" : `Recognition ${formatTime(step.recognitionMs)}`}
+        aria-label={isSkipped ? "Recognition skipped" : step.name === "Cross" ? "Recognition not measured" : `Recognition ${formatTime(step.recognitionMs)}`}
       >
-        {step.name === "Cross" ? "—" : formatTime(step.recognitionMs)}
+        {isSkipped || step.name === "Cross" ? "—" : formatTime(step.recognitionMs)}
       </span>
       <span
         className="phase-split-value execution-value"
-        aria-label={`Execution ${formatTime(step.executionMs)}`}
+        aria-label={isSkipped ? "Execution skipped" : `Execution ${formatTime(step.executionMs)}`}
       >
-        {formatTime(step.executionMs)}
+        {isSkipped ? "—" : formatTime(step.executionMs)}
       </span>
-      <span className="phase-split-value moves-value" aria-label={`${step.sliceTurns} moves`}>
-        {step.sliceTurns}
+      <span className="phase-split-value moves-value" aria-label={isSkipped ? "Moves skipped" : `${step.sliceTurns} moves`}>
+        {isSkipped ? "—" : step.sliceTurns}
       </span>
-      <span className="phase-split-value tps-value" aria-label={`${step.tps.toFixed(1)} TPS`}>
-        {step.tps.toFixed(1)}
+      <span className="phase-split-value tps-value" aria-label={isSkipped ? "TPS skipped" : `${step.tps.toFixed(1)} TPS`}>
+        {isSkipped ? "—" : step.tps.toFixed(1)}
       </span>
     </>
   ) : null;
@@ -179,9 +180,12 @@ function StepRow({
         ) : step.skipped ? (
           <span className="phase-case muted">skip</span>
         ) : null}
+        {step.skipped && described && described.id !== "Solved" ? (
+          <span className="phase-case muted">skip</span>
+        ) : null}
         {described?.hint ? <span className="phase-hint">{described.hint}</span> : null}
       </span>
-      <span className="phase-time">{formatTime(step.timeMs)}</span>
+      <span className="phase-time">{isSkipped ? "—" : formatTime(step.timeMs)}</span>
       {showCumulativeTime ? (
         <span
           className="phase-split-value cumulative-value"
@@ -223,7 +227,7 @@ function StepRow({
         />
       </span>
       <span className="phase-sub">
-        {step.sliceTurns} mv · {step.tps.toFixed(1)} tps
+        {isSkipped ? "—" : `${step.sliceTurns} mv · ${step.tps.toFixed(1)} tps`}
       </span>
       {showMoves && step.moves ? (
         <span className="phase-moves mono">{step.moves}</span>

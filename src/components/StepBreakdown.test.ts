@@ -96,6 +96,15 @@ describe("stepTimeScale", () => {
     });
   });
 
+  it("keeps skipped steps visually empty even with stored timing", () => {
+    const scale = stepTimeScale(timedSteps(2340));
+    const skipped = { ...timedSteps(2340)[0], skipped: true };
+    expect(stepBarWidths(skipped, 2340, scale)).toEqual({
+      recognitionWidth: 0,
+      executionWidth: 0,
+    });
+  });
+
   it("scales recognition and execution against the shared maximum", () => {
     const scale = { tickMs: 500, maxMs: 2500, ticks: [500, 1000, 1500, 2000, 2500] };
     const step = {
