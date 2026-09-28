@@ -155,6 +155,7 @@ describe("solves recorded here, written in the export format", () => {
       event: "333" as const,
       source: "smartcube" as const,
       moves: timed,
+      scrambleProvider: "cubetimer:white-cross-exact:5",
       analysis: analyseSolve(scrambled, timed),
       device: { name: "GAN 12 ui", model: "Gan 12 UI FreePlay", colorScheme: "BOY" },
       inspectionMs: 8000,
@@ -168,6 +169,7 @@ describe("solves recorded here, written in the export format", () => {
     expect(reread.createdAt).toBe(solve.createdAt);
     expect(reread.rawMs).toBe(solve.rawMs);
     expect(reread.scramble).toBe(scramble);
+    expect(reread.scrambleProvider).toBe(solve.scrambleProvider);
     expect(reread.device).toEqual(solve.device);
     expect(reread.inspectionMs).toBe(8000);
     expect(reread.moves).toEqual(timed);
@@ -185,6 +187,15 @@ describe("solves recorded here, written in the export format", () => {
     );
     expect(after.steps.map((s) => s.sliceTurns)).toEqual(
       before.steps.map((s) => s.sliceTurns),
+    );
+
+    const xCrossProvider = "cubetimer:xcross-max:4";
+    const xCrossCsv = formatSolveCsv(
+      [{ ...solve, scrambleProvider: xCrossProvider }],
+      new Map([["s1", "Evening"]]),
+    );
+    expect(parseSolveCsv(xCrossCsv).solves[0].scrambleProvider).toBe(
+      xCrossProvider,
     );
   });
 });

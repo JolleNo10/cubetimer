@@ -43,6 +43,7 @@ import * as db from "./db";
 import { rebuildAnalysis } from "./repair";
 import { normaliseSettings } from "./settings";
 import { countSolveCsvRows, solveCsvBatches, formatSolveCsv } from "./solveCsv";
+import { whiteCrossProvider, xCrossProvider } from "./scrambleProvider";
 import { Store } from "./store";
 import { debugEnabled, debugLog } from "../util/debug";
 import {
@@ -89,6 +90,11 @@ export type AppState = {
 export type ScrambleGeneration =
   | { kind: "cross" }
   | { kind: "xcross"; attempts: number };
+
+type ScrambleContext = {
+  scramble: string;
+  provider?: string;
+};
 
 /** How often the grip trace says where it has got to while nothing is changing. */
 const GRIP_HEARTBEAT_MS = 2_000;
@@ -141,7 +147,8 @@ export class Controller {
   #tracker: ScrambleTracker | null = null;
   #isReplay = false;
   #scrambleGenerationToken = 0;
-  #scrambleBeforeSpecialGeneration: string | null = null;
+  #scrambleProvider: string | undefined;
+  #scrambleBeforeSpecialGeneration: ScrambleContext | null = null;
   #rafHandle: number | null = null;
   #startedAt = 0;
   #inspectionStartedAt = 0;
@@ -482,6 +489,7 @@ export class Controller {
 
   async newScramble(): Promise<void> {
     this.#isReplay = false;
+    this.#scrambleProvider = undefined;
     this.#scrambleBeforeSpecialGeneration = null;
     const token = ++this.#scrambleGenerationToken;
     const { settings } = this.state.get();
@@ -513,14 +521,15 @@ export class Controller {
   }
 
   /** Load a scramble and mark the resulting solve as a replay (excluded from stats). */
-  replayScramble(scramble: string): void {
+  replayScramble(scramble: string, scrambleProvider?: string): void {
     this.#isReplay = true;
-    this.setScramble(scramble);
+    this.setScramble(scramble, scrambleProvider);
   }
 
-  setScramble(scramble: string): void {
+  setScramble(scramble: string, scrambleProvider?: string): void {
     this.#scrambleGenerationToken++;
     this.#scrambleBeforeSpecialGeneration = null;
+    this.#scrambleProvider = scrambleProvider;
     const kpuzzle = this.#model?.kpuzzle;
     const usesSmartCube = eventInfo(this.state.get().settings.event).smart;
     this.#tracker =
@@ -542,7 +551,11 @@ export class Controller {
   }
 
   #beginSpecialScrambleGeneration(generation: ScrambleGeneration): void {
-    this.#scrambleBeforeSpecialGeneration = this.state.get().scramble;
+    this.#scrambleBeforeSpecialGeneration = {
+      scramble: this.state.get().scramble,
+      provider: this.#scrambleProvider,
+    };
+    this.#scrambleProvider = undefined;
     this.#tracker = null;
     this.state.update((s) => ({
       ...s,
@@ -565,10 +578,11 @@ export class Controller {
     this.#tracker = null;
     const previousScramble = this.#scrambleBeforeSpecialGeneration;
     this.#scrambleBeforeSpecialGeneration = null;
+    this.#scrambleProvider = undefined;
     this.state.update((s) => ({ ...s, scrambleGeneration: null }));
 
-    if (previousScramble?.trim()) {
-      this.setScramble(previousScramble);
+    if (previousScramble?.scramble.trim()) {
+      this.setScramble(previousScramble.scramble, previousScramble.provider);
       return "restored";
     } else {
       void this.newScramble();
@@ -626,7 +640,9 @@ export class Controller {
       const oriented = reframe(kpuzzle, scrambledPattern, rotation);
 
       if (hasXCrossIn(kpuzzle, oriented, maxMoves)) {
-        if (token === this.#scrambleGenerationToken) this.setScramble(scramble);
+        if (token === this.#scrambleGenerationToken) {
+          this.setScramble(scramble, xCrossProvider(maxMoves));
+        }
         return;
       }
     }
@@ -664,7 +680,9 @@ export class Controller {
         settings.event,
         requestedMoves,
       );
-      if (token === this.#scrambleGenerationToken) this.setScramble(scramble);
+      if (token === this.#scrambleGenerationToken) {
+        this.setScramble(scramble, whiteCrossProvider(requestedMoves));
+      }
     } catch (error) {
       if (token === this.#scrambleGenerationToken) {
         this.state.update((s) => ({
@@ -1069,6 +1087,7 @@ export class Controller {
     source: Solve["source"],
   ): Promise<void> {
     const { sessionId, scramble, settings, inspectionPenalty } = this.state.get();
+    const scrambleProvider = this.#scrambleProvider;
     const isReplay = this.#isReplay;
     this.#isReplay = false;
     const scrambledPattern =
@@ -1089,6 +1108,7 @@ export class Controller {
       rawMs,
       penalty: inspectionPenalty,
       scramble,
+      scrambleProvider,
       event: settings.event,
       source,
       moves,

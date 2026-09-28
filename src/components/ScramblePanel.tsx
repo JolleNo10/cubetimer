@@ -26,7 +26,15 @@ export function ScramblePanel({ state }: { state: AppState }) {
             </span>
           ) : null}
           {state.settings.slowSolve && state.lastSolve ? (
-            <button className="ghost" onClick={() => controller.replayScramble(state.lastSolve!.scramble)}>
+            <button
+              className="ghost"
+              onClick={() =>
+                controller.replayScramble(
+                  state.lastSolve!.scramble,
+                  state.lastSolve!.scrambleProvider,
+                )
+              }
+            >
               Replay last
             </button>
           ) : null}

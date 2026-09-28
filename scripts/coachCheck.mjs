@@ -87,6 +87,12 @@ check(
 );
 await type(new Alg(generatedXCross).invert().toString(), 6);
 await page.waitForTimeout(300);
+const trainingBadges = await page.locator(".solve-row .phase-case").allInnerTexts();
+check(
+  "history marks the generated XCross training solve",
+  trainingBadges.includes("slow") && trainingBadges.includes("xcross ≤4"),
+  trainingBadges.join(", "),
+);
 await xCrossLimit.selectOption("5");
 
 // A scramble of our own rather than the generated one, so every run of this script

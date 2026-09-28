@@ -1,5 +1,9 @@
 import { useMemo } from "react";
 import { useController } from "../hooks/useController";
+import {
+  practiceScrambleLabel,
+  practiceScrambleTitle,
+} from "../state/scrambleProvider";
 import { bestSingle, countedSolves, formatSolveTime } from "../state/stats";
 import { effectiveMs, type Solve } from "../state/types";
 
@@ -28,6 +32,8 @@ export function SolveList({ solves, selectedId, onSelect }: Props) {
             const index = solves.length - reverseIndex;
             const time = effectiveMs(solve);
             const isPb = time !== null && time === best && !solve.practice;
+            const specialLabel = practiceScrambleLabel(solve.scrambleProvider);
+            const specialTitle = practiceScrambleTitle(solve.scrambleProvider);
             return (
               <div
                 key={solve.id}
@@ -51,6 +57,11 @@ export function SolveList({ solves, selectedId, onSelect }: Props) {
                   {solve.practice ? (
                     <span className="phase-case muted" title="Slow solve, not counted">
                       slow
+                    </span>
+                  ) : null}
+                  {specialLabel ? (
+                    <span className="phase-case muted" title={specialTitle ?? specialLabel}>
+                      {specialLabel}
                     </span>
                   ) : null}
                 </span>
