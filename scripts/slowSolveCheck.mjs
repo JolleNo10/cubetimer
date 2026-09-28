@@ -91,6 +91,16 @@ check(
   (await olderSolveRow.getAttribute("class"))?.includes("selected") === true,
 );
 
+const historicalElapsed = await historicalResult.locator(".result-secondary").innerText();
+const selectedDetail = page.locator(".panel", { hasText: "Selected solve" });
+await selectedDetail.getByRole("button", { name: "+2", exact: true }).click();
+await page.waitForTimeout(300);
+check(
+  "the historical Result follows an edited solve",
+  (await historicalResult.locator(".result-secondary").innerText()) !== historicalElapsed,
+  `${historicalElapsed} → ${await historicalResult.locator(".result-secondary").innerText()}`,
+);
+
 await historicalResult.getByRole("button", { name: "Continue" }).click();
 check("Continue closes the historical Result", (await page.locator(".solve-result").count()) === 0);
 check(

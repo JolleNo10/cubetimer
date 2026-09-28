@@ -26,17 +26,34 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [replaySolve, setReplaySolve] = useState<Solve | null>(null);
   const [analyseSolve, setAnalyseSolve] = useState<Solve | null>(null);
-  const [resultSolve, setResultSolve] = useState<Solve | null>(null);
+  const [resultSolveId, setResultSolveId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [holding, setHolding] = useState(false);
   const [holdReady, setHoldReady] = useState(false);
 
   const live = state.cubeStatus === "connected" || state.virtualCube;
 
+  const resultSolve = useMemo(
+    () =>
+      resultSolveId
+        ? state.solves.find((solve) => solve.id === resultSolveId) ?? null
+        : null,
+    [resultSolveId, state.solves],
+  );
+
   const selectedSolve = useMemo(
     () => state.solves.find((s) => s.id === selectedId) ?? state.lastSolve,
     [state.solves, selectedId, state.lastSolve],
   );
+
+  useEffect(() => {
+    if (
+      resultSolveId !== null &&
+      !state.solves.some((solve) => solve.id === resultSolveId)
+    ) {
+      setResultSolveId(null);
+    }
+  }, [resultSolveId, state.solves]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.theme;
@@ -63,7 +80,7 @@ export function App() {
   }, []);
 
   const pressStart = useCallback(() => {
-    if (resultSolve) setResultSolve(null);
+    if (resultSolveId !== null) setResultSolveId(null);
     const current = controller.state.get();
     if (current.phase === "solving") {
       // A solve the cube started is stopped by solving the cube, not by a key or a tap.
@@ -78,7 +95,7 @@ export function App() {
     } else {
       setHoldReadyBoth(true);
     }
-  }, [controller, resultSolve, setHoldingBoth, setHoldReadyBoth]);
+  }, [controller, resultSolveId, setHoldingBoth, setHoldReadyBoth]);
 
   const pressEnd = useCallback(() => {
     if (holdTimer.current) clearTimeout(holdTimer.current);
@@ -112,8 +129,8 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTextEntry(event.target)) return;
       if (event.key === "Escape") {
-        if (resultSolve) {
-          setResultSolve(null);
+        if (resultSolveId !== null) {
+          setResultSolveId(null);
           return;
         }
         controller.cancel();
@@ -145,19 +162,19 @@ export function App() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [controller, pressStart, pressEnd, replaySolve, resultSolve, settingsOpen]);
+  }, [controller, pressStart, pressEnd, replaySolve, resultSolveId, settingsOpen]);
 
   useEffect(
     () =>
       controller.onSolveRecorded((solve) => {
         setSelectedId(null);
-        setResultSolve(solve);
+        setResultSolveId(solve.id);
       }),
     [controller],
   );
 
   useEffect(
-    () => controller.onCubeMove(() => setResultSolve(null)),
+    () => controller.onCubeMove(() => setResultSolveId(null)),
     [controller],
   );
 
@@ -183,7 +200,7 @@ export function App() {
             selectedId={selectedSolve?.id ?? null}
             onSelect={(solve) => {
               setSelectedId(solve.id);
-              setResultSolve(solve);
+              setResultSolveId(solve.id);
             }}
           />
         </div>
@@ -212,7 +229,7 @@ export function App() {
               <SolveResult
                 solve={resultSolve}
                 solves={state.solves}
-                onContinue={() => setResultSolve(null)}
+                onContinue={() => setResultSolveId(null)}
                 onReplay={setReplaySolve}
                 onAnalyse={setAnalyseSolve}
               />
