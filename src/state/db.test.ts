@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { migrateSolve } from "./db";
+import { mergeSettings, migrateSolve } from "./db";
 import type { Solve } from "./types";
 
 const base = {
@@ -37,5 +37,16 @@ describe("migrateSolve", () => {
   it("gives a solve with no move stream an empty one", () => {
     const noMoves = { ...base, moves: undefined } as unknown as Solve;
     expect(migrateSolve(noMoves).moves).toEqual([]);
+  });
+});
+
+describe("mergeSettings", () => {
+  it("uses the default white-cross length for older settings", () => {
+    expect(mergeSettings({}).whiteCrossMoves).toBe(5);
+  });
+
+  it("rejects persisted white-cross lengths outside 1 through 7", () => {
+    expect(mergeSettings({ whiteCrossMoves: 0 as never }).whiteCrossMoves).toBe(5);
+    expect(mergeSettings({ whiteCrossMoves: 8 as never }).whiteCrossMoves).toBe(5);
   });
 });

@@ -32,6 +32,41 @@ export function ScramblePanel({ state }: { state: AppState }) {
           ) : null}
           {state.settings.slowSolve && eventInfo(state.settings.event).smart ? (
             <>
+              <label
+                className="row small"
+                title="Generate a scramble whose optimal white cross is exactly this many moves"
+              >
+                <span className="faint">White cross</span>
+                <select
+                  aria-label="White cross moves"
+                  value={state.settings.whiteCrossMoves}
+                  onChange={(e) =>
+                    void controller.updateSettings({
+                      whiteCrossMoves: Number(e.target.value) as 1 | 2 | 3 | 4 | 5 | 6 | 7,
+                    })
+                  }
+                >
+                  {[1, 2, 3, 4, 5, 6, 7].map((moves) => (
+                    <option key={moves} value={moves}>
+                      {moves}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                className="ghost"
+                disabled={
+                  state.scrambleGeneration !== null || state.settings.crossColour !== "white"
+                }
+                onClick={() => void controller.findWhiteCrossScramble()}
+                title={
+                  state.settings.crossColour === "white"
+                    ? `Generate a scramble with an exact ${state.settings.whiteCrossMoves}-move white cross`
+                    : "White-cross generation currently supports white only"
+                }
+              >
+                Cross
+              </button>
               <label className="row small" title="Maximum length of the XCross solution">
                 <span className="faint">XCross ≤</span>
                 <select
@@ -52,7 +87,7 @@ export function ScramblePanel({ state }: { state: AppState }) {
               </label>
               <button
                 className="ghost"
-                disabled={state.xCrossGenerating}
+                disabled={state.scrambleGeneration !== null}
                 onClick={() => void controller.findXCrossScramble()}
                 title={`Find a scramble with an XCross in ${state.settings.xCrossMaxMoves} moves or fewer`}
               >
@@ -66,11 +101,16 @@ export function ScramblePanel({ state }: { state: AppState }) {
         </div>
       </div>
       <div className="panel-body">
-        {state.xCrossGenerating ? (
+        {state.scrambleGeneration?.kind === "cross" ? (
           <div className="generation-status" role="status" aria-live="polite">
             <span className="spinner" aria-hidden="true" />
-            Generating XCross… {state.xCrossAttempts}{" "}
-            {state.xCrossAttempts === 1 ? "variation" : "variations"} tried
+            Generating white-cross scramble…
+          </div>
+        ) : state.scrambleGeneration?.kind === "xcross" ? (
+          <div className="generation-status" role="status" aria-live="polite">
+            <span className="spinner" aria-hidden="true" />
+            Generating XCross… {state.scrambleGeneration.attempts}{" "}
+            {state.scrambleGeneration.attempts === 1 ? "variation" : "variations"} tried
           </div>
         ) : scramble ? (
           <div className="scramble">

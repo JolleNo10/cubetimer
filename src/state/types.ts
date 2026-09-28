@@ -1,5 +1,8 @@
 import type { SolveAnalysis, TimedMove } from "../cube/analysis";
+import type { WhiteCrossMoves } from "../cube/crossScramble";
 import type { EventId } from "../cube/scramble";
+
+export type { WhiteCrossMoves } from "../cube/crossScramble";
 
 export type Penalty = "none" | "+2" | "DNF";
 
@@ -81,6 +84,8 @@ export type Settings = {
   slowSolve: boolean;
   /** Maximum solution length used when looking for an XCross scramble. */
   xCrossMaxMoves: XCrossMaxMoves;
+  /** Exact optimal length of the generated white cross in Slow Solve. */
+  whiteCrossMoves: WhiteCrossMoves;
   inspection: boolean;
   /** Begin inspection as soon as the cube reaches the scrambled state. */
   autoInspection: boolean;
@@ -107,6 +112,7 @@ export const DEFAULT_SETTINGS: Settings = {
   event: "333",
   slowSolve: false,
   xCrossMaxMoves: 5,
+  whiteCrossMoves: 5,
   inspection: false,
   autoInspection: true,
   requireScramble: true,

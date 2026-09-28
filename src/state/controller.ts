@@ -4,6 +4,7 @@ import type { KPattern } from "cubing/kpuzzle";
 import { analyseSolve, isSolvedPattern, type TimedMove } from "../cube/analysis";
 import { faceColour, faceOfColour } from "../cube/colours";
 import { hasXCrossIn } from "../cube/crossPlans";
+import { generateWhiteCrossScramble } from "../cube/crossScramble";
 import { isRecentreGesture, RECENTRE_GESTURE_TURNS } from "../cube/gestures";
 import { facesAtPositions } from "../cube/gyroGrip";
 import {
@@ -68,10 +69,7 @@ export type AppState = {
   battery: number | null;
   error: string | null;
   scramble: string;
-  /** True while the XCross search is replacing the current scramble. */
-  xCrossGenerating: boolean;
-  /** Number of candidate scrambles checked by the current XCross search. */
-  xCrossAttempts: number;
+  scrambleGeneration: ScrambleGeneration | null;
   scrambleProgress: ScrambleProgress | null;
   /** How to get the cube back onto the scramble after a wrong turn. */
   recovery: { alg: string; resumeAt: number } | null;
@@ -87,6 +85,10 @@ export type AppState = {
   sessionId: string;
   settings: Settings;
 };
+
+export type ScrambleGeneration =
+  | { kind: "cross" }
+  | { kind: "xcross"; attempts: number };
 
 /** How often the grip trace says where it has got to while nothing is changing. */
 const GRIP_HEARTBEAT_MS = 2_000;
@@ -114,8 +116,7 @@ export class Controller {
     battery: null,
     error: null,
     scramble: "",
-    xCrossGenerating: false,
-    xCrossAttempts: 0,
+    scrambleGeneration: null,
     scrambleProgress: null,
     recovery: null,
     recoveryPending: false,
@@ -139,7 +140,8 @@ export class Controller {
   #model: CubeModel | null = null;
   #tracker: ScrambleTracker | null = null;
   #isReplay = false;
-  #xCrossToken = 0;
+  #scrambleGenerationToken = 0;
+  #scrambleBeforeSpecialGeneration: string | null = null;
   #rafHandle: number | null = null;
   #startedAt = 0;
   #inspectionStartedAt = 0;
@@ -480,14 +482,14 @@ export class Controller {
 
   async newScramble(): Promise<void> {
     this.#isReplay = false;
-    this.#xCrossToken++;
+    this.#scrambleBeforeSpecialGeneration = null;
+    const token = ++this.#scrambleGenerationToken;
     const { settings } = this.state.get();
     this.state.update((s) => ({
       ...s,
       phase: "scrambling",
       scramble: "",
-      xCrossGenerating: false,
-      xCrossAttempts: 0,
+      scrambleGeneration: null,
       scrambleProgress: null,
       recovery: null,
       liveMoves: [],
@@ -506,7 +508,7 @@ export class Controller {
       }));
       return;
     }
-    this.setScramble(scramble);
+    if (token === this.#scrambleGenerationToken) this.setScramble(scramble);
   }
 
   /** Load a scramble and mark the resulting solve as a replay (excluded from stats). */
@@ -516,6 +518,8 @@ export class Controller {
   }
 
   setScramble(scramble: string): void {
+    this.#scrambleGenerationToken++;
+    this.#scrambleBeforeSpecialGeneration = null;
     const kpuzzle = this.#model?.kpuzzle;
     const usesSmartCube = eventInfo(this.state.get().settings.event).smart;
     this.#tracker =
@@ -527,14 +531,29 @@ export class Controller {
     this.state.update((s) => ({
       ...s,
       scramble,
-      xCrossGenerating: false,
-      xCrossAttempts: 0,
+      scrambleGeneration: null,
       phase: "scrambling",
       scrambleProgress: null,
       recovery: null,
       liveMoves: [],
     }));
     this.#updateScrambleProgress();
+  }
+
+  #beginSpecialScrambleGeneration(generation: ScrambleGeneration): void {
+    this.#scrambleBeforeSpecialGeneration = this.state.get().scramble;
+    this.state.update((s) => ({
+      ...s,
+      phase: "scrambling",
+      scramble: "",
+      scrambleGeneration: generation,
+      scrambleProgress: null,
+      recovery: null,
+      liveMoves: [],
+      inspectionPenalty: "none",
+    }));
+    this.elapsed.set(0);
+    this.inspectionLeft.set(null);
   }
 
   /**
@@ -544,28 +563,16 @@ export class Controller {
    */
   async findXCrossScramble(): Promise<void> {
     const kpuzzle = this.#model?.kpuzzle;
-    if (!kpuzzle || this.state.get().xCrossGenerating) return;
+    if (!kpuzzle || this.state.get().scrambleGeneration) return;
 
     this.#isReplay = false;
-    const token = ++this.#xCrossToken;
+    const token = ++this.#scrambleGenerationToken;
     const { settings } = this.state.get();
     const maxMoves = settings.xCrossMaxMoves;
     const maxAttempts =
       maxMoves === 4 ? XCROSS_ATTEMPTS_FOR_FOUR_MOVES : XCROSS_ATTEMPTS_FOR_LIMIT;
 
-    this.state.update((s) => ({
-      ...s,
-      phase: "scrambling",
-      scramble: "",
-      xCrossGenerating: true,
-      xCrossAttempts: 0,
-      scrambleProgress: null,
-      recovery: null,
-      liveMoves: [],
-      inspectionPenalty: "none",
-    }));
-    this.elapsed.set(0);
-    this.inspectionLeft.set(null);
+    this.#beginSpecialScrambleGeneration({ kind: "xcross", attempts: 0 });
 
     const bottom = faceOfColour(settings.crossColour) ?? "D";
     const front = faceOfColour(settings.frontColour);
@@ -573,26 +580,25 @@ export class Controller {
     const rotation = new Alg(grip.tokens.join(" "));
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      if (token !== this.#xCrossToken) return;
+      if (token !== this.#scrambleGenerationToken) return;
       let scramble: string;
       try {
         scramble = await generateScramble(settings.event);
       } catch (error) {
-        if (token === this.#xCrossToken) {
+        if (token === this.#scrambleGenerationToken) {
           this.state.update((s) => ({
             ...s,
-            xCrossGenerating: false,
-            xCrossAttempts: 0,
+            scrambleGeneration: null,
             error: `Could not generate a scramble: ${String(error)}`,
           }));
         }
         return;
       }
-      if (token !== this.#xCrossToken) return;
+      if (token !== this.#scrambleGenerationToken) return;
 
       this.state.update((s) =>
-        token === this.#xCrossToken
-          ? { ...s, xCrossAttempts: attempt + 1 }
+        token === this.#scrambleGenerationToken
+          ? { ...s, scrambleGeneration: { kind: "xcross", attempts: attempt + 1 } }
           : s,
       );
 
@@ -600,18 +606,53 @@ export class Controller {
       const oriented = reframe(kpuzzle, scrambledPattern, rotation);
 
       if (hasXCrossIn(kpuzzle, oriented, maxMoves)) {
-        if (token === this.#xCrossToken) this.setScramble(scramble);
+        if (token === this.#scrambleGenerationToken) this.setScramble(scramble);
         return;
       }
     }
 
-    if (token === this.#xCrossToken) {
+    if (token === this.#scrambleGenerationToken) {
       this.state.update((s) => ({
         ...s,
-        xCrossGenerating: false,
-        xCrossAttempts: 0,
+        scrambleGeneration: null,
         error: `Could not find an XCross in ${maxMoves} moves after ${maxAttempts} attempts. Try again.`,
       }));
+    }
+  }
+
+  async findWhiteCrossScramble(): Promise<void> {
+    const kpuzzle = this.#model?.kpuzzle;
+    const { settings } = this.state.get();
+    const event = eventInfo(settings.event);
+    if (
+      !kpuzzle ||
+      !event.smart ||
+      event.puzzle !== "3x3x3" ||
+      settings.crossColour !== "white" ||
+      this.state.get().scrambleGeneration
+    ) {
+      return;
+    }
+
+    this.#isReplay = false;
+    const token = ++this.#scrambleGenerationToken;
+    const requestedMoves = settings.whiteCrossMoves;
+    this.#beginSpecialScrambleGeneration({ kind: "cross" });
+
+    try {
+      const scramble = await generateWhiteCrossScramble(
+        settings.event,
+        requestedMoves,
+      );
+      if (token === this.#scrambleGenerationToken) this.setScramble(scramble);
+    } catch (error) {
+      if (token === this.#scrambleGenerationToken) {
+        this.state.update((s) => ({
+          ...s,
+          scrambleGeneration: null,
+          error: `Could not generate a white-cross scramble: ${String(error)}`,
+        }));
+      }
     }
   }
 
@@ -656,7 +697,8 @@ export class Controller {
   /** Discard the running solve without recording it. */
   cancel(): void {
     this.#isReplay = false;
-    this.#xCrossToken++;
+    this.#scrambleBeforeSpecialGeneration = null;
+    this.#scrambleGenerationToken++;
     this.#stopLoop();
     this.elapsed.set(0);
     this.inspectionLeft.set(null);
@@ -669,8 +711,7 @@ export class Controller {
     this.state.update((s) => ({
       ...s,
       phase: "scrambling",
-      xCrossGenerating: false,
-      xCrossAttempts: 0,
+      scrambleGeneration: null,
       liveMoves: [],
       solveSource: null,
       inspectionPenalty: "none",
@@ -1158,9 +1199,21 @@ export class Controller {
   // ---------------------------------------------------------------- settings
 
   async updateSettings(changes: Partial<Settings>): Promise<void> {
-    if (changes.xCrossMaxMoves !== undefined) {
-      this.#xCrossToken++;
-    }
+    const generation = this.state.get().scrambleGeneration;
+    const invalidatesSpecialGeneration =
+      changes.event !== undefined ||
+      (generation?.kind === "xcross" &&
+        (changes.xCrossMaxMoves !== undefined ||
+          changes.crossColour !== undefined ||
+          changes.frontColour !== undefined)) ||
+      (generation?.kind === "cross" &&
+        (changes.whiteCrossMoves !== undefined ||
+          changes.crossColour !== undefined));
+    const invalidationToken = invalidatesSpecialGeneration
+      ? ++this.#scrambleGenerationToken
+      : this.#scrambleGenerationToken;
+    const cancelledSpecialGeneration =
+      generation !== null && invalidatesSpecialGeneration && changes.event === undefined;
     const settings = normaliseSettings({
       ...this.state.get().settings,
       ...changes,
@@ -1168,13 +1221,24 @@ export class Controller {
     this.state.update((s) => ({
       ...s,
       settings,
-      xCrossGenerating:
-        changes.xCrossMaxMoves !== undefined ? false : s.xCrossGenerating,
-      xCrossAttempts: changes.xCrossMaxMoves !== undefined ? 0 : s.xCrossAttempts,
+      scrambleGeneration: invalidatesSpecialGeneration
+        ? null
+        : s.scrambleGeneration,
     }));
     await db.saveSettings(settings);
     if (changes.event) {
       await this.newScramble();
+    } else if (
+      cancelledSpecialGeneration &&
+      this.#scrambleGenerationToken === invalidationToken
+    ) {
+      const previousScramble = this.#scrambleBeforeSpecialGeneration;
+      this.#scrambleBeforeSpecialGeneration = null;
+      if (previousScramble !== null) {
+        this.setScramble(previousScramble);
+      } else {
+        this.#updateScrambleProgress();
+      }
     } else {
       this.#updateScrambleProgress();
     }

@@ -63,6 +63,19 @@ export function migrateSolve(solve: Solve): Solve {
   return { ...solve, moves: solve.moves ?? [] };
 }
 
+export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
+  const settings = { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
+  return {
+    ...settings,
+    xCrossMaxMoves: [4, 5, 6].includes(settings.xCrossMaxMoves)
+      ? settings.xCrossMaxMoves
+      : DEFAULT_SETTINGS.xCrossMaxMoves,
+    whiteCrossMoves: [1, 2, 3, 4, 5, 6, 7].includes(settings.whiteCrossMoves)
+      ? settings.whiteCrossMoves
+      : DEFAULT_SETTINGS.whiteCrossMoves,
+  };
+}
+
 export async function loadSessions(): Promise<Session[]> {
   const sessions = await promisify(
     (await store("sessions", "readonly")).getAll() as IDBRequest<Session[]>,
@@ -111,13 +124,7 @@ export async function loadSettings(): Promise<Settings> {
         Partial<Settings> | undefined
       >,
     );
-    const settings = { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
-    // Settings are persisted data, so keep an older or hand-edited value from
-    // leaking past the typed boundary if the allowed choices ever change.
-    if (![4, 5, 6].includes(settings.xCrossMaxMoves)) {
-      return { ...settings, xCrossMaxMoves: DEFAULT_SETTINGS.xCrossMaxMoves };
-    }
-    return settings;
+    return mergeSettings(stored);
   } catch {
     return { ...DEFAULT_SETTINGS };
   }
