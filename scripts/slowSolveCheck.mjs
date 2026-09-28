@@ -93,6 +93,7 @@ check(
 for (const label of ["OK", "+2", "DNF", "Tools", "Replay", "Solve again", "Delete"]) {
   check(`the historical Result has ${label}`, await historicalResult.getByRole("button", { name: label, exact: true }).count() === 1);
 }
+check("ScramblePanel has no duplicate Replay last action", await page.getByRole("button", { name: "Replay last", exact: true }).count() === 0);
 check("the historical Result has a note field", await historicalResult.locator('input[aria-label="Solve note"]').count() === 1);
 check("the historical Result shows per-step solutions", await historicalResult.locator(".phase-moves").count() > 0);
 check(
