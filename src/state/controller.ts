@@ -502,6 +502,7 @@ export class Controller {
     try {
       scramble = await generateScramble(settings.event);
     } catch (error) {
+      if (token !== this.#scrambleGenerationToken) return;
       this.state.update((s) => ({
         ...s,
         error: `Could not generate a scramble: ${String(error)}`,
@@ -542,6 +543,7 @@ export class Controller {
 
   #beginSpecialScrambleGeneration(generation: ScrambleGeneration): void {
     this.#scrambleBeforeSpecialGeneration = this.state.get().scramble;
+    this.#tracker = null;
     this.state.update((s) => ({
       ...s,
       phase: "scrambling",
@@ -554,6 +556,24 @@ export class Controller {
     }));
     this.elapsed.set(0);
     this.inspectionLeft.set(null);
+  }
+
+  #cancelSpecialScrambleGeneration(): "restored" | "started" | null {
+    if (this.state.get().scrambleGeneration === null) return null;
+
+    this.#scrambleGenerationToken++;
+    this.#tracker = null;
+    const previousScramble = this.#scrambleBeforeSpecialGeneration;
+    this.#scrambleBeforeSpecialGeneration = null;
+    this.state.update((s) => ({ ...s, scrambleGeneration: null }));
+
+    if (previousScramble?.trim()) {
+      this.setScramble(previousScramble);
+      return "restored";
+    } else {
+      void this.newScramble();
+      return "started";
+    }
   }
 
   /**
@@ -697,8 +717,9 @@ export class Controller {
   /** Discard the running solve without recording it. */
   cancel(): void {
     this.#isReplay = false;
-    this.#scrambleBeforeSpecialGeneration = null;
-    this.#scrambleGenerationToken++;
+    const specialCancellation =
+      this.#cancelSpecialScrambleGeneration();
+    if (specialCancellation === null) this.#scrambleGenerationToken++;
     this.#stopLoop();
     this.elapsed.set(0);
     this.inspectionLeft.set(null);
@@ -1200,20 +1221,20 @@ export class Controller {
 
   async updateSettings(changes: Partial<Settings>): Promise<void> {
     const generation = this.state.get().scrambleGeneration;
-    const invalidatesSpecialGeneration =
-      changes.event !== undefined ||
-      (generation?.kind === "xcross" &&
-        (changes.xCrossMaxMoves !== undefined ||
-          changes.crossColour !== undefined ||
-          changes.frontColour !== undefined)) ||
-      (generation?.kind === "cross" &&
-        (changes.whiteCrossMoves !== undefined ||
-          changes.crossColour !== undefined));
-    const invalidationToken = invalidatesSpecialGeneration
-      ? ++this.#scrambleGenerationToken
-      : this.#scrambleGenerationToken;
-    const cancelledSpecialGeneration =
-      generation !== null && invalidatesSpecialGeneration && changes.event === undefined;
+    const cancelsSpecialGeneration =
+      generation !== null &&
+      (changes.event !== undefined ||
+        changes.slowSolve === false ||
+        (generation.kind === "xcross" &&
+          (changes.xCrossMaxMoves !== undefined ||
+            changes.crossColour !== undefined ||
+            changes.frontColour !== undefined)) ||
+        (generation.kind === "cross" &&
+          (changes.whiteCrossMoves !== undefined ||
+            changes.crossColour !== undefined)));
+    if (changes.event !== undefined && !cancelsSpecialGeneration) {
+      this.#scrambleGenerationToken++;
+    }
     const settings = normaliseSettings({
       ...this.state.get().settings,
       ...changes,
@@ -1221,24 +1242,13 @@ export class Controller {
     this.state.update((s) => ({
       ...s,
       settings,
-      scrambleGeneration: invalidatesSpecialGeneration
-        ? null
-        : s.scrambleGeneration,
     }));
+    const specialCancellation = cancelsSpecialGeneration
+      ? this.#cancelSpecialScrambleGeneration()
+      : null;
     await db.saveSettings(settings);
-    if (changes.event) {
+    if (changes.event && specialCancellation !== "started") {
       await this.newScramble();
-    } else if (
-      cancelledSpecialGeneration &&
-      this.#scrambleGenerationToken === invalidationToken
-    ) {
-      const previousScramble = this.#scrambleBeforeSpecialGeneration;
-      this.#scrambleBeforeSpecialGeneration = null;
-      if (previousScramble !== null) {
-        this.setScramble(previousScramble);
-      } else {
-        this.#updateScrambleProgress();
-      }
     } else {
       this.#updateScrambleProgress();
     }
