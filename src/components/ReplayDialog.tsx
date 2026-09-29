@@ -25,6 +25,11 @@ import { effectiveMs, type Solve } from "../state/types";
 
 const SPEEDS = [0.25, 0.5, 1, 2];
 
+export type ReplayViewState = {
+  index: number;
+  speed: number;
+};
+
 /**
  * Move-by-move replay of a recorded solve, at the speed it was actually turned.
  * Scrubbing forwards animates the individual turns; a jump rebuilds the state.
@@ -33,17 +38,20 @@ export function ReplayDialog({
   solve,
   onClose,
   onTrainStep,
+  initialView,
 }: {
   solve: Solve;
   onClose: () => void;
-  onTrainStep?: (step: SolveStep) => void;
+  onTrainStep?: (step: SolveStep, view: ReplayViewState) => void;
+  initialView?: ReplayViewState;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<TwistyPlayer | null>(null);
   const appliedRef = useRef(0);
+  const initialViewRestoredRef = useRef(false);
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
-  const [speed, setSpeed] = useState(1);
+  const [speed, setSpeed] = useState(initialView?.speed ?? 1);
 
   const moves = solve.moves;
   const steps = solve.analysis?.steps;
@@ -156,6 +164,13 @@ export function ReplayDialog({
     },
     [replayActions],
   );
+
+  useEffect(() => {
+    if (!initialView || initialViewRestoredRef.current || !playerRef.current) return;
+    initialViewRestoredRef.current = true;
+    setPlaying(false);
+    seek(initialView.index);
+  }, [initialView, seek]);
 
   // Playback follows the recorded timestamps, so pauses and bursts look like they did.
   // The loop runs off refs rather than state, so applying a move does not restart it.
@@ -288,7 +303,10 @@ export function ReplayDialog({
               <button
                 type="button"
                 className="ghost small"
-                onClick={() => onTrainStep(currentStep)}
+                onClick={() => {
+                  setPlaying(false);
+                  onTrainStep(currentStep, { index, speed });
+                }}
               >
                 Train this F2L
               </button>

@@ -25,7 +25,7 @@ export function SolveResult({
 }: {
   solve: Solve;
   solves: readonly Solve[];
-  onContinue: () => void;
+  onContinue: (options?: { resumeTimer?: boolean }) => void;
   onReplay: (solve: Solve) => void;
   onAnalyse: (solve: Solve) => void;
   onPracticeStep?: (step: SolveStep) => void;
@@ -115,7 +115,7 @@ export function SolveResult({
                 className="ghost"
                 onClick={() => {
                   controller.replayScramble(solve.scramble, solve.scrambleProvider);
-                  onContinue();
+                  onContinue({ resumeTimer: false });
                 }}
                 title="Load this scramble so you can solve it again"
               >
@@ -174,7 +174,7 @@ export function SolveResult({
       </div>
 
       <div className="result-foot">
-        <button className="primary" onClick={onContinue}>
+        <button className="primary" onClick={() => onContinue()}>
           Back to timer
         </button>
       </div>

@@ -2,6 +2,18 @@
 
 ## 2026-09-29
 
+- What happened: widening `SolveResult.onContinue` to carry a close option briefly made the Back button pass the callback directly as a mouse event handler.
+- Root cause: the callback's optional navigation options are not a DOM event shape.
+- Prevention: wrap non-event callbacks at JSX event boundaries, especially when their parameter type changes.
+
+## 2026-09-29
+
+- What happened: the new review-return controller test initially injected a virtual F2L move without stubbing `requestAnimationFrame`.
+- Root cause: the test started the existing F2L attempt timer but did not reuse the controller suite's timing harness.
+- Prevention: stub `requestAnimationFrame` and `cancelAnimationFrame` in every controller test that enters F2L solving.
+
+## 2026-09-29
+
 - What happened: an initial exact solve-step controller assertion expected setup-mode display facelets to equal the target pattern without a connected cube.
 - Root cause: setup mode intentionally displays the physical model until the physical cube reaches the target; only virtual mode loads the target into the display.
 - Prevention: assert setup-mode target metadata separately, and assert target facelets after explicitly switching to virtual mode.

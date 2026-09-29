@@ -575,6 +575,25 @@ export class Controller {
     void this.useCubeStateAsScramble().catch(() => void this.newScramble());
   }
 
+  /** Leave F2L Training without adopting its cube position as a Timer scramble. */
+  returnToTimerReview(): void {
+    if (this.state.get().area !== "f2l") return;
+    this.#cancelTimerForArea();
+    this.#resetF2lSnapshot();
+    this.state.update((s) => ({
+      ...s,
+      area: "timer",
+      phase: "finished",
+      scramble: "",
+      scrambleProgress: null,
+      recovery: null,
+      liveMoves: [],
+      solveSource: null,
+      inspectionPenalty: "none",
+      f2lTraining: emptyF2lState(),
+    }));
+  }
+
   async selectF2lCase(caseName: string): Promise<void> {
     const f2lCase = F2L_CASES.find((candidate) => candidate.name === caseName);
     if (!f2lCase || !this.#model) return;

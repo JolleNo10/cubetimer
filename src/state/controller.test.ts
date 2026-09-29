@@ -45,6 +45,33 @@ describe("Controller application-area ownership", () => {
     expect(controller.state.get().lastSolve).toBe(solve);
   });
 
+  it("parks Timer for a historical review without adopting the training position", async () => {
+    globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+    const controller = new Controller(
+      new CubeModel(kpuzzle, kpuzzle.defaultPattern().applyAlg(new Alg("R U"))),
+    );
+    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.setArea("f2l");
+    await controller.setF2lMode("virtual");
+    await controller.selectF2lCase("F2L 1");
+    controller.injectMove("L");
+    const trainingPosition = patternToFacelets(controller.pattern!);
+
+    controller.returnToTimerReview();
+
+    expect(controller.state.get().area).toBe("timer");
+    expect(controller.state.get().phase).toBe("finished");
+    expect(controller.state.get().phase).not.toBe("ready");
+    expect(controller.state.get().phase).not.toBe("inspection");
+    expect(controller.state.get().phase).not.toBe("solving");
+    expect(controller.state.get().f2lTraining.phase).toBe("selecting");
+    expect(controller.state.get().f2lTraining.target).toBeNull();
+    expect(controller.state.get().solves).toEqual([]);
+    expect(patternToFacelets(controller.pattern!)).toBe(trainingPosition);
+    expect(controller.state.get().scramble).toBe("");
+  });
+
   it("keeps virtual practice separate from the physical cube", async () => {
     globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame;
     globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;

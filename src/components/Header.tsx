@@ -1,16 +1,18 @@
 import { useState } from "react";
 import { EVENTS, eventInfo } from "../cube/scramble";
 import { useController } from "../hooks/useController";
-import type { AppState } from "../state/controller";
+import type { AppArea, AppState } from "../state/controller";
 import type { EventId } from "../cube/scramble";
 import { Icon } from "./Icon";
 
 export function Header({
   state,
   onOpenSettings,
+  onSelectArea,
 }: {
   state: AppState;
   onOpenSettings: () => void;
+  onSelectArea: (area: AppArea) => void;
 }) {
   const controller = useController();
   const [renaming, setRenaming] = useState(false);
@@ -27,13 +29,13 @@ export function Header({
       <nav className="area-switch" aria-label="Application area">
         <button
           className={state.area === "timer" ? "active" : ""}
-          onClick={() => controller.setArea("timer")}
+          onClick={() => onSelectArea("timer")}
         >
           Timer
         </button>
         <button
           className={state.area === "f2l" ? "active" : ""}
-          onClick={() => controller.setArea("f2l")}
+          onClick={() => onSelectArea("f2l")}
         >
           F2L Training
         </button>

@@ -5,7 +5,7 @@ import { ConnectionPanel } from "./components/ConnectionPanel";
 import { CubeView } from "./components/CubeView";
 import { F2LTraining } from "./components/F2LTraining";
 import { Header } from "./components/Header";
-import { ReplayDialog } from "./components/ReplayDialog";
+import { ReplayDialog, type ReplayViewState } from "./components/ReplayDialog";
 import { ScramblePanel } from "./components/ScramblePanel";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { SolveList } from "./components/SolveList";
@@ -14,18 +14,26 @@ import { StatsPanel } from "./components/StatsPanel";
 import { TimerDisplay } from "./components/TimerDisplay";
 import { VIRTUAL_CUBE_KEYS } from "./components/VirtualCubeKeys";
 import { useAppState, useController } from "./hooks/useController";
+import type { AppArea } from "./state/controller";
 import type { Solve } from "./state/types";
 
 /** How long space must be held before a keyboard-timed solve will start. */
 const HOLD_MS = 350;
+
+type F2lTrainingReturnView =
+  | { kind: "result"; solveId: string }
+  | { kind: "replay"; solveId: string; replay: ReplayViewState };
 
 export function App() {
   const controller = useController();
   const state = useAppState();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [replaySolve, setReplaySolve] = useState<Solve | null>(null);
+  const [replayInitialView, setReplayInitialView] = useState<ReplayViewState | null>(null);
   const [analyseSolve, setAnalyseSolve] = useState<Solve | null>(null);
   const [resultSolveId, setResultSolveId] = useState<string | null>(null);
+  const [f2lTrainingReturnView, setF2lTrainingReturnView] = useState<F2lTrainingReturnView | null>(null);
+  const [resumeTimerAfterTrainingReview, setResumeTimerAfterTrainingReview] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [holding, setHolding] = useState(false);
   const [holdReady, setHoldReady] = useState(false);
@@ -45,12 +53,47 @@ export function App() {
     [state.solves, selectedId, state.lastSolve],
   );
 
+  const closeResult = useCallback((options?: { resumeTimer?: boolean }) => {
+    const resumeTimer = resumeTimerAfterTrainingReview && options?.resumeTimer !== false;
+    setResultSolveId(null);
+    setReplaySolve(null);
+    setReplayInitialView(null);
+    setF2lTrainingReturnView(null);
+    setResumeTimerAfterTrainingReview(false);
+    if (resumeTimer) void controller.newScramble();
+  }, [controller, resumeTimerAfterTrainingReview]);
+
+  const selectArea = useCallback((area: AppArea) => {
+    const returnView = f2lTrainingReturnView;
+    if (state.area === "f2l" && area === "timer" && returnView) {
+      const solve = state.solves.find((candidate) => candidate.id === returnView.solveId);
+      if (solve) {
+        controller.returnToTimerReview();
+        setResultSolveId(returnView.solveId);
+        setReplaySolve(returnView.kind === "replay" ? solve : null);
+        setReplayInitialView(returnView.kind === "replay" ? returnView.replay : null);
+        setAnalyseSolve(null);
+        setResumeTimerAfterTrainingReview(true);
+        return;
+      }
+    }
+
+    setF2lTrainingReturnView(null);
+    setReplayInitialView(null);
+    setResumeTimerAfterTrainingReview(false);
+    controller.setArea(area);
+  }, [controller, f2lTrainingReturnView, state.area, state.solves]);
+
   useEffect(() => {
     if (
       resultSolveId !== null &&
       !state.solves.some((solve) => solve.id === resultSolveId)
     ) {
       setResultSolveId(null);
+      setReplaySolve(null);
+      setReplayInitialView(null);
+      setF2lTrainingReturnView(null);
+      setResumeTimerAfterTrainingReview(false);
     }
   }, [resultSolveId, state.solves]);
 
@@ -96,7 +139,10 @@ export function App() {
   }, []);
 
   const pressStart = useCallback(() => {
-    if (resultSolveId !== null) setResultSolveId(null);
+    if (resultSolveId !== null) {
+      closeResult();
+      return;
+    }
     const current = controller.state.get();
     if (current.phase === "solving") {
       // A solve the cube started is stopped by solving the cube, not by a key or a tap.
@@ -111,7 +157,7 @@ export function App() {
     } else {
       setHoldReadyBoth(true);
     }
-  }, [controller, resultSolveId, setHoldingBoth, setHoldReadyBoth]);
+  }, [closeResult, controller, resultSolveId, setHoldingBoth, setHoldReadyBoth]);
 
   const pressEnd = useCallback(() => {
     if (holdTimer.current) clearTimeout(holdTimer.current);
@@ -146,7 +192,7 @@ export function App() {
       if (isTextEntry(event.target)) return;
       if (event.key === "Escape") {
         if (resultSolveId !== null) {
-          setResultSolveId(null);
+          closeResult();
           return;
         }
         controller.cancel();
@@ -178,7 +224,7 @@ export function App() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [controller, pressStart, pressEnd, replaySolve, resultSolveId, settingsOpen]);
+  }, [closeResult, controller, pressStart, pressEnd, replaySolve, resultSolveId, settingsOpen]);
 
   useEffect(
     () =>
@@ -190,8 +236,10 @@ export function App() {
   );
 
   useEffect(
-    () => controller.onCubeMove(() => setResultSolveId(null)),
-    [controller],
+    () => controller.onCubeMove(() => {
+      if (!resumeTimerAfterTrainingReview) setResultSolveId(null);
+    }),
+    [controller, resumeTimerAfterTrainingReview],
   );
 
   if (!state.ready) {
@@ -206,7 +254,11 @@ export function App() {
 
   return (
     <div className="app">
-      <Header state={state} onOpenSettings={() => setSettingsOpen(true)} />
+      <Header
+        state={state}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onSelectArea={selectArea}
+      />
 
       {state.area === "f2l" ? <F2LTraining state={state} /> : <div className="app-body">
         <div className="column left">
@@ -215,6 +267,9 @@ export function App() {
             solves={state.solves}
             selectedId={selectedSolve?.id ?? null}
             onSelect={(solve) => {
+              setF2lTrainingReturnView(null);
+              setReplayInitialView(null);
+              setResumeTimerAfterTrainingReview(false);
               setSelectedId(solve.id);
               setResultSolveId(solve.id);
             }}
@@ -245,10 +300,16 @@ export function App() {
               <SolveResult
                 solve={resultSolve}
                 solves={state.solves}
-                onContinue={() => setResultSolveId(null)}
-                onReplay={setReplaySolve}
+                onContinue={closeResult}
+                onReplay={(solve) => {
+                  setReplayInitialView(null);
+                  setReplaySolve(solve);
+                }}
                 onAnalyse={setAnalyseSolve}
                 onPracticeStep={(step) => {
+                  setF2lTrainingReturnView({ kind: "result", solveId: resultSolve.id });
+                  setReplayInitialView(null);
+                  setResumeTimerAfterTrainingReview(false);
                   void controller.practiceF2lStep(resultSolve, step);
                   setResultSolveId(null);
                   setReplaySolve(null);
@@ -287,8 +348,19 @@ export function App() {
       {replaySolve ? (
         <ReplayDialog
           solve={replaySolve}
-          onClose={() => setReplaySolve(null)}
-          onTrainStep={(step) => {
+          initialView={replayInitialView ?? undefined}
+          onClose={() => {
+            setReplaySolve(null);
+            setReplayInitialView(null);
+          }}
+          onTrainStep={(step, view) => {
+            setF2lTrainingReturnView({
+              kind: "replay",
+              solveId: replaySolve.id,
+              replay: view,
+            });
+            setReplayInitialView(null);
+            setResumeTimerAfterTrainingReview(false);
             void controller.practiceF2lStep(replaySolve, step);
             setReplaySolve(null);
             setResultSolveId(null);
