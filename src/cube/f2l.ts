@@ -16,7 +16,7 @@
  */
 import { Alg } from "cubing/alg";
 import type { KPattern, KPuzzle } from "cubing/kpuzzle";
-import { F2L_CASES } from "./f2lCases";
+import { F2L_CASES, F2L_POSITIONS, type F2lPosition } from "./f2lCases";
 import { f2lSlotsForCrossFace } from "./moves";
 import { joinMoves } from "./notation";
 import { reframe } from "./recognise";
@@ -26,6 +26,9 @@ import { reframe } from "./recognise";
  * round: front-right, front-left, back-left, back-right.
  */
 export const F2L_SLOTS = f2lSlotsForCrossFace("D");
+
+export { F2L_POSITIONS } from "./f2lCases";
+export type { F2lPosition } from "./f2lCases";
 
 const FRONT_RIGHT = F2L_SLOTS[0];
 
@@ -74,6 +77,19 @@ export type Entry = {
   body: string[];
 };
 
+export type F2lCaseMatch = {
+  name: string;
+  group: string;
+  /** The last-layer turn used to line the observed pair up with the catalogue case. */
+  auf: number;
+};
+
+export type F2lSlotRecognition = {
+  position: F2lPosition;
+  status: "solved" | "case" | "buried";
+  match: F2lCaseMatch | null;
+};
+
 /**
  * Split off any rotation an algorithm opens with.
  *
@@ -83,7 +99,7 @@ export type Entry = {
  * turn. An `x` or a `z` would not commute like that, and none of these algorithms
  * opens with one.
  */
-function splitLeadingRotation(alg: string): { rotation: string[]; body: string[] } {
+export function splitLeadingRotation(alg: string): { rotation: string[]; body: string[] } {
   const tokens = alg.split(" ");
   const lead = tokens.findIndex((token) => !/^y[2']?$/.test(token));
   return {
@@ -98,7 +114,8 @@ export function f2lTable(kpuzzle: KPuzzle): Map<string, Entry> {
   const existing = tables.get(kpuzzle);
   if (existing) return existing;
   const table = new Map<string, Entry>();
-  for (const { name, group, setup, alg } of F2L_CASES) {
+  for (const { name, group, setup, algorithms } of F2L_CASES) {
+    const alg = algorithms.FR[0];
     const state = kpuzzle.defaultPattern().applyAlg(new Alg(setup));
     for (let auf = 0; auf < 4; auf++) {
       const key = pairKey(state.applyAlg(new Alg(AUF[auf])));
@@ -111,6 +128,29 @@ export function f2lTable(kpuzzle: KPuzzle): Map<string, Entry> {
   }
   tables.set(kpuzzle, table);
   return table;
+}
+
+/** Recognize one positional slot without composing the legacy rotate-to-FR solution. */
+export function recognizeF2lSlot(
+  kpuzzle: KPuzzle,
+  pattern: KPattern,
+  position: F2lPosition,
+): F2lSlotRecognition {
+  const index = F2L_POSITIONS.indexOf(position);
+  const rotation = TO_FRONT_RIGHT[index];
+  const framed = rotation
+    ? reframe(kpuzzle, pattern, new Alg(rotation))
+    : pattern;
+  const key = pairKey(framed);
+  if (key === SOLVED_KEY) return { position, status: "solved", match: null };
+  const entry = key === null ? undefined : f2lTable(kpuzzle).get(key);
+  return entry
+    ? {
+        position,
+        status: "case",
+        match: { name: entry.name, group: entry.group, auf: entry.auf },
+      }
+    : { position, status: "buried", match: null };
 }
 
 export type F2lSolution = {
@@ -147,14 +187,20 @@ export type F2lSlotPlan = {
 export function planF2l(kpuzzle: KPuzzle, pattern: KPattern): F2lSlotPlan[] {
   const table = f2lTable(kpuzzle);
   return F2L_SLOTS.map((slot, index) => {
+    const position = F2L_POSITIONS[index];
     const rotation = TO_FRONT_RIGHT[index];
     const framed = rotation
       ? reframe(kpuzzle, pattern, new Alg(rotation))
       : pattern;
+    const recognition = recognizeF2lSlot(kpuzzle, pattern, position);
+    if (recognition.status === "solved") {
+      return { name: slot.name, status: "solved", solution: null };
+    }
     const key = pairKey(framed);
-    if (key === SOLVED_KEY) return { name: slot.name, status: "solved", solution: null };
     const entry = key === null ? undefined : table.get(key);
-    if (!entry) return { name: slot.name, status: "buried", solution: null };
+    if (!entry || recognition.status !== "case") {
+      return { name: slot.name, status: "buried", solution: null };
+    }
     return {
       name: slot.name,
       status: "case",

@@ -270,6 +270,10 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .f2l-case-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; margin-top: 7px; }
 .f2l-case-button { padding: 6px 4px; font-family: var(--mono); font-size: 11px; }
 .f2l-case-button.selected { border-color: var(--accent); color: var(--accent); background: color-mix(in oklab, var(--accent) 12%, transparent); }
+.f2l-position-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; margin: 8px 0 14px; }
+.f2l-position-switch button { padding: 5px 4px; font-size: 11px; }
+.f2l-position-switch button.active { border-color: var(--accent); color: var(--accent); background: color-mix(in oklab, var(--accent) 12%, transparent); }
+.f2l-position-switch button:disabled { opacity: 0.8; cursor: default; }
 .f2l-stage { min-height: 0; }
 .f2l-setup-moves { line-height: 1.8; }
 .f2l-setup-panel .panel-body { min-height: 128px; }
@@ -285,6 +289,8 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .f2l-target-facts b { color: var(--text); font-weight: 600; }
 .f2l-reference { margin-top: 18px; padding: 11px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); }
 .f2l-reference-alg { margin-top: 6px; color: var(--text); line-height: 1.7; word-break: break-word; }
+.f2l-alternatives { display: grid; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.f2l-alternative + .f2l-alternative { padding-top: 10px; border-top: 1px solid var(--border); }
 .f2l-result-card { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
 .f2l-result-stm { margin-top: 3px; font-size: 30px; font-weight: 700; }
 .f2l-delta { color: var(--amber); font-family: var(--mono); font-size: 12px; }

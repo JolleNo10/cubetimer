@@ -80,13 +80,15 @@ for the cube protocols.
 - A solver's solution to the whole scramble, as a yardstick for the move count.
 
 **F2L Training**
-- A separate top-level area for all 41 existing F2L cases, with setup guidance from the
-  cube's current state and live smart-cube progress, or a Virtual case mode that loads
-  the target without requiring physical setup.
+- A separate top-level area for all 41 existing F2L cases in Front Right, Front Left,
+  Back Left and Back Right, with setup guidance from the cube's current state and live
+  smart-cube progress, or a Virtual case mode that loads the target without requiring
+  physical setup.
 - Train an exact non-skipped F2L step from solve review, preserving its historical
   cube state and slot without adding the attempt to timer history or statistics.
-- Results focus on STM against the case/reference algorithm; elapsed time remains a
-  secondary measure.
+- Results focus on STM against the ordered, position-specific Recommended references,
+  identify known alternatives or valid custom solutions, and keep elapsed time
+  secondary.
 
 **After the solve**
 - CFOP breakdown: time, moves and TPS for the cross, each F2L pair, OLL and PLL, split
@@ -279,8 +281,8 @@ src/
     analysis   CFOP step detection and per-step metrics
     crossSolver Exact shortest cross, by breadth-first search over all 331,776 states
     crossPlans Every cross within a few moves of the shortest, and the XCrosses in them
-    f2lCases   The 41 F2L cases: the setup that makes each one, and the algorithm for it
-    f2l        Which case is in each slot, and the moves for it in the grip you hold
+    f2lCases   The 41 F2L cases: setup data and ordered references for each position
+    f2l        Slot-independent case recognition and legacy plans for existing consumers
     f2lTraining Target goals, exact solve-step reconstruction and training metrics
     optimise   Searching for a shorter way to have done a step
     recognise  Naming the OLL and PLL case a solver faced
@@ -306,6 +308,9 @@ F2L practice keeps a separate ephemeral controller-owned pattern; smart-cube tur
 advance both, but the selected target never replaces the physical model. Replacing it
 would desynchronise hardware state and break mode switching, facelet sync and returning
 to Timer.
+F2L recognition is shared and slot-independent; training references belong to a case
+and positional slot, so training does not manufacture a rotation to move every pair to
+Front Right.
 
 `src/cube` is deliberately free of UI and Bluetooth concerns, which is what makes it
 testable: the analyser is checked against solves built backwards from a solved cube, and

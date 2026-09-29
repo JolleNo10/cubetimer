@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
 import { faceColour } from "./colours";
 import { faceletsToPattern, patternToFacelets } from "./facelets";
-import { F2L_CASES } from "./f2lCases";
+import { F2L_CASES, F2L_POSITIONS } from "./f2lCases";
 import {
   buildExactF2lTarget,
   buildStandardF2lTarget,
   calculateTrainingEfficiency,
+  f2lPositionSetup,
   f2lCubeAlgorithm,
   f2lCubeMoves,
   f2lHandAlgorithm,
@@ -16,6 +17,7 @@ import {
   isStandardF2lBase,
   isF2lTrainingComplete,
   reconstructF2lStepStart,
+  referenceExecutionSignature,
   standardF2lTrainingRotation,
 } from "./f2lTraining";
 import { get3x3x3 } from "./puzzle";
@@ -78,14 +80,61 @@ describe("F2L training targets", () => {
       const handFrame = reframe(kpuzzle, target.pattern, rotationAlg);
       const solved = reframe(
         kpuzzle,
-        handFrame.applyAlg(new Alg(f2lCase.alg)),
+        handFrame.applyAlg(new Alg(f2lCase.algorithms.FR[0])),
         rotationAlg.invert(),
       );
       expect(
         isF2lTrainingComplete(target, solved),
         f2lCase.name,
       ).toBe(true);
-      expect(target.info.reference?.alg).toBe(f2lCase.alg);
+      expect(target.info.references[0]?.alg).toBe(f2lCase.algorithms.FR[0]);
+    }
+  });
+
+  it("builds every case in all four positions from that position's references", () => {
+    const rotation = standardF2lTrainingRotation();
+    const rotationAlg = new Alg(rotation.tokens.join(" "));
+    const base = kpuzzle.defaultPattern().applyAlg(new Alg("D2"));
+    for (const f2lCase of F2L_CASES) {
+      for (const position of F2L_POSITIONS) {
+        const target = buildStandardF2lTarget(kpuzzle, f2lCase, position, base);
+        expect(target.info.position, f2lCase.name).toBe(position);
+        expect(target.info.slot, f2lCase.name).toBe(
+          slotInCubeFrame(rotation.orientation, position),
+        );
+        expect(target.info.references.length, `${f2lCase.name} ${position}`).toBeGreaterThan(0);
+        expect(target.info.references[0].alg, `${f2lCase.name} ${position}`).toBe(
+          f2lCase.algorithms[position][0],
+        );
+        for (const reference of target.info.references) {
+          const solved = reframe(
+            kpuzzle,
+            reframe(kpuzzle, target.pattern, rotationAlg)
+              .applyAlg(new Alg(reference.alg)),
+            rotationAlg.invert(),
+          );
+          expect(
+            isF2lTrainingComplete(target, solved),
+            `${f2lCase.name} ${position} #${reference.rank}`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  it("re-expresses trackable catalogue setup in every positional slot", () => {
+    const f2lCase = F2L_CASES[3];
+    const rotation = standardF2lTrainingRotation();
+    const base = kpuzzle.defaultPattern().applyAlg(new Alg("D2"));
+    for (const position of F2L_POSITIONS) {
+      const handSetup = f2lPositionSetup(f2lCase.setup, position);
+      const target = buildStandardF2lTarget(kpuzzle, f2lCase, position, base);
+      expect(handSetup, position).toBeTruthy();
+      const raw = f2lCubeMoves(handSetup!.split(" "), rotation.orientation).join(" ");
+      const tracker = new ScrambleTracker(kpuzzle, raw, base);
+      expect(patternToFacelets(tracker.targetPattern), position).toBe(
+        patternToFacelets(target.pattern),
+      );
     }
   });
 
@@ -99,8 +148,8 @@ describe("F2L training targets", () => {
     expect(targetA.info.slot).toBe(targetB.info.slot);
     expect(targetA.info.protectedSlots).toEqual(targetB.info.protectedSlots);
     expect(patternToFacelets(targetA.pattern)).not.toBe(patternToFacelets(targetB.pattern));
-    expect(isF2lTrainingComplete(targetA, solveReference(targetA, f2lCase.alg))).toBe(true);
-    expect(isF2lTrainingComplete(targetB, solveReference(targetB, f2lCase.alg))).toBe(true);
+    expect(isF2lTrainingComplete(targetA, solveReference(targetA, f2lCase.algorithms.FR[0]))).toBe(true);
+    expect(isF2lTrainingComplete(targetB, solveReference(targetB, f2lCase.algorithms.FR[0]))).toBe(true);
   });
 
   it("keeps an outer-turn catalogue setup and maps it to raw tracker moves", () => {
@@ -136,6 +185,22 @@ describe("F2L training targets", () => {
     expect(f2lHandAlgorithm("D' L", grip)).toBe("U' R");
     expect(f2lCubeMoves(["R", "U'", "R'"], grip)).toEqual(["L", "D'", "L'"]);
     expect(reorientMove("L", grip)).toBe("R");
+  });
+
+  it("keeps a stored whole-cube rotation in display while classifying its fixed-frame turns", () => {
+    expect(referenceExecutionSignature("y R U")).toEqual(["B", "U"]);
+    expect(referenceExecutionSignature("r U R'")).toBeNull();
+
+    const target = buildStandardF2lTarget(kpuzzle, F2L_CASES[12]);
+    const reference = target.info.references[0];
+    expect(reference.alg).toMatch(/^y'/);
+    const signature = referenceExecutionSignature(reference.alg);
+    expect(signature).not.toBeNull();
+    const result = calculateTrainingEfficiency(
+      signature!.map((move, index) => ({ move, t: index * 10 })),
+      target.info.references,
+    );
+    expect(result.matchedReferenceRank).toBe(1);
   });
 
   it("keeps setup tracking raw while presenting the setup in hand notation", () => {
@@ -289,7 +354,7 @@ describe("F2L training targets", () => {
     } as never;
 
     const target = buildExactF2lTarget(kpuzzle, solve, step);
-    expect(target.info.reference?.caseName).toBe(f2lCase.name);
+    expect(target.info.references[0]?.caseName).toBe(f2lCase.name);
     expect(target.info.trainingRotation.orientation).toEqual(grip.orientation);
   });
 
@@ -328,8 +393,58 @@ describe("F2L training targets", () => {
       toMove: 1,
     } as never;
     const target = buildExactF2lTarget(kpuzzle, solve, step);
-    expect(target.info.reference?.caseName).toBe(f2lCase.name);
-    expect(target.info.reference?.alg).toBe("U R U' R'");
+    expect(target.info.references[0]?.caseName).toBe(f2lCase.name);
+    expect(target.info.references[0]?.alg).toBe("U R U' R'");
+  });
+
+  it("aligns an exact F2L 10 back-left reference by AUF without rotating to FR", () => {
+    const f2lCase = F2L_CASES.find((candidate) => candidate.name === "F2L 10")!;
+    const position = "BL" as const;
+    const standard = buildStandardF2lTarget(kpuzzle, f2lCase, position);
+    const rotation = standardF2lTrainingRotation();
+    const rotationAlg = new Alg(rotation.tokens.join(" "));
+    const exactStart = reframe(
+      kpuzzle,
+      reframe(kpuzzle, standard.pattern, rotationAlg).applyAlg(new Alg("U2")),
+      rotationAlg.invert(),
+    );
+    const solve = {
+      id: "solve-auf-bl",
+      scramble: "",
+      scrambledFacelets: patternToFacelets(exactStart),
+      moves: [{ move: "R", t: 10 }],
+      gripTrack: encodeGripTrack({
+        orientations: [rotation.orientation],
+        inspection: [],
+        confidence: 1,
+        warnings: [],
+      }),
+      analysis: { crossFace: "U" },
+    } as unknown as Solve;
+    const step = {
+      name: "F2L Slot 3",
+      slot: standard.info.slot,
+      skipped: false,
+      fromMove: 0,
+      toMove: 1,
+    } as never;
+
+    const target = buildExactF2lTarget(kpuzzle, solve, step);
+    expect(target.info.position).toBe(position);
+    expect(target.info.references[0]?.alg).toBe("U L U L' U L U L'");
+    expect(target.info.references[0]?.alg).not.toMatch(/^y/);
+    expect(
+      isF2lTrainingComplete(
+        target,
+        reframe(
+          kpuzzle,
+          reframe(kpuzzle, target.pattern, rotationAlg).applyAlg(
+            new Alg(target.info.references[0]!.alg),
+          ),
+          rotationAlg.invert(),
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("requires the cross and previously solved slots to stay solved", () => {
@@ -338,7 +453,7 @@ describe("F2L training targets", () => {
     const rotationAlg = new Alg(rotation.tokens.join(" "));
     const solved = reframe(
       kpuzzle,
-      reframe(kpuzzle, target.pattern, rotationAlg).applyAlg(new Alg(F2L_CASES[0].alg)),
+      reframe(kpuzzle, target.pattern, rotationAlg).applyAlg(new Alg(F2L_CASES[0].algorithms.FR[0])),
       rotationAlg.invert(),
     );
     expect(isF2lTrainingComplete(target, solved)).toBe(true);
@@ -385,7 +500,7 @@ describe("F2L training targets", () => {
       toMove: 1,
     } as never;
     const target = buildExactF2lTarget(kpuzzle, solve, step);
-    const done = target.pattern.applyAlg(new Alg(targetCase.alg));
+    const done = target.pattern.applyAlg(new Alg(targetCase.algorithms.FR[0]));
 
     expect(target.info.protectedSlots).not.toContain("FL");
     expect(isF2lTrainingComplete(target, done)).toBe(true);
@@ -416,5 +531,39 @@ describe("F2L training targets", () => {
     expect(merged.moves.map(({ move }) => move)).toEqual(["U2", "R"]);
     expect(merged.stm).toBe(2);
     expect(merged.delta).toBe(0);
+  });
+
+  it("classifies exact normalized executions against the ordered references", () => {
+    const target = buildStandardF2lTarget(kpuzzle, F2L_CASES[0]);
+    const references = target.info.references;
+    expect(references.length).toBeGreaterThan(1);
+    const timed = (algorithm: string) =>
+      Array.from(new Alg(algorithm).expand().childAlgNodes()).map((node, index) => ({
+        move: node.toString(),
+        t: index * 10,
+      }));
+
+    const recommended = calculateTrainingEfficiency(timed(references[0].alg), references);
+    expect(recommended.matchedReferenceRank).toBe(1);
+    expect(recommended.delta).toBe(0);
+
+    const alternative = calculateTrainingEfficiency(timed(references[1].alg), references);
+    expect(alternative.matchedReferenceRank).toBe(2);
+    expect(alternative.recommendedStm).toBe(references[0].stm);
+    expect(alternative.delta).toBe(references[1].stm - references[0].stm);
+  });
+
+  it("keeps wide or slice references while classifying them conservatively", () => {
+    const target = buildStandardF2lTarget(kpuzzle, F2L_CASES[7]);
+    const reference = target.info.references.find(
+      (candidate) => referenceExecutionSignature(candidate.alg) === null,
+    );
+    expect(reference).toBeTruthy();
+    expect(reference!.stm).toBeGreaterThan(0);
+    const result = calculateTrainingEfficiency(
+      [{ move: "R", t: 10 }],
+      [reference!],
+    );
+    expect(result.matchedReferenceRank).toBeNull();
   });
 });

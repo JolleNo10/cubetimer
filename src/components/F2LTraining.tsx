@@ -1,8 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useController, useStore } from "../hooks/useController";
-import { F2L_CASES } from "../cube/f2lCases";
+import { F2L_CASES, F2L_POSITIONS, f2lPositionLabel } from "../cube/f2lCases";
 import { faceColour, slotColours } from "../cube/colours";
-import { f2lTrainingGrip } from "../cube/f2lTraining";
+import { f2lTrainingGrip, type F2lReference } from "../cube/f2lTraining";
 import { formatTime } from "../state/stats";
 import type { AppState } from "../state/controller";
 import { ConnectionPanel } from "./ConnectionPanel";
@@ -32,6 +32,25 @@ export function F2LTraining({ state }: { state: AppState }) {
             <span className="chip small">41 cases</span>
           </div>
           <div className="panel-body">
+            <div className="small faint">Train the pair in your current grip:</div>
+            <nav className="f2l-position-switch" aria-label="F2L position">
+              {F2L_POSITIONS.map((position) => {
+                const fixed = target?.origin.kind === "solve-step";
+                const selected = training.selectedPosition === position;
+                return (
+                  <button
+                    type="button"
+                    key={position}
+                    className={selected ? "active" : ""}
+                    aria-pressed={selected}
+                    disabled={fixed}
+                    onClick={() => void controller.selectF2lPosition(position)}
+                  >
+                    {f2lPositionLabel(position)}
+                  </button>
+                );
+              })}
+            </nav>
             {GROUPS.map((group) => (
               <section className="f2l-group" key={group}>
                 <div className="small faint">{group}</div>
@@ -224,15 +243,15 @@ function TargetPanel({ state, elapsed }: { state: AppState; elapsed: number }) {
   const training = state.f2lTraining;
   const target = training.target;
   const result = training.result;
-  const reference = target?.reference;
-  const delta = result?.delta;
+  const references = target?.references ?? [];
+  const reference = references[0];
   const slotName = target ? slotColours(target.slot) ?? target.slot : null;
 
   return (
     <div className="panel f2l-target-panel">
       <div className="panel-head">
         <span className="panel-title">Training target</span>
-        {training.phase === "result" ? <span className="chip live">result</span> : null}
+        {result ? <span className="chip live">result</span> : null}
       </div>
       <div className="panel-body">
         {!target ? (
@@ -240,57 +259,32 @@ function TargetPanel({ state, elapsed }: { state: AppState; elapsed: number }) {
         ) : (
           <>
             <div className="f2l-target-title">
-              <strong>{target.origin.kind === "standard" ? target.origin.caseName : "Exact F2L setup"}</strong>
+              <strong>{reference?.caseName ?? (target.origin.kind === "standard" ? target.origin.caseName : "Exact F2L setup")}</strong>
               {reference?.group ? <span className="phase-case">{reference.group}</span> : null}
             </div>
             <div className="small dim f2l-origin">
               {target.origin.kind === "standard"
-                ? "Standard 41-case target"
+                ? `${f2lPositionLabel(target.position)} · Standard 41-case target`
                 : `From solve · ${target.origin.stepName} · ${slotName ?? target.origin.slot}`}
             </div>
             <div className="f2l-target-facts">
               <span>
                 cross <b><i className="colour-dot" style={{ background: faceColour(target.crossFace).hex }} />{faceColour(target.crossFace).name}</b>
               </span>
+              <span>position <b>{f2lPositionLabel(target.position)}</b></span>
               <span>slot <b>{slotName}</b></span>
               {target.protectedSlots.length > 0 ? (
                 <span>protected <b>{target.protectedSlots.map((slot) => slotColours(slot) ?? slot).join(", ")}</b></span>
               ) : null}
             </div>
 
-            <div className="f2l-reference">
-              <div className="result-context-label">REFERENCE</div>
-              {reference ? (
-                <>
-                  <div className="row">
-                    <strong>{reference.stm} STM</strong>
-                    {reference.caseName ? <span className="phase-case">{reference.caseName}</span> : null}
-                  </div>
-                  <div className="mono f2l-reference-alg">{reference.alg}</div>
-                </>
-              ) : (
-                <div className="small faint">No standard 41-case reference for this exact setup.</div>
-              )}
-            </div>
-
-            {result ? (
-              <div className="f2l-result-card">
-                <div className="result-context-label">ATTEMPT</div>
-                <div className="f2l-result-stm mono">{result.stm} STM</div>
-                {delta !== null && delta !== undefined ? (
-                  <div className={`f2l-delta${delta <= 0 ? " good" : ""}`}>
-                    {delta > 0 ? `+${delta}` : delta} STM vs reference
-                  </div>
-                ) : null}
-                <div className="mono f2l-result-moves">{result.moves.join(" ") || "(no turns)"}</div>
-                <div className="small faint">elapsed {formatTime(result.elapsedMs || elapsed)}</div>
-              </div>
-            ) : training.phase === "solving" ? (
-              <div className="f2l-live-metric">
-                <strong className="mono">{training.liveMoves.length} turns</strong>
-                <span className="small faint">elapsed {formatTime(elapsed)}</span>
-              </div>
-            ) : null}
+            <ReferenceSection references={references} />
+            <AttemptSection
+              result={result}
+              phase={training.phase}
+              liveMoveCount={training.liveMoves.length}
+              elapsed={elapsed}
+            />
 
             <div className="row wrap f2l-actions">
               {training.phase === "result" ? (
@@ -307,4 +301,94 @@ function TargetPanel({ state, elapsed }: { state: AppState; elapsed: number }) {
       </div>
     </div>
   );
+}
+
+function ReferenceSection({ references }: { references: readonly F2lReference[] }) {
+  const [showAlternatives, setShowAlternatives] = useState(false);
+  const reference = references[0];
+
+  return (
+    <div className="f2l-reference">
+      <div className="result-context-label">RECOMMENDED</div>
+      {reference ? (
+        <>
+          <div className="row">
+            <strong>{reference.stm} STM</strong>
+            <span className="phase-case">{reference.caseName}</span>
+          </div>
+          <div className="mono f2l-reference-alg">{reference.alg}</div>
+          {references.length > 1 ? (
+            <>
+              <button
+                className="ghost small"
+                onClick={() => setShowAlternatives((shown) => !shown)}
+              >
+                {showAlternatives ? "Hide alternatives" : `Show ${references.length - 1} alternatives`}
+              </button>
+              {showAlternatives ? (
+                <div className="f2l-alternatives">
+                  {references.slice(1).map((alternative) => (
+                    <div key={`${alternative.rank}-${alternative.alg}`} className="f2l-alternative">
+                      <div className="row">
+                        <strong>#{alternative.rank}</strong>
+                        <span className="small faint">{alternative.stm} STM</span>
+                      </div>
+                      <div className="mono f2l-reference-alg">{alternative.alg}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </>
+          ) : null}
+        </>
+      ) : (
+        <div className="small faint">No valid standard reference for this exact setup.</div>
+      )}
+    </div>
+  );
+}
+
+function AttemptSection({
+  result,
+  phase,
+  liveMoveCount,
+  elapsed,
+}: {
+  result: AppState["f2lTraining"]["result"];
+  phase: AppState["f2lTraining"]["phase"];
+  liveMoveCount: number;
+  elapsed: number;
+}) {
+  if (result) {
+    const description = result.matchedReferenceRank === 1
+      ? "Recommended solution"
+      : result.matchedReferenceRank
+        ? `Known alternative #${result.matchedReferenceRank}`
+        : "Valid custom solution";
+    const { delta } = result;
+    return (
+      <div className="f2l-result-card">
+        <div className="result-context-label">ATTEMPT</div>
+        <div className="f2l-result-stm mono">{result.stm} STM</div>
+        <div className="small">{description}</div>
+        {delta !== null && delta !== undefined ? (
+          <div className={`f2l-delta${delta <= 0 ? " good" : ""}`}>
+            {delta > 0
+              ? `+${delta} STM vs recommended`
+              : delta < 0
+                ? `${Math.abs(delta)} STM fewer than recommended`
+                : "Same STM as recommended"}
+          </div>
+        ) : null}
+        <div className="mono f2l-result-moves">{result.moves.join(" ") || "(no turns)"}</div>
+        <div className="small faint">elapsed {formatTime(result.elapsedMs || elapsed)}</div>
+      </div>
+    );
+  }
+  return phase === "solving" ? (
+    <div className="f2l-live-metric">
+      <strong className="mono">{liveMoveCount} turns</strong>
+      <span className="small faint">elapsed {formatTime(elapsed)}</span>
+    </div>
+  ) : null;
 }

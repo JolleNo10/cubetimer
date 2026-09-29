@@ -1,7 +1,7 @@
 /**
  * Every algorithm a solver might plausibly have used, per case.
  *
- * The tables in `lastLayerCases.ts` and `f2lCases.ts` hold one algorithm each, picked
+ * The tables in `lastLayerCases.ts` and `f2lCases.ts` hold canonical algorithms, picked
  * so the recogniser can learn what a case looks like. One is plenty for that — running
  * any correct algorithm backwards produces the same state — but it is far too narrow
  * for the opposite question. Working out which way round the cube was being held means
@@ -9,8 +9,9 @@
  * looking at", and a solver turns whichever algorithm they happened to learn.
  *
  * So this is a second, wider table: four algorithms per case, per slot for F2L, from
- * the same source. It is used only to recognise a frame, never to teach one, which is
- * why a miss costs nothing — the gyroscope still has the last word.
+ * the same catalogue. The validation helpers keep those lists trustworthy for their
+ * consumers; a miss costs nothing to frame recognition because the gyroscope still has
+ * the last word.
  *
  * The data itself lives in `algBank.generated.ts`, written by `scripts/fetchAlgs.ts`.
  * Only the checks are here: the script runs them before writing anything, and the test
@@ -19,11 +20,11 @@
 import { Alg } from "cubing/alg";
 import type { KPattern, KPuzzle } from "cubing/kpuzzle";
 import { recogniseOll, recognisePll, withCentresHome } from "./recognise";
-import { F2L_CASES } from "./f2lCases";
+import { F2L_CASES, F2L_POSITIONS } from "./f2lCases";
 
-/** The four slots a first-two-layers pair can go into, in speedcubedb's order. */
-export const F2L_SLOTS = ["FR", "FL", "BL", "BR"] as const;
-export type F2lSlot = (typeof F2L_SLOTS)[number];
+/** The four slots a first-two-layers pair can go into, in the shared position order. */
+export const F2L_SLOTS = F2L_POSITIONS;
+export type { F2lPosition as F2lSlot } from "./f2lCases";
 
 /** Last-layer pieces are the first four of each orbit in cubing.js's ordering. */
 const LAST_LAYER_SLOTS = 4;

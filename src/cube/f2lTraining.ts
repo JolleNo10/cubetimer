@@ -2,8 +2,16 @@ import { Alg } from "cubing/alg";
 import type { KPattern, KPuzzle } from "cubing/kpuzzle";
 import { type SolveStep } from "./analysis";
 import { faceletsToPattern } from "./facelets";
-import { F2L_SLOTS, planF2l } from "./f2l";
-import { type F2lCase } from "./f2lCases";
+import {
+  F2L_POSITIONS,
+  recognizeF2lSlot,
+  splitLeadingRotation,
+} from "./f2l";
+import {
+  F2L_CASES,
+  type F2lCase,
+  type F2lPosition,
+} from "./f2lCases";
 import { decodeGripTrack } from "./gripTrack";
 import {
   EDGES_OF_FACE,
@@ -12,10 +20,16 @@ import {
 } from "./moves";
 import {
   countTurns,
+  isRotation,
+  joinMoves,
   mergeSameFaceTurns,
+  parseMove,
+  OUTER_FACES,
   type TimedMove,
 } from "./notation";
 import {
+  compose,
+  GENERATORS,
   reorientMove,
   invert,
   IDENTITY,
@@ -35,11 +49,12 @@ export type F2lTrainingOrigin =
   | { kind: "solve-step"; solveId: string; stepName: string; slot: string };
 
 export type F2lReference = {
-  source: "standard-case";
+  rank: number;
   alg: string;
   stm: number;
-  caseName?: string;
-  group?: string;
+  caseName: string;
+  group: string;
+  position: F2lPosition;
 };
 
 export type F2lTrainingTargetInfo = {
@@ -47,9 +62,11 @@ export type F2lTrainingTargetInfo = {
   crossFace: Face;
   /** The single cube frame used for display, notation, and reference planning. */
   trainingRotation: Rotation;
+  /** The pair's position in the current training grip. */
+  position: F2lPosition;
   slot: string;
   protectedSlots: string[];
-  reference: F2lReference | null;
+  references: F2lReference[];
 };
 
 export type F2lTrainingGoal = {
@@ -120,11 +137,72 @@ export function f2lCubeAlgorithm(algorithm: string, grip: Orientation): string {
   return f2lCubeMoves(expandedAlgorithmMoves(algorithm), grip).join(" ");
 }
 
+function applyRotationToken(orientation: Orientation, token: string): Orientation | null {
+  const parsed = parseMove(token);
+  if (!parsed || !isRotation(parsed.family)) return null;
+  let next = orientation;
+  const turns = ((parsed.amount % 4) + 4) % 4;
+  for (let i = 0; i < turns; i++) {
+    next = compose(next, GENERATORS[parsed.family as keyof typeof GENERATORS]);
+  }
+  return next;
+}
+
+function fixedFrameOuterMove(token: string, orientation: Orientation): string | null {
+  const parsed = parseMove(token);
+  if (!parsed || !OUTER_FACES.includes(parsed.family as (typeof OUTER_FACES)[number])) {
+    return null;
+  }
+  return reorientMove(token, invert(orientation));
+}
+
+/**
+ * Convert a reference containing whole-cube rotations into the fixed hand-frame turns
+ * a smart cube can report. Wide and slice moves remain intentionally unclassifiable.
+ */
+export function referenceExecutionSignature(algorithm: string): string[] | null {
+  let orientation = IDENTITY;
+  const fixedFrameMoves: string[] = [];
+  try {
+    for (const token of expandedAlgorithmMoves(algorithm)) {
+      const parsed = parseMove(token);
+      if (!parsed) return null;
+      if (isRotation(parsed.family)) {
+        const next = applyRotationToken(orientation, token);
+        if (!next) return null;
+        orientation = next;
+        continue;
+      }
+      const fixedFrameMove = fixedFrameOuterMove(token, orientation);
+      if (!fixedFrameMove) return null;
+      fixedFrameMoves.push(fixedFrameMove);
+    }
+  } catch {
+    return null;
+  }
+  return joinMoves(fixedFrameMoves);
+}
+
 /** Whether a catalogue setup can be sent to a smart cube as outer face turns. */
 export function isF2lSetupTrackable(algorithm: string): boolean {
   return Array.from(new Alg(algorithm).expand().childAlgNodes()).every(
     (node) => parseFaceMove(node.toString()) !== null,
   );
+}
+
+/** Re-express a canonical setup for another positional slot without showing a y turn. */
+export function f2lPositionSetup(
+  algorithm: string,
+  position: F2lPosition,
+): string | null {
+  if (!isF2lSetupTrackable(algorithm)) return null;
+  const positionRotation = positionReframe(position);
+  const positioned = positionRotation
+    .invert()
+    .concat(new Alg(algorithm))
+    .concat(positionRotation);
+  const signature = referenceExecutionSignature(positioned.toString());
+  return signature?.join(" ") ?? null;
 }
 
 export function f2lHandTimedMoves(
@@ -137,7 +215,8 @@ export function f2lHandTimedMoves(
 export type TrainingEfficiency = {
   moves: TimedMove[];
   stm: number;
-  referenceStm: number | null;
+  recommendedStm: number | null;
+  matchedReferenceRank: number | null;
   delta: number | null;
   elapsedMs: number;
 };
@@ -168,8 +247,8 @@ export function isStandardF2lBase(pattern: KPattern): boolean {
 }
 
 function metricToken(move: string): string {
-  // SpeedCubeDB uses lower-case wide turns in a few primary algorithms. They are one
-  // deliberate turn for STM, just like the upper-case move a smart cube reports.
+  // Lower-case wide turns are one deliberate turn for STM, just like an upper-case
+  // move a smart cube reports.
   return move.replace(/^[urfdlb]/, (face) => face.toUpperCase());
 }
 
@@ -180,14 +259,88 @@ function algorithmStm(alg: string): number {
   return countTurns(moves).sliceTurns;
 }
 
-function referenceForCase(f2lCase: F2lCase): F2lReference {
-  return {
-    source: "standard-case",
-    alg: f2lCase.alg,
-    stm: algorithmStm(f2lCase.alg),
-    caseName: f2lCase.name,
-    group: f2lCase.group,
-  };
+const UNDO_AUF = ["", "U'", "U2", "U"];
+
+const POSITION_REFRAMES = ["", "y", "y2", "y'"];
+
+function positionReframe(position: F2lPosition): Alg {
+  return new Alg(POSITION_REFRAMES[F2L_POSITIONS.indexOf(position)]);
+}
+
+function alignedReferenceAlgorithm(algorithm: string, auf: number): string {
+  const split = splitLeadingRotation(algorithm);
+  return joinMoves(
+    split.rotation,
+    UNDO_AUF[auf] ? [UNDO_AUF[auf]] : [],
+    split.body,
+  ).join(" ");
+}
+
+type ReferenceValidationOptions = {
+  kpuzzle: KPuzzle;
+  targetPattern: KPattern;
+  trainingRotation: Rotation;
+  goal: F2lTrainingGoal;
+  algorithm: string;
+};
+
+function referenceSolvesTarget({
+  kpuzzle,
+  targetPattern,
+  trainingRotation,
+  goal,
+  algorithm,
+}: ReferenceValidationOptions): boolean {
+  const rotationAlg = new Alg(trainingRotation.tokens.join(" "));
+  const handTarget = reframe(kpuzzle, targetPattern, rotationAlg);
+  const solved = reframe(
+    kpuzzle,
+    handTarget.applyAlg(new Alg(algorithm)),
+    rotationAlg.invert(),
+  );
+  return isF2lTrainingComplete({ goal }, solved);
+}
+
+export type BuildF2lReferencesOptions = {
+  kpuzzle: KPuzzle;
+  f2lCase: F2lCase;
+  position: F2lPosition;
+  auf: number;
+  targetPattern: KPattern;
+  trainingRotation: Rotation;
+  goal: F2lTrainingGoal;
+};
+
+/** Build and validate the ordered references for one recognized case occurrence. */
+export function buildF2lReferences({
+  kpuzzle,
+  f2lCase,
+  position,
+  auf,
+  targetPattern,
+  trainingRotation,
+  goal,
+}: BuildF2lReferencesOptions): F2lReference[] {
+  const references: F2lReference[] = [];
+  for (const algorithm of f2lCase.algorithms[position]) {
+    const alg = alignedReferenceAlgorithm(algorithm, auf);
+    if (!referenceSolvesTarget({
+      kpuzzle,
+      targetPattern,
+      trainingRotation,
+      goal,
+      algorithm: alg,
+    })) continue;
+    references.push({
+      rank: references.length + 1,
+      alg,
+      stm: algorithmStm(alg),
+      caseName: f2lCase.name,
+      group: f2lCase.group,
+      position,
+    });
+  }
+  return references;
 }
 
 function goalFor(pattern: KPattern, crossFace: Face, targetSlot: string): F2lTrainingGoal {
@@ -206,8 +359,11 @@ function goalFor(pattern: KPattern, crossFace: Face, targetSlot: string): F2lTra
 export function buildStandardF2lTarget(
   kpuzzle: KPuzzle,
   f2lCase: F2lCase,
-  basePattern?: KPattern,
+  positionOrBase: F2lPosition | KPattern = "FR",
+  suppliedBase?: KPattern,
 ): F2lTrainingTarget {
+  const position = typeof positionOrBase === "string" ? positionOrBase : "FR";
+  const basePattern = typeof positionOrBase === "string" ? suppliedBase : positionOrBase;
   const crossFace: Face = "U";
   const rotation = standardF2lTrainingRotation();
   const rotationAlg = new Alg(rotation.tokens.join(" "));
@@ -216,14 +372,29 @@ export function buildStandardF2lTarget(
     basePattern ?? kpuzzle.defaultPattern(),
     rotationAlg,
   );
+  // The setup is canonical FR data. Conjugating it by the positional reframe moves
+  // the pair without rotating the user's fixed training grip or restoring the LL.
+  const positionRotation = positionReframe(position);
+  const positionedSetup = positionRotation
+    .invert()
+    .concat(new Alg(f2lCase.setup))
+    .concat(positionRotation);
   const pattern = reframe(
     kpuzzle,
-    handBase.applyAlg(new Alg(f2lCase.setup)),
+    handBase.applyAlg(positionedSetup),
     rotationAlg.invert(),
   );
-  const slot = slotInCubeFrame(rotation.orientation, F2L_SLOTS[0].name);
-  const reference = referenceForCase(f2lCase);
+  const slot = slotInCubeFrame(rotation.orientation, position);
   const goal = goalFor(pattern, crossFace, slot);
+  const references = buildF2lReferences({
+    kpuzzle,
+    f2lCase,
+    position,
+    auf: 0,
+    targetPattern: pattern,
+    trainingRotation: rotation,
+    goal,
+  });
   return {
     pattern,
     goal,
@@ -231,9 +402,10 @@ export function buildStandardF2lTarget(
       origin: { kind: "standard", caseName: f2lCase.name, group: f2lCase.group },
       crossFace,
       trainingRotation: rotation,
+      position,
       slot,
       protectedSlots: goal.protectedSlots,
-      reference,
+      references,
     },
   };
 }
@@ -294,25 +466,27 @@ export function buildExactF2lTarget(
   const trainingRotation = exactStepTrainingRotation(solve, step, crossFace);
   const rotationAlg = new Alg(trainingRotation.tokens.join(" "));
   const facing = reframe(kpuzzle, pattern, rotationAlg);
-  const handPlan = planF2l(kpuzzle, facing).find(
-    (candidate) => slotInCubeFrame(trainingRotation.orientation, candidate.name) === step.slot,
+  const position = F2L_POSITIONS.find(
+    (candidate) => slotInCubeFrame(trainingRotation.orientation, candidate) === step.slot,
   );
+  if (!position) throw new Error(`Unknown F2L position for cube slot ${step.slot}`);
 
-  let reference: F2lReference | null = null;
-  if (handPlan?.status === "case" && handPlan.solution) {
-    const candidate = reframe(
-      kpuzzle,
-      facing.applyAlg(new Alg(handPlan.solution.moves.join(" "))),
-      rotationAlg.invert(),
+  const recognition = recognizeF2lSlot(kpuzzle, facing, position);
+  let references: F2lReference[] = [];
+  if (recognition.status === "case" && recognition.match) {
+    const f2lCase = F2L_CASES.find(
+      (candidate) => candidate.name === recognition.match!.name,
     );
-    if (isF2lTrainingComplete({ goal }, candidate)) {
-      reference = {
-        source: "standard-case",
-        alg: handPlan.solution.moves.join(" "),
-        stm: algorithmStm(handPlan.solution.moves.join(" ")),
-        caseName: handPlan.solution.name,
-        group: handPlan.solution.group,
-      };
+    if (f2lCase) {
+      references = buildF2lReferences({
+        kpuzzle,
+        f2lCase,
+        position,
+        auf: recognition.match.auf,
+        targetPattern: pattern,
+        trainingRotation,
+        goal,
+      });
     }
   }
 
@@ -323,9 +497,10 @@ export function buildExactF2lTarget(
       origin: { kind: "solve-step", solveId: solve.id, stepName: step.name, slot: step.slot },
       crossFace,
       trainingRotation,
+      position,
       slot: step.slot,
       protectedSlots: goal.protectedSlots,
-      reference,
+      references,
     },
   };
 }
@@ -351,16 +526,30 @@ export function isF2lTrainingComplete(
 
 export function calculateTrainingEfficiency(
   rawMoves: readonly TimedMove[],
-  reference?: Pick<F2lReference, "stm" | "alg"> | null,
+  references?: readonly Pick<F2lReference, "stm" | "alg" | "rank">[] |
+    Pick<F2lReference, "stm" | "alg"> | null,
 ): TrainingEfficiency {
   const moves = mergeSameFaceTurns(rawMoves);
   const stm = countTurns(moves.map(({ move }) => metricToken(move))).sliceTurns;
-  const referenceStm = reference ? reference.stm ?? algorithmStm(reference.alg) : null;
+  const referenceList = Array.isArray(references)
+    ? references
+    : references
+      ? [{ ...references, rank: 1 }]
+      : [];
+  const recommendedStm = referenceList[0]?.stm ?? null;
+  const execution = moves.map(({ move }) => move);
+  const matchedReferenceRank = referenceList.find((reference) => {
+    const signature = referenceExecutionSignature(reference.alg);
+    return signature !== null &&
+      signature.length === execution.length &&
+      signature.every((move, index) => move === execution[index]);
+  })?.rank ?? null;
   return {
     moves,
     stm,
-    referenceStm,
-    delta: referenceStm === null ? null : stm - referenceStm,
+    recommendedStm,
+    matchedReferenceRank,
+    delta: recommendedStm === null ? null : stm - recommendedStm,
     elapsedMs: rawMoves.at(-1)?.t ?? 0,
   };
 }

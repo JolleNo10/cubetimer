@@ -1,5 +1,14 @@
 # Mistakes
 
+## 2026-09-30
+
+- What happened: the initial scoped check concluded that the required four-slot F2L
+  reference dataset was missing.
+- Root cause: the first search looked at `f2lCases.ts` but missed the committed
+  `algBank.generated.ts` F2L bank that already contains the local 41-by-4 data.
+- Prevention: when a specification requires an existing dataset, search the named
+  feature files and their directly imported data modules before reporting a blocker.
+
 ## 2026-09-29
 
 - What happened: widening `SolveResult.onContinue` to carry a close option briefly made the Back button pass the callback directly as a mouse event handler.
