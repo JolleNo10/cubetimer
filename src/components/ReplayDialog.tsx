@@ -4,7 +4,15 @@ import { TwistyPlayer } from "cubing/twisty";
 import { reorientMove, rotationForCrossFace } from "../cube/orientation";
 import { decodeGripTrack, rewriteWithRotations } from "../cube/gripTrack";
 import { formatTime } from "../state/stats";
-import { DetailedStepBreakdown, stepAt } from "./StepBreakdown";
+import {
+  DetailedStepBreakdown,
+  stepAt,
+  type ActiveReplayMove,
+} from "./StepBreakdown";
+import {
+  NORMAL_REPLAY_STICKERING_MASK,
+  replayStickeringMask,
+} from "./replayFocus";
 import { effectiveMs, type Solve } from "../state/types";
 
 const SPEEDS = [0.25, 0.5, 1, 2];
@@ -71,6 +79,15 @@ export function ReplayDialog({
   );
   const activeStep = steps ? stepAt(steps, index) : -1;
   const currentStep = steps?.[activeStep];
+  const lastRawIndex = index - 1;
+  const lastRawStep = steps && lastRawIndex >= 0 ? stepAt(steps, lastRawIndex) : -1;
+  const activeReplayMove: ActiveReplayMove | undefined =
+    playing && lastRawIndex >= 0 && lastRawStep === activeStep
+      ? { rawIndex: lastRawIndex, timeMs: moves[lastRawIndex].t }
+      : undefined;
+  const stickeringMask = solve.analysis
+    ? replayStickeringMask(solve.analysis, currentStep)
+    : NORMAL_REPLAY_STICKERING_MASK;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -99,6 +116,12 @@ export function ReplayDialog({
       playerRef.current = null;
     };
   }, [solve.scramble, opening]);
+
+  useEffect(() => {
+    const player = playerRef.current;
+    if (!player) return;
+    player.experimentalStickeringMaskOrbits = stickeringMask;
+  }, [stickeringMask]);
 
   const seek = useCallback(
     (target: number) => {
@@ -264,6 +287,7 @@ export function ReplayDialog({
               <DetailedStepBreakdown
                 analysis={solve.analysis}
                 activeStep={activeStep}
+                activeReplayMove={activeReplayMove}
                 // Jumping to a step means the state it started from: click F2L Slot 1
                 // and the cross is done with the first pair still to come.
                 onSelectStep={(step) => {

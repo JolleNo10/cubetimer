@@ -85,6 +85,50 @@ check("the first step is highlighted to begin with",
       (await replayBreakdown.locator(".phase-row.active .phase-name").innerText()).length > 0,
       await replayBreakdown.locator(".phase-row.active .phase-name").innerText());
 
+const marker = replayBreakdown.locator(".phase-move.current");
+await dialog.getByRole("button", { name: "Play", exact: true }).click();
+await page.waitForFunction(
+  () => document.querySelectorAll(".replay-steps .phase-move.current").length === 1,
+  null,
+  { timeout: 15000 },
+);
+check("starting playback produces exactly one active move indication", await marker.count() === 1);
+const markerContext = await marker.first().evaluate((element) => ({
+  inPhaseMoves: Boolean(element.closest(".phase-moves")),
+  inActiveRow: element.closest(".phase-row")?.classList.contains("active") ?? false,
+}));
+check(
+  "the active move is inside the currently relevant step's move sequence",
+  markerContext.inPhaseMoves && markerContext.inActiveRow,
+  JSON.stringify(markerContext),
+);
+const firstMarkerIndex = await marker.first().getAttribute("data-move-index");
+
+await dialog.getByRole("button", { name: "Pause", exact: true }).click();
+await page.waitForTimeout(100);
+check("pausing clears the currently playing marker", await marker.count() === 0);
+
+const advanceButton = dialog.locator(".replay-main .row").first().locator("button").nth(3);
+let markerChanged = false;
+for (let attempt = 0; attempt < 12 && !markerChanged; attempt++) {
+  await advanceButton.click();
+  await dialog.getByRole("button", { name: "Play", exact: true }).click();
+  try {
+    await page.waitForFunction(
+      () => document.querySelectorAll(".replay-steps .phase-move.current").length === 1,
+      null,
+      { timeout: 4000 },
+    );
+  } catch {
+    break;
+  }
+  markerChanged = (await marker.first().getAttribute("data-move-index")) !== firstMarkerIndex;
+  if (await dialog.getByRole("button", { name: "Pause", exact: true }).count()) {
+    await dialog.getByRole("button", { name: "Pause", exact: true }).click();
+  }
+}
+check("the highlighted token changes as replay advances", markerChanged);
+
 const position = () => dialog.locator(".row.small .dim").first().innerText();
 const clock = () => dialog.locator(".row .mono.small").first().innerText();
 
@@ -111,6 +155,46 @@ for (const [i, expected] of startTimes.entries()) {
     const active = (await replayBreakdown.locator(".phase-row.active .phase-name").innerText()).trim();
     check(`  ${name} is then the current step`, active === name, `highlighted: ${active}`);
   }
+}
+
+const scrubber = dialog.locator('input[type="range"][aria-label="Move position"]');
+const beforeStep = Number(await scrubber.inputValue());
+await advanceButton.click();
+const afterStep = Number(await scrubber.inputValue());
+check(
+  "stepping advances the replay position and keeps a current phase",
+  afterStep === beforeStep + 1
+    && await replayBreakdown.locator(".phase-row.active").count() === 1,
+  `move ${beforeStep} -> ${afterStep}`,
+);
+
+const scrubTarget = durations.findIndex((duration, i) => i > 0 && duration > 0);
+if (scrubTarget !== -1) {
+  const scrubTargetRow = replayRows.nth(scrubTarget);
+  const scrubTargetName = (await scrubTargetRow.locator(".phase-name").innerText()).trim();
+  await scrubTargetRow.click();
+  const scrubTargetPosition = await scrubber.inputValue();
+  await replayRows.nth(0).click();
+  await scrubber.fill(scrubTargetPosition);
+  await page.waitForTimeout(450);
+  const scrubbedActive = (await replayBreakdown.locator(".phase-row.active .phase-name").innerText()).trim();
+  check("scrubbing updates the active phase", scrubbedActive === scrubTargetName, scrubbedActive);
+}
+
+const f2lTarget = durations.findIndex((duration, i) => i >= 1 && i <= 4 && duration > 0);
+const playerBeforeFocus = await dialog.locator("twisty-player").elementHandle();
+if (f2lTarget !== -1 && playerBeforeFocus) {
+  await replayRows.nth(f2lTarget).click();
+  await page.waitForTimeout(350);
+  const sameAfterF2l = await playerBeforeFocus.evaluate((element) =>
+    element === document.querySelector(".replay-dialog twisty-player"));
+  check("entering F2L keeps the same twisty-player", sameAfterF2l);
+
+  await replayRows.nth(0).click();
+  await page.waitForTimeout(350);
+  const sameAfterLeavingF2l = await playerBeforeFocus.evaluate((element) =>
+    element === document.querySelector(".replay-dialog twisty-player"));
+  check("leaving F2L keeps the same twisty-player", sameAfterLeavingF2l);
 }
 
 await page.setViewportSize({ width: 520, height: 1000 });

@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type { SolveAnalysis, SolveStep } from "../cube/analysis";
 import { faceColour, slotColours } from "../cube/colours";
 import { ollGroupForCase } from "../cube/lastLayerCases";
+import { isRotation, parseMove } from "../cube/notation";
 import { formatTime } from "../state/stats";
 
 export const STEP_COLORS: Record<string, string> = {
@@ -97,6 +98,37 @@ export function stepAt(steps: readonly SolveStep[], index: number): number {
   return index > 0 ? steps.length - 1 : 0;
 }
 
+export type ActiveReplayMove = {
+  rawIndex: number;
+  timeMs: number;
+};
+
+/** Find the displayed move entries corresponding to one raw replay move. */
+export function activeRecordedMoveIndices(
+  step: SolveStep,
+  activeMove: ActiveReplayMove,
+): number[] {
+  if (
+    activeMove.rawIndex < step.fromMove ||
+    activeMove.rawIndex >= step.toMove ||
+    !step.recordedMoves?.length
+  ) {
+    return [];
+  }
+
+  const timestamp = step.recordedMoves.find(({ t }) => t >= activeMove.timeMs)?.t;
+  if (timestamp === undefined) return [];
+
+  const matches = step.recordedMoves.flatMap((recorded, index) =>
+    recorded.t === timestamp ? [index] : [],
+  );
+  const turns = matches.filter((index) => {
+    const parsed = parseMove(step.recordedMoves[index].move);
+    return !parsed || !isRotation(parsed.family);
+  });
+  return turns.length > 0 ? turns : matches;
+}
+
 /**
  * Split a case into the bit that identifies it and the bit that describes it.
  *
@@ -129,6 +161,7 @@ function StepRow({
   showCumulativeTime,
   showSplitTimes,
   timeScale,
+  activeReplayMove,
   onSelect,
 }: {
   step: SolveStep;
@@ -138,12 +171,17 @@ function StepRow({
   showCumulativeTime: boolean;
   showSplitTimes: boolean;
   timeScale?: StepTimeScale;
+  activeReplayMove?: ActiveReplayMove;
   onSelect?: () => void;
 }) {
   const { recognitionWidth, executionWidth } = stepBarWidths(step, total, timeScale);
   const described = describeCase(step);
   const isSkip = step.skipped || described?.id === "Solved";
   const isSkipped = step.skipped === true;
+  const activeMoveIndices = activeReplayMove
+    ? new Set(activeRecordedMoveIndices(step, activeReplayMove))
+    : null;
+  const renderRecordedMoves = activeReplayMove !== undefined && Boolean(step.recordedMoves?.length);
 
   const splitValues = showSplitTimes ? (
     <>
@@ -229,8 +267,22 @@ function StepRow({
       <span className="phase-sub">
         {isSkipped ? "—" : `${step.sliceTurns} mv · ${step.tps.toFixed(1)} tps`}
       </span>
-      {showMoves && step.moves ? (
-        <span className="phase-moves mono">{step.moves}</span>
+      {showMoves && (step.moves || (renderRecordedMoves && step.recordedMoves.length > 0)) ? (
+        <span className="phase-moves mono">
+          {renderRecordedMoves
+            ? step.recordedMoves.map((recorded, index) => (
+                <Fragment key={`${recorded.t}-${recorded.move}-${index}`}>
+                  {index > 0 ? " " : null}
+                  <span
+                    className={`phase-move${activeMoveIndices?.has(index) ? " current" : ""}`}
+                    data-move-index={index}
+                  >
+                    {recorded.move}
+                  </span>
+                </Fragment>
+              ))
+            : step.moves}
+        </span>
       ) : null}
     </>
   );
@@ -381,6 +433,7 @@ export function StepBreakdown({
   showTimeScale = false,
   showMoveGraph = true,
   position,
+  activeReplayMove,
 }: {
   analysis: SolveAnalysis;
   activeStep?: number;
@@ -393,6 +446,7 @@ export function StepBreakdown({
   showTimeScale?: boolean;
   showMoveGraph?: boolean;
   position?: number;
+  activeReplayMove?: ActiveReplayMove;
 }) {
   const total = Math.max(1, analysis.solvingMs);
   const timeScale = showTimeScale ? stepTimeScale(analysis.steps) : undefined;
@@ -429,6 +483,7 @@ export function StepBreakdown({
           showCumulativeTime={showCumulativeTime}
           showSplitTimes={showSplitTimes}
           timeScale={timeScale}
+          activeReplayMove={activeReplayMove}
           onSelect={onSelectStep ? () => onSelectStep(step) : undefined}
         />
       ))}
@@ -473,10 +528,12 @@ export function DetailedStepBreakdown({
   analysis,
   activeStep,
   onSelectStep,
+  activeReplayMove,
 }: {
   analysis: SolveAnalysis;
   activeStep?: number;
   onSelectStep?: (step: SolveStep) => void;
+  activeReplayMove?: ActiveReplayMove;
 }) {
   return (
     <div className="detailed-breakdown">
@@ -494,6 +551,7 @@ export function DetailedStepBreakdown({
           analysis={analysis}
           activeStep={activeStep}
           onSelectStep={onSelectStep}
+          activeReplayMove={activeReplayMove}
           showMoves
           showFullSolution={false}
           showDetail={false}

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { formatScaleSeconds, stepAt, stepBarWidths, stepTimeScale } from "./StepBreakdown";
+import {
+  activeRecordedMoveIndices,
+  formatScaleSeconds,
+  stepAt,
+  stepBarWidths,
+  stepTimeScale,
+} from "./StepBreakdown";
 import type { SolveStep } from "../cube/analysis";
 
 /** Cross 0-8, a skipped pair, then three pairs, OLL and PLL. */
@@ -36,6 +42,50 @@ describe("stepAt", () => {
   it("stays on the last step once the solve is over", () => {
     expect(nameAt(52)).toBe("PLL");
     expect(nameAt(99)).toBe("PLL");
+  });
+});
+
+describe("activeRecordedMoveIndices", () => {
+  const step = (recordedMoves: SolveStep["recordedMoves"]) => ({
+    fromMove: 10,
+    toMove: 12,
+    recordedMoves,
+  }) as SolveStep;
+
+  it("maps an exact raw timestamp to the displayed move", () => {
+    expect(
+      activeRecordedMoveIndices(
+        step([
+          { move: "R", t: 100 },
+          { move: "U", t: 180 },
+        ]),
+        { rawIndex: 10, timeMs: 180 },
+      ),
+    ).toEqual([1]);
+  });
+
+  it("maps both raw turns in a merged move to that displayed move", () => {
+    const displayed = step([{ move: "U2", t: 180 }]);
+    expect(activeRecordedMoveIndices(displayed, { rawIndex: 10, timeMs: 100 })).toEqual([0]);
+    expect(activeRecordedMoveIndices(displayed, { rawIndex: 11, timeMs: 180 })).toEqual([0]);
+  });
+
+  it("prefers the turn over a rotation inserted at the same timestamp", () => {
+    expect(
+      activeRecordedMoveIndices(
+        step([
+          { move: "y", t: 300 },
+          { move: "R", t: 300 },
+        ]),
+        { rawIndex: 10, timeMs: 300 },
+      ),
+    ).toEqual([1]);
+  });
+
+  it("does not map a raw move outside the step range", () => {
+    const displayed = step([{ move: "R", t: 100 }]);
+    expect(activeRecordedMoveIndices(displayed, { rawIndex: 9, timeMs: 100 })).toEqual([]);
+    expect(activeRecordedMoveIndices(displayed, { rawIndex: 12, timeMs: 100 })).toEqual([]);
   });
 });
 
