@@ -1,6 +1,8 @@
+import { useMemo } from "react";
 import { useController, useStore } from "../hooks/useController";
 import { F2L_CASES } from "../cube/f2lCases";
 import { faceColour, slotColours } from "../cube/colours";
+import { rotationForCrossFace } from "../cube/orientation";
 import { formatTime } from "../state/stats";
 import type { AppState } from "../state/controller";
 import { ConnectionPanel } from "./ConnectionPanel";
@@ -11,9 +13,14 @@ const GROUPS = [...new Set(F2L_CASES.map((f2lCase) => f2lCase.group))];
 export function F2LTraining({ state }: { state: AppState }) {
   const controller = useController();
   const elapsed = useStore(controller.elapsed);
-  const live = state.cubeStatus === "connected" || state.virtualCube;
   const training = state.f2lTraining;
   const target = training.target;
+  const physicalLive = state.cubeStatus === "connected" || state.virtualCube;
+  const live = training.mode === "virtual" ? Boolean(target) : physicalLive;
+  const orientationOverride = useMemo(
+    () => (target ? rotationForCrossFace(target.crossFace).orientation : undefined),
+    [target?.crossFace],
+  );
 
   return (
     <div className="app-body f2l-training-layout">
@@ -68,7 +75,11 @@ export function F2LTraining({ state }: { state: AppState }) {
             facelets={state.cubeFacelets}
             gyroSupported={state.hardware?.gyroSupported ?? false}
             live={live}
-            scramble={target?.previewAlg ?? ""}
+            scramble=""
+            displayFacelets={training.displayFacelets || state.cubeFacelets}
+            displayRevision={training.displayRevision}
+            displaySource={training.mode === "virtual" ? "virtual" : "physical"}
+            orientationOverride={orientationOverride}
           />
         </div>
       </div>
@@ -86,6 +97,7 @@ function SetupPanel({ state }: { state: AppState }) {
   const progress = training.setupProgress;
   const moves = training.setup.split(/\s+/).filter(Boolean);
   const preparing = training.phase === "preparing";
+  const virtual = training.mode === "virtual";
   const offTrack = Boolean(progress && !progress.onTrack);
   const done = progress?.onTrack ? progress.index : 0;
 
@@ -93,13 +105,51 @@ function SetupPanel({ state }: { state: AppState }) {
     <div className="panel f2l-setup-panel">
       <div className="panel-head">
         <span className="panel-title">Setup</span>
-        {preparing && progress ? (
+        <nav className="area-switch f2l-mode-switch" aria-label="Smart cube mode">
+          <button
+            className={!virtual ? "active" : ""}
+            onClick={() => controller.setF2lMode("setup")}
+          >
+            Setup cube
+          </button>
+          <button
+            className={virtual ? "active" : ""}
+            onClick={() => controller.setF2lMode("virtual")}
+          >
+            Virtual case
+          </button>
+        </nav>
+        {preparing && progress && !virtual ? (
           <span className="chip small">{done} / {progress.total}</span>
         ) : null}
       </div>
       <div className="panel-body">
+        <div className="small dim f2l-mode-description">
+          {virtual
+            ? "Use the smart cube only for turns. Its real piece state is ignored."
+            : "Match the real cube to the case before solving."}
+        </div>
         {!training.target ? (
-          <div className="empty">Choose a case to guide the cube into position.</div>
+          <div className="empty">
+            {virtual ? "Choose a case to load it virtually." : "Choose a case to guide the cube into position."}
+          </div>
+        ) : virtual ? (
+          training.phase === "result" ? (
+            <div className="training-ready" role="status">
+              <strong>Complete</strong>
+              <span className="small faint">Choose Again to repeat this setup.</span>
+            </div>
+          ) : training.phase === "solving" ? (
+            <div className="training-solving" role="status">
+              <strong>Solving</strong>
+              <span className="mono">{training.liveMoves.length} raw turns</span>
+            </div>
+          ) : (
+            <div className="training-ready" role="status">
+              <strong>Ready</strong>
+              <span className="small faint">The case is loaded virtually. Make one turn to start.</span>
+            </div>
+          )
         ) : preparing ? (
           <>
             <div className="small dim">
@@ -249,7 +299,7 @@ function TargetPanel({ state, elapsed }: { state: AppState; elapsed: number }) {
                 </button>
               ) : null}
               <button className="ghost" onClick={() => controller.resetF2lTraining()}>
-                Reset case
+                Clear case
               </button>
             </div>
           </>

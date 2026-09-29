@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alg } from "cubing/alg";
 import { TwistyPlayer } from "cubing/twisty";
-import type { KPattern } from "cubing/kpuzzle";
+import type { KPattern, KPuzzle } from "cubing/kpuzzle";
 import { faceOfColour } from "../cube/colours";
 import {
   IDENTITY,
@@ -15,10 +15,22 @@ import { solveAlg } from "../cube/solver";
 import { useController } from "../hooks/useController";
 import type { Settings } from "../state/types";
 import { FaceletNet } from "./FaceletNet";
+import { faceletsToPattern, patternToFacelets } from "../cube/facelets";
 import { previewFacelets } from "../cube/preview";
 
 /** Rebuild the player's setup alg once the appended move list gets this long. */
 const COMPACT_AFTER_MOVES = 400;
+
+export function orientFaceletsForDisplay(
+  kpuzzle: KPuzzle,
+  facelets: string,
+  orientation: Orientation,
+): string {
+  const tokens = rotationTokensBetween(IDENTITY, orientation);
+  return patternToFacelets(
+    faceletsToPattern(kpuzzle, facelets).applyAlg(new Alg(tokens.join(" "))),
+  );
+}
 
 type Props = {
   settings: Settings;
@@ -28,9 +40,27 @@ type Props = {
   live: boolean;
   /** Shown instead of the live state when nothing is connected. */
   scramble: string;
+  /** Optional alternate pattern for F2L virtual practice or a target preview. */
+  displayFacelets?: string;
+  /** Incremented when the alternate pattern should reset the 3D player. */
+  displayRevision?: number;
+  /** Identifies whether incoming move/reset events belong to the displayed pattern. */
+  displaySource?: "physical" | "virtual";
+  /** Explicit grip for training views; it overrides settings and gyro orientation. */
+  orientationOverride?: Orientation;
 };
 
-export function CubeView({ settings, facelets, gyroSupported, live, scramble }: Props) {
+export function CubeView({
+  settings,
+  facelets,
+  gyroSupported,
+  live,
+  scramble,
+  displayFacelets,
+  displayRevision = 0,
+  displaySource = "physical",
+  orientationOverride,
+}: Props) {
   const controller = useController();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<TwistyPlayer | null>(null);
@@ -47,7 +77,7 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
   // aside — but only as the starting point. The cube is drawn square on and stays that
   // way; when the solver turns it, the view turns with them by the same whole-cube
   // rotation, rather than tumbling about after the raw readings.
-  const gyroDriven = settings.useGyroscope && gyroSupported;
+  const gyroDriven = !orientationOverride && settings.useGyroscope && gyroSupported;
   const solveOrientation = useMemo(() => {
     if (!live || gyroDriven) return null;
     const bottom = faceOfColour(settings.crossColour);
@@ -58,6 +88,19 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
       (front && rotationForGrip(bottom, front)) ?? rotationForCrossFace(bottom)
     );
   }, [live, gyroDriven, settings.crossColour, settings.frontColour]);
+  const heldOverride = orientationOverride ?? solveOrientation?.orientation ?? null;
+  const displayFaceletsRef = useRef(displayFacelets);
+  displayFaceletsRef.current = displayFacelets;
+  const orientedDisplayFacelets = useMemo(() => {
+    if (!displayFacelets || !orientationOverride || !controller.pattern) {
+      return displayFacelets;
+    }
+    return orientFaceletsForDisplay(
+      controller.pattern.kpuzzle,
+      displayFacelets,
+      orientationOverride,
+    );
+  }, [controller, displayFacelets, orientationOverride]);
 
   useEffect(() => {
     if (!use3D) return;
@@ -92,7 +135,15 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
     // down for the whole scramble.
     let held: Orientation | null = gyroDriven
       ? (controller.heldAs ?? IDENTITY)
-      : (solveOrientation?.orientation ?? null);
+      : heldOverride;
+
+    const displayedPattern = (): KPattern | null => {
+      const physical = controller.pattern;
+      const shown = displayFaceletsRef.current;
+      if (!physical) return null;
+      if (shown) return faceletsToPattern(physical.kpuzzle, shown);
+      return live || displaySource === "virtual" ? physical : null;
+    };
 
     const resync = async (pattern: KPattern) => {
       try {
@@ -112,9 +163,13 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
     };
 
     if (!live) {
-      // Nothing is connected, so show what the scramble looks like instead.
-      player.experimentalSetupAlg = scramble;
-      player.alg = "";
+      // A training target can still be previewed without a connected cube.
+      const initial = displayedPattern();
+      if (initial) void resync(initial);
+      else {
+        player.experimentalSetupAlg = scramble;
+        player.alg = "";
+      }
       return () => {
         player.remove();
         playerRef.current = null;
@@ -144,14 +199,17 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
         // The alg is replayed from the start on every change, so fold it back into
         // the setup periodically to keep long sessions responsive.
         compacting = true;
-        const pattern = controller.pattern;
+        const pattern = displayedPattern();
         if (pattern) void resync(pattern).finally(() => (compacting = false));
         else compacting = false;
       }
     });
-    const offReset = controller.onPatternReset((pattern) => void resync(pattern));
+    const offReset =
+      displaySource === "virtual"
+        ? () => {}
+        : controller.onPatternReset((pattern) => void resync(pattern));
 
-    const initial = controller.pattern;
+    const initial = displayedPattern();
     if (initial) void resync(initial);
 
     return () => {
@@ -169,6 +227,9 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
     scramble,
     solveOrientation,
     gyroDriven,
+    heldOverride,
+    displayRevision,
+    displaySource,
   ]);
 
   // The gyroscope no longer turns the drawn cube directly — the grip it settles into
@@ -195,6 +256,9 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
   }, [controller]);
 
   if (settings.visualization === "off") return null;
+
+  const shownFacelets =
+    orientedDisplayFacelets || (live ? facelets : previewFacelets(scramble));
 
   return (
     <div className="panel" style={{ flex: 1, minHeight: 0 }}>
@@ -228,7 +292,7 @@ export function CubeView({ settings, facelets, gyroSupported, live, scramble }: 
         {use3D ? (
           <div ref={hostRef} style={{ width: "100%", height: "100%" }} />
         ) : (
-          <FaceletNet facelets={live ? facelets : previewFacelets(scramble)} size={22} />
+          <FaceletNet facelets={shownFacelets} size={22} />
         )}
       </div>
     </div>

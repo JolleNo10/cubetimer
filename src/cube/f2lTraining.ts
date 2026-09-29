@@ -36,8 +36,6 @@ export type F2lTrainingTargetInfo = {
   slot: string;
   protectedSlots: string[];
   reference: F2lReference | null;
-  /** Used only for a no-cube preview of a standard target. */
-  previewAlg?: string;
 };
 
 export type F2lTrainingGoal = {
@@ -117,20 +115,23 @@ export function buildStandardF2lTarget(
   kpuzzle: KPuzzle,
   f2lCase: F2lCase,
 ): F2lTrainingTarget {
-  const pattern = kpuzzle.defaultPattern().applyAlg(new Alg(f2lCase.setup));
-  const slot = F2L_SLOTS[0].name;
+  const canonical = kpuzzle.defaultPattern().applyAlg(new Alg(f2lCase.setup));
+  const crossFace: Face = "U";
+  const rotation = rotationForCrossFace(crossFace);
+  const rotationAlg = new Alg(rotation.tokens.join(" "));
+  const pattern = reframe(kpuzzle, canonical, rotationAlg.invert());
+  const slot = slotInCubeFrame(rotation.orientation, F2L_SLOTS[0].name);
   const reference = referenceForCase(f2lCase);
-  const goal = goalFor(pattern, "D", slot);
+  const goal = goalFor(pattern, crossFace, slot);
   return {
     pattern,
     goal,
     info: {
       origin: { kind: "standard", caseName: f2lCase.name, group: f2lCase.group },
-      crossFace: "D",
+      crossFace,
       slot,
       protectedSlots: goal.protectedSlots,
       reference,
-      previewAlg: f2lCase.setup,
     },
   };
 }

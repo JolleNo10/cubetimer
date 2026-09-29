@@ -273,6 +273,9 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .f2l-stage { min-height: 0; }
 .f2l-setup-moves { line-height: 1.8; }
 .f2l-setup-panel .panel-body { min-height: 128px; }
+.f2l-mode-switch { flex-shrink: 0; }
+.f2l-mode-switch button { padding: 4px 7px; font-size: 10px; }
+.f2l-mode-description { margin-bottom: 12px; }
 .training-ready, .training-solving { display: flex; align-items: baseline; gap: 10px; }
 .training-ready strong, .training-solving strong { color: var(--accent); }
 .training-solving strong { color: var(--amber); }

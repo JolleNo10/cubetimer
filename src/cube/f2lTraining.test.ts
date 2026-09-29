@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
+import { faceColour } from "./colours";
 import { faceletsToPattern, patternToFacelets } from "./facelets";
 import { F2L_CASES } from "./f2lCases";
 import {
@@ -11,6 +12,7 @@ import {
 } from "./f2lTraining";
 import { get3x3x3 } from "./puzzle";
 import { algBetween } from "./solver";
+import { rotationForCrossFace, slotInCubeFrame } from "./orientation";
 import { reframe } from "./recognise";
 import type { Solve } from "../state/types";
 
@@ -24,11 +26,24 @@ function flipFacelets(facelets: string, a: number, b: number): string {
 
 describe("F2L training targets", () => {
   it("builds every standard case with a valid reference solution", () => {
+    const rotation = rotationForCrossFace("U");
+    const rotationAlg = new Alg(rotation.tokens.join(" "));
+    expect(rotation.orientation.U).toBe("D");
+
     for (const f2lCase of F2L_CASES) {
       const target = buildStandardF2lTarget(kpuzzle, f2lCase);
+      expect(target.info.crossFace).toBe("U");
+      expect(faceColour(target.info.crossFace).name).toBe("white");
+      expect(target.info.slot).toBe(slotInCubeFrame(rotation.orientation, "FR"));
       expect(isF2lTrainingComplete(target, target.pattern), f2lCase.name).toBe(false);
+      const handFrame = reframe(kpuzzle, target.pattern, rotationAlg);
+      const solved = reframe(
+        kpuzzle,
+        handFrame.applyAlg(new Alg(f2lCase.alg)),
+        rotationAlg.invert(),
+      );
       expect(
-        isF2lTrainingComplete(target, target.pattern.applyAlg(new Alg(f2lCase.alg))),
+        isF2lTrainingComplete(target, solved),
         f2lCase.name,
       ).toBe(true);
       expect(target.info.reference?.alg).toBe(f2lCase.alg);
@@ -97,16 +112,27 @@ describe("F2L training targets", () => {
 
   it("requires the cross and previously solved slots to stay solved", () => {
     const target = buildStandardF2lTarget(kpuzzle, F2L_CASES[0]);
-    const solved = target.pattern.applyAlg(new Alg(F2L_CASES[0].alg));
+    const rotation = rotationForCrossFace(target.info.crossFace);
+    const rotationAlg = new Alg(rotation.tokens.join(" "));
+    const solved = reframe(
+      kpuzzle,
+      reframe(kpuzzle, target.pattern, rotationAlg).applyAlg(new Alg(F2L_CASES[0].alg)),
+      rotationAlg.invert(),
+    );
     expect(isF2lTrainingComplete(target, solved)).toBe(true);
 
-    const crossBroken = faceletsToPattern(kpuzzle, flipFacelets(patternToFacelets(solved), 28, 25));
+    const crossBroken = faceletsToPattern(kpuzzle, flipFacelets(patternToFacelets(solved), 7, 19));
     expect(isF2lTrainingComplete(target, crossBroken)).toBe(false);
 
     const protectedSlotBroken = faceletsToPattern(kpuzzle, flipFacelets(patternToFacelets(solved), 21, 41));
     expect(isF2lTrainingComplete(target, protectedSlotBroken)).toBe(false);
 
-    expect(isF2lTrainingComplete(target, solved.applyAlg(new Alg("U2")))).toBe(true);
+    const handLastLayer = reframe(
+      kpuzzle,
+      reframe(kpuzzle, solved, rotationAlg).applyAlg(new Alg("U2")),
+      rotationAlg.invert(),
+    );
+    expect(isF2lTrainingComplete(target, handLastLayer)).toBe(true);
   });
 
   it("allows an unsolved future pair to remain unsolved", async () => {

@@ -2,6 +2,12 @@
 
 ## 2026-09-29
 
+- What happened: the first 2D training-orientation assertion expected a solver-frame reframe to move white stickers to the displayed bottom face.
+- Root cause: `reframe()` changes cube-coordinate interpretation for solving, while the visual net needs a physical whole-cube rotation so sticker colours move with the rendered cube.
+- Prevention: distinguish solver-frame transformations from display rotations; use the existing rotation tokens with `KPattern.applyAlg()` for visual facelet output.
+
+## 2026-09-29
+
 - What happened: the first focused Vitest run was attempted inside the Windows sandbox and failed before tests loaded.
 - Root cause: Vite's esbuild configuration needs to spawn a child process, which the sandbox rejected with `spawn EPERM`.
 - Prevention: run Vite/Vitest/build commands in the approved host context on this Windows workspace when the sandbox reports a process-spawn restriction.

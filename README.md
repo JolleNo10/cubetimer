@@ -81,7 +81,8 @@ for the cube protocols.
 
 **F2L Training**
 - A separate top-level area for all 41 existing F2L cases, with setup guidance from the
-  cube's current state and live smart-cube progress.
+  cube's current state and live smart-cube progress, or a Virtual case mode that loads
+  the target without requiring physical setup.
 - Practice an exact non-skipped F2L step from solve review, preserving its historical
   cube state and slot without adding the attempt to timer history or statistics.
 - Results focus on STM against the case/reference algorithm; elapsed time remains a
@@ -300,6 +301,11 @@ about twenty times a second and the clock updates every frame, so those are publ
 through narrow stores that only the affected components subscribe to — turning the cube
 never re-renders the page. The controller also owns the top-level Timer/F2L Training
 area, so training turns cannot enter the normal timer state machine or solve history.
+The normal `CubeModel` always represents the real physical or keyboard cube. Virtual
+F2L practice keeps a separate ephemeral controller-owned pattern; smart-cube turns may
+advance both, but the selected target never replaces the physical model. Replacing it
+would desynchronise hardware state and break mode switching, facelet sync and returning
+to Timer.
 
 `src/cube` is deliberately free of UI and Bluetooth concerns, which is what makes it
 testable: the analyser is checked against solves built backwards from a solved cube, and
