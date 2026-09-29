@@ -285,7 +285,16 @@ export function App() {
         <SettingsDialog settings={state.settings} onClose={() => setSettingsOpen(false)} />
       ) : null}
       {replaySolve ? (
-        <ReplayDialog solve={replaySolve} onClose={() => setReplaySolve(null)} />
+        <ReplayDialog
+          solve={replaySolve}
+          onClose={() => setReplaySolve(null)}
+          onTrainStep={(step) => {
+            void controller.practiceF2lStep(replaySolve, step);
+            setReplaySolve(null);
+            setResultSolveId(null);
+            setAnalyseSolve(null);
+          }}
+        />
       ) : null}
       {analyseSolve ? (
         <AnalyticsDialog solve={analyseSolve} onClose={() => setAnalyseSolve(null)} />

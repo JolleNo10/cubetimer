@@ -83,7 +83,7 @@ for the cube protocols.
 - A separate top-level area for all 41 existing F2L cases, with setup guidance from the
   cube's current state and live smart-cube progress, or a Virtual case mode that loads
   the target without requiring physical setup.
-- Practice an exact non-skipped F2L step from solve review, preserving its historical
+- Train an exact non-skipped F2L step from solve review, preserving its historical
   cube state and slot without adding the attempt to timer history or statistics.
 - Results focus on STM against the case/reference algorithm; elapsed time remains a
   secondary measure.

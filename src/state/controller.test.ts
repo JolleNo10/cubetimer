@@ -103,6 +103,50 @@ describe("Controller application-area ownership", () => {
     expect(controller.state.get().f2lTraining.displayFacelets).toBe(physicalResult);
   });
 
+  it("keeps solve-step practice exact across mode changes and retries", async () => {
+    globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+
+    const exact = buildStandardF2lTarget(kpuzzle, F2L_CASES[0]);
+    const solve = {
+      id: "solve-step-controller",
+      scramble: "",
+      scrambledFacelets: patternToFacelets(exact.pattern),
+      moves: [{ move: "U", t: 10 }],
+      analysis: { crossFace: exact.info.crossFace },
+    } as unknown as Solve;
+    const step = {
+      name: "F2L Slot 1",
+      slot: exact.info.slot,
+      skipped: false,
+      fromMove: 0,
+      toMove: 1,
+    } as never;
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.state.update((state) => ({ ...state, virtualCube: true }));
+
+    await controller.practiceF2lStep(solve, step);
+    const setupTarget = controller.state.get().f2lTraining.target;
+    expect(controller.state.get().area).toBe("f2l");
+    expect(setupTarget?.origin).toMatchObject({
+      kind: "solve-step",
+      solveId: solve.id,
+      slot: exact.info.slot,
+    });
+    await controller.setF2lMode("virtual");
+    expect(controller.state.get().f2lTraining.target?.origin.kind).toBe("solve-step");
+    expect(controller.state.get().f2lTraining.phase).toBe("ready");
+    expect(controller.state.get().f2lTraining.displayFacelets).toBe(
+      patternToFacelets(exact.pattern),
+    );
+    controller.againF2lTraining();
+    await Promise.resolve();
+    expect(controller.state.get().f2lTraining.target?.origin.kind).toBe("solve-step");
+    expect(controller.state.get().f2lTraining.displayFacelets).toBe(
+      patternToFacelets(exact.pattern),
+    );
+  });
+
   it("rebuilds standard setup from the current F2L-complete base", async () => {
     globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame;
     globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;

@@ -4,6 +4,7 @@ import { type SolveStep } from "./analysis";
 import { faceletsToPattern } from "./facelets";
 import { F2L_SLOTS, planF2l } from "./f2l";
 import { type F2lCase } from "./f2lCases";
+import { decodeGripTrack } from "./gripTrack";
 import {
   EDGES_OF_FACE,
   f2lSlotsForCrossFace,
@@ -17,8 +18,10 @@ import {
 import {
   reorientMove,
   invert,
+  IDENTITY,
   rotationForCrossFace,
   rotationForGrip,
+  rotationTokensBetween,
   slotInCubeFrame,
   type Orientation,
   type Rotation,
@@ -42,6 +45,8 @@ export type F2lReference = {
 export type F2lTrainingTargetInfo = {
   origin: F2lTrainingOrigin;
   crossFace: Face;
+  /** The single cube frame used for display, notation, and reference planning. */
+  trainingRotation: Rotation;
   slot: string;
   protectedSlots: string[];
   reference: F2lReference | null;
@@ -59,7 +64,7 @@ export type F2lTrainingTarget = {
   pattern: KPattern;
 };
 
-type F2lTrainingFrame = Pick<F2lTrainingTargetInfo, "origin" | "crossFace">;
+type F2lTrainingFrame = Pick<F2lTrainingTargetInfo, "trainingRotation">;
 
 /** The explicit solver grip for the standard 41-case library: white down, green front. */
 export function standardF2lTrainingRotation(): Rotation {
@@ -70,9 +75,7 @@ export function standardF2lTrainingRotation(): Rotation {
 
 /** Resolve the one notation/display frame used by an F2L target. */
 export function f2lTrainingRotation(target: F2lTrainingFrame): Rotation {
-  return target.origin.kind === "standard"
-    ? standardF2lTrainingRotation()
-    : rotationForCrossFace(target.crossFace);
+  return target.trainingRotation;
 }
 
 export function f2lTrainingGrip(target: F2lTrainingFrame): Orientation {
@@ -227,10 +230,28 @@ export function buildStandardF2lTarget(
     info: {
       origin: { kind: "standard", caseName: f2lCase.name, group: f2lCase.group },
       crossFace,
+      trainingRotation: rotation,
       slot,
       protectedSlots: goal.protectedSlots,
       reference,
     },
+  };
+}
+
+function exactStepTrainingRotation(
+  solve: Pick<Solve, "gripTrack">,
+  step: Pick<SolveStep, "fromMove">,
+  crossFace: Face,
+): Rotation {
+  const fallback = rotationForCrossFace(crossFace);
+  if (!solve.gripTrack) return fallback;
+  const track = decodeGripTrack(solve.gripTrack);
+  if (!track) return fallback;
+  const orientation = track.orientations[step.fromMove === 0 ? 0 : step.fromMove - 1];
+  if (!orientation) return fallback;
+  return {
+    tokens: rotationTokensBetween(IDENTITY, orientation),
+    orientation,
   };
 }
 
@@ -270,11 +291,11 @@ export function buildExactF2lTarget(
 
   const pattern = reconstructF2lStepStart(kpuzzle, solve, step.fromMove);
   const goal = goalFor(pattern, crossFace, step.slot);
-  const rotation = rotationForCrossFace(crossFace);
-  const rotationAlg = new Alg(rotation.tokens.join(" "));
+  const trainingRotation = exactStepTrainingRotation(solve, step, crossFace);
+  const rotationAlg = new Alg(trainingRotation.tokens.join(" "));
   const facing = reframe(kpuzzle, pattern, rotationAlg);
   const handPlan = planF2l(kpuzzle, facing).find(
-    (candidate) => slotInCubeFrame(rotation.orientation, candidate.name) === step.slot,
+    (candidate) => slotInCubeFrame(trainingRotation.orientation, candidate.name) === step.slot,
   );
 
   let reference: F2lReference | null = null;
@@ -301,6 +322,7 @@ export function buildExactF2lTarget(
     info: {
       origin: { kind: "solve-step", solveId: solve.id, stepName: step.name, slot: step.slot },
       crossFace,
+      trainingRotation,
       slot: step.slot,
       protectedSlots: goal.protectedSlots,
       reference,

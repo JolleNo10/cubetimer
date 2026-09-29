@@ -37,9 +37,8 @@ export function F2LTraining({ state }: { state: AppState }) {
                 <div className="small faint">{group}</div>
                 <div className="f2l-case-grid">
                   {F2L_CASES.filter((f2lCase) => f2lCase.group === group).map((f2lCase) => {
-                    const selected = target?.origin.kind === "standard"
-                      ? target.origin.caseName === f2lCase.name
-                      : target?.reference?.caseName === f2lCase.name;
+                    const selected = target?.origin.kind === "standard" &&
+                      target.origin.caseName === f2lCase.name;
                     return (
                       <button
                         type="button"
@@ -237,7 +236,7 @@ function TargetPanel({ state, elapsed }: { state: AppState; elapsed: number }) {
       </div>
       <div className="panel-body">
         {!target ? (
-          <div className="empty">Select one of the 41 cases, or use Practice from a solve review.</div>
+          <div className="empty">Select one of the 41 cases, or use Train from a solve review.</div>
         ) : (
           <>
             <div className="f2l-target-title">
@@ -247,7 +246,7 @@ function TargetPanel({ state, elapsed }: { state: AppState; elapsed: number }) {
             <div className="small dim f2l-origin">
               {target.origin.kind === "standard"
                 ? "Standard 41-case target"
-                : `From solve - ${target.origin.stepName} - ${slotName ?? target.origin.slot}`}
+                : `From solve · ${target.origin.stepName} · ${slotName ?? target.origin.slot}`}
             </div>
             <div className="f2l-target-facts">
               <span>

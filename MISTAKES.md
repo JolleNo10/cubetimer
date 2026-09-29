@@ -2,6 +2,12 @@
 
 ## 2026-09-29
 
+- What happened: an initial exact solve-step controller assertion expected setup-mode display facelets to equal the target pattern without a connected cube.
+- Root cause: setup mode intentionally displays the physical model until the physical cube reaches the target; only virtual mode loads the target into the display.
+- Prevention: assert setup-mode target metadata separately, and assert target facelets after explicitly switching to virtual mode.
+
+## 2026-09-29
+
 - What happened: the first controller regression test drove a completing F2L attempt
   without stubbing `requestAnimationFrame`.
 - Root cause: the test covered the new setup path but missed the existing attempt-clock

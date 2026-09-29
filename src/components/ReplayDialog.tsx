@@ -6,9 +6,11 @@ import { decodeGripTrack, rewriteWithRotations } from "../cube/gripTrack";
 import { formatTime } from "../state/stats";
 import {
   DetailedStepBreakdown,
+  canPracticeF2lStep,
   stepAt,
   type ActiveReplayAction,
 } from "./StepBreakdown";
+import type { SolveStep } from "../cube/analysis";
 import {
   NORMAL_REPLAY_STICKERING_MASK,
   replayStickeringMask,
@@ -30,9 +32,11 @@ const SPEEDS = [0.25, 0.5, 1, 2];
 export function ReplayDialog({
   solve,
   onClose,
+  onTrainStep,
 }: {
   solve: Solve;
   onClose: () => void;
+  onTrainStep?: (step: SolveStep) => void;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<TwistyPlayer | null>(null);
@@ -279,6 +283,15 @@ export function ReplayDialog({
                   {currentStep.case ? ` · ${currentStep.case}` : ""}
                 </span>
               </>
+            ) : null}
+            {currentStep && onTrainStep && canPracticeF2lStep(currentStep) ? (
+              <button
+                type="button"
+                className="ghost small"
+                onClick={() => onTrainStep(currentStep)}
+              >
+                Train this F2L
+              </button>
             ) : null}
             <span className="grow" />
             <span className="mono faint" style={{ wordBreak: "break-word" }}>

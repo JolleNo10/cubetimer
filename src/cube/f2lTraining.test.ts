@@ -20,7 +20,13 @@ import {
 } from "./f2lTraining";
 import { get3x3x3 } from "./puzzle";
 import { algBetween } from "./solver";
-import { reorientMove, slotInCubeFrame } from "./orientation";
+import {
+  reorientMove,
+  rotationForCrossFace,
+  rotationForGrip,
+  slotInCubeFrame,
+} from "./orientation";
+import { encodeGripTrack } from "./gripTrack";
 import { reframe } from "./recognise";
 import { ScrambleTracker } from "./scramble";
 import { parseFaceMove } from "./moves";
@@ -161,6 +167,130 @@ describe("F2L training targets", () => {
       .applyAlg(new Alg(scramble))
       .applyAlg(new Alg("D R'"));
     expect(patternToFacelets(start)).toBe(patternToFacelets(expected));
+  });
+
+  it("keeps the complete reconstructed state as the exact training target", () => {
+    const solve = {
+      id: "solve-exact-state",
+      scramble: "R U F2",
+      scrambledFacelets: patternToFacelets(
+        kpuzzle.defaultPattern().applyAlg(new Alg("R U F2")),
+      ),
+      moves: [
+        { move: "L", t: 10 },
+        { move: "D2", t: 20 },
+        { move: "B'", t: 30 },
+      ],
+      analysis: { crossFace: "D" },
+    } as unknown as Solve;
+    const step = {
+      name: "F2L Slot 1",
+      slot: "FR",
+      skipped: false,
+      fromMove: 2,
+      toMove: 3,
+    } as never;
+
+    const target = buildExactF2lTarget(kpuzzle, solve, step);
+    const expected = reconstructF2lStepStart(kpuzzle, solve, 2);
+    expect(patternToFacelets(target.pattern)).toBe(patternToFacelets(expected));
+  });
+
+  it("uses the recorded grip at the exact F2L step boundary", () => {
+    const firstGrip = rotationForGrip("D", "F")!;
+    const boundaryGrip = rotationForGrip("D", "R")!;
+    const gripTrack = encodeGripTrack({
+      orientations: [firstGrip.orientation, boundaryGrip.orientation],
+      inspection: [],
+      confidence: 1,
+      warnings: [],
+    });
+    const solve = {
+      id: "solve-grip",
+      scramble: "R U",
+      moves: [
+        { move: "L", t: 10 },
+        { move: "D", t: 20 },
+      ],
+      gripTrack,
+      analysis: { crossFace: "D" },
+    } as unknown as Solve;
+    const step = {
+      name: "F2L Slot 1",
+      slot: "FR",
+      skipped: false,
+      fromMove: 2,
+      toMove: 2 + 1,
+    } as never;
+
+    const target = buildExactF2lTarget(kpuzzle, solve, step);
+    expect(target.info.trainingRotation.orientation).toEqual(boundaryGrip.orientation);
+  });
+
+  it("uses the first recorded grip at solve start and falls back when it is unavailable", () => {
+    const firstGrip = rotationForGrip("D", "R")!;
+    const solve = {
+      id: "solve-grip-start",
+      scramble: "R U",
+      moves: [{ move: "L", t: 10 }],
+      gripTrack: encodeGripTrack({
+        orientations: [firstGrip.orientation],
+        inspection: [],
+        confidence: 1,
+        warnings: [],
+      }),
+      analysis: { crossFace: "D" },
+    } as unknown as Solve;
+    const step = {
+      name: "F2L Slot 1",
+      slot: "FR",
+      skipped: false,
+      fromMove: 0,
+      toMove: 1,
+    } as never;
+    const withGrip = buildExactF2lTarget(kpuzzle, solve, step);
+    expect(withGrip.info.trainingRotation.orientation).toEqual(firstGrip.orientation);
+
+    const withoutGrip = buildExactF2lTarget(
+      kpuzzle,
+      { ...solve, gripTrack: "invalid" } as unknown as Solve,
+      step,
+    );
+    expect(withoutGrip.info.trainingRotation.orientation).toEqual(
+      rotationForCrossFace("D").orientation,
+    );
+  });
+
+  it("keeps standard reference planning in a recorded non-canonical front frame", () => {
+    const f2lCase = F2L_CASES[0];
+    const grip = rotationForGrip("D", "R")!;
+    const gripAlg = new Alg(grip.tokens.join(" "));
+    const canonical = kpuzzle.defaultPattern().applyAlg(new Alg(f2lCase.setup));
+    const exactStart = reframe(kpuzzle, canonical, gripAlg.invert());
+    const solve = {
+      id: "solve-rotated-reference",
+      scramble: "",
+      scrambledFacelets: patternToFacelets(exactStart),
+      moves: [{ move: "U", t: 10 }],
+      gripTrack: encodeGripTrack({
+        orientations: [grip.orientation],
+        inspection: [],
+        confidence: 1,
+        warnings: [],
+      }),
+      analysis: { crossFace: "D" },
+    } as unknown as Solve;
+    const step = {
+      name: "F2L Slot 1",
+      slot: slotInCubeFrame(grip.orientation, "FR"),
+      skipped: false,
+      fromMove: 0,
+      toMove: 1,
+    } as never;
+
+    const target = buildExactF2lTarget(kpuzzle, solve, step);
+    expect(target.info.reference?.caseName).toBe(f2lCase.name);
+    expect(target.info.trainingRotation.orientation).toEqual(grip.orientation);
   });
 
   it("preserves exact-step metadata and does not invent a buried reference", () => {

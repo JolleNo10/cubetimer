@@ -212,9 +212,9 @@ function StepRow({
       type="button"
       className="ghost small phase-practice"
       onClick={onPractice}
-      title={`Practice ${step.name}`}
+      title={`Train ${step.name}`}
     >
-      Practice
+      Train
     </button>
   ) : null;
 
