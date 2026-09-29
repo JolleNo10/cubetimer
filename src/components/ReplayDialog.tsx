@@ -96,7 +96,7 @@ export function ReplayDialog({
   const activeReplayAction: ActiveReplayAction | undefined =
     index > 0 ? replayActions[index - 1] : undefined;
   const stickeringMask = solve.analysis
-    ? replayStickeringMask(solve.analysis, currentStep)
+    ? replayStickeringMask(solve.analysis, activeStep)
     : NORMAL_REPLAY_STICKERING_MASK;
 
   useEffect(() => {
@@ -189,7 +189,7 @@ export function ReplayDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [index, onClose, seek]);
 
-  const atMs = index === 0 ? 0 : replayActions[index - 1].rawTimeMs;
+  const atMs = index === 0 ? 0 : replayActions[index - 1].playbackTimeMs;
 
   return (
     <div className="backdrop" onClick={onClose}>
