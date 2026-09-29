@@ -2,6 +2,15 @@
 
 ## 2026-09-29
 
+- What happened: the first controller regression test drove a completing F2L attempt
+  without stubbing `requestAnimationFrame`.
+- Root cause: the test covered the new setup path but missed the existing attempt-clock
+  seam used by controller tests.
+- Prevention: reuse the controller test harness's animation-frame stub whenever a test
+  injects the first solving move.
+
+## 2026-09-29
+
 - What happened: F2L setup and result notation could expose raw smart-cube faces even
   though the training cube was held in the white-bottom, green-front solver grip.
 - Root cause: raw physical/virtual cube coordinates and user-facing F2L notation were

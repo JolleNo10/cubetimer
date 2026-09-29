@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
 import { invert, reorientMove } from "../cube/orientation";
 import { F2L_CASES } from "../cube/f2lCases";
-import { buildStandardF2lTarget, f2lTrainingGrip } from "../cube/f2lTraining";
+import {
+  buildStandardF2lTarget,
+  f2lCubeAlgorithm,
+  f2lTrainingGrip,
+  isStandardF2lBase,
+} from "../cube/f2lTraining";
 import { CubeModel, patternToFacelets } from "../cube/model";
 import { get3x3x3 } from "../cube/puzzle";
 import { Controller } from "./controller";
@@ -87,5 +92,61 @@ describe("Controller application-area ownership", () => {
     expect(controller.state.get().f2lTraining.mode).toBe("setup");
     expect(controller.state.get().f2lTraining.setup.length).toBeGreaterThan(0);
     expect(controller.state.get().f2lTraining.displayFacelets).toBe(physicalResult);
+  });
+
+  it("rebuilds standard setup from the current F2L-complete base", async () => {
+    globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.setArea("f2l");
+    await controller.selectF2lCase("F2L 4");
+
+    expect(controller.state.get().f2lTraining.setup).toBe("R U' R'");
+    const firstTarget = buildStandardF2lTarget(kpuzzle, F2L_CASES[3]);
+    const firstGrip = f2lTrainingGrip(firstTarget.info);
+    for (const move of f2lCubeAlgorithm(F2L_CASES[3].setup, firstGrip).split(" ")) {
+      controller.injectMove(move);
+    }
+    expect(controller.state.get().f2lTraining.phase).toBe("ready");
+
+    for (const move of f2lCubeAlgorithm(F2L_CASES[3].alg, firstGrip).split(" ")) {
+      controller.injectMove(move);
+    }
+    expect(controller.state.get().f2lTraining.phase).toBe("result");
+    expect(isStandardF2lBase(controller.pattern!)).toBe(true);
+
+    const baseAfterAttempt = controller.pattern!;
+    const expectedNextTarget = buildStandardF2lTarget(
+      kpuzzle,
+      F2L_CASES[3],
+      baseAfterAttempt,
+    );
+    controller.againF2lTraining();
+    expect(controller.state.get().f2lTraining.setup).toBe("R U' R'");
+    for (const move of f2lCubeAlgorithm(F2L_CASES[3].setup, firstGrip).split(" ")) {
+      controller.injectMove(move);
+    }
+    expect(patternToFacelets(controller.pattern!)).toBe(
+      patternToFacelets(expectedNextTarget.pattern),
+    );
+
+    for (const move of f2lCubeAlgorithm(F2L_CASES[3].alg, firstGrip).split(" ")) {
+      controller.injectMove(move);
+    }
+    await controller.selectF2lCase("F2L 3");
+    expect(controller.state.get().f2lTraining.setup).toBe("F' U F");
+  });
+
+  it("keeps the generic setup fallback for a non-F2L-complete start", async () => {
+    const physicalStart = kpuzzle.defaultPattern().applyAlg(new Alg("R U F"));
+    const controller = new Controller(new CubeModel(kpuzzle, physicalStart));
+    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.setArea("f2l");
+    await controller.selectF2lCase("F2L 4");
+
+    const setup = controller.state.get().f2lTraining.setup;
+    expect(setup.length).toBeGreaterThan(0);
+    expect(controller.state.get().f2lTraining.phase).toBe("preparing");
   });
 });

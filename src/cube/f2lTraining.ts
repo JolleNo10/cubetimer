@@ -16,12 +16,14 @@ import {
 } from "./notation";
 import {
   reorientMove,
+  invert,
   rotationForCrossFace,
   rotationForGrip,
   slotInCubeFrame,
   type Orientation,
   type Rotation,
 } from "./orientation";
+import { parseFaceMove } from "./moves";
 import { reframe, withCentresHome } from "./recognise";
 import type { Solve } from "../state/types";
 
@@ -82,6 +84,11 @@ export function f2lHandMove(move: string, grip: Orientation): string {
   return reorientMove(move, grip);
 }
 
+/** Translate solver-hand notation back into the cube's centre-relative coordinates. */
+export function f2lCubeMove(move: string, grip: Orientation): string {
+  return reorientMove(move, invert(grip));
+}
+
 export function f2lHandMoves(
   moves: readonly string[],
   grip: Orientation,
@@ -89,10 +96,32 @@ export function f2lHandMoves(
   return moves.map((move) => f2lHandMove(move, grip));
 }
 
+export function f2lCubeMoves(
+  moves: readonly string[],
+  grip: Orientation,
+): string[] {
+  return moves.map((move) => f2lCubeMove(move, grip));
+}
+
+function expandedAlgorithmMoves(algorithm: string): string[] {
+  return Array.from(new Alg(algorithm).expand().childAlgNodes()).map((node) =>
+    node.toString(),
+  );
+}
+
 export function f2lHandAlgorithm(algorithm: string, grip: Orientation): string {
-  return Array.from(new Alg(algorithm).expand().childAlgNodes())
-    .map((node) => f2lHandMove(node.toString(), grip))
-    .join(" ");
+  return f2lHandMoves(expandedAlgorithmMoves(algorithm), grip).join(" ");
+}
+
+export function f2lCubeAlgorithm(algorithm: string, grip: Orientation): string {
+  return f2lCubeMoves(expandedAlgorithmMoves(algorithm), grip).join(" ");
+}
+
+/** Whether a catalogue setup can be sent to a smart cube as outer face turns. */
+export function isF2lSetupTrackable(algorithm: string): boolean {
+  return Array.from(new Alg(algorithm).expand().childAlgNodes()).every(
+    (node) => parseFaceMove(node.toString()) !== null,
+  );
 }
 
 export function f2lHandTimedMoves(
@@ -124,6 +153,14 @@ function crossSolved(pattern: KPattern, crossFace: Face): boolean {
   const edges = pattern.patternData.EDGES;
   return EDGES_OF_FACE[crossFace].every(
     (edge) => edges.pieces[edge] === edge && edges.orientation[edge] === 0,
+  );
+}
+
+/** A standard white-cross/F2L-complete base, regardless of the last-layer state. */
+export function isStandardF2lBase(pattern: KPattern): boolean {
+  return (
+    crossSolved(pattern, "U") &&
+    f2lSlotsForCrossFace("U").every((slot) => slotSolved(pattern, slot))
   );
 }
 
@@ -166,12 +203,21 @@ function goalFor(pattern: KPattern, crossFace: Face, targetSlot: string): F2lTra
 export function buildStandardF2lTarget(
   kpuzzle: KPuzzle,
   f2lCase: F2lCase,
+  basePattern?: KPattern,
 ): F2lTrainingTarget {
-  const canonical = kpuzzle.defaultPattern().applyAlg(new Alg(f2lCase.setup));
   const crossFace: Face = "U";
   const rotation = standardF2lTrainingRotation();
   const rotationAlg = new Alg(rotation.tokens.join(" "));
-  const pattern = reframe(kpuzzle, canonical, rotationAlg.invert());
+  const handBase = reframe(
+    kpuzzle,
+    basePattern ?? kpuzzle.defaultPattern(),
+    rotationAlg,
+  );
+  const pattern = reframe(
+    kpuzzle,
+    handBase.applyAlg(new Alg(f2lCase.setup)),
+    rotationAlg.invert(),
+  );
   const slot = slotInCubeFrame(rotation.orientation, F2L_SLOTS[0].name);
   const reference = referenceForCase(f2lCase);
   const goal = goalFor(pattern, crossFace, slot);

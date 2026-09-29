@@ -7,9 +7,13 @@ import {
   buildExactF2lTarget,
   buildStandardF2lTarget,
   calculateTrainingEfficiency,
+  f2lCubeAlgorithm,
+  f2lCubeMoves,
   f2lHandAlgorithm,
   f2lHandMoves,
   f2lHandTimedMoves,
+  isF2lSetupTrackable,
+  isStandardF2lBase,
   isF2lTrainingComplete,
   reconstructF2lStepStart,
   standardF2lTrainingRotation,
@@ -19,6 +23,7 @@ import { algBetween } from "./solver";
 import { reorientMove, slotInCubeFrame } from "./orientation";
 import { reframe } from "./recognise";
 import { ScrambleTracker } from "./scramble";
+import { parseFaceMove } from "./moves";
 import type { Solve } from "../state/types";
 
 const kpuzzle = await get3x3x3();
@@ -30,6 +35,24 @@ function flipFacelets(facelets: string, a: number, b: number): string {
 }
 
 describe("F2L training targets", () => {
+  function solveReference(target: ReturnType<typeof buildStandardF2lTarget>, algorithm: string) {
+    const rotation = standardF2lTrainingRotation();
+    const rotationAlg = new Alg(rotation.tokens.join(" "));
+    return reframe(
+      kpuzzle,
+      reframe(kpuzzle, target.pattern, rotationAlg)
+        .applyAlg(new Alg(algorithm)),
+      rotationAlg.invert(),
+    );
+  }
+
+  it("recognizes an F2L-complete white-cross base while ignoring the last layer", () => {
+    expect(isStandardF2lBase(kpuzzle.defaultPattern())).toBe(true);
+    expect(isStandardF2lBase(kpuzzle.defaultPattern().applyAlg(new Alg("D2")))).toBe(true);
+    expect(isStandardF2lBase(kpuzzle.defaultPattern().applyAlg(new Alg("U")))).toBe(false);
+    expect(isStandardF2lBase(kpuzzle.defaultPattern().applyAlg(new Alg("R")))).toBe(false);
+  });
+
   it("builds every standard case with a valid reference solution", () => {
     const rotation = standardF2lTrainingRotation();
     const rotationAlg = new Alg(rotation.tokens.join(" "));
@@ -60,11 +83,52 @@ describe("F2L training targets", () => {
     }
   });
 
+  it("builds the same case relative to different last-layer contexts", () => {
+    const f2lCase = F2L_CASES[3];
+    const baseA = kpuzzle.defaultPattern();
+    const baseB = baseA.applyAlg(new Alg("D2"));
+    const targetA = buildStandardF2lTarget(kpuzzle, f2lCase, baseA);
+    const targetB = buildStandardF2lTarget(kpuzzle, f2lCase, baseB);
+
+    expect(targetA.info.slot).toBe(targetB.info.slot);
+    expect(targetA.info.protectedSlots).toEqual(targetB.info.protectedSlots);
+    expect(patternToFacelets(targetA.pattern)).not.toBe(patternToFacelets(targetB.pattern));
+    expect(isF2lTrainingComplete(targetA, solveReference(targetA, f2lCase.alg))).toBe(true);
+    expect(isF2lTrainingComplete(targetB, solveReference(targetB, f2lCase.alg))).toBe(true);
+  });
+
+  it("keeps an outer-turn catalogue setup and maps it to raw tracker moves", () => {
+    const f2lCase = F2L_CASES[3];
+    const base = kpuzzle.defaultPattern().applyAlg(new Alg("D2"));
+    const target = buildStandardF2lTarget(kpuzzle, f2lCase, base);
+    const grip = standardF2lTrainingRotation().orientation;
+    const rawSetup = f2lCubeAlgorithm(f2lCase.setup, grip);
+    const tracker = new ScrambleTracker(kpuzzle, rawSetup, base);
+
+    expect(isF2lSetupTrackable(f2lCase.setup)).toBe(true);
+    expect(f2lCase.setup).toBe("R U' R'");
+    expect(rawSetup).toBe("L D' L'");
+    expect(patternToFacelets(tracker.targetPattern)).toBe(patternToFacelets(target.pattern));
+  });
+
+  it("falls back to an outer-face route for wide or slice catalogue setups", async () => {
+    const f2lCase = F2L_CASES[7];
+    const base = kpuzzle.defaultPattern().applyAlg(new Alg("D2"));
+    const target = buildStandardF2lTarget(kpuzzle, f2lCase, base);
+    const setup = await algBetween(base, target.pattern);
+    const tracker = new ScrambleTracker(kpuzzle, setup.toString(), base);
+
+    expect(isF2lSetupTrackable(f2lCase.setup)).toBe(false);
+    expect(tracker.moves.every((move) => parseFaceMove(move) !== null)).toBe(true);
+    expect(patternToFacelets(tracker.targetPattern)).toBe(patternToFacelets(target.pattern));
+  });
+
   it("translates raw cube moves into the explicit white-bottom green-front grip", () => {
     const grip = standardF2lTrainingRotation().orientation;
     expect(f2lHandMoves(["L", "L'", "L2", "R", "D", "D'", "D2", "U", "F", "B"], grip))
       .toEqual(["R", "R'", "R2", "L", "U", "U'", "U2", "D", "F", "B"]);
     expect(f2lHandAlgorithm("D' L", grip)).toBe("U' R");
+    expect(f2lCubeMoves(["R", "U'", "R'"], grip)).toEqual(["L", "D'", "L'"]);
     expect(reorientMove("L", grip)).toBe("R");
   });
 
