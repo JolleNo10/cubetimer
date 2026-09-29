@@ -14,14 +14,24 @@ const analysis = (
 ) => ({ crossFace, steps } as SolveAnalysis);
 
 describe("replayStickeringMask", () => {
-  it.each(["Cross", "OLL", "PLL"] as const)(
-    "uses the normal mask for %s",
+  it("uses the normal mask for Cross", () => {
+    const name = "Cross" as const;
+    expect(replayStickeringMask(
+      analysis("D", [f2lStep(name, null)]),
+      0,
+    )).toBe(
+      "EDGES:------------,CORNERS:--------,CENTERS:------",
+    );
+  });
+
+  it.each(["OLL", "PLL"] as const)(
+    "focuses the last layer during %s on a D cross",
     (name) => {
       expect(replayStickeringMask(
         analysis("D", [f2lStep(name, null)]),
         0,
       )).toBe(
-        "EDGES:------------,CORNERS:--------,CENTERS:------",
+        "EDGES:----DDDDDDDD,CORNERS:----DDDD,CENTERS:-DDDDD",
       );
     },
   );
@@ -35,7 +45,7 @@ describe("replayStickeringMask", () => {
     );
   });
 
-  it("highlights the current pair and dims the next pair on a D cross", () => {
+  it("keeps the cross visible while focusing the current and next D-cross pairs", () => {
     expect(replayStickeringMask(
       analysis("D", [
         f2lStep("F2L Slot 1", "FR"),
@@ -43,11 +53,11 @@ describe("replayStickeringMask", () => {
       ]),
       0,
     )).toBe(
-      "EDGES:IIIIIIII-IDI,CORNERS:IIII-IID,CENTERS:IIIIII",
+      "EDGES:IIIIDDDD-IDI,CORNERS:IIII-IID,CENTERS:DDDDDD",
     );
   });
 
-  it("mutes all other pieces when the last F2L pair is active", () => {
+  it("keeps previously solved pairs visible while focusing the active pair", () => {
     expect(replayStickeringMask(
       analysis("D", [
         f2lStep("F2L Slot 1", "FR"),
@@ -57,11 +67,24 @@ describe("replayStickeringMask", () => {
       ]),
       3,
     )).toBe(
-      "EDGES:IIIIIIIII-II,CORNERS:IIIII-II,CENTERS:IIIIII",
+      "EDGES:IIIIDDDDD-DD,CORNERS:IIIID-DD,CENTERS:DDDDDD",
     );
   });
 
-  it("skips a solved F2L step when selecting the next pair", () => {
+  it("keeps a skipped earlier pair visible as solved context", () => {
+    expect(replayStickeringMask(
+      analysis("D", [
+        f2lStep("F2L Slot 1", "FR", { skipped: true }),
+        f2lStep("F2L Slot 2", "BR"),
+        f2lStep("F2L Slot 3", "BL"),
+      ]),
+      1,
+    )).toBe(
+      "EDGES:IIIIDDDDDI-D,CORNERS:IIIIDID-,CENTERS:DDDDDD",
+    );
+  });
+
+  it("skips a future solved F2L step when selecting the next pair", () => {
     expect(replayStickeringMask(
       analysis("D", [
         f2lStep("F2L Slot 1", "FR"),
@@ -70,7 +93,7 @@ describe("replayStickeringMask", () => {
       ]),
       0,
     )).toBe(
-      "EDGES:IIIIIIII-IID,CORNERS:IIII-IDI,CENTERS:IIIIII",
+      "EDGES:IIIIDDDD-IID,CORNERS:IIII-IDI,CENTERS:DDDDDD",
     );
   });
 
@@ -83,9 +106,21 @@ describe("replayStickeringMask", () => {
       ]),
       0,
     )).toBe(
-      "EDGES:IIIIIIII-III,CORNERS:IIII-III,CENTERS:IIIIII",
+      "EDGES:IIIIDDDD-III,CORNERS:IIII-III,CENTERS:DDDDDD",
     );
   });
+
+  it.each(["OLL", "PLL"] as const)(
+    "uses the opposite face for %s last-layer focus on a U cross",
+    (name) => {
+      expect(replayStickeringMask(
+        analysis("U", [f2lStep(name, null)]),
+        0,
+      )).toBe(
+        "EDGES:DDDD----DDDD,CORNERS:DDDD----,CENTERS:DDDDD-",
+      );
+    },
+  );
 
   it("uses the cross face frame for non-D mappings", () => {
     expect(replayStickeringMask(
@@ -94,7 +129,7 @@ describe("replayStickeringMask", () => {
       ]),
       0,
     )).toBe(
-      "EDGES:IIIIIIIIII-I,CORNERS:I-IIIIII,CENTERS:IIIIII",
+      "EDGES:DDDDIIIIII-I,CORNERS:I-IIIIII,CENTERS:DDDDDD",
     );
   });
 });
