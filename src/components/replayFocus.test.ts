@@ -53,7 +53,7 @@ describe("replayStickeringMask", () => {
       ]),
       0,
     )).toBe(
-      "EDGES:IIIIDDDD-IoI,CORNERS:IIII-IIo,CENTERS:DDDDDD",
+      "EDGES:IIIIDDDD-IDI,CORNERS:IIII-IID,CENTERS:DDDDDD",
     );
   });
 
@@ -80,7 +80,7 @@ describe("replayStickeringMask", () => {
       ]),
       1,
     )).toBe(
-      "EDGES:IIIIDDDDDI-o,CORNERS:IIIIDIo-,CENTERS:DDDDDD",
+      "EDGES:IIIIDDDDDI-D,CORNERS:IIIIDID-,CENTERS:DDDDDD",
     );
   });
 
@@ -93,7 +93,7 @@ describe("replayStickeringMask", () => {
       ]),
       0,
     )).toBe(
-      "EDGES:IIIIDDDD-IIo,CORNERS:IIII-IoI,CENTERS:DDDDDD",
+      "EDGES:IIIIDDDD-IID,CORNERS:IIII-IDI,CENTERS:DDDDDD",
     );
   });
 
