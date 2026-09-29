@@ -85,6 +85,7 @@ check("the first step is highlighted to begin with",
       (await replayBreakdown.locator(".phase-row.active .phase-name").innerText()).length > 0,
       await replayBreakdown.locator(".phase-row.active .phase-name").innerText());
 
+const scrubber = dialog.locator('input[type="range"][aria-label="Move position"]');
 const marker = replayBreakdown.locator(".phase-move.current");
 await dialog.getByRole("button", { name: "Play", exact: true }).click();
 await page.waitForFunction(
@@ -93,6 +94,10 @@ await page.waitForFunction(
   { timeout: 15000 },
 );
 check("starting playback produces exactly one active move indication", await marker.count() === 1);
+const annotation = () => marker.first().evaluate((element) => ({
+  action: element.dataset.replayAction,
+  text: element.textContent?.trim(),
+}));
 const markerContext = await marker.first().evaluate((element) => ({
   inPhaseMoves: Boolean(element.closest(".phase-moves")),
   inActiveRow: element.closest(".phase-row")?.classList.contains("active") ?? false,
@@ -102,32 +107,50 @@ check(
   markerContext.inPhaseMoves && markerContext.inActiveRow,
   JSON.stringify(markerContext),
 );
-const firstMarkerIndex = await marker.first().getAttribute("data-move-index");
-
-await dialog.getByRole("button", { name: "Pause", exact: true }).click();
-await page.waitForTimeout(100);
-check("pausing clears the currently playing marker", await marker.count() === 0);
+const playingAnnotation = await page.evaluate(() => {
+  const element = document.querySelector(".replay-steps .phase-move.current");
+  const pause = Array.from(document.querySelectorAll(".replay-dialog button"))
+    .find((button) => button.textContent?.trim() === "Pause");
+  if (!element || !pause) throw new Error("Could not capture the playing annotation");
+  const result = {
+    action: element.dataset.replayAction,
+    text: element.textContent?.trim(),
+  };
+  pause.click();
+  return result;
+});
+await page.waitForFunction(
+  () => Array.from(document.querySelectorAll(".replay-dialog button"))
+    .some((button) => button.textContent?.trim() === "Play"),
+);
+const pausedAnnotation = await annotation();
+check("pausing keeps the current replay annotation", await marker.count() === 1);
+check(
+  "pausing keeps the same replay action highlighted",
+  pausedAnnotation.action === playingAnnotation.action,
+  JSON.stringify({ playingAnnotation, pausedAnnotation }),
+);
 
 const advanceButton = dialog.locator(".replay-main .row").first().locator("button").nth(3);
-let markerChanged = false;
-for (let attempt = 0; attempt < 12 && !markerChanged; attempt++) {
-  await advanceButton.click();
-  await dialog.getByRole("button", { name: "Play", exact: true }).click();
-  try {
-    await page.waitForFunction(
-      () => document.querySelectorAll(".replay-steps .phase-move.current").length === 1,
-      null,
-      { timeout: 4000 },
-    );
-  } catch {
-    break;
-  }
-  markerChanged = (await marker.first().getAttribute("data-move-index")) !== firstMarkerIndex;
-  if (await dialog.getByRole("button", { name: "Pause", exact: true }).count()) {
-    await dialog.getByRole("button", { name: "Pause", exact: true }).click();
-  }
-}
-check("the highlighted token changes as replay advances", markerChanged);
+const beforeNext = Number(await scrubber.inputValue());
+await advanceButton.click();
+const afterNext = Number(await scrubber.inputValue());
+const nextAnnotation = await annotation();
+check(
+  "manual next advances exactly one replay action",
+  afterNext === beforeNext + 1 && nextAnnotation.action !== pausedAnnotation.action,
+  JSON.stringify({ beforeNext, afterNext, pausedAnnotation, nextAnnotation }),
+);
+
+const beforePrevious = Number(await scrubber.inputValue());
+await dialog.locator(".replay-main .row").first().locator("button").nth(1).click();
+const afterPrevious = Number(await scrubber.inputValue());
+const previousAnnotation = await annotation();
+check(
+  "manual previous returns exactly one replay action",
+  afterPrevious === beforePrevious - 1 && previousAnnotation.action === pausedAnnotation.action,
+  JSON.stringify({ beforePrevious, afterPrevious, pausedAnnotation, previousAnnotation }),
+);
 
 const position = () => dialog.locator(".row.small .dim").first().innerText();
 const clock = () => dialog.locator(".row .mono.small").first().innerText();
@@ -157,7 +180,6 @@ for (const [i, expected] of startTimes.entries()) {
   }
 }
 
-const scrubber = dialog.locator('input[type="range"][aria-label="Move position"]');
 const beforeStep = Number(await scrubber.inputValue());
 await advanceButton.click();
 const afterStep = Number(await scrubber.inputValue());

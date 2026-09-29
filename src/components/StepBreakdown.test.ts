@@ -7,6 +7,7 @@ import {
   stepTimeScale,
 } from "./StepBreakdown";
 import type { SolveStep } from "../cube/analysis";
+import type { ReplayAction } from "./replayTimeline";
 
 /** Cross 0-8, a skipped pair, then three pairs, OLL and PLL. */
 const steps = [
@@ -51,6 +52,15 @@ describe("activeRecordedMoveIndices", () => {
     toMove: 12,
     recordedMoves,
   }) as SolveStep;
+  const action = (overrides: Partial<ReplayAction>): ReplayAction => ({
+    move: "R",
+    rawIndex: 10,
+    rawTimeMs: 100,
+    playbackTimeMs: 100,
+    completesRawMove: true,
+    source: "raw-turn",
+    ...overrides,
+  });
 
   it("maps an exact raw timestamp to the displayed move", () => {
     expect(
@@ -59,33 +69,38 @@ describe("activeRecordedMoveIndices", () => {
           { move: "R", t: 100 },
           { move: "U", t: 180 },
         ]),
-        { rawIndex: 10, timeMs: 180 },
+        action({ rawTimeMs: 180 }),
       ),
     ).toEqual([1]);
   });
 
   it("maps both raw turns in a merged move to that displayed move", () => {
     const displayed = step([{ move: "U2", t: 180 }]);
-    expect(activeRecordedMoveIndices(displayed, { rawIndex: 10, timeMs: 100 })).toEqual([0]);
-    expect(activeRecordedMoveIndices(displayed, { rawIndex: 11, timeMs: 180 })).toEqual([0]);
+    expect(activeRecordedMoveIndices(displayed, action({ rawTimeMs: 100 }))).toEqual([0]);
+    expect(activeRecordedMoveIndices(displayed, action({ rawIndex: 11, rawTimeMs: 180 }))).toEqual([0]);
   });
 
-  it("prefers the turn over a rotation inserted at the same timestamp", () => {
+  it("maps a rotation and raw turn at one timestamp to separate entries", () => {
+    const displayed = step([
+      { move: "y", t: 300 },
+      { move: "R", t: 300 },
+    ]);
     expect(
       activeRecordedMoveIndices(
-        step([
-          { move: "y", t: 300 },
-          { move: "R", t: 300 },
-        ]),
-        { rawIndex: 10, timeMs: 300 },
+        displayed,
+        action({ move: "y", rawTimeMs: 300, completesRawMove: false, source: "grip-rotation", rotationOrdinal: 0 }),
       ),
-    ).toEqual([1]);
+    ).toEqual([0]);
+    expect(activeRecordedMoveIndices(
+      displayed,
+      action({ rawTimeMs: 300 }),
+    )).toEqual([1]);
   });
 
   it("does not map a raw move outside the step range", () => {
     const displayed = step([{ move: "R", t: 100 }]);
-    expect(activeRecordedMoveIndices(displayed, { rawIndex: 9, timeMs: 100 })).toEqual([]);
-    expect(activeRecordedMoveIndices(displayed, { rawIndex: 12, timeMs: 100 })).toEqual([]);
+    expect(activeRecordedMoveIndices(displayed, action({ rawIndex: 9 }))).toEqual([]);
+    expect(activeRecordedMoveIndices(displayed, action({ rawIndex: 12 }))).toEqual([]);
   });
 });
 

@@ -7,12 +7,18 @@ import { formatTime } from "../state/stats";
 import {
   DetailedStepBreakdown,
   stepAt,
-  type ActiveReplayMove,
+  type ActiveReplayAction,
 } from "./StepBreakdown";
 import {
   NORMAL_REPLAY_STICKERING_MASK,
   replayStickeringMask,
 } from "./replayFocus";
+import {
+  buildReplayTimeline,
+  rawPositionAtReplayIndex,
+  replayIndexForRawPosition,
+  type ReplayAction,
+} from "./replayTimeline";
 import { effectiveMs, type Solve } from "../state/types";
 
 const SPEEDS = [0.25, 0.5, 1, 2];
@@ -77,14 +83,18 @@ export function ReplayDialog({
     },
     [track, grip, moves],
   );
-  const activeStep = steps ? stepAt(steps, index) : -1;
+  const replayActions = useMemo<ReplayAction[]>(
+    () => buildReplayTimeline(
+      moves.map((_, rawIndex) => asHeld(rawIndex, rawIndex + 1)),
+      moves,
+    ),
+    [asHeld, moves],
+  );
+  const rawPosition = rawPositionAtReplayIndex(replayActions, index);
+  const activeStep = steps ? stepAt(steps, rawPosition) : -1;
   const currentStep = steps?.[activeStep];
-  const lastRawIndex = index - 1;
-  const lastRawStep = steps && lastRawIndex >= 0 ? stepAt(steps, lastRawIndex) : -1;
-  const activeReplayMove: ActiveReplayMove | undefined =
-    playing && lastRawIndex >= 0 && lastRawStep === activeStep
-      ? { rawIndex: lastRawIndex, timeMs: moves[lastRawIndex].t }
-      : undefined;
+  const activeReplayAction: ActiveReplayAction | undefined =
+    index > 0 ? replayActions[index - 1] : undefined;
   const stickeringMask = solve.analysis
     ? replayStickeringMask(solve.analysis, currentStep)
     : NORMAL_REPLAY_STICKERING_MASK;
@@ -127,20 +137,20 @@ export function ReplayDialog({
     (target: number) => {
       const player = playerRef.current;
       if (!player) return;
-      const clamped = Math.max(0, Math.min(moves.length, target));
+      const clamped = Math.max(0, Math.min(replayActions.length, target));
       const applied = appliedRef.current;
       if (clamped > applied && clamped - applied <= 4) {
-        for (const move of asHeld(applied, clamped)) {
-          player.experimentalAddMove(move, { cancel: false });
+        for (const action of replayActions.slice(applied, clamped)) {
+          player.experimentalAddMove(action.move, { cancel: false });
         }
       } else if (clamped !== applied) {
-        player.alg = new Alg(asHeld(0, clamped).join(" "));
+        player.alg = new Alg(replayActions.slice(0, clamped).map((action) => action.move).join(" "));
         player.jumpToEnd({ flash: false });
       }
       appliedRef.current = clamped;
       setIndex(clamped);
     },
-    [moves, asHeld],
+    [replayActions],
   );
 
   // Playback follows the recorded timestamps, so pauses and bursts look like they did.
@@ -149,20 +159,21 @@ export function ReplayDialog({
     if (!playing) return;
     const startIndex = appliedRef.current;
     const startWall = performance.now();
-    const startMs = startIndex === 0 ? 0 : moves[startIndex - 1].t;
+    const startMs = startIndex === 0 ? 0 : replayActions[startIndex - 1].playbackTimeMs;
     let frame = requestAnimationFrame(function tick() {
       const elapsed = (performance.now() - startWall) * speed + startMs;
-      let next = appliedRef.current;
-      while (next < moves.length && moves[next].t <= elapsed) next++;
-      if (next !== appliedRef.current) seek(next);
-      if (appliedRef.current >= moves.length) {
+      const next = appliedRef.current;
+      if (next < replayActions.length && replayActions[next].playbackTimeMs <= elapsed) {
+        seek(next + 1);
+      }
+      if (appliedRef.current >= replayActions.length) {
         setPlaying(false);
         return;
       }
       frame = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(frame);
-  }, [playing, moves, speed, seek]);
+  }, [playing, replayActions, speed, seek]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -178,7 +189,7 @@ export function ReplayDialog({
     return () => window.removeEventListener("keydown", onKey);
   }, [index, onClose, seek]);
 
-  const atMs = index === 0 ? 0 : moves[index - 1].t;
+  const atMs = index === 0 ? 0 : replayActions[index - 1].rawTimeMs;
 
   return (
     <div className="backdrop" onClick={onClose}>
@@ -219,13 +230,13 @@ export function ReplayDialog({
               className="primary"
               onClick={() => {
                 // Starting again from the end replays the solve from the top.
-                if (!playing && appliedRef.current >= moves.length) seek(0);
+                if (!playing && appliedRef.current >= replayActions.length) seek(0);
                 setPlaying((p) => !p);
               }}
             >
               {playing ? "Pause" : "Play"}
             </button>
-            <button onClick={() => seek(index + 1)} disabled={index >= moves.length}>
+            <button onClick={() => seek(index + 1)} disabled={index >= replayActions.length}>
               ▶
             </button>
             <span className="grow" />
@@ -246,7 +257,7 @@ export function ReplayDialog({
           <input
             type="range"
             min={0}
-            max={moves.length}
+            max={replayActions.length}
             value={index}
             onChange={(e) => {
               setPlaying(false);
@@ -258,7 +269,7 @@ export function ReplayDialog({
 
           <div className="row small">
             <span className="dim">
-              move {index} / {moves.length}
+              move {index} / {replayActions.length}
             </span>
             {currentStep ? (
               <>
@@ -271,9 +282,9 @@ export function ReplayDialog({
             ) : null}
             <span className="grow" />
             <span className="mono faint" style={{ wordBreak: "break-word" }}>
-              {moves
+              {replayActions
                 .slice(Math.max(0, index - 8), index)
-                .map((m) => m.move)
+                .map((action) => action.move)
                 .join(" ")}
             </span>
           </div>
@@ -287,12 +298,12 @@ export function ReplayDialog({
               <DetailedStepBreakdown
                 analysis={solve.analysis}
                 activeStep={activeStep}
-                activeReplayMove={activeReplayMove}
+                activeReplayAction={activeReplayAction}
                 // Jumping to a step means the state it started from: click F2L Slot 1
                 // and the cross is done with the first pair still to come.
                 onSelectStep={(step) => {
                   setPlaying(false);
-                  seek(step.fromMove);
+                  seek(replayIndexForRawPosition(replayActions, step.fromMove));
                 }}
               />
               <div className="small faint" style={{ marginTop: 10 }}>

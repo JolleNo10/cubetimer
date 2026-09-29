@@ -4,6 +4,7 @@ import { faceColour, slotColours } from "../cube/colours";
 import { ollGroupForCase } from "../cube/lastLayerCases";
 import { isRotation, parseMove } from "../cube/notation";
 import { formatTime } from "../state/stats";
+import type { ReplayAction } from "./replayTimeline";
 
 export const STEP_COLORS: Record<string, string> = {
   Cross: "var(--blue)",
@@ -98,25 +99,35 @@ export function stepAt(steps: readonly SolveStep[], index: number): number {
   return index > 0 ? steps.length - 1 : 0;
 }
 
-export type ActiveReplayMove = {
-  rawIndex: number;
-  timeMs: number;
-};
+export type ActiveReplayAction = ReplayAction;
 
 /** Find the displayed move entries corresponding to one raw replay move. */
 export function activeRecordedMoveIndices(
   step: SolveStep,
-  activeMove: ActiveReplayMove,
+  activeAction: ActiveReplayAction,
 ): number[] {
   if (
-    activeMove.rawIndex < step.fromMove ||
-    activeMove.rawIndex >= step.toMove ||
+    activeAction.rawIndex < step.fromMove ||
+    activeAction.rawIndex >= step.toMove ||
     !step.recordedMoves?.length
   ) {
     return [];
   }
 
-  const timestamp = step.recordedMoves.find(({ t }) => t >= activeMove.timeMs)?.t;
+  if (activeAction.source === "grip-rotation") {
+    const rotations = step.recordedMoves.flatMap((recorded, index) => {
+      const parsed = parseMove(recorded.move);
+      return recorded.t === activeAction.rawTimeMs && parsed && isRotation(parsed.family)
+        ? [index]
+        : [];
+    });
+    const rotationIndex = activeAction.rotationOrdinal === undefined
+      ? undefined
+      : rotations[activeAction.rotationOrdinal];
+    return rotationIndex === undefined ? [] : [rotationIndex];
+  }
+
+  const timestamp = step.recordedMoves.find(({ t }) => t >= activeAction.rawTimeMs)?.t;
   if (timestamp === undefined) return [];
 
   const matches = step.recordedMoves.flatMap((recorded, index) =>
@@ -161,7 +172,7 @@ function StepRow({
   showCumulativeTime,
   showSplitTimes,
   timeScale,
-  activeReplayMove,
+  activeReplayAction,
   onSelect,
 }: {
   step: SolveStep;
@@ -171,17 +182,17 @@ function StepRow({
   showCumulativeTime: boolean;
   showSplitTimes: boolean;
   timeScale?: StepTimeScale;
-  activeReplayMove?: ActiveReplayMove;
+  activeReplayAction?: ActiveReplayAction;
   onSelect?: () => void;
 }) {
   const { recognitionWidth, executionWidth } = stepBarWidths(step, total, timeScale);
   const described = describeCase(step);
   const isSkip = step.skipped || described?.id === "Solved";
   const isSkipped = step.skipped === true;
-  const activeMoveIndices = activeReplayMove
-    ? new Set(activeRecordedMoveIndices(step, activeReplayMove))
+  const activeMoveIndices = activeReplayAction
+    ? new Set(activeRecordedMoveIndices(step, activeReplayAction))
     : null;
-  const renderRecordedMoves = activeReplayMove !== undefined && Boolean(step.recordedMoves?.length);
+  const renderRecordedMoves = activeReplayAction !== undefined && Boolean(step.recordedMoves?.length);
 
   const splitValues = showSplitTimes ? (
     <>
@@ -276,6 +287,9 @@ function StepRow({
                   <span
                     className={`phase-move${activeMoveIndices?.has(index) ? " current" : ""}`}
                     data-move-index={index}
+                    data-replay-action={activeMoveIndices?.has(index)
+                      ? `${activeReplayAction.rawIndex}:${activeReplayAction.source}:${activeReplayAction.rotationOrdinal ?? ""}`
+                      : undefined}
                   >
                     {recorded.move}
                   </span>
@@ -433,7 +447,7 @@ export function StepBreakdown({
   showTimeScale = false,
   showMoveGraph = true,
   position,
-  activeReplayMove,
+  activeReplayAction,
 }: {
   analysis: SolveAnalysis;
   activeStep?: number;
@@ -446,7 +460,7 @@ export function StepBreakdown({
   showTimeScale?: boolean;
   showMoveGraph?: boolean;
   position?: number;
-  activeReplayMove?: ActiveReplayMove;
+  activeReplayAction?: ActiveReplayAction;
 }) {
   const total = Math.max(1, analysis.solvingMs);
   const timeScale = showTimeScale ? stepTimeScale(analysis.steps) : undefined;
@@ -483,7 +497,7 @@ export function StepBreakdown({
           showCumulativeTime={showCumulativeTime}
           showSplitTimes={showSplitTimes}
           timeScale={timeScale}
-          activeReplayMove={activeReplayMove}
+          activeReplayAction={activeReplayAction}
           onSelect={onSelectStep ? () => onSelectStep(step) : undefined}
         />
       ))}
@@ -528,12 +542,12 @@ export function DetailedStepBreakdown({
   analysis,
   activeStep,
   onSelectStep,
-  activeReplayMove,
+  activeReplayAction,
 }: {
   analysis: SolveAnalysis;
   activeStep?: number;
   onSelectStep?: (step: SolveStep) => void;
-  activeReplayMove?: ActiveReplayMove;
+  activeReplayAction?: ActiveReplayAction;
 }) {
   return (
     <div className="detailed-breakdown">
@@ -551,7 +565,7 @@ export function DetailedStepBreakdown({
           analysis={analysis}
           activeStep={activeStep}
           onSelectStep={onSelectStep}
-          activeReplayMove={activeReplayMove}
+          activeReplayAction={activeReplayAction}
           showMoves
           showFullSolution={false}
           showDetail={false}
