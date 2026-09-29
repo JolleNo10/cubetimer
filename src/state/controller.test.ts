@@ -70,15 +70,23 @@ describe("Controller application-area ownership", () => {
     const physicalAfter = physicalStart.applyAlg(new Alg(cubeMoves.join(" ")));
     for (const move of cubeMoves) controller.injectMove(move);
 
-    expect(controller.state.get().f2lTraining.phase).toBe("result");
+    const completedResult = controller.state.get().f2lTraining.result;
+    expect(controller.state.get().f2lTraining.phase).toBe("ready");
     expect(controller.state.get().solves).toEqual([]);
     expect(patternToFacelets(controller.pattern!)).toBe(patternToFacelets(physicalAfter));
     expect(controller.state.get().f2lTraining.displayFacelets).toBe(
-      patternToFacelets(target.pattern.applyAlg(new Alg(cubeMoves.join(" ")))),
+      patternToFacelets(target.pattern),
     );
-    expect(controller.state.get().f2lTraining.result?.moves).toEqual(
+    expect(completedResult?.moves).toEqual(
       Array.from(new Alg(F2L_CASES[0].alg).expand().childAlgNodes()).map((node) => node.toString()),
     );
+    expect(controller.state.get().f2lTraining.result).toEqual(completedResult);
+    expect(controller.state.get().f2lTraining.liveMoves).toEqual([]);
+
+    controller.injectMove(cubeMoves[0]);
+    expect(controller.state.get().f2lTraining.phase).toBe("solving");
+    expect(controller.state.get().f2lTraining.result).toBeNull();
+    expect(controller.state.get().f2lTraining.liveMoves).toEqual(["U"]);
 
     const physicalResult = patternToFacelets(controller.pattern!);
     controller.againF2lTraining();
@@ -87,6 +95,7 @@ describe("Controller application-area ownership", () => {
     expect(controller.state.get().f2lTraining.displayFacelets).toBe(
       patternToFacelets(target.pattern),
     );
+    expect(controller.state.get().f2lTraining.result).toBeNull();
 
     await controller.setF2lMode("setup");
     expect(controller.state.get().f2lTraining.mode).toBe("setup");
@@ -115,6 +124,17 @@ describe("Controller application-area ownership", () => {
     }
     expect(controller.state.get().f2lTraining.phase).toBe("result");
     expect(isStandardF2lBase(controller.pattern!)).toBe(true);
+
+    const completedResult = controller.state.get().f2lTraining.result;
+    controller.injectMove("D");
+    controller.injectMove("D");
+    controller.injectMove("D");
+    expect(controller.state.get().f2lTraining.phase).toBe("result");
+    expect(controller.state.get().f2lTraining.result).toEqual(completedResult);
+    controller.injectMove("D");
+    expect(controller.state.get().f2lTraining.phase).toBe("preparing");
+    expect(controller.state.get().f2lTraining.result).toBeNull();
+    expect(controller.state.get().f2lTraining.liveMoves).toEqual([]);
 
     const baseAfterAttempt = controller.pattern!;
     const expectedNextTarget = buildStandardF2lTarget(

@@ -10,7 +10,12 @@ import {
 import { faceColour, faceOfColour } from "../cube/colours";
 import { hasXCrossIn } from "../cube/crossPlans";
 import { generateWhiteCrossScramble } from "../cube/crossScramble";
-import { isRecentreGesture, RECENTRE_GESTURE_TURNS } from "../cube/gestures";
+import {
+  F2L_AGAIN_GESTURE_TURNS,
+  isF2lAgainGesture,
+  isRecentreGesture,
+  RECENTRE_GESTURE_TURNS,
+} from "../cube/gestures";
 import { facesAtPositions } from "../cube/gyroGrip";
 import { F2L_CASES, type F2lCase } from "../cube/f2lCases";
 import {
@@ -250,6 +255,7 @@ export class Controller {
   #f2lVirtualPattern: KPattern | null = null;
   #f2lStartedAt = 0;
   #f2lSelectionToken = 0;
+  #f2lAgainTurns: string[] = [];
   #recentreListeners = new Set<() => void>();
   #recentTurns: string[] = [];
   #moveListeners = new Set<(move: string) => void>();
@@ -599,6 +605,7 @@ export class Controller {
     this.#f2lTracker = null;
     this.#f2lVirtualPattern = null;
     this.#f2lRawMoves = [];
+    this.#f2lAgainTurns = [];
     this.elapsed.set(0);
     this.state.update((s) => ({
       ...s,
@@ -614,11 +621,7 @@ export class Controller {
 
   /** Route the current cube position back to the selected target for another attempt. */
   againF2lTraining(): void {
-    if (!this.#f2lTarget) return;
-    const target = this.#f2lCase && this.#model
-      ? this.#buildStandardF2lTarget(this.#f2lCase)
-      : this.#f2lTarget;
-    void this.#selectF2lTarget(target);
+    void this.#reloadF2lTraining();
   }
 
   resetF2lTraining(): void {
@@ -658,6 +661,7 @@ export class Controller {
     this.#f2lTracker = null;
     this.#f2lRawMoves = [];
     this.#f2lVirtualPattern = null;
+    this.#f2lAgainTurns = [];
     this.#stopLoop();
     this.elapsed.set(0);
     this.state.update((s) => ({
@@ -675,7 +679,18 @@ export class Controller {
     return buildStandardF2lTarget(this.#model.kpuzzle, f2lCase, base);
   }
 
-  async #selectF2lTarget(target: F2lTrainingTarget): Promise<void> {
+  async #reloadF2lTraining(preserveResult = false): Promise<void> {
+    if (!this.#f2lTarget) return;
+    const target = this.#f2lCase && this.#model
+      ? this.#buildStandardF2lTarget(this.#f2lCase)
+      : this.#f2lTarget;
+    await this.#selectF2lTarget(target, preserveResult);
+  }
+
+  async #selectF2lTarget(
+    target: F2lTrainingTarget,
+    preserveResult = false,
+  ): Promise<void> {
     const model = this.#model;
     if (!model) return;
     const token = ++this.#f2lSelectionToken;
@@ -686,6 +701,7 @@ export class Controller {
     this.#f2lTarget = target;
     this.#f2lTracker = null;
     this.#f2lRawMoves = [];
+    this.#f2lAgainTurns = [];
     this.#f2lVirtualPattern = mode === "virtual" ? target.pattern : null;
     this.elapsed.set(0);
     this.state.update((s) => ({
@@ -700,7 +716,7 @@ export class Controller {
         recovery: null,
         recoveryPending: false,
         liveMoves: [],
-        result: null,
+        result: preserveResult ? s.f2lTraining.result : null,
         displayFacelets: mode === "virtual" || !this.hasCube ? targetFacelets : capturedFacelets,
         displayRevision: s.f2lTraining.displayRevision + 1,
       },
@@ -1277,6 +1293,15 @@ export class Controller {
   #onF2lMove(move: GanCubeMove & { serial: number }): void {
     const training = this.state.get().f2lTraining;
     if (!this.#f2lTarget) return;
+    if (training.phase === "result") {
+      if (
+        training.mode === "setup" &&
+        this.#observeF2lAgainMove(move.move)
+      ) {
+        void this.#reloadF2lTraining();
+      }
+      return;
+    }
     if (training.phase !== "ready" && training.phase !== "solving") return;
     const displayMove = f2lHandMove(
       move.move,
@@ -1329,6 +1354,24 @@ export class Controller {
     ) {
       this.#finishF2lAttempt();
     }
+  }
+
+  #observeF2lAgainMove(move: string): boolean {
+    const parsed = parseFaceMove(move);
+    if (!parsed || parsed.face !== "D" || Math.abs(parsed.amount) !== 1) {
+      this.#f2lAgainTurns = [];
+      return false;
+    }
+    if (this.#f2lAgainTurns[0] && this.#f2lAgainTurns[0] !== move) {
+      this.#f2lAgainTurns = [];
+    }
+    this.#f2lAgainTurns.push(move);
+    if (this.#f2lAgainTurns.length > F2L_AGAIN_GESTURE_TURNS) {
+      this.#f2lAgainTurns.shift();
+    }
+    if (!isF2lAgainGesture(this.#f2lAgainTurns)) return false;
+    this.#f2lAgainTurns = [];
+    return true;
   }
 
   /**
@@ -1551,20 +1594,24 @@ export class Controller {
       target?.info.reference,
     );
     this.elapsed.set(efficiency.elapsedMs);
+    const result: F2lTrainingResult = {
+      moves: efficiency.moves.map(({ move }) => move),
+      stm: efficiency.stm,
+      elapsedMs: efficiency.elapsedMs,
+      referenceStm: efficiency.referenceStm,
+      delta: efficiency.delta,
+    };
     this.state.update((s) => ({
       ...s,
       f2lTraining: {
         ...s.f2lTraining,
         phase: "result",
-        result: {
-          moves: efficiency.moves.map(({ move }) => move),
-          stm: efficiency.stm,
-          elapsedMs: efficiency.elapsedMs,
-          referenceStm: efficiency.referenceStm,
-          delta: efficiency.delta,
-        },
+        result,
       },
     }));
+    if (this.state.get().f2lTraining.mode === "virtual") {
+      void this.#reloadF2lTraining(true);
+    }
   }
 
   /**

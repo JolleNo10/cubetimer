@@ -7,6 +7,23 @@ import { parseMove } from "./notation";
 /** Turns of the same face, in the same direction, that make up the recentre gesture. */
 export const RECENTRE_GESTURE_TURNS = 3;
 
+/** Four turns of the down face, used to repeat a completed F2L setup. */
+export const F2L_AGAIN_GESTURE_TURNS = 4;
+
+function isRepeatedQuarterTurnGesture(
+  moves: readonly string[],
+  face: string,
+  count: number,
+): boolean {
+  if (moves.length < count) return false;
+  const turns = moves.slice(-count).map(parseMove);
+  const first = turns[0];
+  if (!first || first.family !== face || Math.abs(first.amount) !== 1) return false;
+  return turns.every(
+    (turn) => turn?.family === face && turn.amount === first.amount,
+  );
+}
+
 /**
  * Three turns of the top face in the same direction: hold the cube the way you want
  * the screen to show it and turn `U` three times.
@@ -16,11 +33,9 @@ export const RECENTRE_GESTURE_TURNS = 3;
  * setting a scramble up.
  */
 export function isRecentreGesture(moves: readonly string[]): boolean {
-  if (moves.length < RECENTRE_GESTURE_TURNS) return false;
-  const turns = moves.slice(-RECENTRE_GESTURE_TURNS).map(parseMove);
-  const first = turns[0];
-  if (!first || first.family !== "U" || Math.abs(first.amount) !== 1) return false;
-  return turns.every(
-    (turn) => turn?.family === "U" && turn.amount === first.amount,
-  );
+  return isRepeatedQuarterTurnGesture(moves, "U", RECENTRE_GESTURE_TURNS);
+}
+
+export function isF2lAgainGesture(moves: readonly string[]): boolean {
+  return isRepeatedQuarterTurnGesture(moves, "D", F2L_AGAIN_GESTURE_TURNS);
 }

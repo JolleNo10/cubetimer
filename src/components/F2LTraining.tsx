@@ -212,7 +212,7 @@ function SetupPanel({ state }: { state: AppState }) {
         ) : training.phase === "result" ? (
           <div className="training-ready" role="status">
             <strong>Complete</strong>
-            <span className="small faint">Choose Again to repeat this setup.</span>
+            <span className="small faint">Choose Again, or turn D four times, to repeat this setup.</span>
           </div>
         ) : null}
       </div>

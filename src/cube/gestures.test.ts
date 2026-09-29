@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isRecentreGesture } from "./gestures";
+import { isF2lAgainGesture, isRecentreGesture } from "./gestures";
 
 describe("isRecentreGesture", () => {
   it("recognises three turns of the top face", () => {
@@ -31,5 +31,19 @@ describe("isRecentreGesture", () => {
   it("is not something a scramble could ask for", () => {
     // Generated scrambles never turn one face twice in a row.
     expect(isRecentreGesture(["U", "R", "U"])).toBe(false);
+  });
+});
+
+describe("isF2lAgainGesture", () => {
+  it("recognises four same-direction quarter turns of the down face", () => {
+    expect(isF2lAgainGesture(["D", "D", "D", "D"])).toBe(true);
+    expect(isF2lAgainGesture(["D'", "D'", "D'", "D'"])).toBe(true);
+  });
+
+  it("rejects incomplete, mixed, interrupted, and half-turn sequences", () => {
+    expect(isF2lAgainGesture(["D", "D", "D"])).toBe(false);
+    expect(isF2lAgainGesture(["D", "D'", "D", "D"])).toBe(false);
+    expect(isF2lAgainGesture(["D", "R", "D", "D", "D"])).toBe(false);
+    expect(isF2lAgainGesture(["D2", "D2", "D2", "D2"])).toBe(false);
   });
 });
