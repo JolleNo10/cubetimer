@@ -67,8 +67,8 @@ function f2lFocusMask(
     ? resolvedF2lSlot(analysis, nextSlot)
     : undefined;
   if (resolvedNextSlot) {
-    edges[resolvedNextSlot.edge] = "D";
-    corners[resolvedNextSlot.corner] = "D";
+    edges[resolvedNextSlot.edge] = "o";
+    corners[resolvedNextSlot.corner] = "o";
   }
 
   edges[currentSlot.edge] = "-";
