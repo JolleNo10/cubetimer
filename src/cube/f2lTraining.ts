@@ -14,7 +14,14 @@ import {
   mergeSameFaceTurns,
   type TimedMove,
 } from "./notation";
-import { rotationForCrossFace, slotInCubeFrame } from "./orientation";
+import {
+  reorientMove,
+  rotationForCrossFace,
+  rotationForGrip,
+  slotInCubeFrame,
+  type Orientation,
+  type Rotation,
+} from "./orientation";
 import { reframe, withCentresHome } from "./recognise";
 import type { Solve } from "../state/types";
 
@@ -49,6 +56,51 @@ export type F2lTrainingTarget = {
   goal: F2lTrainingGoal;
   pattern: KPattern;
 };
+
+type F2lTrainingFrame = Pick<F2lTrainingTargetInfo, "origin" | "crossFace">;
+
+/** The explicit solver grip for the standard 41-case library: white down, green front. */
+export function standardF2lTrainingRotation(): Rotation {
+  const rotation = rotationForGrip("U", "F");
+  if (!rotation) throw new Error("The standard F2L grip is not a valid cube orientation");
+  return rotation;
+}
+
+/** Resolve the one notation/display frame used by an F2L target. */
+export function f2lTrainingRotation(target: F2lTrainingFrame): Rotation {
+  return target.origin.kind === "standard"
+    ? standardF2lTrainingRotation()
+    : rotationForCrossFace(target.crossFace);
+}
+
+export function f2lTrainingGrip(target: F2lTrainingFrame): Orientation {
+  return f2lTrainingRotation(target).orientation;
+}
+
+/** Translate raw centre-relative cube notation into the user's F2L hand frame. */
+export function f2lHandMove(move: string, grip: Orientation): string {
+  return reorientMove(move, grip);
+}
+
+export function f2lHandMoves(
+  moves: readonly string[],
+  grip: Orientation,
+): string[] {
+  return moves.map((move) => f2lHandMove(move, grip));
+}
+
+export function f2lHandAlgorithm(algorithm: string, grip: Orientation): string {
+  return Array.from(new Alg(algorithm).expand().childAlgNodes())
+    .map((node) => f2lHandMove(node.toString(), grip))
+    .join(" ");
+}
+
+export function f2lHandTimedMoves(
+  moves: readonly TimedMove[],
+  grip: Orientation,
+): TimedMove[] {
+  return moves.map(({ move, t }) => ({ move: f2lHandMove(move, grip), t }));
+}
 
 export type TrainingEfficiency = {
   moves: TimedMove[];
@@ -117,7 +169,7 @@ export function buildStandardF2lTarget(
 ): F2lTrainingTarget {
   const canonical = kpuzzle.defaultPattern().applyAlg(new Alg(f2lCase.setup));
   const crossFace: Face = "U";
-  const rotation = rotationForCrossFace(crossFace);
+  const rotation = standardF2lTrainingRotation();
   const rotationAlg = new Alg(rotation.tokens.join(" "));
   const pattern = reframe(kpuzzle, canonical, rotationAlg.invert());
   const slot = slotInCubeFrame(rotation.orientation, F2L_SLOTS[0].name);

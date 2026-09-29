@@ -25,6 +25,10 @@ import {
   buildExactF2lTarget,
   buildStandardF2lTarget,
   calculateTrainingEfficiency,
+  f2lHandAlgorithm,
+  f2lHandMove,
+  f2lHandTimedMoves,
+  f2lTrainingGrip,
   isF2lTrainingComplete,
   type F2lTrainingTarget,
   type F2lTrainingTargetInfo,
@@ -688,9 +692,13 @@ export class Controller {
       }
       const tracker = new ScrambleTracker(model.kpuzzle, setup.toString(), captured);
       this.#f2lTracker = tracker;
+      const grip = f2lTrainingGrip(target.info);
       this.state.update((s) => ({
         ...s,
-        f2lTraining: { ...s.f2lTraining, setup: tracker.moves.join(" ") },
+        f2lTraining: {
+          ...s.f2lTraining,
+          setup: tracker.moves.map((move) => f2lHandMove(move, grip)).join(" "),
+        },
       }));
       this.#updateF2lProgress();
     } catch (error) {
@@ -1222,6 +1230,10 @@ export class Controller {
     const training = this.state.get().f2lTraining;
     if (!this.#f2lTarget) return;
     if (training.phase !== "ready" && training.phase !== "solving") return;
+    const displayMove = f2lHandMove(
+      move.move,
+      f2lTrainingGrip(this.#f2lTarget.info),
+    );
 
     if (training.mode === "virtual") {
       if (!this.#f2lVirtualPattern) return;
@@ -1244,7 +1256,7 @@ export class Controller {
         f2lTraining: {
           ...s.f2lTraining,
           phase: "solving",
-          liveMoves: [move.move],
+          liveMoves: [displayMove],
           result: null,
         },
       }));
@@ -1255,7 +1267,7 @@ export class Controller {
         ...s,
         f2lTraining: {
           ...s.f2lTraining,
-          liveMoves: [...s.f2lTraining.liveMoves, move.move],
+          liveMoves: [...s.f2lTraining.liveMoves, displayMove],
         },
       }));
     }
@@ -1400,9 +1412,11 @@ export class Controller {
   async #computeF2lRecovery(): Promise<void> {
     const model = this.#model;
     const tracker = this.#f2lTracker;
+    const target = this.#f2lTarget;
     if (
       !model ||
       !tracker ||
+      !target ||
       this.state.get().area !== "f2l"
     ) {
       return;
@@ -1413,8 +1427,12 @@ export class Controller {
       f2lTraining: { ...s.f2lTraining, recoveryPending: true },
     }));
     try {
-      const recovery = await this.#calculateRecovery(model.pattern, tracker);
+      const rawRecovery = await this.#calculateRecovery(model.pattern, tracker);
       if (token !== this.#recoveryToken) return;
+      const recovery = {
+        ...rawRecovery,
+        alg: f2lHandAlgorithm(rawRecovery.alg, f2lTrainingGrip(target.info)),
+      };
       this.state.update((s) => ({
         ...s,
         f2lTraining: { ...s.f2lTraining, recovery },
@@ -1476,9 +1494,13 @@ export class Controller {
       move: move.move,
       t: offsets[index] ?? 0,
     }));
+    const target = this.#f2lTarget;
+    const handTimed = target
+      ? f2lHandTimedMoves(timed, f2lTrainingGrip(target.info))
+      : timed;
     const efficiency = calculateTrainingEfficiency(
-      timed,
-      this.#f2lTarget?.info.reference,
+      handTimed,
+      target?.info.reference,
     );
     this.elapsed.set(efficiency.elapsedMs);
     this.state.update((s) => ({

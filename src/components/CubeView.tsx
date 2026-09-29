@@ -46,6 +46,8 @@ type Props = {
   displayRevision?: number;
   /** Identifies whether incoming move/reset events belong to the displayed pattern. */
   displaySource?: "physical" | "virtual";
+  /** Whether a Sync action can read a physical cube; defaults to the live source. */
+  physicalSyncAvailable?: boolean;
   /** Explicit grip for training views; it overrides settings and gyro orientation. */
   orientationOverride?: Orientation;
 };
@@ -59,6 +61,7 @@ export function CubeView({
   displayFacelets,
   displayRevision = 0,
   displaySource = "physical",
+  physicalSyncAvailable,
   orientationOverride,
 }: Props) {
   const controller = useController();
@@ -274,7 +277,7 @@ export function CubeView({
               Centre view
             </button>
           ) : null}
-          {live ? (
+          {(physicalSyncAvailable ?? live) ? (
             <button className="ghost small" onClick={() => void controller.syncFromCube()}>
               Sync
             </button>

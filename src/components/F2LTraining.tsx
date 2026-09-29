@@ -2,7 +2,7 @@ import { useMemo } from "react";
 import { useController, useStore } from "../hooks/useController";
 import { F2L_CASES } from "../cube/f2lCases";
 import { faceColour, slotColours } from "../cube/colours";
-import { rotationForCrossFace } from "../cube/orientation";
+import { f2lTrainingGrip } from "../cube/f2lTraining";
 import { formatTime } from "../state/stats";
 import type { AppState } from "../state/controller";
 import { ConnectionPanel } from "./ConnectionPanel";
@@ -16,10 +16,10 @@ export function F2LTraining({ state }: { state: AppState }) {
   const training = state.f2lTraining;
   const target = training.target;
   const physicalLive = state.cubeStatus === "connected" || state.virtualCube;
-  const live = training.mode === "virtual" ? Boolean(target) : physicalLive;
+  const displayLive = training.mode === "virtual" ? Boolean(target) : physicalLive;
   const orientationOverride = useMemo(
-    () => (target ? rotationForCrossFace(target.crossFace).orientation : undefined),
-    [target?.crossFace],
+    () => (target ? f2lTrainingGrip(target) : undefined),
+    [target],
   );
 
   return (
@@ -74,12 +74,13 @@ export function F2LTraining({ state }: { state: AppState }) {
             settings={state.settings}
             facelets={state.cubeFacelets}
             gyroSupported={state.hardware?.gyroSupported ?? false}
-            live={live}
+            live={displayLive}
             scramble=""
             displayFacelets={training.displayFacelets || state.cubeFacelets}
             displayRevision={training.displayRevision}
             displaySource={training.mode === "virtual" ? "virtual" : "physical"}
             orientationOverride={orientationOverride}
+            physicalSyncAvailable={state.cubeStatus === "connected"}
           />
         </div>
       </div>
@@ -142,7 +143,7 @@ function SetupPanel({ state }: { state: AppState }) {
           ) : training.phase === "solving" ? (
             <div className="training-solving" role="status">
               <strong>Solving</strong>
-              <span className="mono">{training.liveMoves.length} raw turns</span>
+              <span className="mono">{training.liveMoves.length} turns</span>
             </div>
           ) : (
             <div className="training-ready" role="status">
@@ -206,7 +207,7 @@ function SetupPanel({ state }: { state: AppState }) {
         ) : training.phase === "solving" ? (
           <div className="training-solving" role="status">
             <strong>Solving</strong>
-            <span className="mono">{training.liveMoves.length} raw turns</span>
+            <span className="mono">{training.liveMoves.length} turns</span>
           </div>
         ) : training.phase === "result" ? (
           <div className="training-ready" role="status">

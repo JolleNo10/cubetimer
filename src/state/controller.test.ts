@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
-import { invert, reorientMove, rotationForCrossFace } from "../cube/orientation";
+import { invert, reorientMove } from "../cube/orientation";
 import { F2L_CASES } from "../cube/f2lCases";
-import { buildStandardF2lTarget } from "../cube/f2lTraining";
+import { buildStandardF2lTarget, f2lTrainingGrip } from "../cube/f2lTraining";
 import { CubeModel, patternToFacelets } from "../cube/model";
 import { get3x3x3 } from "../cube/puzzle";
 import { Controller } from "./controller";
@@ -58,9 +58,9 @@ describe("Controller application-area ownership", () => {
       patternToFacelets(target.pattern),
     );
 
-    const rotation = rotationForCrossFace(target.info.crossFace);
+    const grip = f2lTrainingGrip(target.info);
     const cubeMoves = Array.from(new Alg(F2L_CASES[0].alg).expand().childAlgNodes()).map(
-      (node) => reorientMove(node.toString(), invert(rotation.orientation)),
+      (node) => reorientMove(node.toString(), invert(grip)),
     );
     const physicalAfter = physicalStart.applyAlg(new Alg(cubeMoves.join(" ")));
     for (const move of cubeMoves) controller.injectMove(move);
@@ -70,6 +70,9 @@ describe("Controller application-area ownership", () => {
     expect(patternToFacelets(controller.pattern!)).toBe(patternToFacelets(physicalAfter));
     expect(controller.state.get().f2lTraining.displayFacelets).toBe(
       patternToFacelets(target.pattern.applyAlg(new Alg(cubeMoves.join(" ")))),
+    );
+    expect(controller.state.get().f2lTraining.result?.moves).toEqual(
+      Array.from(new Alg(F2L_CASES[0].alg).expand().childAlgNodes()).map((node) => node.toString()),
     );
 
     const physicalResult = patternToFacelets(controller.pattern!);

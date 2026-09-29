@@ -2,6 +2,15 @@
 
 ## 2026-09-29
 
+- What happened: F2L setup and result notation could expose raw smart-cube faces even
+  though the training cube was held in the white-bottom, green-front solver grip.
+- Root cause: raw physical/virtual cube coordinates and user-facing F2L notation were
+  allowed to share one representation at the controller/UI boundary.
+- Prevention: keep trackers and patterns raw, and translate only F2L-facing notation
+  through the shared training-grip helper; use that same grip for CubeView input/display.
+
+## 2026-09-29
+
 - What happened: the first 2D training-orientation assertion expected a solver-frame reframe to move white stickers to the displayed bottom face.
 - Root cause: `reframe()` changes cube-coordinate interpretation for solving, while the visual net needs a physical whole-cube rotation so sticker colours move with the rendered cube.
 - Prevention: distinguish solver-frame transformations from display rotations; use the existing rotation tokens with `KPattern.applyAlg()` for visual facelet output.

@@ -7,13 +7,18 @@ import {
   buildExactF2lTarget,
   buildStandardF2lTarget,
   calculateTrainingEfficiency,
+  f2lHandAlgorithm,
+  f2lHandMoves,
+  f2lHandTimedMoves,
   isF2lTrainingComplete,
   reconstructF2lStepStart,
+  standardF2lTrainingRotation,
 } from "./f2lTraining";
 import { get3x3x3 } from "./puzzle";
 import { algBetween } from "./solver";
-import { rotationForCrossFace, slotInCubeFrame } from "./orientation";
+import { reorientMove, slotInCubeFrame } from "./orientation";
 import { reframe } from "./recognise";
+import { ScrambleTracker } from "./scramble";
 import type { Solve } from "../state/types";
 
 const kpuzzle = await get3x3x3();
@@ -26,9 +31,14 @@ function flipFacelets(facelets: string, a: number, b: number): string {
 
 describe("F2L training targets", () => {
   it("builds every standard case with a valid reference solution", () => {
-    const rotation = rotationForCrossFace("U");
+    const rotation = standardF2lTrainingRotation();
     const rotationAlg = new Alg(rotation.tokens.join(" "));
     expect(rotation.orientation.U).toBe("D");
+    expect(rotation.orientation.D).toBe("U");
+    expect(rotation.orientation.R).toBe("L");
+    expect(rotation.orientation.L).toBe("R");
+    expect(rotation.orientation.F).toBe("F");
+    expect(rotation.orientation.B).toBe("B");
 
     for (const f2lCase of F2L_CASES) {
       const target = buildStandardF2lTarget(kpuzzle, f2lCase);
@@ -48,6 +58,24 @@ describe("F2L training targets", () => {
       ).toBe(true);
       expect(target.info.reference?.alg).toBe(f2lCase.alg);
     }
+  });
+
+  it("translates raw cube moves into the explicit white-bottom green-front grip", () => {
+    const grip = standardF2lTrainingRotation().orientation;
+    expect(f2lHandMoves(["L", "L'", "L2", "R", "D", "D'", "D2", "U", "F", "B"], grip))
+      .toEqual(["R", "R'", "R2", "L", "U", "U'", "U2", "D", "F", "B"]);
+    expect(f2lHandAlgorithm("D' L", grip)).toBe("U' R");
+    expect(reorientMove("L", grip)).toBe("R");
+  });
+
+  it("keeps setup tracking raw while presenting the setup in hand notation", () => {
+    const raw = new ScrambleTracker(kpuzzle, "L D L'");
+    const grip = standardF2lTrainingRotation().orientation;
+    expect(raw.moves).toEqual(["L", "D", "L'"]);
+    expect(f2lHandMoves(raw.moves, grip)).toEqual(["R", "U", "R'"]);
+    expect(patternToFacelets(raw.targetPattern)).toBe(
+      patternToFacelets(kpuzzle.defaultPattern().applyAlg(new Alg("L D L'"))),
+    );
   });
 
   it("reconstructs an exact F2L step start from raw cube moves", () => {
@@ -112,7 +140,7 @@ describe("F2L training targets", () => {
 
   it("requires the cross and previously solved slots to stay solved", () => {
     const target = buildStandardF2lTarget(kpuzzle, F2L_CASES[0]);
-    const rotation = rotationForCrossFace(target.info.crossFace);
+    const rotation = standardF2lTrainingRotation();
     const rotationAlg = new Alg(rotation.tokens.join(" "));
     const solved = reframe(
       kpuzzle,
@@ -170,7 +198,20 @@ describe("F2L training targets", () => {
   });
 
   it("uses merged smart-cube turns for STM and reference deltas", () => {
+    const grip = standardF2lTrainingRotation().orientation;
     const result = calculateTrainingEfficiency(
+      f2lHandTimedMoves([
+        { move: "L", t: 10 },
+        { move: "D", t: 100 },
+        { move: "L'", t: 900 },
+      ], grip),
+      { alg: "R U R'", stm: 3 },
+    );
+    expect(result.moves.map(({ move }) => move)).toEqual(["R", "U", "R'"]);
+    expect(result.stm).toBe(3);
+    expect(result.delta).toBe(0);
+
+    const merged = calculateTrainingEfficiency(
       [
         { move: "U", t: 10 },
         { move: "U", t: 100 },
@@ -178,8 +219,8 @@ describe("F2L training targets", () => {
       ],
       { alg: "U2 R", stm: 2 },
     );
-    expect(result.moves.map(({ move }) => move)).toEqual(["U2", "R"]);
-    expect(result.stm).toBe(2);
-    expect(result.delta).toBe(0);
+    expect(merged.moves.map(({ move }) => move)).toEqual(["U2", "R"]);
+    expect(merged.stm).toBe(2);
+    expect(merged.delta).toBe(0);
   });
 });
