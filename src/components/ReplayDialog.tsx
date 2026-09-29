@@ -4,7 +4,7 @@ import { TwistyPlayer } from "cubing/twisty";
 import { reorientMove, rotationForCrossFace } from "../cube/orientation";
 import { decodeGripTrack, rewriteWithRotations } from "../cube/gripTrack";
 import { formatTime } from "../state/stats";
-import { StepBreakdown, stepAt } from "./StepBreakdown";
+import { DetailedStepBreakdown, stepAt } from "./StepBreakdown";
 import { effectiveMs, type Solve } from "../state/types";
 
 const SPEEDS = [0.25, 0.5, 1, 2];
@@ -160,7 +160,7 @@ export function ReplayDialog({
   return (
     <div className="backdrop" onClick={onClose}>
       <div
-        className="dialog wide"
+        className="dialog wide replay-dialog"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -261,11 +261,9 @@ export function ReplayDialog({
               <div className="panel-title" style={{ marginBottom: 8 }}>
                 Breakdown
               </div>
-              <StepBreakdown
+              <DetailedStepBreakdown
                 analysis={solve.analysis}
                 activeStep={activeStep}
-                position={index}
-                showDetail={false}
                 // Jumping to a step means the state it started from: click F2L Slot 1
                 // and the cross is done with the first pair still to come.
                 onSelectStep={(step) => {

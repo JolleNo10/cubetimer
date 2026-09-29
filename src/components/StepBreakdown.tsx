@@ -468,3 +468,41 @@ export function StepBreakdown({
     </>
   );
 }
+
+export function DetailedStepBreakdown({
+  analysis,
+  activeStep,
+  onSelectStep,
+}: {
+  analysis: SolveAnalysis;
+  activeStep?: number;
+  onSelectStep?: (step: SolveStep) => void;
+}) {
+  return (
+    <div className="detailed-breakdown">
+      <div className="detailed-breakdown-grid">
+        <div className="detailed-step-heading" aria-hidden="true">
+          <span>Step</span>
+          <span>Total</span>
+          <span>Cumulative</span>
+          <span>Recognition</span>
+          <span>Execution</span>
+          <span>Moves</span>
+          <span>TPS</span>
+        </div>
+        <StepBreakdown
+          analysis={analysis}
+          activeStep={activeStep}
+          onSelectStep={onSelectStep}
+          showMoves
+          showFullSolution={false}
+          showDetail={false}
+          showCumulativeTime
+          showSplitTimes
+          showTimeScale
+          showMoveGraph={false}
+        />
+      </div>
+    </div>
+  );
+}

@@ -47,10 +47,43 @@ await page.locator(".solve-result").getByRole("button", { name: "Replay", exact:
 await page.waitForTimeout(900);
 
 const dialog = page.locator(".dialog");
-check("the replay shows the breakdown", await dialog.locator(".replay-steps .phase-row").count() === 7);
+const replayBreakdown = dialog.locator(".replay-steps .detailed-breakdown");
+const replayRows = replayBreakdown.locator(".phase-row");
+check("the replay shows the breakdown", await replayRows.count() === 7);
+const replayHeading = (await replayBreakdown.locator(".detailed-step-heading").innerText()).trim();
+check(
+  "the replay has the detailed breakdown headings",
+  ["step", "total", "cumulative", "recognition", "execution", "moves", "tps"].every((heading) => replayHeading.toLowerCase().includes(heading)),
+  replayHeading,
+);
+check("the replay has seven cumulative values", await replayBreakdown.locator(".cumulative-value").count() === 7);
+check("the replay has recognition and execution split values",
+      (await replayBreakdown.locator(".recognition-value").allInnerTexts()).some((value) => value.trim() !== "—")
+        && (await replayBreakdown.locator(".execution-value").allInnerTexts()).some((value) => value.trim() !== "—"));
+check("the replay has one shared time axis", await replayBreakdown.locator(".phase-time-axis").count() === 1);
+const replayAxis = replayBreakdown.locator(".phase-time-axis");
+const replayAxisScale = await replayAxis.evaluate((axis) => ({
+  scaleMaxMs: axis.dataset.scaleMaxMs,
+  tickMs: axis.dataset.tickMs,
+}));
+const replayGuides = replayBreakdown.locator(".phase-time-guides");
+const replayGuideScales = await replayGuides.evaluateAll((guides) => new Set(
+  guides.map((guide) => `${guide.dataset.scaleMaxMs}/${guide.dataset.tickMs}`),
+).size);
+const replayGuidesMatchAxis = await replayGuides.evaluateAll((guides, expectedScale) => guides.length === 7
+  && guides.every((guide) => guide.dataset.scaleMaxMs === expectedScale.scaleMaxMs
+    && guide.dataset.tickMs === expectedScale.tickMs), replayAxisScale);
+check("all replay bars share one time scale", await replayGuides.count() === 7 && replayGuideScales === 1);
+check("replay bars use the axis time scale", replayGuidesMatchAxis, JSON.stringify(replayAxisScale));
+check("the replay includes step move solutions",
+      await replayBreakdown.locator(".phase-moves").count() > 0
+        && (await replayBreakdown.locator(".phase-moves").allInnerTexts()).some((moves) => moves.trim().length > 0));
+check("the replay has no legacy move histogram",
+      await replayBreakdown.locator('svg[aria-label="Time taken by each move"]').count() === 0);
+check("the replay has no full-solution block", await replayBreakdown.locator(".solution").count() === 0);
 check("the first step is highlighted to begin with",
-      (await dialog.locator(".phase-row.active .phase-name").innerText()).length > 0,
-      await dialog.locator(".phase-row.active .phase-name").innerText());
+      (await replayBreakdown.locator(".phase-row.active .phase-name").innerText()).length > 0,
+      await replayBreakdown.locator(".phase-row.active .phase-name").innerText());
 
 const position = () => dialog.locator(".row.small .dim").first().innerText();
 const clock = () => dialog.locator(".row .mono.small").first().innerText();
@@ -58,7 +91,7 @@ const clock = () => dialog.locator(".row .mono.small").first().innerText();
 // Clicking a step must land on the moment it began.
 let lastIndex = -1;
 for (const [i, expected] of startTimes.entries()) {
-  const row = dialog.locator(".replay-steps .phase-row").nth(i);
+  const row = replayRows.nth(i);
   const name = (await row.locator(".phase-name").innerText()).trim();
   await row.click();
   await page.waitForTimeout(450);
@@ -75,10 +108,25 @@ for (const [i, expected] of startTimes.entries()) {
   lastIndex = index;
 
   if (durations[i] > 0) {
-    const active = (await dialog.locator(".phase-row.active .phase-name").innerText()).trim();
+    const active = (await replayBreakdown.locator(".phase-row.active .phase-name").innerText()).trim();
     check(`  ${name} is then the current step`, active === name, `highlighted: ${active}`);
   }
 }
+
+await page.setViewportSize({ width: 520, height: 1000 });
+const narrowReplayLayout = await dialog.evaluate((element) => {
+  const body = element.querySelector(".replay-body");
+  const breakdown = element.querySelector(".detailed-breakdown");
+  return {
+    bodyClientWidth: body?.clientWidth ?? 0,
+    bodyScrollWidth: body?.scrollWidth ?? 0,
+    breakdownClientWidth: breakdown?.clientWidth ?? 0,
+    breakdownScrollWidth: breakdown?.scrollWidth ?? 0,
+  };
+});
+check("narrow replay contains breakdown overflow", narrowReplayLayout.breakdownScrollWidth > narrowReplayLayout.breakdownClientWidth);
+check("narrow replay body avoids horizontal overflow", narrowReplayLayout.bodyScrollWidth <= narrowReplayLayout.bodyClientWidth + 1,
+      JSON.stringify(narrowReplayLayout));
 
 await page.screenshot({ path: "/tmp/replay.png" });
 check("no console or page errors", problems.length === 0, problems.join(" | "));

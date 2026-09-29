@@ -1,5 +1,5 @@
 import { SolveComparisonPanel } from "./SolveComparison";
-import { StepBreakdown } from "./StepBreakdown";
+import { DetailedStepBreakdown } from "./StepBreakdown";
 import { useController } from "../hooks/useController";
 import {
   practiceScrambleLabel,
@@ -155,29 +155,7 @@ export function SolveResult({
               </div>
             ) : null}
 
-            <div className="result-breakdown">
-              <div className="result-breakdown-grid">
-                <div className="result-step-heading" aria-hidden="true">
-                  <span>Step</span>
-                  <span>Total</span>
-                  <span>Cumulative</span>
-                  <span>Recognition</span>
-                  <span>Execution</span>
-                  <span>Moves</span>
-                  <span>TPS</span>
-                </div>
-                <StepBreakdown
-                  analysis={analysis}
-                  showMoves
-                  showFullSolution={false}
-                  showDetail={false}
-                  showCumulativeTime
-                  showSplitTimes
-                  showTimeScale
-                  showMoveGraph={false}
-                />
-              </div>
-            </div>
+            <DetailedStepBreakdown analysis={analysis} />
             <SolveComparisonPanel comparison={comparison} />
             <p className="result-note">
               Recognition is inferred from move timing; cross planning before the first turn is not measured.

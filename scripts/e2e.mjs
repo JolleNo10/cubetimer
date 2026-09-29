@@ -104,7 +104,7 @@ check("recognition label is explicit", (await result.innerText()).includes("Meas
 check("move and TPS information is present", (await result.innerText()).includes("Moves / STM") && (await result.innerText()).includes("TPS"));
 const cumulativeValues = await result.locator(".cumulative-value").allInnerTexts();
 const cumulativeSeconds = cumulativeValues.map(Number);
-const cumulativeHeading = (await result.locator(".result-step-heading").textContent()) ?? "";
+const cumulativeHeading = (await result.locator(".detailed-step-heading").textContent()) ?? "";
 check("Result includes a cumulative heading", cumulativeHeading.includes("Cumulative"));
 check("all seven Result rows include cumulative time", cumulativeValues.length === 7 && cumulativeSeconds.every(Number.isFinite));
 check("cumulative times never decrease", cumulativeSeconds.every((value, index) => index === 0 || value >= cumulativeSeconds[index - 1]), cumulativeValues.join(", "));
@@ -149,7 +149,7 @@ const narrowResultLayout = await result.evaluate((element) => {
   const axis = element.querySelector(".phase-time-axis")?.getBoundingClientRect();
   const bars = Array.from(element.querySelectorAll(".phase-row .phase-bar"), (bar) => bar.getBoundingClientRect());
   const body = element.querySelector(".solve-result-body");
-  const breakdown = element.querySelector(".result-breakdown");
+  const breakdown = element.querySelector(".detailed-breakdown");
   return {
     axisWidth: axis?.width ?? 0,
     axisLeft: axis?.left ?? 0,
