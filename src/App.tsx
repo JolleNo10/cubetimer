@@ -3,6 +3,7 @@ import { AnalyticsDialog } from "./components/AnalyticsDialog";
 import { CoachPanel } from "./components/CoachPanel";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { CubeView } from "./components/CubeView";
+import { F2LTraining } from "./components/F2LTraining";
 import { Header } from "./components/Header";
 import { ReplayDialog } from "./components/ReplayDialog";
 import { ScramblePanel } from "./components/ScramblePanel";
@@ -61,6 +62,14 @@ export function App() {
       setSelectedId(null);
     }
   }, [selectedId, state.solves]);
+
+  useEffect(() => {
+    if (state.area !== "timer") {
+      setResultSolveId(null);
+      setReplaySolve(null);
+      setAnalyseSolve(null);
+    }
+  }, [state.area]);
 
   useEffect(() => {
     document.documentElement.dataset.theme = state.settings.theme;
@@ -199,7 +208,7 @@ export function App() {
     <div className="app">
       <Header state={state} onOpenSettings={() => setSettingsOpen(true)} />
 
-      <div className="app-body">
+      {state.area === "f2l" ? <F2LTraining state={state} /> : <div className="app-body">
         <div className="column left">
           <ConnectionPanel state={state} />
           <SolveList
@@ -239,6 +248,12 @@ export function App() {
                 onContinue={() => setResultSolveId(null)}
                 onReplay={setReplaySolve}
                 onAnalyse={setAnalyseSolve}
+                onPracticeStep={(step) => {
+                  void controller.practiceF2lStep(resultSolve, step);
+                  setResultSolveId(null);
+                  setReplaySolve(null);
+                  setAnalyseSolve(null);
+                }}
               />
             ) : (
               <>
@@ -264,7 +279,7 @@ export function App() {
         <div className="column right">
           <StatsPanel solves={state.solves} />
         </div>
-      </div>
+      </div>}
 
       {settingsOpen ? (
         <SettingsDialog settings={state.settings} onClose={() => setSettingsOpen(false)} />

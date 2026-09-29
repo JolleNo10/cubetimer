@@ -79,6 +79,14 @@ for the cube protocols.
 - The standard algorithm for the OLL and PLL case you had, to compare yours against.
 - A solver's solution to the whole scramble, as a yardstick for the move count.
 
+**F2L Training**
+- A separate top-level area for all 41 existing F2L cases, with setup guidance from the
+  cube's current state and live smart-cube progress.
+- Practice an exact non-skipped F2L step from solve review, preserving its historical
+  cube state and slot without adding the attempt to timer history or statistics.
+- Results focus on STM against the case/reference algorithm; elapsed time remains a
+  secondary measure.
+
 **After the solve**
 - CFOP breakdown: time, moves and TPS for the cross, each F2L pair, OLL and PLL, split
   into recognition and execution, plus a per-move time graph and a list of pauses.
@@ -272,6 +280,7 @@ src/
     crossPlans Every cross within a few moves of the shortest, and the XCrosses in them
     f2lCases   The 41 F2L cases: the setup that makes each one, and the algorithm for it
     f2l        Which case is in each slot, and the moves for it in the grip you hold
+    f2lTraining Target goals, exact solve-step reconstruction and training metrics
     optimise   Searching for a shorter way to have done a step
     recognise  Naming the OLL and PLL case a solver faced
     solver     Shortest sequence between two states
@@ -289,7 +298,8 @@ scripts/
 The controller owns all the logic and lives outside React. Move events arrive up to
 about twenty times a second and the clock updates every frame, so those are published
 through narrow stores that only the affected components subscribe to — turning the cube
-never re-renders the page.
+never re-renders the page. The controller also owns the top-level Timer/F2L Training
+area, so training turns cannot enter the normal timer state machine or solve history.
 
 `src/cube` is deliberately free of UI and Bluetooth concerns, which is what makes it
 testable: the analyser is checked against solves built backwards from a solved cube, and

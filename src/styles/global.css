@@ -203,6 +203,29 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 
 .header-spacer { flex: 1; }
 
+.area-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+}
+.area-switch button {
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-dim);
+  padding: 5px 9px;
+  font-size: 12px;
+}
+.area-switch button.active {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 650;
+}
+
 .chip {
   display: inline-flex;
   align-items: center;
@@ -238,6 +261,36 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 }
 
 .stage > .solve-result { grid-row: 1 / -1; }
+
+/* ----------------------------------------------------------- F2L training */
+.f2l-training-layout { grid-template-columns: minmax(250px, 290px) minmax(0, 1fr) minmax(300px, 380px); }
+.f2l-library { flex: 1; min-height: 0; }
+.f2l-library .panel-body { overflow: auto; }
+.f2l-group + .f2l-group { margin-top: 18px; }
+.f2l-case-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; margin-top: 7px; }
+.f2l-case-button { padding: 6px 4px; font-family: var(--mono); font-size: 11px; }
+.f2l-case-button.selected { border-color: var(--accent); color: var(--accent); background: color-mix(in oklab, var(--accent) 12%, transparent); }
+.f2l-stage { min-height: 0; }
+.f2l-setup-moves { line-height: 1.8; }
+.f2l-setup-panel .panel-body { min-height: 128px; }
+.training-ready, .training-solving { display: flex; align-items: baseline; gap: 10px; }
+.training-ready strong, .training-solving strong { color: var(--accent); }
+.training-solving strong { color: var(--amber); }
+.f2l-target-title { display: flex; align-items: center; gap: 8px; font-size: 18px; }
+.f2l-origin { margin-top: 4px; }
+.f2l-target-facts { display: grid; gap: 5px; margin-top: 16px; color: var(--text-dim); font-size: 12px; }
+.f2l-target-facts b { color: var(--text); font-weight: 600; }
+.f2l-reference { margin-top: 18px; padding: 11px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); }
+.f2l-reference-alg { margin-top: 6px; color: var(--text); line-height: 1.7; word-break: break-word; }
+.f2l-result-card { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.f2l-result-stm { margin-top: 3px; font-size: 30px; font-weight: 700; }
+.f2l-delta { color: var(--amber); font-family: var(--mono); font-size: 12px; }
+.f2l-delta.good { color: var(--accent); }
+.f2l-result-moves { margin-top: 10px; color: var(--text-dim); line-height: 1.7; word-break: break-word; }
+.f2l-live-metric { display: flex; align-items: baseline; gap: 8px; margin-top: 18px; }
+.f2l-live-metric strong { font-size: 24px; }
+.f2l-actions { margin-top: 18px; }
+.phase-practice { margin-left: auto; padding: 2px 6px; color: var(--accent); }
 .solve-result { min-height: 0; overflow: hidden; }
 .result-head {
   display: flex;
@@ -840,6 +893,8 @@ button.icon { display: inline-grid; place-items: center; padding: 8px; }
   .column > .panel { flex: none; }
   .column.left { grid-column: 1 / -1; order: 3; }
   .stage { min-height: 460px; }
+  .f2l-training-layout { grid-template-columns: minmax(0, 1fr) minmax(280px, 330px); }
+  .f2l-training-layout .column.left { grid-column: 1 / -1; }
 }
 
 @media (max-width: 820px) {
@@ -847,6 +902,9 @@ button.icon { display: inline-grid; place-items: center; padding: 8px; }
   .column.right { order: 2; }
   .column.left { order: 3; }
   .stage { min-height: 400px; }
+  .f2l-training-layout { grid-template-columns: minmax(0, 1fr); }
+  .f2l-training-layout .column.right { order: 2; }
+  .f2l-training-layout .column.left { order: 3; }
   .timer-value { font-size: clamp(48px, 16vw, 84px); }
   .header { flex-wrap: wrap; }
 }

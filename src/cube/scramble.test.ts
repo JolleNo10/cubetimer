@@ -61,4 +61,18 @@ describe("ScrambleTracker", () => {
     expect(off.onTrack).toBe(false);
     expect(off.index).toBe(2); // holds the last known position
   });
+
+  it("can follow a relative sequence from an arbitrary starting pattern", () => {
+    const start = after("R U");
+    const t = new ScrambleTracker(kpuzzle, "F2 R'", start);
+
+    expect(t.update(start)).toMatchObject({ index: 0, onTrack: true, done: false });
+    expect(t.update(start.applyAlg(new Alg("F2 R'")))).toMatchObject({
+      index: 2,
+      onTrack: true,
+      done: true,
+      nextMove: null,
+    });
+    expect(t.targetPattern).toEqual(start.applyAlg(new Alg("F2 R'")));
+  });
 });

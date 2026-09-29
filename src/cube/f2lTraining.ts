@@ -1,0 +1,247 @@
+import { Alg } from "cubing/alg";
+import type { KPattern, KPuzzle } from "cubing/kpuzzle";
+import { type SolveStep } from "./analysis";
+import { faceletsToPattern } from "./facelets";
+import { F2L_SLOTS, planF2l } from "./f2l";
+import { type F2lCase } from "./f2lCases";
+import {
+  EDGES_OF_FACE,
+  f2lSlotsForCrossFace,
+  type Face,
+} from "./moves";
+import {
+  countTurns,
+  mergeSameFaceTurns,
+  type TimedMove,
+} from "./notation";
+import { rotationForCrossFace, slotInCubeFrame } from "./orientation";
+import { reframe, withCentresHome } from "./recognise";
+import type { Solve } from "../state/types";
+
+export type F2lTrainingOrigin =
+  | { kind: "standard"; caseName: string; group: string }
+  | { kind: "solve-step"; solveId: string; stepName: string; slot: string };
+
+export type F2lReference = {
+  source: "standard-case";
+  alg: string;
+  stm: number;
+  caseName?: string;
+  group?: string;
+};
+
+export type F2lTrainingTargetInfo = {
+  origin: F2lTrainingOrigin;
+  crossFace: Face;
+  slot: string;
+  protectedSlots: string[];
+  reference: F2lReference | null;
+  /** Used only for a no-cube preview of a standard target. */
+  previewAlg?: string;
+};
+
+export type F2lTrainingGoal = {
+  crossFace: Face;
+  targetSlot: string;
+  protectedSlots: string[];
+};
+
+export type F2lTrainingTarget = {
+  info: F2lTrainingTargetInfo;
+  goal: F2lTrainingGoal;
+  pattern: KPattern;
+};
+
+export type TrainingEfficiency = {
+  moves: TimedMove[];
+  stm: number;
+  referenceStm: number | null;
+  delta: number | null;
+  elapsedMs: number;
+};
+
+function slotSolved(pattern: KPattern, slot: { corner: number; edge: number }): boolean {
+  const { CORNERS, EDGES } = pattern.patternData;
+  return (
+    CORNERS.pieces[slot.corner] === slot.corner &&
+    CORNERS.orientation[slot.corner] === 0 &&
+    EDGES.pieces[slot.edge] === slot.edge &&
+    EDGES.orientation[slot.edge] === 0
+  );
+}
+
+function crossSolved(pattern: KPattern, crossFace: Face): boolean {
+  const edges = pattern.patternData.EDGES;
+  return EDGES_OF_FACE[crossFace].every(
+    (edge) => edges.pieces[edge] === edge && edges.orientation[edge] === 0,
+  );
+}
+
+function metricToken(move: string): string {
+  // SpeedCubeDB uses lower-case wide turns in a few primary algorithms. They are one
+  // deliberate turn for STM, just like the upper-case move a smart cube reports.
+  return move.replace(/^[urfdlb]/, (face) => face.toUpperCase());
+}
+
+function algorithmStm(alg: string): number {
+  const moves = Array.from(new Alg(alg).expand().childAlgNodes()).map((node) =>
+    metricToken(node.toString()),
+  );
+  return countTurns(moves).sliceTurns;
+}
+
+function referenceForCase(f2lCase: F2lCase): F2lReference {
+  return {
+    source: "standard-case",
+    alg: f2lCase.alg,
+    stm: algorithmStm(f2lCase.alg),
+    caseName: f2lCase.name,
+    group: f2lCase.group,
+  };
+}
+
+function goalFor(pattern: KPattern, crossFace: Face, targetSlot: string): F2lTrainingGoal {
+  const slots = f2lSlotsForCrossFace(crossFace);
+  const target = slots.find((slot) => slot.name === targetSlot);
+  if (!target) throw new Error(`Unknown F2L slot ${targetSlot} for cross ${crossFace}`);
+  return {
+    crossFace,
+    targetSlot,
+    protectedSlots: slots
+      .filter((slot) => slot.name !== targetSlot && slotSolved(pattern, slot))
+      .map((slot) => slot.name),
+  };
+}
+
+export function buildStandardF2lTarget(
+  kpuzzle: KPuzzle,
+  f2lCase: F2lCase,
+): F2lTrainingTarget {
+  const pattern = kpuzzle.defaultPattern().applyAlg(new Alg(f2lCase.setup));
+  const slot = F2L_SLOTS[0].name;
+  const reference = referenceForCase(f2lCase);
+  const goal = goalFor(pattern, "D", slot);
+  return {
+    pattern,
+    goal,
+    info: {
+      origin: { kind: "standard", caseName: f2lCase.name, group: f2lCase.group },
+      crossFace: "D",
+      slot,
+      protectedSlots: goal.protectedSlots,
+      reference,
+      previewAlg: f2lCase.setup,
+    },
+  };
+}
+
+/** Rebuild the cube state immediately before one raw solve move boundary. */
+export function reconstructF2lStepStart(
+  kpuzzle: KPuzzle,
+  solve: Pick<Solve, "scramble" | "scrambledFacelets" | "moves">,
+  fromMove: number,
+): KPattern {
+  const rawMoves = solve.moves ?? [];
+  if (!Number.isInteger(fromMove) || fromMove < 0 || fromMove > rawMoves.length) {
+    throw new Error(`Invalid F2L step boundary ${fromMove}`);
+  }
+  let pattern = solve.scrambledFacelets
+    ? faceletsToPattern(kpuzzle, solve.scrambledFacelets)
+    : kpuzzle.defaultPattern().applyAlg(new Alg(solve.scramble));
+  for (const { move } of rawMoves.slice(0, fromMove)) pattern = pattern.applyMove(move);
+  return pattern;
+}
+
+export function buildExactF2lTarget(
+  kpuzzle: KPuzzle,
+  solve: Solve,
+  step: SolveStep,
+): F2lTrainingTarget {
+  if (
+    !step.name.startsWith("F2L") ||
+    step.skipped ||
+    !step.slot ||
+    step.fromMove < 0 ||
+    step.toMove <= step.fromMove
+  ) {
+    throw new Error("This solve step cannot be practised as F2L training");
+  }
+  const crossFace = solve.analysis?.crossFace;
+  if (!crossFace) throw new Error("F2L step has no cross face");
+
+  const pattern = reconstructF2lStepStart(kpuzzle, solve, step.fromMove);
+  const goal = goalFor(pattern, crossFace, step.slot);
+  const rotation = rotationForCrossFace(crossFace);
+  const rotationAlg = new Alg(rotation.tokens.join(" "));
+  const facing = reframe(kpuzzle, pattern, rotationAlg);
+  const handPlan = planF2l(kpuzzle, facing).find(
+    (candidate) => slotInCubeFrame(rotation.orientation, candidate.name) === step.slot,
+  );
+
+  let reference: F2lReference | null = null;
+  if (handPlan?.status === "case" && handPlan.solution) {
+    const candidate = reframe(
+      kpuzzle,
+      facing.applyAlg(new Alg(handPlan.solution.moves.join(" "))),
+      rotationAlg.invert(),
+    );
+    if (isF2lTrainingComplete({ goal }, candidate)) {
+      reference = {
+        source: "standard-case",
+        alg: handPlan.solution.moves.join(" "),
+        stm: algorithmStm(handPlan.solution.moves.join(" ")),
+        caseName: handPlan.solution.name,
+        group: handPlan.solution.group,
+      };
+    }
+  }
+
+  return {
+    pattern,
+    goal,
+    info: {
+      origin: { kind: "solve-step", solveId: solve.id, stepName: step.name, slot: step.slot },
+      crossFace,
+      slot: step.slot,
+      protectedSlots: goal.protectedSlots,
+      reference,
+    },
+  };
+}
+
+export function isF2lTrainingComplete(
+  target: { goal: F2lTrainingGoal },
+  pattern: KPattern,
+): boolean {
+  const { goal } = target;
+  // Reference algorithms may contain a leading `y` that describes turning the cube in
+  // the solver's hands. The smart-cube model keeps face turns centre-relative, so the
+  // goal is evaluated after removing any equivalent whole-cube rotation as well.
+  const checked = withCentresHome(pattern.kpuzzle, pattern);
+  const slots = f2lSlotsForCrossFace(goal.crossFace);
+  const targetSlot = slots.find((slot) => slot.name === goal.targetSlot);
+  if (!targetSlot || !crossSolved(checked, goal.crossFace)) return false;
+  if (!slotSolved(checked, targetSlot)) return false;
+  return goal.protectedSlots.every((name) => {
+    const slot = slots.find((candidate) => candidate.name === name);
+    return slot ? slotSolved(checked, slot) : false;
+  });
+}
+
+export function calculateTrainingEfficiency(
+  rawMoves: readonly TimedMove[],
+  reference?: Pick<F2lReference, "stm" | "alg"> | null,
+): TrainingEfficiency {
+  const moves = mergeSameFaceTurns(rawMoves);
+  const stm = countTurns(moves.map(({ move }) => metricToken(move))).sliceTurns;
+  const referenceStm = reference ? reference.stm ?? algorithmStm(reference.alg) : null;
+  return {
+    moves,
+    stm,
+    referenceStm,
+    delta: referenceStm === null ? null : stm - referenceStm,
+    elapsedMs: rawMoves.at(-1)?.t ?? 0,
+  };
+}
+
+export { algorithmStm };

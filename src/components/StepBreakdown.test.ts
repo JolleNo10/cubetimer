@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   activeRecordedMoveIndices,
+  canPracticeF2lStep,
   formatScaleSeconds,
   stepAt,
   stepBarWidths,
@@ -43,6 +44,23 @@ describe("stepAt", () => {
   it("stays on the last step once the solve is over", () => {
     expect(nameAt(52)).toBe("PLL");
     expect(nameAt(99)).toBe("PLL");
+  });
+});
+
+describe("canPracticeF2lStep", () => {
+  const base = {
+    slot: "FR",
+    skipped: false,
+    fromMove: 4,
+    toMove: 9,
+  } as SolveStep;
+
+  it("accepts only non-skipped F2L rows with a usable boundary", () => {
+    expect(canPracticeF2lStep({ ...base, name: "F2L Slot 1" })).toBe(true);
+    expect(canPracticeF2lStep({ ...base, name: "Cross" })).toBe(false);
+    expect(canPracticeF2lStep({ ...base, name: "F2L Slot 2", skipped: true })).toBe(false);
+    expect(canPracticeF2lStep({ ...base, name: "F2L Slot 3", slot: null })).toBe(false);
+    expect(canPracticeF2lStep({ ...base, name: "F2L Slot 4", toMove: 4 })).toBe(false);
   });
 });
 

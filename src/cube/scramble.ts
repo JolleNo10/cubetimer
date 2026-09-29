@@ -67,12 +67,12 @@ export class ScrambleTracker {
   readonly targetPattern: KPattern;
   #index = 0;
 
-  constructor(kpuzzle: KPuzzle, scramble: string) {
+  constructor(kpuzzle: KPuzzle, scramble: string, startPattern?: KPattern) {
     this.moves = Array.from(new Alg(scramble).expand().childAlgNodes())
       .map((n) => n.toString())
       .filter((s) => s.length > 0);
 
-    let pattern = kpuzzle.defaultPattern();
+    let pattern = startPattern ?? kpuzzle.defaultPattern();
     this.#prefixStates = [patternToFacelets(pattern)];
     this.#prefixPatterns = [pattern];
     this.#moveEnd = [];

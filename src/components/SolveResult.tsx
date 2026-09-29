@@ -1,5 +1,6 @@
 import { SolveComparisonPanel } from "./SolveComparison";
 import { DetailedStepBreakdown } from "./StepBreakdown";
+import type { SolveStep } from "../cube/analysis";
 import { useController } from "../hooks/useController";
 import {
   practiceScrambleLabel,
@@ -20,12 +21,14 @@ export function SolveResult({
   onContinue,
   onReplay,
   onAnalyse,
+  onPracticeStep,
 }: {
   solve: Solve;
   solves: readonly Solve[];
   onContinue: () => void;
   onReplay: (solve: Solve) => void;
   onAnalyse: (solve: Solve) => void;
+  onPracticeStep?: (step: SolveStep) => void;
 }) {
   const controller = useController();
   const analysis = solve.analysis ?? null;
@@ -155,7 +158,7 @@ export function SolveResult({
               </div>
             ) : null}
 
-            <DetailedStepBreakdown analysis={analysis} />
+            <DetailedStepBreakdown analysis={analysis} onPracticeStep={onPracticeStep} />
             <SolveComparisonPanel comparison={comparison} />
             <p className="result-note">
               Recognition is inferred from move timing; cross planning before the first turn is not measured.

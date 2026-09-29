@@ -24,17 +24,34 @@ export function Header({
         cubetimer
       </div>
 
-      <select
-        value={state.settings.event}
-        onChange={(e) => void controller.updateSettings({ event: e.target.value as EventId })}
-        aria-label="Event"
-      >
-        {EVENTS.map((event) => (
-          <option key={event.id} value={event.id}>
-            {event.name}
-          </option>
-        ))}
-      </select>
+      <nav className="area-switch" aria-label="Application area">
+        <button
+          className={state.area === "timer" ? "active" : ""}
+          onClick={() => controller.setArea("timer")}
+        >
+          Timer
+        </button>
+        <button
+          className={state.area === "f2l" ? "active" : ""}
+          onClick={() => controller.setArea("f2l")}
+        >
+          F2L Training
+        </button>
+      </nav>
+
+      {state.area === "timer" ? (
+        <>
+          <select
+            value={state.settings.event}
+            onChange={(e) => void controller.updateSettings({ event: e.target.value as EventId })}
+            aria-label="Event"
+          >
+            {EVENTS.map((event) => (
+              <option key={event.id} value={event.id}>
+                {event.name}
+              </option>
+            ))}
+          </select>
 
       {renaming && session ? (
         <input
@@ -104,11 +121,13 @@ export function Header({
           onChange={(e) => void controller.updateSettings({ slowSolve: e.target.checked })}
         />
         slow solve
-      </label>
+          </label>
+        </>
+      ) : null}
 
       <span className="header-spacer" />
 
-      {!smartEvent ? (
+      {state.area === "timer" && !smartEvent ? (
         <span className="chip warn">smart cube tracking is 3x3x3 only</span>
       ) : null}
       <span className={`chip${state.cubeStatus === "connected" ? " live" : ""}`}>

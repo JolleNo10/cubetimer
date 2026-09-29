@@ -101,6 +101,18 @@ export function stepAt(steps: readonly SolveStep[], index: number): number {
 
 export type ActiveReplayAction = ReplayAction;
 
+export function canPracticeF2lStep(step: SolveStep): boolean {
+  return (
+    step.name.startsWith("F2L") &&
+    !step.skipped &&
+    Boolean(step.slot) &&
+    Number.isInteger(step.fromMove) &&
+    Number.isInteger(step.toMove) &&
+    step.fromMove >= 0 &&
+    step.toMove > step.fromMove
+  );
+}
+
 /** Find the displayed move entries corresponding to one raw replay move. */
 export function activeRecordedMoveIndices(
   step: SolveStep,
@@ -174,6 +186,7 @@ function StepRow({
   timeScale,
   activeReplayAction,
   onSelect,
+  onPractice,
 }: {
   step: SolveStep;
   total: number;
@@ -184,6 +197,7 @@ function StepRow({
   timeScale?: StepTimeScale;
   activeReplayAction?: ActiveReplayAction;
   onSelect?: () => void;
+  onPractice?: () => void;
 }) {
   const { recognitionWidth, executionWidth } = stepBarWidths(step, total, timeScale);
   const described = describeCase(step);
@@ -193,6 +207,16 @@ function StepRow({
     ? new Set(activeRecordedMoveIndices(step, activeReplayAction))
     : null;
   const renderRecordedMoves = activeReplayAction !== undefined && Boolean(step.recordedMoves?.length);
+  const practice = onPractice && canPracticeF2lStep(step) && !onSelect ? (
+    <button
+      type="button"
+      className="ghost small phase-practice"
+      onClick={onPractice}
+      title={`Practice ${step.name}`}
+    >
+      Practice
+    </button>
+  ) : null;
 
   const splitValues = showSplitTimes ? (
     <>
@@ -233,6 +257,7 @@ function StepRow({
           <span className="phase-case muted">skip</span>
         ) : null}
         {described?.hint ? <span className="phase-hint">{described.hint}</span> : null}
+        {practice}
       </span>
       <span className="phase-time">{isSkipped ? "—" : formatTime(step.timeMs)}</span>
       {showCumulativeTime ? (
@@ -448,6 +473,7 @@ export function StepBreakdown({
   showMoveGraph = true,
   position,
   activeReplayAction,
+  onPracticeStep,
 }: {
   analysis: SolveAnalysis;
   activeStep?: number;
@@ -461,6 +487,7 @@ export function StepBreakdown({
   showMoveGraph?: boolean;
   position?: number;
   activeReplayAction?: ActiveReplayAction;
+  onPracticeStep?: (step: SolveStep) => void;
 }) {
   const total = Math.max(1, analysis.solvingMs);
   const timeScale = showTimeScale ? stepTimeScale(analysis.steps) : undefined;
@@ -499,6 +526,7 @@ export function StepBreakdown({
           timeScale={timeScale}
           activeReplayAction={activeReplayAction}
           onSelect={onSelectStep ? () => onSelectStep(step) : undefined}
+          onPractice={onPracticeStep ? () => onPracticeStep(step) : undefined}
         />
       ))}
 
@@ -543,11 +571,13 @@ export function DetailedStepBreakdown({
   activeStep,
   onSelectStep,
   activeReplayAction,
+  onPracticeStep,
 }: {
   analysis: SolveAnalysis;
   activeStep?: number;
   onSelectStep?: (step: SolveStep) => void;
   activeReplayAction?: ActiveReplayAction;
+  onPracticeStep?: (step: SolveStep) => void;
 }) {
   return (
     <div className="detailed-breakdown">
@@ -566,6 +596,7 @@ export function DetailedStepBreakdown({
           activeStep={activeStep}
           onSelectStep={onSelectStep}
           activeReplayAction={activeReplayAction}
+          onPracticeStep={onPracticeStep}
           showMoves
           showFullSolution={false}
           showDetail={false}

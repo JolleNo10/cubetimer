@@ -2,6 +2,18 @@
 
 ## 2026-09-29
 
+- What happened: the first focused Vitest run was attempted inside the Windows sandbox and failed before tests loaded.
+- Root cause: Vite's esbuild configuration needs to spawn a child process, which the sandbox rejected with `spawn EPERM`.
+- Prevention: run Vite/Vitest/build commands in the approved host context on this Windows workspace when the sandbox reports a process-spawn restriction.
+
+## 2026-09-29
+
+- What happened: an initial Header patch did not apply.
+- Root cause: the combined hunk depended on exact surrounding JSX/Unicode text that had already shifted.
+- Prevention: inspect the current file and apply smaller marker-based hunks for large conditional JSX changes.
+
+## 2026-09-29
+
 - What happened: the next F2L pair used cubing.js `o` to make it darker, causing most stickers on the pair to become grey.
 - Root cause: `o` was treated as another brightness level, but it is a mixed facelet stickering mode (`dim` primary + `ignored` non-primary).
 - Prevention: when selecting serialized cubing.js stickering characters for visual intensity, verify their per-facelet semantics; use `D` when all original cubie colours must remain visible.
