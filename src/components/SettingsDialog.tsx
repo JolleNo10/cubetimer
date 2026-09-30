@@ -42,7 +42,7 @@ export function SettingsDialog({
               value={settings.event}
               onChange={(e) => set({ event: e.target.value as Settings["event"] })}
             >
-              {EVENTS.map((event) => (
+              {EVENTS.filter((event) => event.id === "333").map((event) => (
                 <option key={event.id} value={event.id}>
                   {event.name}
                   {event.smart ? "" : " — no smart cube support"}

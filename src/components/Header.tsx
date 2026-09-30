@@ -48,7 +48,7 @@ export function Header({
             onChange={(e) => void controller.updateSettings({ event: e.target.value as EventId })}
             aria-label="Event"
           >
-            {EVENTS.map((event) => (
+            {EVENTS.filter((event) => event.id === "333").map((event) => (
               <option key={event.id} value={event.id}>
                 {event.name}
               </option>
