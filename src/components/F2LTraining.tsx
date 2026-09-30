@@ -1,10 +1,9 @@
 import { memo, useMemo, useState } from "react";
-import type { KPuzzle } from "cubing/kpuzzle";
 import { useController, useStore } from "../hooks/useController";
 import { F2L_CASES, F2L_POSITIONS, f2lPositionLabel } from "../cube/f2lCases";
 import { faceColour, slotColours } from "../cube/colours";
 import { f2lTrainingGrip, type F2lReference } from "../cube/f2lTraining";
-import { buildAllF2lThumbnailModels } from "../cube/f2lThumbnail";
+import { getF2lThumbnailModel } from "../cube/f2lThumbnail";
 import { formatTime } from "../state/stats";
 import type { AppState } from "../state/controller";
 import { ConnectionPanel } from "./ConnectionPanel";
@@ -20,7 +19,6 @@ export function F2LTraining({ state }: { state: AppState }) {
   const target = training.target;
   const physicalLive = state.cubeStatus === "connected" || state.virtualCube;
   const displayLive = training.mode === "virtual" ? Boolean(target) : physicalLive;
-  const kpuzzle = controller.pattern?.kpuzzle ?? null;
   const orientationOverride = useMemo(
     () => (target ? f2lTrainingGrip(target) : undefined),
     [target],
@@ -56,7 +54,6 @@ export function F2LTraining({ state }: { state: AppState }) {
               })}
             </nav>
             <F2lCaseLibrary
-              kpuzzle={kpuzzle}
               selectedPosition={training.selectedPosition}
               selectedCaseName={target?.origin.kind === "standard" ? target.origin.caseName : null}
             />
@@ -98,18 +95,16 @@ export function F2LTraining({ state }: { state: AppState }) {
 }
 
 const F2lCaseLibrary = memo(function F2lCaseLibrary({
-  kpuzzle,
   selectedPosition,
   selectedCaseName,
 }: {
-  kpuzzle: KPuzzle | null;
   selectedPosition: (typeof F2L_POSITIONS)[number];
   selectedCaseName: string | null;
 }) {
   const controller = useController();
   const thumbnailModels = useMemo(
-    () => kpuzzle ? buildAllF2lThumbnailModels(kpuzzle, selectedPosition) : new Map(),
-    [kpuzzle, selectedPosition],
+    () => new Map(F2L_CASES.map((f2lCase) => [f2lCase.name, getF2lThumbnailModel(f2lCase.name, selectedPosition)])),
+    [selectedPosition],
   );
 
   return (

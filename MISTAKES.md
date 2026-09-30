@@ -1,5 +1,16 @@
 # Mistakes
 
+## 2026-09-30 — F2L thumbnail target identities
+
+- What happened: F2L case thumbnails highlighted the cubies occupying the target
+  slot rather than the cubies whose home positions define the target F2L pair.
+  The thumbnail also coloured solved cross/other pairs, hiding the mistake visually.
+- Root cause: slot index and cubie identity were treated as interchangeable in an
+  unsolved state, and the test repeated the same incorrect lookup.
+- Prevention: teaching diagrams identify the F2L pair from the target slot's home
+  corner/edge IDs, then locate those IDs in the displayed pattern. Tests assert
+  exactly target pair + centres, expected pair colour sets, and no unrelated pieces.
+
 ## 2026-09-30
 
 - What happened: the initial scoped check concluded that the required four-slot F2L
