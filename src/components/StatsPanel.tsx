@@ -1,44 +1,82 @@
 import { useMemo } from "react";
-import { formatTime, sessionStats } from "../state/stats";
+import { formatTime, sessionStats, type LongAverage } from "../state/stats";
 import type { Solve } from "../state/types";
 
 export function StatsPanel({ solves }: { solves: Solve[] }) {
   const stats = useMemo(() => sessionStats(solves), [solves]);
 
-  const cells: { label: string; value: string; sub?: string }[] = [
-    { label: "counted solves", value: String(stats.count), sub: `${stats.solved} finished` },
-    { label: "best", value: formatTime(stats.best) },
-    { label: "ao5", value: formatTime(stats.ao5), sub: labelBest(stats.bestAo5) },
-    { label: "ao12", value: formatTime(stats.ao12), sub: labelBest(stats.bestAo12) },
-    { label: "ao50", value: formatTime(stats.ao50) },
-    { label: "ao100", value: formatTime(stats.ao100) },
-    { label: "session mean", value: formatTime(stats.mean) },
-    {
-      label: "avg moves",
-      value: stats.averageMoves ? stats.averageMoves.toFixed(1) : "—",
-      sub: stats.averageTps ? `${stats.averageTps.toFixed(2)} tps` : undefined,
-    },
-  ];
-
   return (
     <div className="panel">
       <div className="panel-head">
         <span className="panel-title">Statistics</span>
-        <span className="faint small">slow / replay excluded</span>
+        <span className="faint small" title="Selected session; slow / replay excluded">{stats.count} counted</span>
       </div>
       <div className="panel-body">
-        <div className="stat-grid">
-          {cells.map((cell) => (
-            <div className="stat" key={cell.label}>
-              <span className="label">{cell.label}</span>
-              <span className="value">{cell.value}</span>
-              {cell.sub ? <span className="sub">{cell.sub}</span> : null}
+        <div className="stats-sections">
+          <section className="stats-current" aria-label="Current averages">
+            <h3 className="stats-section-title">Current</h3>
+            <div className="stat-grid">
+              <Stat label="Ao5" value={formatTime(stats.ao5)} sub={labelBest(stats.bestAo5)} />
+              <Stat label="Ao12" value={formatTime(stats.ao12)} sub={labelBest(stats.bestAo12)} />
             </div>
-          ))}
+          </section>
+          <section aria-label="Overall session performance">
+            <h3 className="stats-section-title">Overall</h3>
+            <div className="stat-grid">
+              <Stat label="Best" value={formatTime(stats.best)} />
+              <Stat label="Mean" value={formatTime(stats.mean)} />
+            </div>
+          </section>
+          <section aria-label="Long averages">
+            <h3 className="stats-section-title">Long averages</h3>
+            <div className="stat-grid">
+              <Stat label="Ao50" value={formatTime(stats.ao50.value)} sub={longAverageLabel(stats.ao50)} />
+              <Stat label="Ao100" value={formatTime(stats.ao100.value)} sub={longAverageLabel(stats.ao100)} />
+            </div>
+          </section>
+          {stats.solving && (
+            <section aria-label="Analysed session solving metrics">
+              <h3 className="stats-section-title">Solving</h3>
+              <dl className="stats-solving">
+                <div><dt>Moves</dt><dd>{stats.solving.meanMoves.toFixed(1)}</dd></div>
+                <div><dt>TPS</dt><dd>{stats.solving.aggregateTps.toFixed(2)}</dd></div>
+                <div><dt>Recognition</dt><dd>{formatTime(stats.solving.meanRecognitionMs)}<span className="stats-unit">s</span></dd></div>
+              </dl>
+            </section>
+          )}
+          {stats.cfop && (
+            <section aria-label="CFOP session median">
+              <h3 className="stats-section-title">CFOP · session median</h3>
+              <dl className="stats-cfop">
+                {stats.cfop.map((phase) => (
+                  <div key={phase.name}>
+                    <dt>{phase.name}</dt>
+                    <dd>{formatTime(phase.timeMs)}<span className="stats-unit">s</span></dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          )}
         </div>
       </div>
     </div>
   );
+}
+
+function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="stat">
+      <span className="label">{label}</span>
+      <span className="value">{value}</span>
+      {sub && <span className="sub">{sub}</span>}
+    </div>
+  );
+}
+
+function longAverageLabel(average: LongAverage): string {
+  if (average.status === "unavailable") return "needs 10 solves";
+  if (average.status === "projected") return `projected · ${average.count}/${average.size}`;
+  return "actual";
 }
 
 function labelBest(best: number | undefined): string | undefined {

@@ -3,6 +3,8 @@ import { effectiveMs, type Solve } from "./types";
 
 const MIN_COMPARISON_SOLVES = 3;
 const MAX_COMPARISON_SOLVES = 20;
+const MIN_PROJECTION_SOLVES = 10;
+const MAX_PROJECTION_SOLVES = 20;
 
 export type StepComparison = {
   name: StepName;
@@ -105,8 +107,11 @@ export function countedSolves(solves: readonly Solve[]): Solve[] {
  */
 export function averageOf(solves: Solve[], n: number): number | null | undefined {
   if (solves.length < n) return undefined;
-  const window = solves.slice(-n);
-  const times = window.map(effectiveMs);
+  return averageTimes(solves.slice(-n).map(effectiveMs));
+}
+
+/** The existing trimming/DNF rule, shared by achieved and projected averages. */
+function averageTimes(times: readonly (number | null)[]): number | null {
   const dnfs = times.filter((t) => t === null).length;
   if (dnfs > 1) return null;
 
@@ -158,21 +163,96 @@ export type SessionStats = {
   mean?: number | null;
   ao5?: number | null;
   ao12?: number | null;
-  ao50?: number | null;
-  ao100?: number | null;
+  ao50: LongAverage;
+  ao100: LongAverage;
   bestAo5?: number;
   bestAo12?: number;
-  /** Median moves per solve and average turns per second, smart cube solves only. */
-  averageMoves?: number;
-  averageTps?: number;
+  solving?: SessionSolvingStats;
+  cfop?: CfopPhaseMedian[];
 };
+
+export type LongAverage = {
+  value: number | null | undefined;
+  status: "actual" | "projected" | "unavailable";
+  count: number;
+  size: 50 | 100;
+};
+
+export type SessionSolvingStats = {
+  sampleSize: number;
+  /** Mean persisted slice-turn count per eligible analysed solve. */
+  meanMoves: number;
+  /** Total analysed slice turns divided by total analysed solving time. */
+  aggregateTps: number;
+  meanRecognitionMs: number;
+};
+
+export type CfopPhaseMedian = {
+  name: typeof STEP_NAMES[0] | "F2L" | typeof STEP_NAMES[5] | typeof STEP_NAMES[6];
+  timeMs: number;
+};
+
+function longAverage(times: (number | null)[], size: 50 | 100, baseline: number | undefined): LongAverage {
+  const count = Math.min(times.length, size);
+  if (count === size) {
+    return { value: averageTimes(times.slice(-size)), status: "actual", count, size };
+  }
+  if (baseline === undefined) {
+    return { value: undefined, status: "unavailable", count, size };
+  }
+  return {
+    value: averageTimes([...times, ...new Array<number>(size - count).fill(baseline)]),
+    status: "projected",
+    count,
+    size,
+  };
+}
+
+function analysedSessionStats(solves: Solve[]): Pick<SessionStats, "solving" | "cfop"> {
+  const analyses = solves.flatMap((solve) => {
+    const analysis = solve.analysis;
+    if (effectiveMs(solve) === null || solve.replay || isSlowSolve(solve) || !analysis) return [];
+    const nonnegative = (value: number) => Number.isFinite(value) && value >= 0;
+    if (!compatibleAnalysis(analysis, analysis)
+      || !nonnegative(analysis.sliceTurns)
+      || !Number.isFinite(analysis.solvingMs) || analysis.solvingMs <= 0
+      || !nonnegative(analysis.totalRecognitionMs)
+      || !analysis.steps.every((step) => nonnegative(step.timeMs))) return [];
+    return [analysis];
+  });
+  if (analyses.length === 0) return {};
+
+  const totalMoves = analyses.reduce((sum, analysis) => sum + analysis.sliceTurns, 0);
+  const totalMs = analyses.reduce((sum, analysis) => sum + analysis.solvingMs, 0);
+  // STEP_NAMES is authoritative; F2L combines its four canonical steps per solve.
+  const phases = [
+    { name: STEP_NAMES[0], from: 0, to: 1 },
+    { name: "F2L", from: 1, to: 5 },
+    { name: STEP_NAMES[5], from: 5, to: 6 },
+    { name: STEP_NAMES[6], from: 6, to: 7 },
+  ] as const;
+  return {
+    solving: {
+      sampleSize: analyses.length,
+      meanMoves: totalMoves / analyses.length,
+      aggregateTps: totalMoves / totalMs * 1000,
+      meanRecognitionMs: analyses.reduce((sum, analysis) => sum + analysis.totalRecognitionMs, 0) / analyses.length,
+    },
+    cfop: phases.map(({ name, from, to }) => ({
+      name,
+      timeMs: median(analyses.map((analysis) =>
+        analysis.steps.slice(from, to).reduce((sum, step) => sum + step.timeMs, 0))),
+    })),
+  };
+}
 
 export function sessionStats(all: Solve[]): SessionStats {
   const solves = countedSolves(all);
-  const finished = solves.filter((s) => s.penalty !== "DNF");
-  const withMoves = solves.filter((s) => s.moves.length > 0 && s.penalty !== "DNF");
-  const totalMoves = withMoves.reduce((sum, s) => sum + s.moves.length, 0);
-  const totalMs = withMoves.reduce((sum, s) => sum + s.rawMs, 0);
+  const times = solves.map(effectiveMs);
+  const finished = times.filter((time): time is number => time !== null);
+  const baseline = finished.length >= MIN_PROJECTION_SOLVES
+    ? median(finished.slice(-MAX_PROJECTION_SOLVES))
+    : undefined;
   return {
     count: solves.length,
     solved: finished.length,
@@ -181,12 +261,11 @@ export function sessionStats(all: Solve[]): SessionStats {
     mean: solves.length ? meanOf(solves, solves.length) : undefined,
     ao5: averageOf(solves, 5),
     ao12: averageOf(solves, 12),
-    ao50: averageOf(solves, 50),
-    ao100: averageOf(solves, 100),
+    ao50: longAverage(times, 50, baseline),
+    ao100: longAverage(times, 100, baseline),
     bestAo5: bestAverage(solves, 5),
     bestAo12: bestAverage(solves, 12),
-    averageMoves: withMoves.length ? totalMoves / withMoves.length : undefined,
-    averageTps: totalMs > 0 ? (totalMoves / totalMs) * 1000 : undefined,
+    ...analysedSessionStats(solves),
   };
 }
 

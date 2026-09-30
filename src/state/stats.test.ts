@@ -143,6 +143,161 @@ describe("slow solves", () => {
   });
 });
 
+describe("session long averages", () => {
+  const repeats = (count: number, ms = 10_000) => Array.from({ length: count }, () => solve(ms));
+
+  it("requires 10 finished counted solves, not just 10 results", () => {
+    const stats = sessionStats([...repeats(9), solve(1000, "DNF"), { ...solve(1000), practice: true }]);
+    expect(stats.ao50).toEqual({ value: undefined, status: "unavailable", count: 10, size: 50 });
+    expect(stats.ao100).toEqual({ value: undefined, status: "unavailable", count: 10, size: 100 });
+    expect(sessionStats([]).ao50.status).toBe("unavailable");
+  });
+
+  it("projects both long averages at 10 finished solves", () => {
+    const stats = sessionStats(repeats(10));
+    expect(stats.ao50).toEqual({ value: 10_000, status: "projected", count: 10, size: 50 });
+    expect(stats.ao100).toEqual({ value: 10_000, status: "projected", count: 10, size: 100 });
+  });
+
+  it("uses the recent median rather than a mean distorted by outliers", () => {
+    const real = [solve(1000), ...repeats(8), solve(100_000)];
+    for (const size of [50, 100] as const) {
+      expect(sessionStats(real)[size === 50 ? "ao50" : "ao100"].value)
+        .toBe(averageOf([...real, ...repeats(size - real.length)], size));
+    }
+  });
+
+  it("uses only the latest 20 finished solves for future pace, retaining older real results", () => {
+    const recent = Array.from({ length: 20 }, (_, index) => solve((10 + index) * 1000));
+    for (const olderMs of [1000, 100_000]) {
+      const real = [...repeats(5, olderMs), ...recent];
+      const stats = sessionStats(real);
+      // Latest 20 have median 19.5s regardless of the five older results.
+      expect(stats.ao50.value).toBe(averageOf([...real, ...repeats(25, 19_500)], 50));
+      expect(stats.ao100.value).toBe(averageOf([...real, ...repeats(75, 19_500)], 100));
+    }
+  });
+
+  it("applies +2 to real results and the even-sample median baseline", () => {
+    const real = [...repeats(5), ...repeats(5).map((s) => ({ ...s, penalty: "+2" as const }))];
+    expect(sessionStats(real).ao50.value)
+      .toBe(averageOf([...real, ...repeats(40, 11_000)], 50));
+    expect(sessionStats(real).mean).toBe(11_000);
+  });
+
+  it("excludes DNFs from future pace but keeps them in the projected average", () => {
+    const real = [...repeats(10), solve(100_000, "DNF")];
+    expect(sessionStats(real).ao50.value).toBe(averageOf([...real, ...repeats(39)], 50));
+    expect(sessionStats(real).ao50.value).toBe(10_000);
+    const twoDnfs = [...real, solve(1000, "DNF")];
+    for (const size of [50, 100] as const) {
+      const projected = sessionStats(twoDnfs)[size === 50 ? "ao50" : "ao100"];
+      expect(projected.status).toBe("projected");
+      expect(projected.value).toBe(averageOf([...twoDnfs, ...repeats(size - 12)], size));
+      expect(projected.value).toBeNull();
+    }
+  });
+
+  it("selects the latest finished results even when newer results are DNFs", () => {
+    const real = [...repeats(10, 90_000), ...repeats(20), solve(1000, "DNF")];
+    expect(sessionStats(real).ao50.value).toBe(averageOf([...real, ...repeats(19)], 50));
+  });
+
+  it("excludes slow/practice and replay recordings from count, baseline and averages", () => {
+    const real = repeats(10);
+    const excluded = [
+      { ...solve(90_000), practice: true, slowSolve: true },
+      { ...solve(1000), practice: true, replay: true },
+    ];
+    expect(sessionStats([...real, ...excluded])).toEqual(sessionStats(real));
+  });
+
+  it.each([50, 64, 99])("has an actual Ao50 and projected Ao100 at %i counted solves", (count) => {
+    const real = Array.from({ length: count }, (_, index) => solve((index + 1) * 1000));
+    const stats = sessionStats(real);
+    expect(stats.ao50).toEqual({ value: averageOf(real, 50), status: "actual", count: 50, size: 50 });
+    expect(stats.ao100.status).toBe("projected");
+    expect(stats.ao100.count).toBe(count);
+    const baseline = (count - 9.5) * 1000;
+    expect(stats.ao100.value).toBe(averageOf([...real, ...repeats(100 - count, baseline)], 100));
+  });
+
+  it.each([100, 105])("uses actual rolling long averages and caps progress at %i solves", (count) => {
+    const real = Array.from({ length: count }, (_, index) => solve((index + 1) * 1000));
+    const stats = sessionStats(real);
+    expect(stats.ao50).toEqual({ value: averageOf(real, 50), status: "actual", count: 50, size: 50 });
+    expect(stats.ao100).toEqual({ value: averageOf(real, 100), status: "actual", count: 100, size: 100 });
+  });
+
+  it("preserves current and best short averages, best single and DNF session mean", () => {
+    const real = [...repeats(12), ...repeats(12, 20_000)];
+    const stats = sessionStats(real);
+    expect(stats).toMatchObject({ ao5: 20_000, ao12: 20_000, bestAo5: 10_000, bestAo12: 10_000, best: 10_000, mean: 15_000 });
+    expect(sessionStats([...real, solve(1000, "DNF")]).mean).toBeNull();
+    // A different session's array alone defines every statistic; no retained history.
+    expect(sessionStats(repeats(10, 30_000))).toMatchObject({ count: 10, best: 30_000, mean: 30_000 });
+  });
+});
+
+describe("analysed session statistics", () => {
+  function withMetrics(times: number[], turns = 50, solvingMs = 10_000, recognitionMs = 2000): Solve {
+    const result = analysedSolve("analysed", times);
+    Object.assign(result.analysis!, { sliceTurns: turns, solvingMs, totalRecognitionMs: recognitionMs });
+    return result;
+  }
+
+  it("uses analysed slice turns, aggregate solving time and mean recognition", () => {
+    const first = withMetrics([1000, 1000, 1000, 1000, 1000, 2000, 3000], 40, 10_000, 2000);
+    const second = withMetrics([1000, 2000, 2000, 2000, 2000, 3000, 8000], 60, 20_000, 4000);
+    // Both raw move arrays are empty and both raw durations are 10s.
+    expect(sessionStats([first, second]).solving).toEqual({
+      sampleSize: 2, meanMoves: 50, aggregateTps: 100 / 30, meanRecognitionMs: 3000,
+    });
+  });
+
+  it("sums all F2L slots per solve before taking medians and preserves phase order", () => {
+    const real = [
+      withMetrics([1000, 100, 0, 0, 0, 3000, 4000]),
+      withMetrics([2000, 0, 100, 0, 0, 1000, 6000]),
+      withMetrics([9000, 0, 0, 100, 0, 2000, 5000]),
+    ];
+    expect(sessionStats(real).cfop).toEqual([
+      { name: "Cross", timeMs: 2000 },
+      { name: "F2L", timeMs: 100 }, // Sum of individual slot medians would incorrectly be zero.
+      { name: "OLL", timeMs: 2000 },
+      { name: "PLL", timeMs: 5000 },
+    ]);
+    expect(sessionStats(real.slice(0, 2)).cfop?.[0].timeMs).toBe(1500);
+  });
+
+  it("uses only finished normal solves with usable canonical CFOP analyses", () => {
+    const valid = withMetrics([100, 200, 300, 400, 500, 600, 700]);
+    const invalid = [
+      { ...valid, practice: true },
+      { ...valid, slowSolve: true },
+      { ...valid, replay: true },
+      { ...valid, penalty: "DNF" as const },
+      { ...valid, analysis: null },
+      { ...valid, analysis: { ...valid.analysis!, method: "OTHER" } as unknown as SolveAnalysis },
+      { ...valid, analysis: { ...valid.analysis!, steps: valid.analysis!.steps.slice(1) } },
+      { ...valid, analysis: { ...valid.analysis!, steps: [...valid.analysis!.steps].reverse() } },
+      { ...valid, analysis: { ...valid.analysis!, solvingMs: 0 } },
+      { ...valid, analysis: { ...valid.analysis!, sliceTurns: NaN } },
+      { ...valid, analysis: { ...valid.analysis!, totalRecognitionMs: -1 } },
+      { ...valid, analysis: { ...valid.analysis!, steps: valid.analysis!.steps.map((step) => ({ ...step, timeMs: Infinity })) } },
+    ];
+    expect(sessionStats([valid, ...invalid]).solving).toEqual(sessionStats([valid]).solving);
+    expect(sessionStats([valid, ...invalid]).cfop).toEqual(sessionStats([valid]).cfop);
+    expect(sessionStats(invalid).solving).toBeUndefined();
+    expect(sessionStats(invalid).cfop).toBeUndefined();
+  });
+
+  it("omits solving and CFOP sections without analysed data", () => {
+    expect(sessionStats([solve(10_000)]).solving).toBeUndefined();
+    expect(sessionStats([solve(10_000)]).cfop).toBeUndefined();
+  });
+});
+
 describe("compareSolveToHistory", () => {
   const currentTimes = [10, 20, 30, 40, 50, 60, 70];
 

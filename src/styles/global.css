@@ -629,17 +629,28 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .solve-row .pb { color: var(--accent); font-weight: 600; }
 
 /* ------------------------------------------------------------------ stats */
-.stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px; background: var(--border); border-radius: var(--radius-sm); overflow: hidden; }
+.stats-sections { display: grid; gap: 18px; }
+.stats-section-title { margin: 0 0 8px; font-size: 10.5px; font-weight: 600; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-faint); }
+.stat-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .stat {
-  background: var(--panel);
-  padding: 10px 12px;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
+.stat + .stat { border-left: 1px solid var(--border); padding-left: 12px; }
 .stat .label { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--text-faint); }
 .stat .value { font-family: var(--mono); font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 600; }
 .stat .sub { font-size: 11px; color: var(--text-faint); }
+.stats-current .value { font-size: 25px; }
+.stats-solving { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.stats-solving dt { font-size: 11px; color: var(--text-faint); margin-bottom: 4px; }
+.stats-solving dd, .stats-cfop dd { margin: 0; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.stats-solving dd { font-size: 16px; font-weight: 600; }
+.stats-unit { font-size: 11px; font-weight: 400; color: var(--text-faint); margin-left: 2px; }
+.stats-cfop { display: grid; gap: 7px; margin: 0; font-size: 12.5px; }
+.stats-cfop > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.stats-cfop dt { color: var(--text-dim); }
 
 /* --------------------------------------------------------------- analysis */
 /* Two columns, two rows: the step and its case read as a heading, the bar and the
