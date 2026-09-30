@@ -17,11 +17,8 @@ import {
   RECENTRE_GESTURE_TURNS,
 } from "../cube/gestures";
 import { facesAtPositions } from "../cube/gyroGrip";
-import {
-  F2L_CASES,
-  type F2lCase,
-  type F2lPosition,
-} from "../cube/f2lCases";
+import type { F2lPosition } from "../cube/f2lCases";
+import { findF2lTrainingCase, type F2lTrainingCase, type F2lTrainingLibrary } from "../cube/f2lTrainingCases";
 import {
   encodeGripTrack,
   rewriteWithRotations,
@@ -32,14 +29,14 @@ import { LiveGrip } from "../cube/liveGrip";
 import { parseFaceMove, type Face } from "../cube/moves";
 import {
   buildExactF2lTarget,
-  buildStandardF2lTarget,
+  buildF2lCatalogueTarget,
   calculateTrainingEfficiency,
   f2lCubeAlgorithm,
   f2lHandAlgorithm,
   f2lHandMove,
   f2lHandTimedMoves,
   f2lTrainingGrip,
-  f2lPositionSetup,
+  f2lCatalogueSetupMoves,
   isStandardF2lBase,
   isF2lTrainingComplete,
   type F2lTrainingTarget,
@@ -114,6 +111,7 @@ export type Recovery = { alg: string; resumeAt: number };
 
 export type F2lTrainingState = {
   mode: F2lTrainingMode;
+  selectedLibrary: F2lTrainingLibrary;
   selectedPosition: F2lPosition;
   phase: F2lTrainingPhase;
   target: F2lTrainingTargetInfo | null;
@@ -165,6 +163,7 @@ export type ScrambleGeneration =
 function emptyF2lState(): F2lTrainingState {
   return {
     mode: "setup",
+    selectedLibrary: "basic",
     selectedPosition: "FR",
     phase: "selecting",
     target: null,
@@ -255,7 +254,7 @@ export class Controller {
   #gripListeners = new Set<(orientation: Orientation) => void>();
   #gyroReadings = 0;
   #gripHeartbeatAt = 0;
-  #f2lCase: F2lCase | null = null;
+  #f2lCase: F2lTrainingCase | null = null;
   #f2lTarget: F2lTrainingTarget | null = null;
   #f2lTracker: ScrambleTracker | null = null;
   #f2lRawMoves: GanCubeMove[] = [];
@@ -602,12 +601,12 @@ export class Controller {
   }
 
   async selectF2lCase(caseName: string): Promise<void> {
-    const f2lCase = F2L_CASES.find((candidate) => candidate.name === caseName);
+    const f2lCase = findF2lTrainingCase(this.state.get().f2lTraining.selectedLibrary, caseName);
     if (!f2lCase || !this.#model) return;
     if (this.state.get().area !== "f2l") this.setArea("f2l");
     this.#f2lCase = f2lCase;
     await this.#selectF2lTarget(
-      this.#buildStandardF2lTarget(f2lCase, this.state.get().f2lTraining.selectedPosition),
+      this.#buildF2lCatalogueTarget(f2lCase, this.state.get().f2lTraining.selectedPosition),
     );
   }
 
@@ -618,7 +617,17 @@ export class Controller {
       f2lTraining: { ...s.f2lTraining, selectedPosition: position },
     }));
     if (!this.#f2lCase || !this.#model) return;
-    await this.#selectF2lTarget(this.#buildStandardF2lTarget(this.#f2lCase, position));
+    await this.#selectF2lTarget(this.#buildF2lCatalogueTarget(this.#f2lCase, position));
+  }
+
+  setF2lLibrary(selectedLibrary: F2lTrainingLibrary): void {
+    if (this.state.get().f2lTraining.selectedLibrary === selectedLibrary) return;
+    if (this.state.get().area !== "f2l") this.setArea("f2l");
+    this.#resetF2lSnapshot();
+    this.state.update((s) => ({
+      ...s,
+      f2lTraining: { ...s.f2lTraining, selectedLibrary },
+    }));
   }
 
   async practiceF2lStep(solve: Solve, step: SolveStep): Promise<void> {
@@ -651,7 +660,7 @@ export class Controller {
     }));
     if (target) {
       const nextTarget = selectedCase && this.#model
-        ? this.#buildStandardF2lTarget(
+        ? this.#buildF2lCatalogueTarget(
             selectedCase,
             this.state.get().f2lTraining.selectedPosition,
           )
@@ -708,12 +717,12 @@ export class Controller {
     this.elapsed.set(0);
     this.state.update((s) => ({
       ...s,
-      f2lTraining: { ...emptyF2lState(), mode, selectedPosition },
+      f2lTraining: { ...emptyF2lState(), mode, selectedPosition, selectedLibrary: s.f2lTraining.selectedLibrary },
     }));
   }
 
-  #buildStandardF2lTarget(
-    f2lCase: F2lCase,
+  #buildF2lCatalogueTarget(
+    f2lCase: F2lTrainingCase,
     position = this.state.get().f2lTraining.selectedPosition,
   ): F2lTrainingTarget {
     if (!this.#model) throw new Error("No cube model for F2L training");
@@ -721,13 +730,13 @@ export class Controller {
     const base = mode === "setup" && isStandardF2lBase(this.#model.pattern)
       ? this.#model.pattern
       : undefined;
-    return buildStandardF2lTarget(this.#model.kpuzzle, f2lCase, position, base);
+    return buildF2lCatalogueTarget(this.#model.kpuzzle, f2lCase, position, base);
   }
 
   async #reloadF2lTraining(preserveResult = false): Promise<void> {
     if (!this.#f2lTarget) return;
     const target = this.#f2lCase && this.#model
-      ? this.#buildStandardF2lTarget(
+      ? this.#buildF2lCatalogueTarget(
           this.#f2lCase,
           this.state.get().f2lTraining.selectedPosition,
         )
@@ -757,6 +766,7 @@ export class Controller {
       area: "f2l",
       f2lTraining: {
         mode,
+        selectedLibrary: s.f2lTraining.selectedLibrary,
         selectedPosition: target.info.position,
         phase: mode === "virtual" ? "ready" : "preparing",
         target: target.info,
@@ -779,11 +789,11 @@ export class Controller {
       let tracker: ScrambleTracker | null = null;
       let displayedSetup: string | null = null;
       const caseSetup = selectedCase
-        ? f2lPositionSetup(selectedCase.setup, target.info.position)
+        ? f2lCatalogueSetupMoves(selectedCase, target.info.position)
         : null;
       if (
         selectedCase &&
-        target.info.origin.kind === "standard" &&
+        target.info.origin.kind === "catalog" &&
         isStandardF2lBase(captured) &&
         caseSetup !== null
       ) {

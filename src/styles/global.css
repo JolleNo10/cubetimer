@@ -266,6 +266,9 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .f2l-training-layout { grid-template-columns: minmax(330px, 400px) minmax(0, 1fr) minmax(300px, 380px); }
 .f2l-library { flex: 1; min-height: 0; }
 .f2l-library .panel-body { overflow: auto; }
+.f2l-library-controls { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
+.f2l-library-switch button { padding: 4px 6px; font-size: 10px; }
+.f2l-library-controls .chip { padding: 3px 6px; font-size: 10px; }
 .f2l-group + .f2l-group { margin-top: 18px; }
 .f2l-case-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; margin-top: 7px; }
 .f2l-case-button { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; min-height: 92px; padding: 4px; font-family: var(--mono); font-size: 11px; }

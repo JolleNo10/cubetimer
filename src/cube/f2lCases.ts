@@ -4,6 +4,11 @@ import { F2L_ALG_BANK } from "./algBank.generated";
 export const F2L_POSITIONS = ["FR", "FL", "BL", "BR"] as const;
 export type F2lPosition = (typeof F2L_POSITIONS)[number];
 
+/** Reframe a positional pair to FR; training uses the inverse for Basic setups. */
+export const F2L_POSITION_TO_FRONT_RIGHT: Readonly<Record<F2lPosition, string>> = {
+  FR: "", FL: "y'", BL: "y2", BR: "y",
+};
+
 const F2L_POSITION_LABELS: Record<F2lPosition, string> = {
   FR: "Front Right",
   FL: "Front Left",

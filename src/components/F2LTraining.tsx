@@ -1,6 +1,7 @@
 import { memo, useMemo, useState } from "react";
 import { useController, useStore } from "../hooks/useController";
-import { F2L_CASES, F2L_POSITIONS, f2lPositionLabel } from "../cube/f2lCases";
+import { F2L_POSITIONS, f2lPositionLabel } from "../cube/f2lCases";
+import { F2L_TRAINING_CATALOGUES, f2lTrainingCatalogue, shortF2lCaseLabel, type F2lTrainingCase, type F2lTrainingLibrary } from "../cube/f2lTrainingCases";
 import { faceColour, slotColours } from "../cube/colours";
 import { f2lTrainingGrip, type F2lReference } from "../cube/f2lTraining";
 import { getF2lThumbnailModel } from "../cube/f2lThumbnail";
@@ -10,12 +11,11 @@ import { ConnectionPanel } from "./ConnectionPanel";
 import { CubeView } from "./CubeView";
 import { F2lCaseThumbnail } from "./F2lCaseThumbnail";
 
-const GROUPS = [...new Set(F2L_CASES.map((f2lCase) => f2lCase.group))];
-
 export function F2LTraining({ state }: { state: AppState }) {
   const controller = useController();
   const elapsed = useStore(controller.elapsed);
   const training = state.f2lTraining;
+  const catalogue = f2lTrainingCatalogue(training.selectedLibrary);
   const target = training.target;
   const physicalLive = state.cubeStatus === "connected" || state.virtualCube;
   const displayLive = training.mode === "virtual" ? Boolean(target) : physicalLive;
@@ -31,7 +31,22 @@ export function F2LTraining({ state }: { state: AppState }) {
         <div className="panel f2l-library">
           <div className="panel-head">
             <span className="panel-title">F2L cases</span>
-            <span className="chip small">41 cases</span>
+            <div className="f2l-library-controls">
+              <nav className="area-switch f2l-library-switch" aria-label="F2L case library">
+                {Object.values(F2L_TRAINING_CATALOGUES).map((option) => (
+                  <button
+                    type="button"
+                    key={option.library}
+                    className={training.selectedLibrary === option.library ? "active" : ""}
+                    aria-pressed={training.selectedLibrary === option.library}
+                    onClick={() => controller.setF2lLibrary(option.library)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </nav>
+              <span className="chip small">{catalogue.cases.length} cases</span>
+            </div>
           </div>
           <div className="panel-body">
             <div className="small faint">Train the pair in your current grip:</div>
@@ -54,8 +69,12 @@ export function F2LTraining({ state }: { state: AppState }) {
               })}
             </nav>
             <F2lCaseLibrary
+              library={training.selectedLibrary}
+              cases={catalogue.cases}
               selectedPosition={training.selectedPosition}
-              selectedCaseName={target?.origin.kind === "standard" ? target.origin.caseName : null}
+              selectedCaseName={target?.origin.kind === "catalog" && target.origin.library === training.selectedLibrary
+                ? target.origin.caseName
+                : null}
             />
           </div>
         </div>
@@ -95,25 +114,30 @@ export function F2LTraining({ state }: { state: AppState }) {
 }
 
 const F2lCaseLibrary = memo(function F2lCaseLibrary({
+  library,
+  cases,
   selectedPosition,
   selectedCaseName,
 }: {
+  library: F2lTrainingLibrary;
+  cases: readonly F2lTrainingCase[];
   selectedPosition: (typeof F2L_POSITIONS)[number];
   selectedCaseName: string | null;
 }) {
   const controller = useController();
+  const groups = useMemo(() => [...new Set(cases.map((f2lCase) => f2lCase.group))], [cases]);
   const thumbnailModels = useMemo(
-    () => new Map(F2L_CASES.map((f2lCase) => [f2lCase.name, getF2lThumbnailModel(f2lCase.name, selectedPosition)])),
-    [selectedPosition],
+    () => new Map(cases.map((f2lCase) => [f2lCase.name, getF2lThumbnailModel(library, f2lCase.name, selectedPosition)])),
+    [cases, library, selectedPosition],
   );
 
   return (
     <>
-      {GROUPS.map((group) => (
+      {groups.map((group) => (
         <section className="f2l-group" key={group}>
           <div className="small faint">{group}</div>
           <div className="f2l-case-grid">
-            {F2L_CASES.filter((f2lCase) => f2lCase.group === group).map((f2lCase) => {
+            {cases.filter((f2lCase) => f2lCase.group === group).map((f2lCase) => {
               const selected = selectedCaseName === f2lCase.name;
               const model = thumbnailModels.get(f2lCase.name);
               return (
@@ -126,7 +150,7 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
                   onClick={() => void controller.selectF2lCase(f2lCase.name)}
                 >
                   {model ? <F2lCaseThumbnail model={model} /> : null}
-                  <span className="f2l-case-number">{f2lCase.name.replace("F2L ", "#")}</span>
+                  <span className="f2l-case-number">{shortF2lCaseLabel(f2lCase.name)}</span>
                 </button>
               );
             })}
@@ -282,16 +306,16 @@ function TargetPanel({ state, elapsed }: { state: AppState; elapsed: number }) {
       </div>
       <div className="panel-body">
         {!target ? (
-          <div className="empty">Select one of the 41 cases, or use Train from a solve review.</div>
+          <div className="empty">Select one of the {f2lTrainingCatalogue(training.selectedLibrary).cases.length} {f2lTrainingCatalogue(training.selectedLibrary).label} cases, or use Train from a solve review.</div>
         ) : (
           <>
             <div className="f2l-target-title">
-              <strong>{reference?.caseName ?? (target.origin.kind === "standard" ? target.origin.caseName : "Exact F2L setup")}</strong>
+              <strong>{reference?.caseName ?? (target.origin.kind === "catalog" ? target.origin.caseName : "Exact F2L setup")}</strong>
               {reference?.group ? <span className="phase-case">{reference.group}</span> : null}
             </div>
             <div className="small dim f2l-origin">
-              {target.origin.kind === "standard"
-                ? `${f2lPositionLabel(target.position)} · Standard 41-case target`
+              {target.origin.kind === "catalog"
+                ? `${f2lTrainingCatalogue(target.origin.library).label} F2L · ${f2lPositionLabel(target.position)}`
                 : `From solve · ${target.origin.stepName} · ${slotName ?? target.origin.slot}`}
             </div>
             <div className="f2l-target-facts">

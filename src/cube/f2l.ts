@@ -16,7 +16,7 @@
  */
 import { Alg } from "cubing/alg";
 import type { KPattern, KPuzzle } from "cubing/kpuzzle";
-import { F2L_CASES, F2L_POSITIONS, type F2lPosition } from "./f2lCases";
+import { F2L_CASES, F2L_POSITIONS, F2L_POSITION_TO_FRONT_RIGHT, type F2lPosition } from "./f2lCases";
 import { f2lSlotsForCrossFace } from "./moves";
 import { joinMoves } from "./notation";
 import { reframe } from "./recognise";
@@ -40,7 +40,7 @@ const LAST_LAYER_EDGES = 4;
  * Bring a slot to the front right. Rotating the cube by `y` carries the front-right
  * slot to the front left, so the slot `n` steps along needs `n` steps back.
  */
-const TO_FRONT_RIGHT = ["", "y'", "y2", "y"];
+const TO_FRONT_RIGHT = F2L_POSITIONS.map((position) => F2L_POSITION_TO_FRONT_RIGHT[position]);
 
 /** The last-layer turn a case can be found under, and the turn that undoes it. */
 const AUF = ["", "U", "U2", "U'"];

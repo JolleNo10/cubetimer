@@ -1,5 +1,16 @@
 # Mistakes
 
+## 2026-10-01 — Advanced F2L position ownership
+
+- What happened: validation failed when Advanced F2L targets were constructed by
+  rotating one canonical Front Right setup into every position, including AF2L 3
+  Front Left.
+- Root cause: the Basic 41-case representation was assumed to cover trapped-piece
+  cases, whose source position tabs can describe independent starting states.
+- Prevention: generate each Advanced position from its own source-tab solution,
+  validate its anchor and references against the unchanged training goal, and test
+  all 216 position variants and home-cubie thumbnail masks independently.
+
 ## 2026-09-30 — F2L thumbnail target identities
 
 - What happened: F2L case thumbnails highlighted the cubies occupying the target

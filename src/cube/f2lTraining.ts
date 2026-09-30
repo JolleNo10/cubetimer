@@ -9,9 +9,11 @@ import {
 } from "./f2l";
 import {
   F2L_CASES,
+  F2L_POSITION_TO_FRONT_RIGHT,
   type F2lCase,
   type F2lPosition,
 } from "./f2lCases";
+import { f2lTrainingCaseInput, type F2lTrainingCase, type F2lTrainingLibrary } from "./f2lTrainingCases";
 import { decodeGripTrack } from "./gripTrack";
 import {
   EDGES_OF_FACE,
@@ -45,7 +47,7 @@ import { reframe, withCentresHome } from "./recognise";
 import type { Solve } from "../state/types";
 
 export type F2lTrainingOrigin =
-  | { kind: "standard"; caseName: string; group: string }
+  | { kind: "catalog"; library: F2lTrainingLibrary; caseName: string; group: string }
   | { kind: "solve-step"; solveId: string; stepName: string; slot: string };
 
 export type F2lReference = {
@@ -81,7 +83,7 @@ export type F2lTrainingTarget = {
   pattern: KPattern;
 };
 
-export type StandardF2lCaseState = {
+export type F2lCatalogueCaseState = {
   pattern: KPattern;
   trainingRotation: Rotation;
   slot: string;
@@ -89,7 +91,7 @@ export type StandardF2lCaseState = {
 
 type F2lTrainingFrame = Pick<F2lTrainingTargetInfo, "trainingRotation">;
 
-/** The explicit solver grip for the standard 41-case library: white down, green front. */
+/** The explicit solver grip for both training libraries: white down, green front. */
 export function standardF2lTrainingRotation(): Rotation {
   const rotation = rotationForGrip("U", "F");
   if (!rotation) throw new Error("The standard F2L grip is not a valid cube orientation");
@@ -237,7 +239,7 @@ function slotSolved(pattern: KPattern, slot: { corner: number; edge: number }): 
   );
 }
 
-function crossSolved(pattern: KPattern, crossFace: Face): boolean {
+export function crossSolved(pattern: KPattern, crossFace: Face): boolean {
   const edges = pattern.patternData.EDGES;
   return EDGES_OF_FACE[crossFace].every(
     (edge) => edges.pieces[edge] === edge && edges.orientation[edge] === 0,
@@ -267,10 +269,8 @@ function algorithmStm(alg: string): number {
 
 const UNDO_AUF = ["", "U'", "U2", "U"];
 
-const POSITION_REFRAMES = ["", "y", "y2", "y'"];
-
 function positionReframe(position: F2lPosition): Alg {
-  return new Alg(POSITION_REFRAMES[F2L_POSITIONS.indexOf(position)]);
+  return new Alg(F2L_POSITION_TO_FRONT_RIGHT[position]).invert();
 }
 
 function alignedReferenceAlgorithm(algorithm: string, auf: number): string {
@@ -290,7 +290,7 @@ type ReferenceValidationOptions = {
   algorithm: string;
 };
 
-function referenceSolvesTarget({
+export function referenceSolvesTarget({
   kpuzzle,
   targetPattern,
   trainingRotation,
@@ -309,7 +309,8 @@ function referenceSolvesTarget({
 
 export type BuildF2lReferencesOptions = {
   kpuzzle: KPuzzle;
-  f2lCase: F2lCase;
+  f2lCase: Pick<F2lCase, "name" | "group">;
+  algorithms: readonly string[];
   position: F2lPosition;
   auf: number;
   targetPattern: KPattern;
@@ -321,6 +322,7 @@ export type BuildF2lReferencesOptions = {
 export function buildF2lReferences({
   kpuzzle,
   f2lCase,
+  algorithms,
   position,
   auf,
   targetPattern,
@@ -328,7 +330,7 @@ export function buildF2lReferences({
   goal,
 }: BuildF2lReferencesOptions): F2lReference[] {
   const references: F2lReference[] = [];
-  for (const algorithm of f2lCase.algorithms[position]) {
+  for (const algorithm of algorithms) {
     const alg = alignedReferenceAlgorithm(algorithm, auf);
     if (!referenceSolvesTarget({
       kpuzzle,
@@ -362,13 +364,26 @@ function goalFor(pattern: KPattern, crossFace: Face, targetSlot: string): F2lTra
   };
 }
 
-/** Build the canonical state shared by standard training and its case thumbnails. */
-export function buildStandardF2lCaseState(
+/** Fixed-hand setup shared by targets, thumbnails and direct smart-cube setup. */
+function catalogueSetup(f2lCase: F2lTrainingCase, position: F2lPosition): Alg {
+  const input = f2lTrainingCaseInput(f2lCase, position);
+  const setup = new Alg(input.setup);
+  if (!input.canonical) return setup;
+  const rotation = positionReframe(position);
+  return rotation.invert().concat(setup).concat(rotation);
+}
+
+export function f2lCatalogueSetupMoves(f2lCase: F2lTrainingCase, position: F2lPosition): string | null {
+  return referenceExecutionSignature(catalogueSetup(f2lCase, position).toString())?.join(" ") ?? null;
+}
+
+/** Shared grip/state path; only Basic derives positions from a canonical FR setup. */
+export function buildF2lCatalogueCaseState(
   kpuzzle: KPuzzle,
-  f2lCase: F2lCase,
+  f2lCase: F2lTrainingCase,
   position: F2lPosition,
   basePattern?: KPattern,
-): StandardF2lCaseState {
+): F2lCatalogueCaseState {
   const rotation = standardF2lTrainingRotation();
   const rotationAlg = new Alg(rotation.tokens.join(" "));
   const handBase = reframe(
@@ -376,13 +391,7 @@ export function buildStandardF2lCaseState(
     basePattern ?? kpuzzle.defaultPattern(),
     rotationAlg,
   );
-  // The setup is canonical FR data. Conjugating it by the positional reframe moves
-  // the pair without rotating the user's fixed training grip or restoring the LL.
-  const positionRotation = positionReframe(position);
-  const positionedSetup = positionRotation
-    .invert()
-    .concat(new Alg(f2lCase.setup))
-    .concat(positionRotation);
+  const positionedSetup = catalogueSetup(f2lCase, position);
   const pattern = reframe(
     kpuzzle,
     handBase.applyAlg(positionedSetup),
@@ -395,16 +404,16 @@ export function buildStandardF2lCaseState(
   };
 }
 
-export function buildStandardF2lTarget(
+export function buildF2lCatalogueTarget(
   kpuzzle: KPuzzle,
-  f2lCase: F2lCase,
+  f2lCase: F2lTrainingCase,
   positionOrBase: F2lPosition | KPattern = "FR",
   suppliedBase?: KPattern,
 ): F2lTrainingTarget {
   const position = typeof positionOrBase === "string" ? positionOrBase : "FR";
   const basePattern = typeof positionOrBase === "string" ? suppliedBase : positionOrBase;
   const crossFace: Face = "U";
-  const caseState = buildStandardF2lCaseState(
+  const caseState = buildF2lCatalogueCaseState(
     kpuzzle,
     f2lCase,
     position,
@@ -415,6 +424,7 @@ export function buildStandardF2lTarget(
   const references = buildF2lReferences({
     kpuzzle,
     f2lCase,
+    algorithms: f2lTrainingCaseInput(f2lCase, position).algorithms,
     position,
     auf: 0,
     targetPattern: pattern,
@@ -425,7 +435,7 @@ export function buildStandardF2lTarget(
     pattern,
     goal,
     info: {
-      origin: { kind: "standard", caseName: f2lCase.name, group: f2lCase.group },
+      origin: { kind: "catalog", library: f2lCase.library, caseName: f2lCase.name, group: f2lCase.group },
       crossFace,
       trainingRotation,
       position,
@@ -507,6 +517,7 @@ export function buildExactF2lTarget(
       references = buildF2lReferences({
         kpuzzle,
         f2lCase,
+        algorithms: f2lCase.algorithms[position],
         position,
         auf: recognition.match.auf,
         targetPattern: pattern,

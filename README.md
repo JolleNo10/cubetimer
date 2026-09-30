@@ -80,12 +80,17 @@ for the cube protocols.
 - A solver's solution to the whole scramble, as a yardstick for the move count.
 
 **F2L Training**
-- A separate top-level area for all 41 existing F2L cases in Front Right, Front Left,
-  Back Left and Back Right, with setup guidance from the cube's current state and live
-  smart-cube progress, or a Virtual case mode that loads the target without requiring
-  physical setup.
+- A Basic / Advanced catalogue switch: Basic contains the canonical 41 F2L cases;
+  Advanced contains 54 source-generated [SpeedCubeDB Advanced F2L cases](https://speedcubedb.com/a/3x3/AdvancedF2L),
+  grouped by trapped corner, trapped edge, or both pieces trapped.
+- Both libraries support Front Right, Front Left, Back Left and Back Right with
+  generated cube-state thumbnails, Setup cube guidance from the current physical
+  state, and Virtual case practice. Advanced positions are independently derived from
+  their corresponding source algorithm tabs, rather than rotations of one FR setup.
 - Train an exact non-skipped F2L step from solve review, preserving its historical
   cube state and slot without adding the attempt to timer history or statistics.
+  Solve-review recognition remains based on the Basic 41-case recognizer; Advanced
+  catalogue cases are not automatically recognized in normal solve analysis.
 - Results focus on STM against the ordered, position-specific Recommended references,
   identify known alternatives or valid custom solutions, and keep elapsed time
   secondary.

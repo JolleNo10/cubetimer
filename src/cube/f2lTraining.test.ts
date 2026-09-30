@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
 import { faceColour } from "./colours";
 import { faceletsToPattern, patternToFacelets } from "./facelets";
-import { F2L_CASES, F2L_POSITIONS } from "./f2lCases";
+import { F2L_POSITIONS } from "./f2lCases";
+import { F2L_TRAINING_CATALOGUES } from "./f2lTrainingCases";
 import {
   buildExactF2lTarget,
-  buildStandardF2lTarget,
+  buildF2lCatalogueTarget,
   calculateTrainingEfficiency,
+  f2lCatalogueSetupMoves,
   f2lPositionSetup,
   f2lCubeAlgorithm,
   f2lCubeMoves,
@@ -29,12 +31,13 @@ import {
   slotInCubeFrame,
 } from "./orientation";
 import { encodeGripTrack } from "./gripTrack";
-import { reframe } from "./recognise";
+import { reframe, withCentresHome } from "./recognise";
 import { ScrambleTracker } from "./scramble";
 import { parseFaceMove } from "./moves";
 import type { Solve } from "../state/types";
 
 const kpuzzle = await get3x3x3();
+const BASIC_CASES = F2L_TRAINING_CATALOGUES.basic.cases;
 
 function flipFacelets(facelets: string, a: number, b: number): string {
   const next = [...facelets];
@@ -43,7 +46,7 @@ function flipFacelets(facelets: string, a: number, b: number): string {
 }
 
 describe("F2L training targets", () => {
-  function solveReference(target: ReturnType<typeof buildStandardF2lTarget>, algorithm: string) {
+  function solveReference(target: ReturnType<typeof buildF2lCatalogueTarget>, algorithm: string) {
     const rotation = standardF2lTrainingRotation();
     const rotationAlg = new Alg(rotation.tokens.join(" "));
     return reframe(
@@ -71,8 +74,8 @@ describe("F2L training targets", () => {
     expect(rotation.orientation.F).toBe("F");
     expect(rotation.orientation.B).toBe("B");
 
-    for (const f2lCase of F2L_CASES) {
-      const target = buildStandardF2lTarget(kpuzzle, f2lCase);
+    for (const f2lCase of BASIC_CASES) {
+      const target = buildF2lCatalogueTarget(kpuzzle, f2lCase);
       expect(target.info.crossFace).toBe("U");
       expect(faceColour(target.info.crossFace).name).toBe("white");
       expect(target.info.slot).toBe(slotInCubeFrame(rotation.orientation, "FR"));
@@ -95,9 +98,9 @@ describe("F2L training targets", () => {
     const rotation = standardF2lTrainingRotation();
     const rotationAlg = new Alg(rotation.tokens.join(" "));
     const base = kpuzzle.defaultPattern().applyAlg(new Alg("D2"));
-    for (const f2lCase of F2L_CASES) {
+    for (const f2lCase of BASIC_CASES) {
       for (const position of F2L_POSITIONS) {
-        const target = buildStandardF2lTarget(kpuzzle, f2lCase, position, base);
+        const target = buildF2lCatalogueTarget(kpuzzle, f2lCase, position, base);
         expect(target.info.position, f2lCase.name).toBe(position);
         expect(target.info.slot, f2lCase.name).toBe(
           slotInCubeFrame(rotation.orientation, position),
@@ -123,12 +126,12 @@ describe("F2L training targets", () => {
   });
 
   it("re-expresses trackable catalogue setup in every positional slot", () => {
-    const f2lCase = F2L_CASES[3];
+    const f2lCase = BASIC_CASES[3];
     const rotation = standardF2lTrainingRotation();
     const base = kpuzzle.defaultPattern().applyAlg(new Alg("D2"));
     for (const position of F2L_POSITIONS) {
       const handSetup = f2lPositionSetup(f2lCase.setup, position);
-      const target = buildStandardF2lTarget(kpuzzle, f2lCase, position, base);
+      const target = buildF2lCatalogueTarget(kpuzzle, f2lCase, position, base);
       expect(handSetup, position).toBeTruthy();
       const raw = f2lCubeMoves(handSetup!.split(" "), rotation.orientation).join(" ");
       const tracker = new ScrambleTracker(kpuzzle, raw, base);
@@ -139,11 +142,11 @@ describe("F2L training targets", () => {
   });
 
   it("builds the same case relative to different last-layer contexts", () => {
-    const f2lCase = F2L_CASES[3];
+    const f2lCase = BASIC_CASES[3];
     const baseA = kpuzzle.defaultPattern();
     const baseB = baseA.applyAlg(new Alg("D2"));
-    const targetA = buildStandardF2lTarget(kpuzzle, f2lCase, baseA);
-    const targetB = buildStandardF2lTarget(kpuzzle, f2lCase, baseB);
+    const targetA = buildF2lCatalogueTarget(kpuzzle, f2lCase, baseA);
+    const targetB = buildF2lCatalogueTarget(kpuzzle, f2lCase, baseB);
 
     expect(targetA.info.slot).toBe(targetB.info.slot);
     expect(targetA.info.protectedSlots).toEqual(targetB.info.protectedSlots);
@@ -153,9 +156,9 @@ describe("F2L training targets", () => {
   });
 
   it("keeps an outer-turn catalogue setup and maps it to raw tracker moves", () => {
-    const f2lCase = F2L_CASES[3];
+    const f2lCase = BASIC_CASES[3];
     const base = kpuzzle.defaultPattern().applyAlg(new Alg("D2"));
-    const target = buildStandardF2lTarget(kpuzzle, f2lCase, base);
+    const target = buildF2lCatalogueTarget(kpuzzle, f2lCase, base);
     const grip = standardF2lTrainingRotation().orientation;
     const rawSetup = f2lCubeAlgorithm(f2lCase.setup, grip);
     const tracker = new ScrambleTracker(kpuzzle, rawSetup, base);
@@ -167,9 +170,9 @@ describe("F2L training targets", () => {
   });
 
   it("falls back to an outer-face route for wide or slice catalogue setups", async () => {
-    const f2lCase = F2L_CASES[7];
+    const f2lCase = BASIC_CASES[7];
     const base = kpuzzle.defaultPattern().applyAlg(new Alg("D2"));
-    const target = buildStandardF2lTarget(kpuzzle, f2lCase, base);
+    const target = buildF2lCatalogueTarget(kpuzzle, f2lCase, base);
     const setup = await algBetween(base, target.pattern);
     const tracker = new ScrambleTracker(kpuzzle, setup.toString(), base);
 
@@ -191,7 +194,7 @@ describe("F2L training targets", () => {
     expect(referenceExecutionSignature("y R U")).toEqual(["B", "U"]);
     expect(referenceExecutionSignature("r U R'")).toBeNull();
 
-    const target = buildStandardF2lTarget(kpuzzle, F2L_CASES[12]);
+    const target = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[12]);
     const reference = target.info.references[0];
     expect(reference.alg).toMatch(/^y'/);
     const signature = referenceExecutionSignature(reference.alg);
@@ -327,7 +330,7 @@ describe("F2L training targets", () => {
   });
 
   it("keeps standard reference planning in a recorded non-canonical front frame", () => {
-    const f2lCase = F2L_CASES[0];
+    const f2lCase = BASIC_CASES[0];
     const grip = rotationForGrip("D", "R")!;
     const gripAlg = new Alg(grip.tokens.join(" "));
     const canonical = kpuzzle.defaultPattern().applyAlg(new Alg(f2lCase.setup));
@@ -378,7 +381,7 @@ describe("F2L training targets", () => {
   });
 
   it("reuses the standard reference when an exact setup is recognizable and valid", () => {
-    const f2lCase = F2L_CASES[0];
+    const f2lCase = BASIC_CASES[0];
     const solve = {
       id: "solve-3",
       scramble: f2lCase.setup,
@@ -398,9 +401,9 @@ describe("F2L training targets", () => {
   });
 
   it("aligns an exact F2L 10 back-left reference by AUF without rotating to FR", () => {
-    const f2lCase = F2L_CASES.find((candidate) => candidate.name === "F2L 10")!;
+    const f2lCase = BASIC_CASES.find((candidate) => candidate.name === "F2L 10")!;
     const position = "BL" as const;
-    const standard = buildStandardF2lTarget(kpuzzle, f2lCase, position);
+    const standard = buildF2lCatalogueTarget(kpuzzle, f2lCase, position);
     const rotation = standardF2lTrainingRotation();
     const rotationAlg = new Alg(rotation.tokens.join(" "));
     const exactStart = reframe(
@@ -448,12 +451,12 @@ describe("F2L training targets", () => {
   });
 
   it("requires the cross and previously solved slots to stay solved", () => {
-    const target = buildStandardF2lTarget(kpuzzle, F2L_CASES[0]);
+    const target = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0]);
     const rotation = standardF2lTrainingRotation();
     const rotationAlg = new Alg(rotation.tokens.join(" "));
     const solved = reframe(
       kpuzzle,
-      reframe(kpuzzle, target.pattern, rotationAlg).applyAlg(new Alg(F2L_CASES[0].algorithms.FR[0])),
+      reframe(kpuzzle, target.pattern, rotationAlg).applyAlg(new Alg(BASIC_CASES[0].algorithms.FR[0])),
       rotationAlg.invert(),
     );
     expect(isF2lTrainingComplete(target, solved)).toBe(true);
@@ -473,8 +476,8 @@ describe("F2L training targets", () => {
   });
 
   it("allows an unsolved future pair to remain unsolved", async () => {
-    const targetCase = F2L_CASES[0];
-    const futureCase = F2L_CASES[1];
+    const targetCase = BASIC_CASES[0];
+    const futureCase = BASIC_CASES[1];
     const futureAtFl = reframe(
       kpuzzle,
       kpuzzle.defaultPattern().applyAlg(new Alg(futureCase.setup)),
@@ -534,7 +537,7 @@ describe("F2L training targets", () => {
   });
 
   it("classifies exact normalized executions against the ordered references", () => {
-    const target = buildStandardF2lTarget(kpuzzle, F2L_CASES[0]);
+    const target = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0]);
     const references = target.info.references;
     expect(references.length).toBeGreaterThan(1);
     const timed = (algorithm: string) =>
@@ -554,7 +557,7 @@ describe("F2L training targets", () => {
   });
 
   it("keeps wide or slice references while classifying them conservatively", () => {
-    const target = buildStandardF2lTarget(kpuzzle, F2L_CASES[7]);
+    const target = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[7]);
     const reference = target.info.references.find(
       (candidate) => referenceExecutionSignature(candidate.alg) === null,
     );
@@ -565,5 +568,52 @@ describe("F2L training targets", () => {
       [reference!],
     );
     expect(result.matchedReferenceRank).toBeNull();
+  });
+
+  it("uses Advanced position setups directly in the existing training frame", () => {
+    const entry = F2L_TRAINING_CATALOGUES.advanced.cases.find((candidate) => candidate.name === "AF2L 3")!;
+    const rotation = new Alg(standardF2lTrainingRotation().tokens.join(" "));
+    for (const position of F2L_POSITIONS) {
+      const base = kpuzzle.defaultPattern().applyAlg(new Alg("D2"));
+      const target = buildF2lCatalogueTarget(kpuzzle, entry, position, base);
+      const expected = reframe(kpuzzle,
+        reframe(kpuzzle, base, rotation).applyAlg(new Alg(entry.variants[position].setup)),
+        rotation.invert());
+      expect(patternToFacelets(target.pattern)).toBe(patternToFacelets(expected));
+      expect(target.info.references).toHaveLength(entry.variants[position].algorithms.length);
+      for (const reference of target.info.references) {
+        expect(isF2lTrainingComplete(target, solveReference(target, reference.alg))).toBe(true);
+      }
+    }
+    expect(entry.variants.FL.setup).not.toBe(f2lPositionSetup(entry.variants.FR.setup, "FL"));
+  });
+
+  it("does not protect slots that began trapped, but still requires cross and initially solved slots", () => {
+    const entry = F2L_TRAINING_CATALOGUES.advanced.cases.find((candidate) => candidate.name === "AF2L 1")!;
+    const target = buildF2lCatalogueTarget(kpuzzle, entry, "FR");
+    const done = withCentresHome(kpuzzle, solveReference(target, target.info.references[0].alg));
+    expect(isF2lTrainingComplete(target, done)).toBe(true);
+    const unprotected = F2L_POSITIONS.find((position) => {
+      const slot = slotInCubeFrame(target.info.trainingRotation.orientation, position);
+      return slot !== target.info.slot && !target.info.protectedSlots.includes(slot);
+    });
+    expect(unprotected).toBeDefined();
+    const stillTrapped = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[3], unprotected!, done);
+    expect(isF2lTrainingComplete(stillTrapped, stillTrapped.pattern)).toBe(false);
+    expect(isF2lTrainingComplete(target, stillTrapped.pattern)).toBe(true);
+    expect(isStandardF2lBase(stillTrapped.pattern)).toBe(false);
+    const protectedPosition = F2L_POSITIONS.find((position) =>
+      target.info.protectedSlots.includes(slotInCubeFrame(target.info.trainingRotation.orientation, position)))!;
+    const brokenProtected = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[3], protectedPosition, done);
+    expect(isF2lTrainingComplete(target, brokenProtected.pattern)).toBe(false);
+    expect(isF2lTrainingComplete(target, done.applyAlg(new Alg("U")))).toBe(false);
+  });
+
+  it("keeps slice/wide-only Advanced references valid and uses the generic setup seam", () => {
+    const entry = F2L_TRAINING_CATALOGUES.advanced.cases.find((candidate) => candidate.name === "AF2L 25")!;
+    const target = buildF2lCatalogueTarget(kpuzzle, entry, "BR");
+    expect(f2lCatalogueSetupMoves(entry, "BR")).toBeNull();
+    expect(referenceExecutionSignature(target.info.references[0].alg)).toBeNull();
+    expect(isF2lTrainingComplete(target, solveReference(target, target.info.references[0].alg))).toBe(true);
   });
 });

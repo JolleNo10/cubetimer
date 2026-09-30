@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { buildStandardF2lTarget, f2lTrainingGrip } from "../cube/f2lTraining";
-import { F2L_CASES } from "../cube/f2lCases";
+import { buildF2lCatalogueTarget, f2lTrainingGrip } from "../cube/f2lTraining";
+import { F2L_TRAINING_CATALOGUES } from "../cube/f2lTrainingCases";
 import { get3x3x3 } from "../cube/puzzle";
 import { reorientMove } from "../cube/orientation";
 import { orientFaceletsForDisplay } from "./CubeView";
 import { patternToFacelets } from "../cube/facelets";
 
 const kpuzzle = await get3x3x3();
+const BASIC_CASES = F2L_TRAINING_CATALOGUES.basic.cases;
 
 describe("CubeView training orientation", () => {
   it("maps the standard white cross to the displayed bottom face", () => {
-    const target = buildStandardF2lTarget(kpuzzle, F2L_CASES[0]);
+    const target = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0]);
     const orientation = f2lTrainingGrip(target.info);
     const displayed = orientFaceletsForDisplay(
       kpuzzle,

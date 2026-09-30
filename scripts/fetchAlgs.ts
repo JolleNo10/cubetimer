@@ -13,7 +13,7 @@
  *
  * The output is committed. Nothing fetches at runtime — the app works offline.
  */
-import { mkdirSync, existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   F2L_SLOTS,
@@ -22,6 +22,7 @@ import {
   pllCaseSolvedBy,
 } from "../src/cube/algBank";
 import { get3x3x3 } from "../src/cube/puzzle";
+import { fetchSpeedCubeDbPage, parseSpeedCubeDbAlgorithmTabs as parse, slotRotations } from "./speedcubedb";
 
 const BASE = "https://www.speedcubedb.com/a/3x3";
 const OUTPUT = "src/cube/algBank.generated.ts";
@@ -35,46 +36,11 @@ async function page(family: string): Promise<string> {
   const cached = cacheDir ? join(cacheDir, `${family}.html`) : null;
   if (cached && existsSync(cached)) {
     console.log(`  ${family}: reusing ${cached}`);
-    return readFileSync(cached, "utf8");
+    return fetchSpeedCubeDbPage(`${BASE}/${family}`, cached);
   }
   const url = `${BASE}/${family}`;
   console.log(`  ${family}: fetching ${url}`);
-  const response = await fetch(url, {
-    headers: { "user-agent": "cubetimer alg bank builder" },
-  });
-  if (!response.ok) throw new Error(`${url} returned ${response.status}`);
-  const html = await response.text();
-  if (cached) {
-    mkdirSync(cacheDir!, { recursive: true });
-    writeFileSync(cached, html);
-  }
-  return html;
-}
-
-/**
- * Pull the algorithms out of a page, grouped by the case and slot they sit under.
- *
- * Each block of algorithms is introduced by `data-t="<case>,<slot>"`, which is the
- * only structure relied on. The page also carries one placeholder block whose name is
- * not a case at all; requiring a numeric slot filters it out.
- */
-function parse(html: string): Map<string, string[][]> {
-  const blocks = [...html.matchAll(/data-t="([^",]+),(\d+)"/g)];
-  const byCase = new Map<string, string[][]>();
-
-  for (const [index, block] of blocks.entries()) {
-    const [, caseName, slot] = block;
-    const from = block.index + block[0].length;
-    const to = index + 1 < blocks.length ? blocks[index + 1].index : html.length;
-    const algs = [
-      ...html.slice(from, to).matchAll(/<div class="formatted-alg">([^<]*)<\/div>/g),
-    ].map((match) => match[1].replace(/\s+/g, " ").trim());
-
-    const slots = byCase.get(caseName) ?? [];
-    slots[Number(slot)] = algs;
-    byCase.set(caseName, slots);
-  }
-  return byCase;
+  return fetchSpeedCubeDbPage(url, cached);
 }
 
 const kpuzzle = await get3x3x3();
@@ -130,34 +96,9 @@ for (const [name, slots] of parse(pllHtml)) {
  * the tab meant. A tab whose answer is not the same for every case is a tab we have
  * misread, and the script says so rather than guessing.
  */
-function slotRotations(byCase: Map<string, string[][]>): number[] | null {
-  const votes = F2L_SLOTS.map(() => new Map<number, number>());
-  for (const [name, slots] of byCase) {
-    if (!/^F2L \d+$/.test(name)) continue;
-    slots.forEach((algs, tab) => {
-      if (tab >= F2L_SLOTS.length) return;
-      for (const alg of algs ?? []) {
-        for (let turns = 0; turns < 4; turns++) {
-          if (!f2lAlgSolves(kpuzzle, name, turns, alg)) continue;
-          votes[tab].set(turns, (votes[tab].get(turns) ?? 0) + 1);
-        }
-      }
-    });
-  }
-  const chosen = votes.map((tally) => {
-    const best = [...tally].sort((a, b) => b[1] - a[1])[0];
-    return best ? best[0] : -1;
-  });
-  if (chosen.some((turns) => turns < 0) || new Set(chosen).size !== 4) {
-    console.error("  could not pin the slot tabs down:", votes);
-    return null;
-  }
-  return chosen;
-}
-
 console.log("Checking F2L (this one takes a moment)...");
 const f2lCases = parse(f2lHtml);
-const rotations = slotRotations(f2lCases);
+const rotations = slotRotations(kpuzzle, f2lCases);
 if (!rotations) process.exit(1);
 console.log(
   `  slot tabs mean: ${F2L_SLOTS.map((s, i) => `${i}=${s} (y${rotations[i]})`).join(", ")}`,
