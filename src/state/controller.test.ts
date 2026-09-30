@@ -307,7 +307,7 @@ describe("Controller Advanced F2L catalogue", () => {
     expect(patternToFacelets(controller.pattern!)).toBe(physical);
   });
 
-  it("rebuilds each Advanced position from its own variant and keeps it through retry/mode changes", async () => {
+  it("repositions the authoritative Advanced case and keeps it through retry/mode changes", async () => {
     const controller = controllerAtBase();
     controller.setF2lLibrary("advanced");
     await controller.setF2lMode("virtual");
@@ -336,14 +336,15 @@ describe("Controller Advanced F2L catalogue", () => {
     const entry = findF2lTrainingCase("advanced", "AF2L 3")!;
     const expected = buildF2lCatalogueTarget(kpuzzle, entry, "FL", base);
     const training = controller.state.get().f2lTraining;
-    expect(training.setup).toBe(referenceExecutionSignature(entry.library === "advanced" ? entry.variants.FL.setup : "")!.join(" "));
+    expect(training.setup).toBe(referenceExecutionSignature(entry.setup)!.join(" "));
     for (const move of f2lCubeAlgorithm(training.setup, f2lTrainingGrip(expected.info)).split(" ")) controller.injectMove(move);
     expect(controller.state.get().f2lTraining.phase).toBe("ready");
     expect(patternToFacelets(controller.pattern!)).toBe(patternToFacelets(expected.pattern));
-    const execution = referenceExecutionSignature(expected.info.references[0].alg)!;
+    const reference = expected.info.references.find((candidate) => referenceExecutionSignature(candidate.alg) !== null)!;
+    const execution = referenceExecutionSignature(reference.alg)!;
     for (const move of f2lCubeAlgorithm(execution.join(" "), f2lTrainingGrip(expected.info)).split(" ")) controller.injectMove(move);
     expect(controller.state.get().f2lTraining.phase).toBe("result");
-    expect(controller.state.get().f2lTraining.result?.matchedReferenceRank).toBe(1);
+    expect(controller.state.get().f2lTraining.result?.matchedReferenceRank).toBe(reference.rank);
     controller.againF2lTraining();
     await Promise.resolve();
     expect(controller.state.get().f2lTraining.target?.origin).toMatchObject({ library: "advanced", caseName: "AF2L 3" });
@@ -353,12 +354,12 @@ describe("Controller Advanced F2L catalogue", () => {
     expect(controller.state.get().f2lTraining).toMatchObject({ mode: "setup", selectedPosition: "FL", setup: "", target: null, setupProgress: null });
   });
 
-  it("uses the existing generic Setup fallback for Advanced wide/slice variants", async () => {
+  it("uses the existing generic Setup fallback for the exact authoritative slice case", async () => {
     const controller = controllerAtBase(kpuzzle.defaultPattern().applyAlg(new Alg("R U F")));
     controller.setF2lLibrary("advanced");
     await controller.selectF2lPosition("BR");
-    await controller.selectF2lCase("AF2L 25");
-    const expected = buildF2lCatalogueTarget(kpuzzle, findF2lTrainingCase("advanced", "AF2L 25")!, "BR");
+    await controller.selectF2lCase("AF2L 1");
+    const expected = buildF2lCatalogueTarget(kpuzzle, findF2lTrainingCase("advanced", "AF2L 1")!, "BR");
     const training = controller.state.get().f2lTraining;
     expect(training.phase).toBe("preparing");
     expect(training.setup).toMatch(/^[URFDLB2' ]+$/);
@@ -374,10 +375,11 @@ describe("Controller Advanced F2L catalogue", () => {
     await controller.selectF2lPosition("FL");
     await controller.selectF2lCase("AF2L 3");
     const target = controller.state.get().f2lTraining.target!;
-    const execution = referenceExecutionSignature(target.references[0].alg)!;
+    const reference = target.references.find((candidate) => referenceExecutionSignature(candidate.alg) !== null)!;
+    const execution = referenceExecutionSignature(reference.alg)!;
     for (const move of f2lCubeAlgorithm(execution.join(" "), f2lTrainingGrip(target)).split(" ")) controller.injectMove(move);
     expect(controller.state.get().f2lTraining.phase).toBe("ready");
-    expect(controller.state.get().f2lTraining.result?.matchedReferenceRank).toBe(1);
+    expect(controller.state.get().f2lTraining.result?.matchedReferenceRank).toBe(reference.rank);
     controller.setF2lLibrary("basic");
     expect(controller.state.get().f2lTraining).toMatchObject({ phase: "selecting", mode: "virtual", selectedPosition: "FL", result: null, target: null, liveMoves: [] });
   });

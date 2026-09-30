@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildStoredF2lThumbnail, renderF2lThumbnailMap } from "../../scripts/buildF2lThumbnailMap";
 import { CENTER_FACELETS, CORNER_FACELETS, EDGE_FACELETS, patternToFacelets } from "./facelets";
-import { F2L_POSITIONS, type F2lPosition } from "./f2lCases";
+import { F2L_POSITIONS, f2lPositionTransform, type F2lPosition } from "./f2lCases";
+import { reframe } from "./recognise";
 import { F2L_TRAINING_CATALOGUES, findF2lTrainingCase, type F2lTrainingLibrary } from "./f2lTrainingCases";
 import { ADVANCED_F2L_THUMBNAIL_MAP } from "./advancedF2lThumbnailMap.generated";
 import { buildF2lCatalogueCaseState, standardF2lTrainingRotation, type F2lCatalogueCaseState } from "./f2lTraining";
@@ -150,11 +151,30 @@ describe("Advanced F2L thumbnail semantics", () => {
     (name, position) => validateThumbnail(name, position, "advanced"),
   );
 
-  it("stores exactly 216 independent Advanced thumbnails", () => {
+  it("stores exactly 216 geometrically positioned Advanced thumbnails", () => {
     expect(Object.keys(ADVANCED_F2L_THUMBNAIL_MAP).sort()).toEqual(cases.map((entry) => entry.name).sort());
     expect(Object.values(ADVANCED_F2L_THUMBNAIL_MAP).flatMap(Object.values)).toHaveLength(216);
     for (const positions of Object.values(ADVANCED_F2L_THUMBNAIL_MAP)) {
       expect(Object.keys(positions)).toEqual([...F2L_POSITIONS]);
+    }
+  });
+
+  it.each(F2L_POSITIONS)("all 54 thumbnails selected for %s highlight that destination's home pair", (position) => {
+    for (const entry of cases) validateThumbnail(entry.name, position, "advanced");
+  });
+
+  it.each([
+    ["AF2L 1", "S R S'", "BR"],
+    ["AF2L 2", "L U2' L' R U R'", "BL"],
+    ["AF2L 3", "L F' L' F U' R U R'", "FL"],
+  ] as const)("%s thumbnails originate from the published setup, not an inverse reference", (name, setup, canonicalTarget) => {
+    const published = kpuzzle.defaultPattern().applyAlg(new Alg(setup));
+    const grip = new Alg(standardF2lTrainingRotation().tokens.join(" "));
+    for (const position of F2L_POSITIONS) {
+      const positioned = reframe(kpuzzle, published, f2lPositionTransform(canonicalTarget, position).invert());
+      const cubePattern = reframe(kpuzzle, positioned, grip.invert());
+      expect(ADVANCED_F2L_THUMBNAIL_MAP[name][position].facelets)
+        .toBe(patternToFacelets(cubePattern.applyAlg(grip)));
     }
   });
 

@@ -1,3 +1,4 @@
+import { Alg } from "cubing/alg";
 import { F2L_ALG_BANK } from "./algBank.generated";
 
 /** The four positions a first-two-layers pair can occupy in the solver's grip. */
@@ -8,6 +9,17 @@ export type F2lPosition = (typeof F2L_POSITIONS)[number];
 export const F2L_POSITION_TO_FRONT_RIGHT: Readonly<Record<F2lPosition, string>> = {
   FR: "", FL: "y'", BL: "y2", BR: "y",
 };
+
+/** Conjugation prefix moving an entire case's target from one position to another. */
+export function f2lPositionTransform(from: F2lPosition, to: F2lPosition): Alg {
+  return new Alg(F2L_POSITION_TO_FRONT_RIGHT[to])
+    .concat(new Alg(F2L_POSITION_TO_FRONT_RIGHT[from]).invert()).simplify();
+}
+
+export function positionF2lAlgorithm(algorithm: Alg, from: F2lPosition, to: F2lPosition): Alg {
+  const rotation = f2lPositionTransform(from, to);
+  return rotation.concat(algorithm).concat(rotation.invert());
+}
 
 const F2L_POSITION_LABELS: Record<F2lPosition, string> = {
   FR: "Front Right",

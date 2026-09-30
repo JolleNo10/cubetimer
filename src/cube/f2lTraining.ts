@@ -9,7 +9,7 @@ import {
 } from "./f2l";
 import {
   F2L_CASES,
-  F2L_POSITION_TO_FRONT_RIGHT,
+  positionF2lAlgorithm,
   type F2lCase,
   type F2lPosition,
 } from "./f2lCases";
@@ -204,11 +204,7 @@ export function f2lPositionSetup(
   position: F2lPosition,
 ): string | null {
   if (!isF2lSetupTrackable(algorithm)) return null;
-  const positionRotation = positionReframe(position);
-  const positioned = positionRotation
-    .invert()
-    .concat(new Alg(algorithm))
-    .concat(positionRotation);
+  const positioned = positionF2lAlgorithm(new Alg(algorithm), "FR", position);
   const signature = referenceExecutionSignature(positioned.toString());
   return signature?.join(" ") ?? null;
 }
@@ -268,10 +264,6 @@ function algorithmStm(alg: string): number {
 }
 
 const UNDO_AUF = ["", "U'", "U2", "U"];
-
-function positionReframe(position: F2lPosition): Alg {
-  return new Alg(F2L_POSITION_TO_FRONT_RIGHT[position]).invert();
-}
 
 function alignedReferenceAlgorithm(algorithm: string, auf: number): string {
   const split = splitLeadingRotation(algorithm);
@@ -366,18 +358,14 @@ function goalFor(pattern: KPattern, crossFace: Face, targetSlot: string): F2lTra
 
 /** Fixed-hand setup shared by targets, thumbnails and direct smart-cube setup. */
 function catalogueSetup(f2lCase: F2lTrainingCase, position: F2lPosition): Alg {
-  const input = f2lTrainingCaseInput(f2lCase, position);
-  const setup = new Alg(input.setup);
-  if (!input.canonical) return setup;
-  const rotation = positionReframe(position);
-  return rotation.invert().concat(setup).concat(rotation);
+  return new Alg(f2lTrainingCaseInput(f2lCase, position).setup);
 }
 
 export function f2lCatalogueSetupMoves(f2lCase: F2lTrainingCase, position: F2lPosition): string | null {
   return referenceExecutionSignature(catalogueSetup(f2lCase, position).toString())?.join(" ") ?? null;
 }
 
-/** Shared grip/state path; only Basic derives positions from a canonical FR setup. */
+/** Shared grip/state path positions the canonical case around its intended target. */
 export function buildF2lCatalogueCaseState(
   kpuzzle: KPuzzle,
   f2lCase: F2lTrainingCase,

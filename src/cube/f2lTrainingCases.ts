@@ -1,13 +1,17 @@
-import { F2L_CASES, type F2lCase, type F2lPosition } from "./f2lCases";
+import { Alg } from "cubing/alg";
+import { F2L_CASES, positionF2lAlgorithm, type F2lCase, type F2lPosition } from "./f2lCases";
 import { ADVANCED_F2L_CASES } from "./advancedF2lCases.generated";
 
 export type F2lTrainingLibrary = "basic" | "advanced";
-export type AdvancedF2lVariant = { setup: string; algorithms: readonly string[] };
 export type AdvancedF2lCase = {
   name: string;
   group: string;
-  /** Each position owns a source-derived state, independent of the other positions. */
-  variants: Record<F2lPosition, AdvancedF2lVariant>;
+  /** Exact published SpeedCubeDB setup in its canonical orientation. */
+  setup: string;
+  /** Intended pair's home slot in that orientation, derived from source behaviour. */
+  canonicalTarget: F2lPosition;
+  /** Validated source-ranked references, keyed by the requested target position. */
+  algorithms: Record<F2lPosition, readonly string[]>;
 };
 export type F2lTrainingCase =
   | (F2lCase & { library: "basic" })
@@ -33,11 +37,13 @@ export function findF2lTrainingCase(library: F2lTrainingLibrary, name: string): 
   return f2lTrainingCatalogue(library).cases.find((f2lCase) => f2lCase.name === name);
 }
 
-/** Basic inputs need positioning; Advanced inputs already belong to that position. */
+/** Position the whole authoritative case, not just the intended pair. */
 export function f2lTrainingCaseInput(f2lCase: F2lTrainingCase, position: F2lPosition) {
-  return f2lCase.library === "basic"
-    ? { ...f2lCase, algorithms: f2lCase.algorithms[position], canonical: true }
-    : { ...f2lCase.variants[position], canonical: false };
+  const from = f2lCase.library === "basic" ? "FR" : f2lCase.canonicalTarget;
+  return {
+    setup: positionF2lAlgorithm(new Alg(f2lCase.setup), from, position).toString(),
+    algorithms: f2lCase.algorithms[position],
+  };
 }
 
 export function shortF2lCaseLabel(name: string): string {

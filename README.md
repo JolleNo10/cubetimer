@@ -85,8 +85,11 @@ for the cube protocols.
   grouped by trapped corner, trapped edge, or both pieces trapped.
 - Both libraries support Front Right, Front Left, Back Left and Back Right with
   generated cube-state thumbnails, Setup cube guidance from the current physical
-  state, and Virtual case practice. Advanced positions are independently derived from
-  their corresponding source algorithm tabs, rather than rotations of one FR setup.
+  state, and Virtual case practice. Each Advanced case retains its published
+  SpeedCubeDB setup and behaviourally derived canonical target slot. Selecting a
+  position geometrically rotates the entire authoritative case so its intended pair
+  belongs to that slot, without changing the training grip. Source algorithms are
+  validated against that exact state and the existing training completion goal.
 - Train an exact non-skipped F2L step from solve review, preserving its historical
   cube state and slot without adding the attempt to timer history or statistics.
   Solve-review recognition remains based on the Basic 41-case recognizer; Advanced
