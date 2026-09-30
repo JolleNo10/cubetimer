@@ -75,7 +75,10 @@ function Stat({ label, value, sub }: { label: string; value: string; sub?: strin
 
 function longAverageLabel(average: LongAverage): string {
   if (average.status === "unavailable") return "needs 10 solves";
-  if (average.status === "projected") return `projected · ${average.count}/${average.size}`;
+  if (average.status === "projected") {
+    const remaining = average.size - average.count;
+    return `Projected average · ${average.count} / ${average.size} solves · ${remaining} remaining`;
+  }
   return "actual";
 }
 
