@@ -81,6 +81,12 @@ export type F2lTrainingTarget = {
   pattern: KPattern;
 };
 
+export type StandardF2lCaseState = {
+  pattern: KPattern;
+  trainingRotation: Rotation;
+  slot: string;
+};
+
 type F2lTrainingFrame = Pick<F2lTrainingTargetInfo, "trainingRotation">;
 
 /** The explicit solver grip for the standard 41-case library: white down, green front. */
@@ -356,15 +362,13 @@ function goalFor(pattern: KPattern, crossFace: Face, targetSlot: string): F2lTra
   };
 }
 
-export function buildStandardF2lTarget(
+/** Build the canonical state shared by standard training and its case thumbnails. */
+export function buildStandardF2lCaseState(
   kpuzzle: KPuzzle,
   f2lCase: F2lCase,
-  positionOrBase: F2lPosition | KPattern = "FR",
-  suppliedBase?: KPattern,
-): F2lTrainingTarget {
-  const position = typeof positionOrBase === "string" ? positionOrBase : "FR";
-  const basePattern = typeof positionOrBase === "string" ? suppliedBase : positionOrBase;
-  const crossFace: Face = "U";
+  position: F2lPosition,
+  basePattern?: KPattern,
+): StandardF2lCaseState {
   const rotation = standardF2lTrainingRotation();
   const rotationAlg = new Alg(rotation.tokens.join(" "));
   const handBase = reframe(
@@ -384,7 +388,29 @@ export function buildStandardF2lTarget(
     handBase.applyAlg(positionedSetup),
     rotationAlg.invert(),
   );
-  const slot = slotInCubeFrame(rotation.orientation, position);
+  return {
+    pattern,
+    trainingRotation: rotation,
+    slot: slotInCubeFrame(rotation.orientation, position),
+  };
+}
+
+export function buildStandardF2lTarget(
+  kpuzzle: KPuzzle,
+  f2lCase: F2lCase,
+  positionOrBase: F2lPosition | KPattern = "FR",
+  suppliedBase?: KPattern,
+): F2lTrainingTarget {
+  const position = typeof positionOrBase === "string" ? positionOrBase : "FR";
+  const basePattern = typeof positionOrBase === "string" ? suppliedBase : positionOrBase;
+  const crossFace: Face = "U";
+  const caseState = buildStandardF2lCaseState(
+    kpuzzle,
+    f2lCase,
+    position,
+    basePattern,
+  );
+  const { pattern, trainingRotation, slot } = caseState;
   const goal = goalFor(pattern, crossFace, slot);
   const references = buildF2lReferences({
     kpuzzle,
@@ -392,7 +418,7 @@ export function buildStandardF2lTarget(
     position,
     auf: 0,
     targetPattern: pattern,
-    trainingRotation: rotation,
+    trainingRotation,
     goal,
   });
   return {
@@ -401,7 +427,7 @@ export function buildStandardF2lTarget(
     info: {
       origin: { kind: "standard", caseName: f2lCase.name, group: f2lCase.group },
       crossFace,
-      trainingRotation: rotation,
+      trainingRotation,
       position,
       slot,
       protectedSlots: goal.protectedSlots,

@@ -1,12 +1,15 @@
-import { useMemo, useState } from "react";
+import { memo, useMemo, useState } from "react";
+import type { KPuzzle } from "cubing/kpuzzle";
 import { useController, useStore } from "../hooks/useController";
 import { F2L_CASES, F2L_POSITIONS, f2lPositionLabel } from "../cube/f2lCases";
 import { faceColour, slotColours } from "../cube/colours";
 import { f2lTrainingGrip, type F2lReference } from "../cube/f2lTraining";
+import { buildAllF2lThumbnailModels } from "../cube/f2lThumbnail";
 import { formatTime } from "../state/stats";
 import type { AppState } from "../state/controller";
 import { ConnectionPanel } from "./ConnectionPanel";
 import { CubeView } from "./CubeView";
+import { F2lCaseThumbnail } from "./F2lCaseThumbnail";
 
 const GROUPS = [...new Set(F2L_CASES.map((f2lCase) => f2lCase.group))];
 
@@ -17,6 +20,7 @@ export function F2LTraining({ state }: { state: AppState }) {
   const target = training.target;
   const physicalLive = state.cubeStatus === "connected" || state.virtualCube;
   const displayLive = training.mode === "virtual" ? Boolean(target) : physicalLive;
+  const kpuzzle = controller.pattern?.kpuzzle ?? null;
   const orientationOverride = useMemo(
     () => (target ? f2lTrainingGrip(target) : undefined),
     [target],
@@ -51,28 +55,11 @@ export function F2LTraining({ state }: { state: AppState }) {
                 );
               })}
             </nav>
-            {GROUPS.map((group) => (
-              <section className="f2l-group" key={group}>
-                <div className="small faint">{group}</div>
-                <div className="f2l-case-grid">
-                  {F2L_CASES.filter((f2lCase) => f2lCase.group === group).map((f2lCase) => {
-                    const selected = target?.origin.kind === "standard" &&
-                      target.origin.caseName === f2lCase.name;
-                    return (
-                      <button
-                        type="button"
-                        key={f2lCase.name}
-                        className={`f2l-case-button${selected ? " selected" : ""}`}
-                        aria-pressed={selected}
-                        onClick={() => void controller.selectF2lCase(f2lCase.name)}
-                      >
-                        {f2lCase.name.replace("F2L ", "#")}
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            ))}
+            <F2lCaseLibrary
+              kpuzzle={kpuzzle}
+              selectedPosition={training.selectedPosition}
+              selectedCaseName={target?.origin.kind === "standard" ? target.origin.caseName : null}
+            />
           </div>
         </div>
       </div>
@@ -109,6 +96,51 @@ export function F2LTraining({ state }: { state: AppState }) {
     </div>
   );
 }
+
+const F2lCaseLibrary = memo(function F2lCaseLibrary({
+  kpuzzle,
+  selectedPosition,
+  selectedCaseName,
+}: {
+  kpuzzle: KPuzzle | null;
+  selectedPosition: (typeof F2L_POSITIONS)[number];
+  selectedCaseName: string | null;
+}) {
+  const controller = useController();
+  const thumbnailModels = useMemo(
+    () => kpuzzle ? buildAllF2lThumbnailModels(kpuzzle, selectedPosition) : new Map(),
+    [kpuzzle, selectedPosition],
+  );
+
+  return (
+    <>
+      {GROUPS.map((group) => (
+        <section className="f2l-group" key={group}>
+          <div className="small faint">{group}</div>
+          <div className="f2l-case-grid">
+            {F2L_CASES.filter((f2lCase) => f2lCase.group === group).map((f2lCase) => {
+              const selected = selectedCaseName === f2lCase.name;
+              const model = thumbnailModels.get(f2lCase.name);
+              return (
+                <button
+                  type="button"
+                  key={f2lCase.name}
+                  className={`f2l-case-button${selected ? " selected" : ""}`}
+                  aria-label={`${f2lCase.name}, ${f2lPositionLabel(selectedPosition)}`}
+                  aria-pressed={selected}
+                  onClick={() => void controller.selectF2lCase(f2lCase.name)}
+                >
+                  {model ? <F2lCaseThumbnail model={model} /> : null}
+                  <span className="f2l-case-number">{f2lCase.name.replace("F2L ", "#")}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ))}
+    </>
+  );
+});
 
 function SetupPanel({ state }: { state: AppState }) {
   const controller = useController();

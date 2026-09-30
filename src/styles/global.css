@@ -263,12 +263,14 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .stage > .solve-result { grid-row: 1 / -1; }
 
 /* ----------------------------------------------------------- F2L training */
-.f2l-training-layout { grid-template-columns: minmax(250px, 290px) minmax(0, 1fr) minmax(300px, 380px); }
+.f2l-training-layout { grid-template-columns: minmax(330px, 400px) minmax(0, 1fr) minmax(300px, 380px); }
 .f2l-library { flex: 1; min-height: 0; }
 .f2l-library .panel-body { overflow: auto; }
 .f2l-group + .f2l-group { margin-top: 18px; }
-.f2l-case-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; margin-top: 7px; }
-.f2l-case-button { padding: 6px 4px; font-family: var(--mono); font-size: 11px; }
+.f2l-case-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(72px, 1fr)); gap: 8px; margin-top: 7px; }
+.f2l-case-button { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; min-height: 92px; padding: 4px; font-family: var(--mono); font-size: 11px; }
+.f2l-case-thumbnail { display: block; width: 100%; height: auto; }
+.f2l-case-number { margin-top: 1px; line-height: 1.2; }
 .f2l-case-button.selected { border-color: var(--accent); color: var(--accent); background: color-mix(in oklab, var(--accent) 12%, transparent); }
 .f2l-position-switch { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; margin: 8px 0 14px; }
 .f2l-position-switch button { padding: 5px 4px; font-size: 11px; }

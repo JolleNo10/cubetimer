@@ -18,7 +18,7 @@ export const SOLVED_FACELETS =
   "UUUUUUUUURRRRRRRRRFFFFFFFFFDDDDDDDDDLLLLLLLLLBBBBBBBBB";
 
 /** Facelet indices per corner slot, U/D sticker first then clockwise (viewed from outside). */
-const CORNER_FACELETS: readonly (readonly [number, number, number])[] = [
+export const CORNER_FACELETS: readonly (readonly [number, number, number])[] = [
   [8, 9, 20], // URF
   [2, 45, 11], // UBR
   [0, 36, 47], // ULB
@@ -30,7 +30,7 @@ const CORNER_FACELETS: readonly (readonly [number, number, number])[] = [
 ];
 
 /** Facelet indices per edge slot, orientation-reference sticker (U/D, else F/B) first. */
-const EDGE_FACELETS: readonly (readonly [number, number])[] = [
+export const EDGE_FACELETS: readonly (readonly [number, number])[] = [
   [7, 19], // UF
   [5, 10], // UR
   [1, 46], // UB
@@ -46,7 +46,7 @@ const EDGE_FACELETS: readonly (readonly [number, number])[] = [
 ];
 
 /** Facelet index of each center, in cubing.js CENTERS order (U L F R B D). */
-const CENTER_FACELETS: readonly number[] = [4, 40, 22, 13, 49, 31];
+export const CENTER_FACELETS: readonly number[] = [4, 40, 22, 13, 49, 31];
 
 /** Face letter of each center slot, in cubing.js CENTERS order. */
 const CENTER_COLORS = ["U", "L", "F", "R", "B", "D"] as const;
