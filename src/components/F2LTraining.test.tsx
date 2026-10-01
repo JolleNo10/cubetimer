@@ -39,7 +39,9 @@ describe("F2L training library presentation", () => {
     expect(advanced).toContain("Trapped Corner");
     expect(advanced).toContain("Trapped Edge");
     expect(advanced).toContain("Both Pieces Trapped");
-    expect(advanced.match(/<polygon/g)).toHaveLength(54 * 54);
+    expect(advanced.match(/<polygon/g)).toHaveLength(54 * 27);
+    expect(advanced).not.toMatch(/data-facelet="(?:2[7-9]|[3-5]\d)"/);
+    expect(advanced).not.toContain("advanced-net");
     expect(advanced).not.toContain('fill="#52575d"');
     expect(advanced).toContain('fill-opacity="0.45"');
   });

@@ -2,15 +2,15 @@
 
 ## 2026-10-01 — Advanced F2L thumbnail presentation
 
-- What happened: the correct Advanced cube states appeared incomplete or identical
-  because the Basic thumbnail projection and muting policy were reused.
-- Root cause: Basic's U/F/R view and target-only colour omit Advanced target stickers
-  trapped on L/B/D and hide surrounding displaced pieces that distinguish cases.
-  The generated 54-facelet state was correct; the renderer discarded useful information.
-- Prevention: test what the SVG actually exposes, not only its underlying model.
-  Training families can share state generation without sharing projection/muting.
-  Advanced uses a stable six-face net with subdued real context colours; Basic keeps
-  its existing isometric target-only presentation.
+- What happened: Basic's target-only colour treatment initially hid too much Advanced
+  context. The attempted correction overcompensated by unfolding all six faces into
+  every small case card, making the library visually dense and difficult to scan.
+- Root cause: thumbnails were treated as if they needed to expose the complete
+  authoritative cube state. That responsibility belongs to the selected main cube.
+- Prevention: keep case cards as compact recognition aids with one stable isometric
+  viewpoint. Basic mutes unrelated stickers to grey; Advanced reuses the same
+  geometry with subdued real colours for visible surrounding stickers. Full-state
+  inspection belongs in the main training cube after selection.
 
 ## 2026-10-01 — Advanced F2L published-state authority
 
