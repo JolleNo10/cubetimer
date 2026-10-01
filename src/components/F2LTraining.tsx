@@ -149,7 +149,10 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
                   aria-pressed={selected}
                   onClick={() => void controller.selectF2lCase(f2lCase.name)}
                 >
-                  {model ? <F2lCaseThumbnail model={model} /> : null}
+                  {model ? <F2lCaseThumbnail
+                    model={model}
+                    view={library === "advanced" ? "advanced-net" : "basic-cube"}
+                  /> : null}
                   <span className="f2l-case-number">{shortF2lCaseLabel(f2lCase.name)}</span>
                 </button>
               );

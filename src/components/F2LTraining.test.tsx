@@ -26,6 +26,8 @@ describe("F2L training library presentation", () => {
     expect(basic).toContain('aria-pressed="true">Basic</button>');
     expect(basic).toContain("41 cases");
     expect(basic.match(/class="f2l-case-button/g)).toHaveLength(41);
+    expect(basic.match(/<polygon/g)).toHaveLength(41 * 27);
+    expect(basic).toContain('fill="#52575d"');
     controller.setF2lLibrary("advanced");
     const advanced = render(controller);
     expect(advanced).toContain('aria-pressed="true">Advanced</button>');
@@ -37,7 +39,9 @@ describe("F2L training library presentation", () => {
     expect(advanced).toContain("Trapped Corner");
     expect(advanced).toContain("Trapped Edge");
     expect(advanced).toContain("Both Pieces Trapped");
-    expect(advanced.match(/<polygon/g)).toHaveLength(54 * 27);
+    expect(advanced.match(/<polygon/g)).toHaveLength(54 * 54);
+    expect(advanced).not.toContain('fill="#52575d"');
+    expect(advanced).toContain('fill-opacity="0.45"');
   });
 
   it("highlights only the selected case in the active catalogue", async () => {
