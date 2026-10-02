@@ -22,3 +22,5 @@ dist/
 
 repowise-helper.ps1
 .mcp.json
+
+.tmp-*
