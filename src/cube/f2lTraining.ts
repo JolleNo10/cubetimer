@@ -1,7 +1,6 @@
 import { Alg } from "cubing/alg";
 import type { KPattern, KPuzzle } from "cubing/kpuzzle";
-import { type SolveAnalysis, type SolveStep } from "./analysis";
-import { faceletsToPattern } from "./facelets";
+import { type SolveStep } from "./analysis";
 import {
   F2L_POSITIONS,
   recognizeF2lSlot,
@@ -21,19 +20,9 @@ import {
   type Face,
 } from "./moves";
 import {
-  countTurns,
-  isRotation,
   joinMoves,
-  mergeSameFaceTurns,
-  parseMove,
-  OUTER_FACES,
-  type TimedMove,
 } from "./notation";
 import {
-  compose,
-  GENERATORS,
-  reorientMove,
-  invert,
   IDENTITY,
   rotationForCrossFace,
   rotationForGrip,
@@ -44,14 +33,30 @@ import {
 } from "./orientation";
 import { parseFaceMove } from "./moves";
 import { reframe, withCentresHome } from "./recognise";
-export type F2lTrainingSolveInput = {
-  id: string;
-  scramble: string;
-  scrambledFacelets?: string;
-  moves: TimedMove[];
-  gripTrack?: string;
-  analysis?: Pick<SolveAnalysis, "crossFace"> | null;
+import {
+  algorithmStm,
+  calculateTrainingEfficiency,
+  cubeAlgorithm,
+  cubeMove,
+  cubeMoves,
+  handAlgorithm,
+  handMove,
+  handMoves,
+  handTimedMoves,
+  referenceExecutionSignature,
+  reconstructTrainingStepStart,
+  type TrainingSolveInput,
+  type TrainingEfficiency,
+} from "./training";
+
+export {
+  algorithmStm,
+  calculateTrainingEfficiency,
+  referenceExecutionSignature,
+  reconstructTrainingStepStart as reconstructF2lStepStart,
 };
+export type { TrainingEfficiency };
+export type F2lTrainingSolveInput = TrainingSolveInput;
 
 export type F2lTrainingOrigin =
   | { kind: "catalog"; library: F2lTrainingLibrary; caseName: string; group: string }
@@ -114,89 +119,14 @@ export function f2lTrainingGrip(target: F2lTrainingFrame): Orientation {
   return f2lTrainingRotation(target).orientation;
 }
 
-/** Translate raw centre-relative cube notation into the user's F2L hand frame. */
-export function f2lHandMove(move: string, grip: Orientation): string {
-  return reorientMove(move, grip);
-}
-
-/** Translate solver-hand notation back into the cube's centre-relative coordinates. */
-export function f2lCubeMove(move: string, grip: Orientation): string {
-  return reorientMove(move, invert(grip));
-}
-
-export function f2lHandMoves(
-  moves: readonly string[],
-  grip: Orientation,
-): string[] {
-  return moves.map((move) => f2lHandMove(move, grip));
-}
-
-export function f2lCubeMoves(
-  moves: readonly string[],
-  grip: Orientation,
-): string[] {
-  return moves.map((move) => f2lCubeMove(move, grip));
-}
-
-function expandedAlgorithmMoves(algorithm: string): string[] {
-  return Array.from(new Alg(algorithm).expand().childAlgNodes()).map((node) =>
-    node.toString(),
-  );
-}
-
-export function f2lHandAlgorithm(algorithm: string, grip: Orientation): string {
-  return f2lHandMoves(expandedAlgorithmMoves(algorithm), grip).join(" ");
-}
-
-export function f2lCubeAlgorithm(algorithm: string, grip: Orientation): string {
-  return f2lCubeMoves(expandedAlgorithmMoves(algorithm), grip).join(" ");
-}
-
-function applyRotationToken(orientation: Orientation, token: string): Orientation | null {
-  const parsed = parseMove(token);
-  if (!parsed || !isRotation(parsed.family)) return null;
-  let next = orientation;
-  const turns = ((parsed.amount % 4) + 4) % 4;
-  for (let i = 0; i < turns; i++) {
-    next = compose(next, GENERATORS[parsed.family as keyof typeof GENERATORS]);
-  }
-  return next;
-}
-
-function fixedFrameOuterMove(token: string, orientation: Orientation): string | null {
-  const parsed = parseMove(token);
-  if (!parsed || !OUTER_FACES.includes(parsed.family as (typeof OUTER_FACES)[number])) {
-    return null;
-  }
-  return reorientMove(token, invert(orientation));
-}
-
-/**
- * Convert a reference containing whole-cube rotations into the fixed hand-frame turns
- * a smart cube can report. Wide and slice moves remain intentionally unclassifiable.
- */
-export function referenceExecutionSignature(algorithm: string): string[] | null {
-  let orientation = IDENTITY;
-  const fixedFrameMoves: string[] = [];
-  try {
-    for (const token of expandedAlgorithmMoves(algorithm)) {
-      const parsed = parseMove(token);
-      if (!parsed) return null;
-      if (isRotation(parsed.family)) {
-        const next = applyRotationToken(orientation, token);
-        if (!next) return null;
-        orientation = next;
-        continue;
-      }
-      const fixedFrameMove = fixedFrameOuterMove(token, orientation);
-      if (!fixedFrameMove) return null;
-      fixedFrameMoves.push(fixedFrameMove);
-    }
-  } catch {
-    return null;
-  }
-  return joinMoves(fixedFrameMoves);
-}
+/** Generic training-frame mechanics are shared by F2L and last-layer training. */
+export const f2lHandMove = handMove;
+export const f2lCubeMove = cubeMove;
+export const f2lHandMoves = handMoves;
+export const f2lCubeMoves = cubeMoves;
+export const f2lHandAlgorithm = handAlgorithm;
+export const f2lCubeAlgorithm = cubeAlgorithm;
+export const f2lHandTimedMoves = handTimedMoves;
 
 /** Whether a catalogue setup can be sent to a smart cube as outer face turns. */
 export function isF2lSetupTrackable(algorithm: string): boolean {
@@ -215,22 +145,6 @@ export function f2lPositionSetup(
   const signature = referenceExecutionSignature(positioned.toString());
   return signature?.join(" ") ?? null;
 }
-
-export function f2lHandTimedMoves(
-  moves: readonly TimedMove[],
-  grip: Orientation,
-): TimedMove[] {
-  return moves.map(({ move, t }) => ({ move: f2lHandMove(move, grip), t }));
-}
-
-export type TrainingEfficiency = {
-  moves: TimedMove[];
-  stm: number;
-  recommendedStm: number | null;
-  matchedReferenceRank: number | null;
-  delta: number | null;
-  elapsedMs: number;
-};
 
 function slotSolved(pattern: KPattern, slot: { corner: number; edge: number }): boolean {
   const { CORNERS, EDGES } = pattern.patternData;
@@ -255,19 +169,6 @@ export function isStandardF2lBase(pattern: KPattern): boolean {
     crossSolved(pattern, "U") &&
     f2lSlotsForCrossFace("U").every((slot) => slotSolved(pattern, slot))
   );
-}
-
-function metricToken(move: string): string {
-  // Lower-case wide turns are one deliberate turn for STM, just like an upper-case
-  // move a smart cube reports.
-  return move.replace(/^[urfdlb]/, (face) => face.toUpperCase());
-}
-
-function algorithmStm(alg: string): number {
-  const moves = Array.from(new Alg(alg).expand().childAlgNodes()).map((node) =>
-    metricToken(node.toString()),
-  );
-  return countTurns(moves).sliceTurns;
 }
 
 const UNDO_AUF = ["", "U'", "U2", "U"];
@@ -458,23 +359,6 @@ function exactStepTrainingRotation(
   };
 }
 
-/** Rebuild the cube state immediately before one raw solve move boundary. */
-export function reconstructF2lStepStart(
-  kpuzzle: KPuzzle,
-  solve: Pick<F2lTrainingSolveInput, "scramble" | "scrambledFacelets" | "moves">,
-  fromMove: number,
-): KPattern {
-  const rawMoves = solve.moves ?? [];
-  if (!Number.isInteger(fromMove) || fromMove < 0 || fromMove > rawMoves.length) {
-    throw new Error(`Invalid F2L step boundary ${fromMove}`);
-  }
-  let pattern = solve.scrambledFacelets
-    ? faceletsToPattern(kpuzzle, solve.scrambledFacelets)
-    : kpuzzle.defaultPattern().applyAlg(new Alg(solve.scramble));
-  for (const { move } of rawMoves.slice(0, fromMove)) pattern = pattern.applyMove(move);
-  return pattern;
-}
-
 export function buildExactF2lTarget(
   kpuzzle: KPuzzle,
   solve: F2lTrainingSolveInput,
@@ -492,7 +376,7 @@ export function buildExactF2lTarget(
   const crossFace = solve.analysis?.crossFace;
   if (!crossFace) throw new Error("F2L step has no cross face");
 
-  const pattern = reconstructF2lStepStart(kpuzzle, solve, step.fromMove);
+  const pattern = reconstructTrainingStepStart(kpuzzle, solve, step.fromMove);
   const goal = goalFor(pattern, crossFace, step.slot);
   const trainingRotation = exactStepTrainingRotation(solve, step, crossFace);
   const rotationAlg = new Alg(trainingRotation.tokens.join(" "));
@@ -555,35 +439,3 @@ export function isF2lTrainingComplete(
     return slot ? slotSolved(checked, slot) : false;
   });
 }
-
-export function calculateTrainingEfficiency(
-  rawMoves: readonly TimedMove[],
-  references?: readonly Pick<F2lReference, "stm" | "alg" | "rank">[] |
-    Pick<F2lReference, "stm" | "alg"> | null,
-): TrainingEfficiency {
-  const moves = mergeSameFaceTurns(rawMoves);
-  const stm = countTurns(moves.map(({ move }) => metricToken(move))).sliceTurns;
-  const referenceList = Array.isArray(references)
-    ? references
-    : references
-      ? [{ ...references, rank: 1 }]
-      : [];
-  const recommendedStm = referenceList[0]?.stm ?? null;
-  const execution = moves.map(({ move }) => move);
-  const matchedReferenceRank = referenceList.find((reference) => {
-    const signature = referenceExecutionSignature(reference.alg);
-    return signature !== null &&
-      signature.length === execution.length &&
-      signature.every((move, index) => move === execution[index]);
-  })?.rank ?? null;
-  return {
-    moves,
-    stm,
-    recommendedStm,
-    matchedReferenceRank,
-    delta: recommendedStm === null ? null : stm - recommendedStm,
-    elapsedMs: rawMoves.at(-1)?.t ?? 0,
-  };
-}
-
-export { algorithmStm };

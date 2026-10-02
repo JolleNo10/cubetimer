@@ -19,6 +19,23 @@ export type SolveComparison = {
   steps: StepComparison[];
 };
 
+export type AnalysedSolveFacts = {
+  id: string;
+  sessionId: string;
+  createdAt: number;
+  sliceTurns: number;
+  solvingMs: number;
+  recognitionMs: number;
+  executionMs: number;
+  tps: number;
+  phases: {
+    crossMs: number;
+    f2lMs: number;
+    ollMs: number;
+    pllMs: number;
+  };
+};
+
 /** Keep Result comparison mode in sync with the Result's slow-solve label. */
 export function isSlowSolve(solve: Pick<Solve, "slowSolve" | "practice" | "replay">): boolean {
   return solve.replay !== true && (
@@ -45,6 +62,13 @@ function median(values: number[]): number {
   return sorted.length % 2 === 1
     ? sorted[middle]
     : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+/** The single eligibility rule shared by ordinary statistics and their richer views. */
+export function isCountedSolve(
+  solve: Pick<Solve, "practice" | "replay" | "slowSolve">,
+): boolean {
+  return solve.practice !== true && solve.replay !== true && solve.slowSolve !== true;
 }
 
 /** Compare one completed solve with the latest comparable solves in its session. */
@@ -97,7 +121,7 @@ export function compareSolveToHistory(
  * average towards meaninglessness.
  */
 export function countedSolves(solves: readonly Solve[]): Solve[] {
-  return solves.filter((solve) => !solve.practice);
+  return solves.filter(isCountedSolve);
 }
 
 /**
@@ -208,17 +232,44 @@ function longAverage(times: (number | null)[], size: 50 | 100, baseline: number 
   };
 }
 
+export function analysedSolveFacts(solve: Solve): AnalysedSolveFacts | null {
+  const analysis = solve.analysis;
+  if (!isCountedSolve(solve) || effectiveMs(solve) === null || !analysis) return null;
+  const nonnegative = (value: number) => Number.isFinite(value) && value >= 0;
+  if (
+    !compatibleAnalysis(analysis, analysis)
+    || !nonnegative(analysis.sliceTurns)
+    || !Number.isFinite(analysis.solvingMs) || analysis.solvingMs <= 0
+    || !nonnegative(analysis.totalRecognitionMs)
+    || analysis.totalRecognitionMs > analysis.solvingMs
+    || !analysis.steps.every((step) => nonnegative(step.timeMs))
+  ) return null;
+
+  const [cross, f2lSlot1, f2lSlot2, f2lSlot3, f2lSlot4, oll, pll] = analysis.steps;
+  const solvingMs = analysis.solvingMs;
+  const recognitionMs = analysis.totalRecognitionMs;
+  return {
+    id: solve.id,
+    sessionId: solve.sessionId,
+    createdAt: solve.createdAt,
+    sliceTurns: analysis.sliceTurns,
+    solvingMs,
+    recognitionMs,
+    executionMs: solvingMs - recognitionMs,
+    tps: analysis.sliceTurns / solvingMs * 1000,
+    phases: {
+      crossMs: cross.timeMs,
+      f2lMs: f2lSlot1.timeMs + f2lSlot2.timeMs + f2lSlot3.timeMs + f2lSlot4.timeMs,
+      ollMs: oll.timeMs,
+      pllMs: pll.timeMs,
+    },
+  };
+}
+
 function analysedSessionStats(solves: Solve[]): Pick<SessionStats, "solving" | "cfop"> {
   const analyses = solves.flatMap((solve) => {
-    const analysis = solve.analysis;
-    if (effectiveMs(solve) === null || solve.replay || isSlowSolve(solve) || !analysis) return [];
-    const nonnegative = (value: number) => Number.isFinite(value) && value >= 0;
-    if (!compatibleAnalysis(analysis, analysis)
-      || !nonnegative(analysis.sliceTurns)
-      || !Number.isFinite(analysis.solvingMs) || analysis.solvingMs <= 0
-      || !nonnegative(analysis.totalRecognitionMs)
-      || !analysis.steps.every((step) => nonnegative(step.timeMs))) return [];
-    return [analysis];
+    const facts = analysedSolveFacts(solve);
+    return facts ? [facts] : [];
   });
   if (analyses.length === 0) return {};
 
@@ -236,13 +287,14 @@ function analysedSessionStats(solves: Solve[]): Pick<SessionStats, "solving" | "
       sampleSize: analyses.length,
       meanMoves: totalMoves / analyses.length,
       aggregateTps: totalMoves / totalMs * 1000,
-      meanRecognitionMs: analyses.reduce((sum, analysis) => sum + analysis.totalRecognitionMs, 0) / analyses.length,
+      meanRecognitionMs: analyses.reduce((sum, analysis) => sum + analysis.recognitionMs, 0) / analyses.length,
     },
-    cfop: phases.map(({ name, from, to }) => ({
-      name,
-      timeMs: median(analyses.map((analysis) =>
-        analysis.steps.slice(from, to).reduce((sum, step) => sum + step.timeMs, 0))),
-    })),
+    cfop: [
+      { name: phases[0].name, timeMs: median(analyses.map((analysis) => analysis.phases.crossMs)) },
+      { name: phases[1].name, timeMs: median(analyses.map((analysis) => analysis.phases.f2lMs)) },
+      { name: phases[2].name, timeMs: median(analyses.map((analysis) => analysis.phases.ollMs)) },
+      { name: phases[3].name, timeMs: median(analyses.map((analysis) => analysis.phases.pllMs)) },
+    ],
   };
 }
 

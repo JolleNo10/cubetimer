@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   activeRecordedMoveIndices,
   canPracticeF2lStep,
+  canPracticeTrainingStep,
   formatScaleSeconds,
   stepAt,
   stepBarWidths,
@@ -61,6 +62,18 @@ describe("canPracticeF2lStep", () => {
     expect(canPracticeF2lStep({ ...base, name: "F2L Slot 2", skipped: true })).toBe(false);
     expect(canPracticeF2lStep({ ...base, name: "F2L Slot 3", slot: null })).toBe(false);
     expect(canPracticeF2lStep({ ...base, name: "F2L Slot 4", toMove: 4 })).toBe(false);
+  });
+});
+
+describe("canPracticeTrainingStep", () => {
+  const base = { skipped: false, fromMove: 30, toMove: 39 } as SolveStep;
+
+  it("accepts known OLL and PLL phases but not Cross or unknown cases", () => {
+    expect(canPracticeTrainingStep({ ...base, name: "OLL", case: "27" })).toBe(true);
+    expect(canPracticeTrainingStep({ ...base, name: "PLL", case: "T" })).toBe(true);
+    expect(canPracticeTrainingStep({ ...base, name: "OLL", case: "not-a-case" })).toBe(false);
+    expect(canPracticeTrainingStep({ ...base, name: "Cross", case: "27" })).toBe(false);
+    expect(canPracticeTrainingStep({ ...base, name: "PLL", case: "T", skipped: true })).toBe(false);
   });
 });
 

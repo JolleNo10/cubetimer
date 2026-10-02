@@ -15,14 +15,22 @@
  */
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { Alg } from "cubing/alg";
 import {
   F2L_SLOTS,
   f2lAlgSolves,
+  isF2lSolved,
   ollCaseSolvedBy,
   pllCaseSolvedBy,
 } from "../src/cube/algBank";
 import { get3x3x3 } from "../src/cube/puzzle";
-import { fetchSpeedCubeDbPage, parseSpeedCubeDbAlgorithmTabs as parse, slotRotations } from "./speedcubedb";
+import { recogniseOll, recognisePll, withCentresHome } from "../src/cube/recognise";
+import {
+  fetchSpeedCubeDbPage,
+  parseSpeedCubeDbAlgorithmTabs as parse,
+  parseSpeedCubeDbCaseMetadata,
+  slotRotations,
+} from "./speedcubedb";
 
 const BASE = "https://www.speedcubedb.com/a/3x3";
 const OUTPUT = "src/cube/algBank.generated.ts";
@@ -78,6 +86,47 @@ for (const [name, slots] of parse(ollHtml)) {
   if (kept.length > 0) oll[number] = kept;
 }
 
+const ollMetadata = parseSpeedCubeDbCaseMetadata(ollHtml);
+const pllMetadata = parseSpeedCubeDbCaseMetadata(pllHtml);
+function assertMetadataComplete(
+  metadata: Map<string, { group: string; setup: string }>,
+  expected: readonly string[],
+  family: string,
+): void {
+  const expectedSet = new Set(expected);
+  if (metadata.size !== expectedSet.size || [...metadata.keys()].some((id) => !expectedSet.has(id))) {
+    throw new Error(`Expected exactly ${expectedSet.size} distinct ${family} setups, found ${metadata.size}.`);
+  }
+  for (const id of expected) {
+    const entry = metadata.get(id);
+    if (!entry?.group || !entry.setup) throw new Error(`Missing ${family} source metadata for ${id}.`);
+  }
+}
+assertMetadataComplete(ollMetadata, Array.from({ length: 57 }, (_, index) => `OLL ${index + 1}`), "OLL");
+const verifySetup = (setup: string, expected: string, family: "OLL" | "PLL"): boolean => {
+  try {
+    const pattern = withCentresHome(kpuzzle, kpuzzle.defaultPattern().applyAlg(new Alg(setup)));
+    if (!isF2lSolved(pattern)) return false;
+    return family === "OLL"
+      ? recogniseOll(kpuzzle, pattern) === expected
+      : recognisePll(kpuzzle, pattern) === expected;
+  } catch {
+    return false;
+  }
+};
+
+const ollTraining: Record<string, { id: string; group: string; setup: string; algorithms: string[] }> = {};
+for (let number = 1; number <= 57; number++) {
+  const id = `OLL ${number}`;
+  const metadata = ollMetadata.get(id);
+  if (!metadata || !verifySetup(metadata.setup, String(number), "OLL")) {
+    throw new Error(`Published setup for ${id} is missing or does not identify ${id}.`);
+  }
+  const algorithms = oll[String(number)] ?? [];
+  if (algorithms.length === 0) throw new Error(`No validated algorithms for ${id}.`);
+  ollTraining[String(number)] = { id, group: metadata.group, setup: metadata.setup, algorithms };
+}
+
 console.log("Checking PLL...");
 const pll: Record<string, string[]> = {};
 for (const [name, slots] of parse(pllHtml)) {
@@ -86,6 +135,19 @@ for (const [name, slots] of parse(pllHtml)) {
     pllCaseSolvedBy(kpuzzle, alg) === name,
   );
   if (kept.length > 0) pll[name] = kept;
+}
+
+const pllTraining: Record<string, { id: string; group: string; setup: string; algorithms: string[] }> = {};
+const pllNames = ["Aa", "Ab", "E", "F", "Ga", "Gb", "Gc", "Gd", "H", "Ja", "Jb", "Na", "Nb", "Ra", "Rb", "T", "Ua", "Ub", "V", "Y", "Z"];
+assertMetadataComplete(pllMetadata, pllNames, "PLL");
+for (const name of pllNames) {
+  const metadata = pllMetadata.get(name);
+  if (!metadata || !verifySetup(metadata.setup, name, "PLL")) {
+    throw new Error(`Published setup for PLL ${name} is missing or does not identify PLL ${name}.`);
+  }
+  const algorithms = pll[name] ?? [];
+  if (algorithms.length === 0) throw new Error(`No validated algorithms for PLL ${name}.`);
+  pllTraining[name] = { id: name, group: metadata.group, setup: metadata.setup, algorithms };
 }
 
 /**
@@ -151,6 +213,12 @@ export const OLL_ALG_BANK: Record<string, readonly string[]> = ${json(oll)};
 
 /** Keyed by PLL case letter. */
 export const PLL_ALG_BANK: Record<string, readonly string[]> = ${json(pll)};
+
+/** Authoritative SpeedCubeDB catalogue state and source-ranked references for OLL. */
+export const OLL_TRAINING_CASES = ${json(ollTraining)} as const;
+
+/** Authoritative SpeedCubeDB catalogue state and source-ranked references for PLL. */
+export const PLL_TRAINING_CASES = ${json(pllTraining)} as const;
 
 /** Keyed by case name, then by the slot the pair goes into. */
 export const F2L_ALG_BANK: Record<

@@ -34,7 +34,6 @@ import {
   f2lCubeAlgorithm,
   f2lHandAlgorithm,
   f2lHandMove,
-  f2lHandTimedMoves,
   f2lTrainingGrip,
   f2lCatalogueSetupMoves,
   isStandardF2lBase,
@@ -59,6 +58,16 @@ import {
   type EventId,
   type ScrambleProgress,
 } from "../cube/scramble";
+import {
+  buildExactLastLayerTarget,
+  buildLastLayerCatalogueTarget,
+  isLastLayerTrainingComplete,
+  lastLayerCaseIds,
+  type LastLayerFamily,
+  type LastLayerTrainingTarget,
+  type LastLayerTrainingTargetInfo,
+} from "../cube/lastLayerTraining";
+import { handMove, handTimedMoves, trainingGrip } from "../cube/training";
 import { algBetween, solveAlg } from "../cube/solver";
 import {
   SmartCube,
@@ -75,6 +84,7 @@ import { countSolveCsvRows, solveCsvBatches, formatSolveCsv } from "./solveCsv";
 import { whiteCrossProvider, xCrossProvider } from "./scrambleProvider";
 import { Store } from "./store";
 import { debugEnabled, debugLog } from "../util/debug";
+import type { StatisticsSnapshot } from "./statistics";
 import {
   DEFAULT_SETTINGS,
   type Session,
@@ -89,18 +99,20 @@ export type TimerPhase =
   | "solving"
   | "finished";
 
-export type AppArea = "timer" | "f2l";
+export type AppArea = "timer" | "training" | "statistics";
 
-export type F2lTrainingPhase =
+export type TrainingFamily = "f2l" | "oll" | "pll";
+
+export type TrainingPhase =
   | "selecting"
   | "preparing"
   | "ready"
   | "solving"
   | "result";
 
-export type F2lTrainingMode = "setup" | "virtual";
+export type TrainingMode = "setup" | "virtual";
 
-export type F2lTrainingResult = {
+export type TrainingResult = {
   moves: string[];
   stm: number;
   elapsedMs: number;
@@ -109,25 +121,39 @@ export type F2lTrainingResult = {
   delta: number | null;
 };
 
+/** Source-compatible names for callers that still refer to the original F2L runtime. */
+export type F2lTrainingPhase = TrainingPhase;
+export type F2lTrainingMode = TrainingMode;
+export type F2lTrainingResult = TrainingResult;
+
 export type Recovery = { alg: string; resumeAt: number };
 
-export type F2lTrainingState = {
-  mode: F2lTrainingMode;
+export type TrainingTargetInfo = F2lTrainingTargetInfo | LastLayerTrainingTargetInfo;
+
+type TrainingTarget = F2lTrainingTarget | LastLayerTrainingTarget;
+
+function isLastLayerTarget(target: TrainingTarget): target is LastLayerTrainingTarget {
+  return "family" in target.info;
+}
+
+export type TrainingState = {
+  family: TrainingFamily;
+  mode: TrainingMode;
   selectedLibrary: F2lTrainingLibrary;
   selectedPosition: F2lPosition;
-  phase: F2lTrainingPhase;
-  target: F2lTrainingTargetInfo | null;
+  phase: TrainingPhase;
+  target: TrainingTargetInfo | null;
   setup: string;
   setupProgress: ScrambleProgress | null;
   recovery: Recovery | null;
   recoveryPending: boolean;
   liveMoves: string[];
-  result: F2lTrainingResult | null;
-  /** Facelets for the cube shown by F2L Training, when it differs from the timer cube. */
+  result: TrainingResult | null;
   displayFacelets: string;
-  /** Changes only when a target is loaded, so 3D training views can reset cleanly. */
   displayRevision: number;
 };
+
+export type F2lTrainingState = TrainingState;
 
 export type AppState = {
   ready: boolean;
@@ -155,15 +181,17 @@ export type AppState = {
   sessions: Session[];
   sessionId: string;
   settings: Settings;
-  f2lTraining: F2lTrainingState;
+  /** Shared F2L/OLL/PLL training runtime. */
+  training: TrainingState;
 };
 
 export type ScrambleGeneration =
   | { kind: "cross" }
   | { kind: "xcross"; attempts: number };
 
-function emptyF2lState(): F2lTrainingState {
+function emptyTrainingState(): TrainingState {
   return {
+    family: "f2l",
     mode: "setup",
     selectedLibrary: "basic",
     selectedPosition: "FR",
@@ -225,7 +253,7 @@ export class Controller {
     sessions: [],
     sessionId: "",
     settings: DEFAULT_SETTINGS,
-    f2lTraining: emptyF2lState(),
+    training: emptyTrainingState(),
   });
 
   /** Running time in milliseconds, updated every animation frame while timing. */
@@ -257,13 +285,14 @@ export class Controller {
   #gyroReadings = 0;
   #gripHeartbeatAt = 0;
   #f2lCase: F2lTrainingCase | null = null;
-  #f2lTarget: F2lTrainingTarget | null = null;
-  #f2lTracker: ScrambleTracker | null = null;
-  #f2lRawMoves: GanCubeMove[] = [];
-  #f2lVirtualPattern: KPattern | null = null;
-  #f2lStartedAt = 0;
-  #f2lSelectionToken = 0;
+  #trainingTarget: TrainingTarget | null = null;
+  #trainingTracker: ScrambleTracker | null = null;
+  #trainingRawMoves: GanCubeMove[] = [];
+  #trainingVirtualPattern: KPattern | null = null;
+  #trainingStartedAt = 0;
+  #trainingSelectionToken = 0;
   #f2lAgainTurns: string[] = [];
+  #areaBeforeStatistics: "timer" | "training" | null = null;
   #recentreListeners = new Set<() => void>();
   #recentTurns: string[] = [];
   #moveListeners = new Set<(move: string) => void>();
@@ -285,9 +314,29 @@ export class Controller {
     return this.#currentSession()?.event ?? DEFAULT_EVENT_ID;
   }
 
+  #f2lTarget(): F2lTrainingTarget | null {
+    const target = this.#trainingTarget;
+    if (!target || isLastLayerTarget(target)) return null;
+    return target;
+  }
+
+  #lastLayerTarget(): LastLayerTrainingTarget | null {
+    const target = this.#trainingTarget;
+    if (!target || !isLastLayerTarget(target)) return null;
+    return target;
+  }
+
+  #trainingGrip(target: TrainingTarget): Orientation {
+    return isLastLayerTarget(target)
+      ? trainingGrip(target.info)
+      : f2lTrainingGrip(target.info);
+  }
+
   #canChangeSessionContext(): boolean {
-    const phase = this.state.get().phase;
-    return phase !== "inspection" && phase !== "solving";
+    const current = this.state.get();
+    return current.phase !== "inspection" &&
+      current.phase !== "solving" &&
+      current.training.phase !== "solving";
   }
 
   #beginSessionContextMutation(): boolean {
@@ -591,16 +640,35 @@ export class Controller {
 
   setVirtualCube(virtualCube: boolean): void {
     this.state.update((s) => ({ ...s, virtualCube }));
-    if (this.state.get().area === "f2l") this.#updateF2lProgress();
-    else this.#updateScrambleProgress();
+    if (this.state.get().area === "training") this.#updateTrainingProgress();
+    else if (this.state.get().area === "timer") this.#updateScrambleProgress();
+    // Statistics deliberately has no live workflow to reconcile.
   }
 
   /** Switch the top-level application area and cancel the other area's live work. */
   setArea(area: AppArea): void {
     if (area === this.state.get().area) return;
-    if (area === "f2l") {
+    const current = this.state.get();
+    const liveTraining = current.training.phase === "solving";
+    if (area === "statistics") {
+      if (current.phase === "inspection" || current.phase === "solving" || liveTraining) return;
+      this.#areaBeforeStatistics = current.area === "training" ? "training" : "timer";
+      this.state.update((s) => ({ ...s, area: "statistics" }));
+      return;
+    }
+    if (current.area === "statistics") {
+      const previous = this.#areaBeforeStatistics;
+      this.#areaBeforeStatistics = null;
+      if (area === previous) {
+        this.state.update((s) => ({ ...s, area }));
+        if (area === "training") this.#updateTrainingProgress();
+        else this.#updateScrambleProgress();
+        return;
+      }
+    }
+    if (area === "training") {
       this.#cancelTimerForArea();
-      this.#resetF2lSnapshot("setup");
+      this.#resetTrainingSnapshot("setup");
       this.state.update((s) => ({
         ...s,
         area,
@@ -610,7 +678,7 @@ export class Controller {
       return;
     }
 
-    this.#resetF2lSnapshot();
+    this.#resetTrainingSnapshot();
     this.state.update((s) => ({
       ...s,
       area,
@@ -618,18 +686,18 @@ export class Controller {
       scrambleProgress: null,
       recovery: null,
       liveMoves: [],
-      f2lTraining: emptyF2lState(),
+      training: { ...emptyTrainingState(), family: s.training.family },
     }));
     // Training may leave the physical cube anywhere. Make that current position the
     // next timer scramble so an old timer scramble can never look usable.
     void this.useCubeStateAsScramble().catch(() => void this.newScramble());
   }
 
-  /** Leave F2L Training without adopting its cube position as a Timer scramble. */
+  /** Leave Training without adopting its cube position as a Timer scramble. */
   returnToTimerReview(): void {
-    if (this.state.get().area !== "f2l") return;
+    if (this.state.get().area !== "training") return;
     this.#cancelTimerForArea();
-    this.#resetF2lSnapshot();
+    this.#resetTrainingSnapshot();
     this.state.update((s) => ({
       ...s,
       area: "timer",
@@ -640,73 +708,149 @@ export class Controller {
       liveMoves: [],
       solveSource: null,
       inspectionPenalty: "none",
-      f2lTraining: emptyF2lState(),
+      training: { ...emptyTrainingState(), family: s.training.family },
     }));
   }
 
   async selectF2lCase(caseName: string): Promise<void> {
-    const f2lCase = findF2lTrainingCase(this.state.get().f2lTraining.selectedLibrary, caseName);
+    this.setTrainingFamily("f2l");
+    const f2lCase = findF2lTrainingCase(this.state.get().training.selectedLibrary, caseName);
     if (!f2lCase || !this.#model) return;
-    if (this.state.get().area !== "f2l") this.setArea("f2l");
+    if (this.state.get().area !== "training") this.setArea("training");
     this.#f2lCase = f2lCase;
     await this.#selectF2lTarget(
-      this.#buildF2lCatalogueTarget(f2lCase, this.state.get().f2lTraining.selectedPosition),
+      this.#buildF2lCatalogueTarget(f2lCase, this.state.get().training.selectedPosition),
     );
   }
 
-  async selectF2lPosition(position: F2lPosition): Promise<void> {
-    if (this.state.get().f2lTraining.target?.origin.kind === "solve-step") return;
+  /** Select the family inside the shared Training area. */
+  setTrainingFamily(family: TrainingFamily): void {
+    if (this.state.get().training.family === family) return;
+    if (this.state.get().area !== "training") this.setArea("training");
+    this.#resetTrainingSnapshot();
+    this.#trainingTarget = null;
     this.state.update((s) => ({
       ...s,
-      f2lTraining: { ...s.f2lTraining, selectedPosition: position },
+      training: { ...s.training, family, phase: "selecting", target: null, setup: "", setupProgress: null, recovery: null, liveMoves: [], result: null },
+    }));
+  }
+
+  async selectLastLayerCase(family: LastLayerFamily, caseId: string): Promise<void> {
+    if (!lastLayerCaseIds(family).includes(caseId)) return;
+    this.setTrainingFamily(family);
+    if (!this.#model) return;
+    try {
+      await this.#selectLastLayerTarget(
+        buildLastLayerCatalogueTarget(this.#model.kpuzzle, family, caseId, this.#randomAuf()),
+      );
+    } catch (error) {
+      this.state.update((s) => ({ ...s, error: String(error) }));
+    }
+  }
+
+  randomTrainingCase(family: LastLayerFamily): void {
+    const cases = lastLayerCaseIds(family);
+    const caseId = cases[Math.floor(Math.random() * cases.length)];
+    if (caseId) void this.selectLastLayerCase(family, caseId);
+  }
+
+  #randomAuf(): 0 | 1 | 2 | 3 {
+    return Math.floor(Math.random() * 4) as 0 | 1 | 2 | 3;
+  }
+
+  async selectF2lPosition(position: F2lPosition): Promise<void> {
+    if (this.state.get().training.target?.origin.kind === "solve-step") return;
+    this.state.update((s) => ({
+      ...s,
+      training: { ...s.training, family: "f2l", selectedPosition: position },
     }));
     if (!this.#f2lCase || !this.#model) return;
     await this.#selectF2lTarget(this.#buildF2lCatalogueTarget(this.#f2lCase, position));
   }
 
   setF2lLibrary(selectedLibrary: F2lTrainingLibrary): void {
-    if (this.state.get().f2lTraining.selectedLibrary === selectedLibrary) return;
-    if (this.state.get().area !== "f2l") this.setArea("f2l");
-    this.#resetF2lSnapshot();
+    this.setTrainingFamily("f2l");
+    if (this.state.get().training.selectedLibrary === selectedLibrary) return;
+    if (this.state.get().area !== "training") this.setArea("training");
+    this.#resetTrainingSnapshot();
     this.state.update((s) => ({
       ...s,
-      f2lTraining: { ...s.f2lTraining, selectedLibrary },
+      training: { ...s.training, family: "f2l", selectedLibrary },
     }));
   }
 
   async practiceF2lStep(solve: Solve, step: SolveStep): Promise<void> {
-    if (this.state.get().area !== "f2l") this.setArea("f2l");
+    await this.practiceSolveStep(solve, step);
+  }
+
+  async practiceSolveStep(solve: Solve, step: SolveStep): Promise<void> {
+    if (this.state.get().area !== "training") this.setArea("training");
     if (!this.#model) return;
     this.#f2lCase = null;
     try {
-      await this.#selectF2lTarget(buildExactF2lTarget(this.#model.kpuzzle, solve, step));
+      if (step.name === "OLL" || step.name === "PLL") {
+        this.setTrainingFamily(step.name === "OLL" ? "oll" : "pll");
+        await this.#selectLastLayerTarget(buildExactLastLayerTarget(this.#model.kpuzzle, solve, step));
+      } else {
+        this.setTrainingFamily("f2l");
+        await this.#selectF2lTarget(buildExactF2lTarget(this.#model.kpuzzle, solve, step));
+      }
     } catch (error) {
       this.state.update((s) => ({ ...s, error: String(error) }));
     }
   }
 
-  async setF2lMode(mode: F2lTrainingMode): Promise<void> {
-    const training = this.state.get().f2lTraining;
+  async setTrainingMode(mode: TrainingMode): Promise<void> {
+    const training = this.state.get().training;
     if (training.mode === mode) return;
-    const target = this.#f2lTarget;
-    const selectedCase = this.#f2lCase;
-    this.#f2lSelectionToken++;
+    if (training.family === "f2l") {
+      await this.setF2lMode(mode);
+      return;
+    }
+    const target = this.#lastLayerTarget();
+    this.#trainingSelectionToken++;
     this.#recoveryToken++;
     this.#stopLoop();
-    this.#f2lTracker = null;
-    this.#f2lVirtualPattern = null;
-    this.#f2lRawMoves = [];
+    this.#trainingTracker = null;
+    this.#trainingVirtualPattern = null;
+    this.#trainingRawMoves = [];
+    this.elapsed.set(0);
+    this.state.update((s) => ({ ...s, training: { ...s.training, mode } }));
+    if (target) await this.#selectLastLayerTarget(target);
+  }
+
+  againTraining(): void {
+    if (this.state.get().training.family === "f2l") this.againF2lTraining();
+    else void this.#reloadLastLayerTraining();
+  }
+
+  resetTraining(): void {
+    this.#resetTrainingSnapshot();
+    this.#trainingTarget = null;
+  }
+
+  async setF2lMode(mode: TrainingMode): Promise<void> {
+    const training = this.state.get().training;
+    if (training.mode === mode) return;
+    const target = this.#f2lTarget();
+    const selectedCase = this.#f2lCase;
+    this.#trainingSelectionToken++;
+    this.#recoveryToken++;
+    this.#stopLoop();
+    this.#trainingTracker = null;
+    this.#trainingVirtualPattern = null;
+    this.#trainingRawMoves = [];
     this.#f2lAgainTurns = [];
     this.elapsed.set(0);
     this.state.update((s) => ({
       ...s,
-      f2lTraining: { ...s.f2lTraining, mode },
+      training: { ...s.training, family: "f2l", mode },
     }));
     if (target) {
       const nextTarget = selectedCase && this.#model
         ? this.#buildF2lCatalogueTarget(
             selectedCase,
-            this.state.get().f2lTraining.selectedPosition,
+            this.state.get().training.selectedPosition,
           )
         : target;
       await this.#selectF2lTarget(nextTarget);
@@ -719,7 +863,7 @@ export class Controller {
   }
 
   resetF2lTraining(): void {
-    this.#resetF2lSnapshot();
+    this.#resetTrainingSnapshot();
   }
 
   #cancelTimerForArea(): void {
@@ -747,30 +891,31 @@ export class Controller {
     }));
   }
 
-  #resetF2lSnapshot(mode: F2lTrainingMode = this.state.get().f2lTraining.mode): void {
-    const selectedPosition = this.state.get().f2lTraining.selectedPosition;
-    this.#f2lSelectionToken++;
+  #resetTrainingSnapshot(mode: TrainingMode = this.state.get().training.mode): void {
+    const current = this.state.get().training;
+    const selectedPosition = current.selectedPosition;
+    this.#trainingSelectionToken++;
     this.#recoveryToken++;
     this.#f2lCase = null;
-    this.#f2lTarget = null;
-    this.#f2lTracker = null;
-    this.#f2lRawMoves = [];
-    this.#f2lVirtualPattern = null;
+    this.#trainingTarget = null;
+    this.#trainingTracker = null;
+    this.#trainingRawMoves = [];
+    this.#trainingVirtualPattern = null;
     this.#f2lAgainTurns = [];
     this.#stopLoop();
     this.elapsed.set(0);
     this.state.update((s) => ({
       ...s,
-      f2lTraining: { ...emptyF2lState(), mode, selectedPosition, selectedLibrary: s.f2lTraining.selectedLibrary },
+      training: { ...emptyTrainingState(), family: s.training.family, mode, selectedPosition, selectedLibrary: s.training.selectedLibrary },
     }));
   }
 
   #buildF2lCatalogueTarget(
     f2lCase: F2lTrainingCase,
-    position = this.state.get().f2lTraining.selectedPosition,
+    position = this.state.get().training.selectedPosition,
   ): F2lTrainingTarget {
     if (!this.#model) throw new Error("No cube model for F2L training");
-    const mode = this.state.get().f2lTraining.mode;
+    const mode = this.state.get().training.mode;
     const base = mode === "setup" && isStandardF2lBase(this.#model.pattern)
       ? this.#model.pattern
       : undefined;
@@ -778,13 +923,14 @@ export class Controller {
   }
 
   async #reloadF2lTraining(preserveResult = false): Promise<void> {
-    if (!this.#f2lTarget) return;
+    const currentTarget = this.#f2lTarget();
+    if (!currentTarget) return;
     const target = this.#f2lCase && this.#model
       ? this.#buildF2lCatalogueTarget(
           this.#f2lCase,
-          this.state.get().f2lTraining.selectedPosition,
+          this.state.get().training.selectedPosition,
         )
-      : this.#f2lTarget;
+      : currentTarget;
     await this.#selectF2lTarget(target, preserveResult);
   }
 
@@ -794,23 +940,24 @@ export class Controller {
   ): Promise<void> {
     const model = this.#model;
     if (!model) return;
-    const token = ++this.#f2lSelectionToken;
-    const mode = this.state.get().f2lTraining.mode;
+    const token = ++this.#trainingSelectionToken;
+    const mode = this.state.get().training.mode;
     const captured = model.pattern;
     const capturedFacelets = patternToFacelets(captured);
     const targetFacelets = patternToFacelets(target.pattern);
-    this.#f2lTarget = target;
-    this.#f2lTracker = null;
-    this.#f2lRawMoves = [];
+    this.#trainingTarget = target;
+    this.#trainingTracker = null;
+    this.#trainingRawMoves = [];
     this.#f2lAgainTurns = [];
-    this.#f2lVirtualPattern = mode === "virtual" ? target.pattern : null;
+    this.#trainingVirtualPattern = mode === "virtual" ? target.pattern : null;
     this.elapsed.set(0);
     this.state.update((s) => ({
       ...s,
-      area: "f2l",
-      f2lTraining: {
+      area: "training",
+      training: {
+        family: "f2l",
         mode,
-        selectedLibrary: s.f2lTraining.selectedLibrary,
+        selectedLibrary: s.training.selectedLibrary,
         selectedPosition: target.info.position,
         phase: mode === "virtual" ? "ready" : "preparing",
         target: target.info,
@@ -819,9 +966,9 @@ export class Controller {
         recovery: null,
         recoveryPending: false,
         liveMoves: [],
-        result: preserveResult ? s.f2lTraining.result : null,
+        result: preserveResult ? s.training.result : null,
         displayFacelets: mode === "virtual" || !this.hasCube ? targetFacelets : capturedFacelets,
-        displayRevision: s.f2lTraining.displayRevision + 1,
+        displayRevision: s.training.displayRevision + 1,
       },
     }));
 
@@ -851,48 +998,132 @@ export class Controller {
 
       if (!tracker) {
         const setup = await algBetween(captured, target.pattern);
-        if (token !== this.#f2lSelectionToken) return;
+        if (token !== this.#trainingSelectionToken) return;
         tracker = new ScrambleTracker(model.kpuzzle, setup.toString(), captured);
         displayedSetup = tracker.moves
           .map((move) => f2lHandMove(move, grip))
           .join(" ");
       }
-      if (token !== this.#f2lSelectionToken) return;
+      if (token !== this.#trainingSelectionToken) return;
       if (patternToFacelets(model.pattern) !== capturedFacelets) {
-        this.#resetF2lSnapshot();
+        this.#resetTrainingSnapshot();
         return;
       }
-      this.#f2lTracker = tracker;
+      this.#trainingTracker = tracker;
       this.state.update((s) => ({
         ...s,
-        f2lTraining: {
-          ...s.f2lTraining,
+        training: {
+          ...s.training,
+          family: "f2l",
           setup: displayedSetup ?? "",
         },
       }));
-      this.#updateF2lProgress();
+      this.#updateTrainingProgress();
     } catch (error) {
-      if (token === this.#f2lSelectionToken) {
+      if (token === this.#trainingSelectionToken) {
         this.state.update((s) => ({
           ...s,
-          f2lTraining: { ...s.f2lTraining, phase: "selecting" },
+          training: { ...s.training, family: "f2l", phase: "selecting" },
           error: String(error),
         }));
       }
     }
   }
 
-  #updateF2lProgress(): void {
-    if (this.state.get().area !== "f2l") return;
-    if (this.state.get().f2lTraining.mode === "virtual") return;
+  async #selectLastLayerTarget(
+    target: LastLayerTrainingTarget,
+    preserveResult = false,
+  ): Promise<void> {
     const model = this.#model;
-    const tracker = this.#f2lTracker;
-    const training = this.state.get().f2lTraining;
-    if (!model || !tracker || !this.hasCube) {
+    if (!model) return;
+    const token = ++this.#trainingSelectionToken;
+    const mode = this.state.get().training.mode;
+    const capturedFacelets = patternToFacelets(model.pattern);
+    const targetFacelets = patternToFacelets(target.pattern);
+    this.#trainingTarget = target;
+    this.#trainingTracker = null;
+    this.#trainingRawMoves = [];
+    this.#trainingVirtualPattern = mode === "virtual" ? target.pattern : null;
+    this.elapsed.set(0);
+    this.state.update((s) => ({
+      ...s,
+      area: "training",
+      training: {
+        ...s.training,
+        family: target.info.family,
+        phase: mode === "virtual" ? "ready" : "preparing",
+        target: target.info,
+        setup: "",
+        setupProgress: null,
+        recovery: null,
+        recoveryPending: false,
+        liveMoves: [],
+        result: preserveResult ? s.training.result : null,
+        displayFacelets: mode === "virtual" || !this.hasCube ? targetFacelets : capturedFacelets,
+        displayRevision: s.training.displayRevision + 1,
+      },
+    }));
+    if (mode === "virtual") return;
+
+    try {
+      const setup = await algBetween(model.pattern, target.pattern);
+      if (token !== this.#trainingSelectionToken) return;
+      if (patternToFacelets(model.pattern) !== capturedFacelets) {
+        this.#resetTrainingSnapshot();
+        return;
+      }
+      const tracker = new ScrambleTracker(model.kpuzzle, setup.toString(), model.pattern);
+      this.#trainingTracker = tracker;
+      const grip = trainingGrip(target.info);
+      this.state.update((s) => ({
+        ...s,
+        training: {
+          ...s.training,
+          setup: tracker.moves.map((move) => handMove(move, grip)).join(" "),
+        },
+      }));
+      this.#updateTrainingProgress();
+    } catch (error) {
+      if (token === this.#trainingSelectionToken) {
+        this.state.update((s) => ({
+          ...s,
+          training: { ...s.training, phase: "selecting" },
+          error: String(error),
+        }));
+      }
+    }
+  }
+
+  async #reloadLastLayerTraining(preserveResult = false): Promise<void> {
+    const target = this.#lastLayerTarget();
+    if (!target) return;
+    const family = target.info.family;
+    const caseId = target.info.origin.kind === "catalog"
+      ? target.info.origin.caseId
+      : target.info.caseId;
+    if (this.#model && caseId) {
+      try {
+        const next = target.info.origin.kind === "catalog"
+          ? buildLastLayerCatalogueTarget(this.#model.kpuzzle, family, caseId, this.#randomAuf())
+          : target;
+        await this.#selectLastLayerTarget(next, preserveResult);
+      } catch (error) {
+        this.state.update((s) => ({ ...s, error: String(error) }));
+      }
+    }
+  }
+
+  #updateTrainingProgress(): void {
+    if (this.state.get().area !== "training") return;
+    const training = this.state.get().training;
+    const model = this.#model;
+    const tracker = this.#trainingTracker;
+    const target = this.#trainingTarget;
+    if (training.mode === "virtual" || !model || !tracker || !target || !this.hasCube) {
       if (training.setupProgress !== null || training.recovery !== null) {
         this.state.update((s) => ({
           ...s,
-          f2lTraining: { ...s.f2lTraining, setupProgress: null, recovery: null },
+          training: { ...s.training, setupProgress: null, recovery: null },
         }));
       }
       return;
@@ -900,41 +1131,23 @@ export class Controller {
     if (training.phase !== "preparing" && training.phase !== "ready") return;
 
     const progress = tracker.update(model.pattern);
-    this.state.update((s) => ({
-      ...s,
-      f2lTraining: { ...s.f2lTraining, setupProgress: progress },
-    }));
+    this.state.update((s) => ({ ...s, training: { ...s.training, setupProgress: progress } }));
     if (progress.done) {
       this.#recoveryToken++;
       this.state.update((s) => ({
         ...s,
-        f2lTraining: {
-          ...s.f2lTraining,
-          phase: "ready",
-          recovery: null,
-          recoveryPending: false,
-        },
+        training: { ...s.training, phase: "ready", recovery: null, recoveryPending: false },
       }));
       return;
     }
     if (training.phase === "ready") {
-      this.state.update((s) => ({
-        ...s,
-        f2lTraining: { ...s.f2lTraining, phase: "preparing" },
-      }));
+      this.state.update((s) => ({ ...s, training: { ...s.training, phase: "preparing" } }));
     }
     if (progress.onTrack) {
       this.#recoveryToken++;
-      this.state.update((s) => ({
-        ...s,
-        f2lTraining: {
-          ...s.f2lTraining,
-          recovery: null,
-          recoveryPending: false,
-        },
-      }));
+      this.state.update((s) => ({ ...s, training: { ...s.training, recovery: null, recoveryPending: false } }));
     } else {
-      void this.#computeF2lRecovery();
+      void this.#computeTrainingRecovery();
     }
   }
 
@@ -1227,7 +1440,8 @@ export class Controller {
 
   /** Discard the running solve without recording it. */
   cancel(): void {
-    if (this.state.get().area === "f2l") {
+    if (this.state.get().area === "statistics") return;
+    if (this.state.get().area === "training") {
       this.resetF2lTraining();
       return;
     }
@@ -1304,8 +1518,8 @@ export class Controller {
     const tick = () => {
       this.#rafHandle = requestAnimationFrame(tick);
       const { area, phase, settings } = this.state.get();
-      if (area === "f2l" && this.state.get().f2lTraining.phase === "solving") {
-        this.elapsed.set(performance.now() - this.#f2lStartedAt);
+      if (area === "training" && this.state.get().training.phase === "solving") {
+        this.elapsed.set(performance.now() - this.#trainingStartedAt);
       } else if (area === "timer" && phase === "solving") {
         this.elapsed.set(performance.now() - this.#startedAt);
       } else if (phase === "inspection") {
@@ -1362,8 +1576,15 @@ export class Controller {
     for (const listener of this.#moveListeners) listener(move.move);
 
     const { area, phase } = this.state.get();
-    if (area === "f2l") {
-      this.#onF2lMove(move);
+    if (area === "training") {
+      this.#onTrainingMove(move);
+      this.#afterStateChange(false);
+      return;
+    }
+    if (area === "statistics") {
+      // Statistics is read-only. The physical model still follows the cube so that
+      // returning to Timer/Training can reconcile its progress, but no live workflow
+      // is allowed to consume this move.
       this.#afterStateChange(false);
       return;
     }
@@ -1405,69 +1626,55 @@ export class Controller {
     this.#afterStateChange(false);
   }
 
-  #onF2lMove(move: GanCubeMove & { serial: number }): void {
-    const training = this.state.get().f2lTraining;
-    if (!this.#f2lTarget) return;
+  #onTrainingMove(move: GanCubeMove & { serial: number }): void {
+    const training = this.state.get().training;
+    const target = this.#trainingTarget;
+    if (!target) return;
     if (training.phase === "result") {
-      if (
-        training.mode === "setup" &&
-        this.#observeF2lAgainMove(move.move)
-      ) {
+      if (!isLastLayerTarget(target) && training.mode === "setup" && this.#observeF2lAgainMove(move.move)) {
         void this.#reloadF2lTraining();
       }
       return;
     }
     if (training.phase !== "ready" && training.phase !== "solving") return;
-    const displayMove = f2lHandMove(
-      move.move,
-      f2lTrainingGrip(this.#f2lTarget.info),
-    );
+    const displayMove = handMove(move.move, this.#trainingGrip(target));
 
     if (training.mode === "virtual") {
-      if (!this.#f2lVirtualPattern) return;
-      this.#f2lVirtualPattern = this.#f2lVirtualPattern.applyMove(move.move);
+      if (!this.#trainingVirtualPattern) return;
+      this.#trainingVirtualPattern = this.#trainingVirtualPattern.applyMove(move.move);
       this.state.update((s) => ({
         ...s,
-        f2lTraining: {
-          ...s.f2lTraining,
-          displayFacelets: patternToFacelets(this.#f2lVirtualPattern!),
-        },
+        training: { ...s.training, displayFacelets: patternToFacelets(this.#trainingVirtualPattern!) },
       }));
     }
 
     if (training.phase === "ready") {
-      this.#f2lStartedAt = performance.now();
-      this.#f2lRawMoves = [move];
+      this.#trainingStartedAt = performance.now();
+      this.#trainingRawMoves = [move];
       this.elapsed.set(0);
       this.state.update((s) => ({
         ...s,
-        f2lTraining: {
-          ...s.f2lTraining,
-          phase: "solving",
-          liveMoves: [displayMove],
-          result: null,
-        },
+        training: { ...s.training, phase: "solving", liveMoves: [displayMove], result: null },
       }));
       this.#startLoop();
     } else {
-      this.#f2lRawMoves.push(move);
+      this.#trainingRawMoves.push(move);
       this.state.update((s) => ({
         ...s,
-        f2lTraining: {
-          ...s.f2lTraining,
-          liveMoves: [...s.f2lTraining.liveMoves, displayMove],
-        },
+        training: { ...s.training, liveMoves: [...s.training.liveMoves, displayMove] },
       }));
     }
 
     if (
-      this.state.get().f2lTraining.phase === "solving" &&
-      isF2lTrainingComplete(
-        this.#f2lTarget,
-        training.mode === "virtual" ? this.#f2lVirtualPattern! : this.#model!.pattern,
-      )
+      this.state.get().training.phase === "solving" &&
+      (() => {
+        const pattern = training.mode === "virtual" ? this.#trainingVirtualPattern : this.#model?.pattern;
+        return pattern && (isLastLayerTarget(target)
+          ? isLastLayerTrainingComplete(target.info, pattern)
+          : isF2lTrainingComplete(target, pattern));
+      })()
     ) {
-      this.#finishF2lAttempt();
+      this.#finishTrainingAttempt();
     }
   }
 
@@ -1511,7 +1718,7 @@ export class Controller {
     // Trust the cube over our own bookkeeping, but never mid-solve: a state report
     // that arrives late would otherwise rewind moves that have already happened.
     const current = this.state.get();
-    if (current.phase === "solving" || current.f2lTraining.phase === "solving") return;
+    if (current.phase === "solving" || current.training.phase === "solving") return;
     if (model.facelets === facelets) {
       this.#afterStateChange(false);
       return;
@@ -1531,15 +1738,16 @@ export class Controller {
     this.state.update((s) => ({
       ...s,
       cubeFacelets: facelets,
-      ...(s.area === "f2l" && s.f2lTraining.mode === "setup"
-        ? { f2lTraining: { ...s.f2lTraining, displayFacelets: facelets } }
+      ...(s.area === "training" && s.training.mode === "setup"
+        ? { training: { ...s.training, displayFacelets: facelets } }
         : {}),
     }));
     if (reset) {
       for (const listener of this.#patternListeners) listener(model.pattern);
     }
-    if (this.state.get().area === "f2l") this.#updateF2lProgress();
-    else this.#updateScrambleProgress();
+    if (this.state.get().area === "training") this.#updateTrainingProgress();
+    else if (this.state.get().area === "timer") this.#updateScrambleProgress();
+    // Statistics follows the physical model only; it never updates timer/training progress.
   }
 
   #updateScrambleProgress(): void {
@@ -1615,47 +1823,36 @@ export class Controller {
     }
   }
 
-  async #computeF2lRecovery(): Promise<void> {
+  async #computeTrainingRecovery(): Promise<void> {
     const model = this.#model;
-    const tracker = this.#f2lTracker;
-    const target = this.#f2lTarget;
-    if (
-      !model ||
-      !tracker ||
-      !target ||
-      this.state.get().area !== "f2l"
-    ) {
-      return;
-    }
+    const tracker = this.#trainingTracker;
+    const target = this.#trainingTarget;
+    if (!model || !tracker || !target || this.state.get().area !== "training") return;
     const token = ++this.#recoveryToken;
-    this.state.update((s) => ({
-      ...s,
-      f2lTraining: { ...s.f2lTraining, recoveryPending: true },
-    }));
+    this.state.update((s) => ({ ...s, training: { ...s.training, recoveryPending: true } }));
     try {
       const rawRecovery = await this.#calculateRecovery(model.pattern, tracker);
       if (token !== this.#recoveryToken) return;
-      const recovery = {
-        ...rawRecovery,
-        alg: f2lHandAlgorithm(rawRecovery.alg, f2lTrainingGrip(target.info)),
-      };
+      const grip = this.#trainingGrip(target);
       this.state.update((s) => ({
         ...s,
-        f2lTraining: { ...s.f2lTraining, recovery },
+        training: {
+          ...s.training,
+          recovery: {
+            ...rawRecovery,
+            alg: isLastLayerTarget(target)
+              ? handMove(rawRecovery.alg, grip)
+              : f2lHandAlgorithm(rawRecovery.alg, grip),
+          },
+        },
       }));
     } catch {
       if (token === this.#recoveryToken) {
-        this.state.update((s) => ({
-          ...s,
-          f2lTraining: { ...s.f2lTraining, recovery: null },
-        }));
+        this.state.update((s) => ({ ...s, training: { ...s.training, recovery: null } }));
       }
     } finally {
       if (token === this.#recoveryToken) {
-        this.state.update((s) => ({
-          ...s,
-          f2lTraining: { ...s.f2lTraining, recoveryPending: false },
-        }));
+        this.state.update((s) => ({ ...s, training: { ...s.training, recoveryPending: false } }));
       }
     }
   }
@@ -1693,23 +1890,18 @@ export class Controller {
     void this.#recordSolve(rawMs, timed, "smartcube");
   }
 
-  #finishF2lAttempt(): void {
+  #finishTrainingAttempt(): void {
     this.#stopLoop();
-    const offsets = fitMoveTimestamps(this.#f2lRawMoves);
-    const timed: TimedMove[] = this.#f2lRawMoves.map((move, index) => ({
+    const offsets = fitMoveTimestamps(this.#trainingRawMoves);
+    const timed: TimedMove[] = this.#trainingRawMoves.map((move, index) => ({
       move: move.move,
       t: offsets[index] ?? 0,
     }));
-    const target = this.#f2lTarget;
-    const handTimed = target
-      ? f2lHandTimedMoves(timed, f2lTrainingGrip(target.info))
-      : timed;
-    const efficiency = calculateTrainingEfficiency(
-      handTimed,
-      target?.info.references,
-    );
+    const target = this.#trainingTarget;
+    const handTimed = target ? handTimedMoves(timed, this.#trainingGrip(target)) : timed;
+    const efficiency = calculateTrainingEfficiency(handTimed, target?.info.references);
     this.elapsed.set(efficiency.elapsedMs);
-    const result: F2lTrainingResult = {
+    const result: TrainingResult = {
       moves: efficiency.moves.map(({ move }) => move),
       stm: efficiency.stm,
       elapsedMs: efficiency.elapsedMs,
@@ -1717,16 +1909,10 @@ export class Controller {
       matchedReferenceRank: efficiency.matchedReferenceRank,
       delta: efficiency.delta,
     };
-    this.state.update((s) => ({
-      ...s,
-      f2lTraining: {
-        ...s.f2lTraining,
-        phase: "result",
-        result,
-      },
-    }));
-    if (this.state.get().f2lTraining.mode === "virtual") {
-      void this.#reloadF2lTraining(true);
+    this.state.update((s) => ({ ...s, training: { ...s.training, phase: "result", result } }));
+    if (this.state.get().training.mode === "virtual") {
+      if (target && isLastLayerTarget(target)) void this.#reloadLastLayerTraining(true);
+      else void this.#reloadF2lTraining(true);
     }
   }
 
@@ -1865,7 +2051,10 @@ export class Controller {
    * losing its detail. Repairs are saved, so each solve is only done once.
    */
   async #loadSolves(sessionId: string): Promise<Solve[]> {
-    const solves = await db.loadSolves(sessionId);
+    return this.#repairLoadedSolves(await db.loadSolves(sessionId));
+  }
+
+  async #repairLoadedSolves(solves: Solve[]): Promise<Solve[]> {
     const kpuzzle = this.#model?.kpuzzle;
     if (!kpuzzle) return solves;
 
@@ -1880,6 +2069,17 @@ export class Controller {
       }
     }
     return result;
+  }
+
+  /** Read all historical data for statistics without changing the active Timer state. */
+  async loadStatisticsSnapshot(): Promise<StatisticsSnapshot> {
+    const [sessions, solves] = await Promise.all([
+      db.loadSessions(),
+      db.loadAllSolves(),
+    ]);
+    const repaired = await this.#repairLoadedSolves(solves);
+    repaired.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+    return { sessions, solves: repaired };
   }
 
   async #selectSession(sessionId: string, previousEvent?: EventId): Promise<void> {

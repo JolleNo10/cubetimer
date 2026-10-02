@@ -132,9 +132,16 @@ describe("slow solves", () => {
     expect(sessionStats(withPractice).count).toBe(5);
   });
 
-  it("are the only thing countedSolves removes", () => {
-    const solves = [solve(1000), { ...solve(2000), practice: true }, solve(3000, "DNF")];
+  it("uses every persisted practice/replay/slow flag for ordinary statistics", () => {
+    const solves = [
+      solve(1000),
+      { ...solve(2000), practice: true },
+      { ...solve(3000), replay: true },
+      { ...solve(4000), slowSolve: true },
+      solve(5000, "DNF"),
+    ];
     expect(countedSolves(solves)).toHaveLength(2);
+    expect(countedSolves(solves).some((item) => item.penalty === "DNF")).toBe(true);
   });
 
   it("does not classify a replay as a slow solve even in slow mode", () => {

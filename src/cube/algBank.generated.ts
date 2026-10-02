@@ -10,7 +10,7 @@
 /** Where these came from and when, so a stale bank can be spotted. */
 export const ALG_BANK_SOURCE = {
   url: "https://www.speedcubedb.com/a/3x3",
-  fetched: "2026-09-23",
+  fetched: "2026-10-02",
   algorithms: 930,
 } as const;
 
@@ -191,8 +191,8 @@ export const OLL_ALG_BANK: Record<string, readonly string[]> = {
     "M U R U R' U' R' F R F' M'"
   ],
   "30": [
-    "y' r' D' r U' r' D r2 U' r' U r U r'",
     "y2 F U R U2 R' U' R U2 R' U' F'",
+    "y' r' D' r U' r' D r2 U' r' U r U r'",
     "y2 F R' F R2 U' R' U' R U R' F2",
     "y S' R' U' R f R' U R U' F'"
   ],
@@ -485,6 +485,868 @@ export const PLL_ALG_BANK: Record<string, readonly string[]> = {
     "y M' U M2 U M2 U M' U2 M2"
   ]
 };
+
+/** Authoritative SpeedCubeDB catalogue state and source-ranked references for OLL. */
+export const OLL_TRAINING_CASES = {
+  "1": {
+    "id": "OLL 1",
+    "group": "Dot Case",
+    "setup": "F R' F' R U2' F R' F' R2' U2' R'",
+    "algorithms": [
+      "R U2 R2 F R F' U2 R' F R F'",
+      "y R U' R2 D' r U' r' D R2 U R'",
+      "f R U R' U' R f' U' r' U' R U M'",
+      "L' U2 L2 F' L' F U2 L F' L' F"
+    ]
+  },
+  "2": {
+    "id": "OLL 2",
+    "group": "Dot Case",
+    "setup": "f U R U' R' f' F U R U' R' F'",
+    "algorithms": [
+      "y' R U' R2 D' r U r' D R2 U R'",
+      "F R U R' U' S R U R' U' f'",
+      "F R U R' U' F' f R U R' U' f'",
+      "y r U r' U2 R U2 R' U2 r U' r'"
+    ]
+  },
+  "3": {
+    "id": "OLL 3",
+    "group": "Dot Case",
+    "setup": "F U R U' R' F' U f U R U' R' f' y",
+    "algorithms": [
+      "y' f R U R' U' f' U' F R U R' U' F'",
+      "y R' F2 R2 U2 R' F R U2 R2 F2 R",
+      "r' R2 U R' U r U2 r' U M'",
+      "M R U R' U r U2 r' U M'"
+    ]
+  },
+  "4": {
+    "id": "OLL 4",
+    "group": "Dot Case",
+    "setup": "F U R U' R' F' U' f U R U' R' f' y",
+    "algorithms": [
+      "y' R' F2 R2 U2 R' F' R U2 R2 F2 R",
+      "y' f R U R' U' f' U F R U R' U' F'",
+      "R' F R F' U' S R' U' R U R S'",
+      "y F U R U' R' F' U' F R U R' U' F'"
+    ]
+  },
+  "5": {
+    "id": "OLL 5",
+    "group": "Square Shapes",
+    "setup": "r' U' R U' R' U2' r",
+    "algorithms": [
+      "r' U2 R U R' U r",
+      "y2 l' U2 L U L' U l",
+      "y2 R' F2 r U r' F R",
+      "y2 R' F2 L F L' F R"
+    ]
+  },
+  "6": {
+    "id": "OLL 6",
+    "group": "Square Shapes",
+    "setup": "r U R' U R U2' r'",
+    "algorithms": [
+      "r U2 R' U' R U' r'",
+      "F U' R2 D R' U' R D' R2 U F'",
+      "y2 l U2 L' U' L U' l'",
+      "L F2 l' U' l F' L'"
+    ]
+  },
+  "7": {
+    "id": "OLL 7",
+    "group": "Lightning Shapes",
+    "setup": "r U2' R' U' R U' r'",
+    "algorithms": [
+      "r U R' U R U2 r'",
+      "S' R U R' U R U2 R' U S",
+      "L' U2 L U2 L F' L' F",
+      "y2 f R U R' U' f' y2 F R' F' r U R U' r'"
+    ]
+  },
+  "8": {
+    "id": "OLL 8",
+    "group": "Lightning Shapes",
+    "setup": "r' U2' R U R' U r y2'",
+    "algorithms": [
+      "y2 r' U' R U' R' U2 r",
+      "l' U' L U' L' U2 l",
+      "R U2 R' U2 R' F R F'",
+      "R' F' r U' r' F2 R"
+    ]
+  },
+  "9": {
+    "id": "OLL 9",
+    "group": "Fish Shapes",
+    "setup": "F U R U' R2' F' R U R U' R' y'",
+    "algorithms": [
+      "y R U R' U' R' F R2 U R' U' F'",
+      "R U2 R' U' S' R U' R' S",
+      "y2 F' U' F r U' r' U r U r'",
+      "y' L' U' L U' L F' L' F L' U2 L"
+    ]
+  },
+  "10": {
+    "id": "OLL 10",
+    "group": "Fish Shapes",
+    "setup": "R U2' R' F R' F' R U' R U' R'",
+    "algorithms": [
+      "R U R' U R' F R F' R U2 R'",
+      "y F U F' R' F R U' R' F' R",
+      "y M' R' U2 R U R' U R U M",
+      "y2 L' U' L U L F' L2 U' L U F"
+    ]
+  },
+  "11": {
+    "id": "OLL 11",
+    "group": "Lightning Shapes",
+    "setup": "M U' R U2' R' U' R U' R2' r",
+    "algorithms": [
+      "r' R2 U R' U R U2 R' U M'",
+      "y2 r U R' U R' F R F' R U2 r'",
+      "S R U R' U R U2 R' U2 S'",
+      "M R U R' U R U2 R' U M'"
+    ]
+  },
+  "12": {
+    "id": "OLL 12",
+    "group": "Lightning Shapes",
+    "setup": "F U R U' R' F' U' F U R U' R' F'",
+    "algorithms": [
+      "y' M' R' U' R U' R' U2 R U' M",
+      "F R U R' U' F' U F R U R' U' F'",
+      "y' S R' U' R U' R' U2 R U2 S'",
+      "y M L' U' L U' L' U2 L U' M'"
+    ]
+  },
+  "13": {
+    "id": "OLL 13",
+    "group": "Knight Move Shapes",
+    "setup": "F' U' F r U' r' U r U r'",
+    "algorithms": [
+      "F U R U2 R' U' R U R' F'",
+      "F U R U' R2 F' R U R U' R'",
+      "r U' r' U' r U r' F' U F",
+      "y2 f R U R2 U' R' U R U' f'"
+    ]
+  },
+  "14": {
+    "id": "OLL 14",
+    "group": "Knight Move Shapes",
+    "setup": "F U F' R' F R U' R' F' R",
+    "algorithms": [
+      "R' F R U R' F' R F U' F'",
+      "r U R' U' r' F R2 U R' U' F'",
+      "l' U l U l' U' l F U' F'",
+      "S R U R' U' R' F R2 U R' U' f'"
+    ]
+  },
+  "15": {
+    "id": "OLL 15",
+    "group": "Knight Move Shapes",
+    "setup": "r' U' r U' R' U R r' U r",
+    "algorithms": [
+      "r' U' r R' U' R U r' U r",
+      "y2 l' U' l L' U' L U l' U l",
+      "r' U' M' U' R U r' U r",
+      "y2 R' F' R L' U' L U R' F R"
+    ]
+  },
+  "16": {
+    "id": "OLL 16",
+    "group": "Knight Move Shapes",
+    "setup": "r U r' U R U' R' r U' r'",
+    "algorithms": [
+      "r U r' R U R' U' r U' r'",
+      "r U M U R' U' r U' r'",
+      "y2 R' F R U R' U' F' R U' R' U2 R",
+      "y2 l U l' L U L' U' l U' l'"
+    ]
+  },
+  "17": {
+    "id": "OLL 17",
+    "group": "Dot Case",
+    "setup": "F R' F' R U2' F R' F' R U' R U' R'",
+    "algorithms": [
+      "R U R' U R' F R F' U2 R' F R F'",
+      "y2 F R' F' R U S' R U' R' S",
+      "y2 F R' F' R2 r' U R U' R' U' M'",
+      "y' F' r U r' U' S r' F r S'"
+    ]
+  },
+  "18": {
+    "id": "OLL 18",
+    "group": "Dot Case",
+    "setup": "r' U2' R U R' U r2' U2' R' U' R U' r'",
+    "algorithms": [
+      "y R U2 R2 F R F' U2 M' U R U' r'",
+      "r U R' U R U2 r2 U' R U' R' U2 r",
+      "y F S' R U' R' S R U2 R' U' F'",
+      "R D r' U' r D' R' U' R2 F R F' R"
+    ]
+  },
+  "19": {
+    "id": "OLL 19",
+    "group": "Dot Case",
+    "setup": "F R' F' R M U R U' R' U' M'",
+    "algorithms": [
+      "y S' R U R' S U' R' F R F'",
+      "M U R U R' U' M' R' F R F'",
+      "R' U2 F R U R' U' F2 U2 F R",
+      "r' R U R U R' U' r R2 F R F'"
+    ]
+  },
+  "20": {
+    "id": "OLL 20",
+    "group": "Dot Case",
+    "setup": "r U R' U' M2' U R U' R' U' M'",
+    "algorithms": [
+      "r U R' U' M2 U R U' R' U' M'",
+      "M' U2 M U2 M' U M U2 M' U2 M",
+      "S' R U R' S U' M' U R U' r'",
+      "S R' U' R U R U R U' R' S'"
+    ]
+  },
+  "21": {
+    "id": "OLL 21",
+    "group": "OCLL",
+    "setup": "R U R' U R U' R' U R U2' R' y'",
+    "algorithms": [
+      "R U R' U R U' R' U R U2 R'",
+      "y R U2 R' U' R U R' U' R U' R'",
+      "y F R U R' U' R U R' U' R U R' U' F'",
+      "R' U' R U' R' U R U' R' U2 R"
+    ]
+  },
+  "22": {
+    "id": "OLL 22",
+    "group": "OCLL",
+    "setup": "R' U2' R2' U R2' U R2' U2' R'",
+    "algorithms": [
+      "R U2 R2 U' R2 U' R2 U2 R",
+      "R' U2 R2 U R2 U R2 U2 R'",
+      "f R U R' U' S' R U R' U' F'",
+      "f R U R' U' f' F R U R' U' F'"
+    ]
+  },
+  "23": {
+    "id": "OLL 23",
+    "group": "OCLL",
+    "setup": "R U2' R D R' U2' R D' R2'",
+    "algorithms": [
+      "R2 D R' U2 R D' R' U2 R'",
+      "y2 R2 D' R U2 R' D R U2 R",
+      "R U R' U R U2 R2 U' R U' R' U2 R",
+      "y R U R' U' R U' R' U2 R U' R' U2 R U R'"
+    ]
+  },
+  "24": {
+    "id": "OLL 24",
+    "group": "OCLL",
+    "setup": "F R' F' r U R U' r'",
+    "algorithms": [
+      "r U R' U' r' F R F'",
+      "y2 R' F' r U R U' r' F",
+      "y R U R D R' U' R D' R2",
+      "y' x' R U R' D R U' R' D' x"
+    ]
+  },
+  "25": {
+    "id": "OLL 25",
+    "group": "OCLL",
+    "setup": "R' F' r U R U' r' F y'",
+    "algorithms": [
+      "R U2 R D R' U2 R D' R2",
+      "y F' r U R' U' r' F R",
+      "F R' F' r U R U' r'",
+      "x R' U R D' R' U' R D x'"
+    ]
+  },
+  "26": {
+    "id": "OLL 26",
+    "group": "OCLL",
+    "setup": "R U R' U R U2' R' y'",
+    "algorithms": [
+      "y R U2 R' U' R U' R'",
+      "R' U' R U' R' U2 R",
+      "y2 L' U' L U' L' U2 L",
+      "y2 L' U R U' L U R'"
+    ]
+  },
+  "27": {
+    "id": "OLL 27",
+    "group": "OCLL",
+    "setup": "R U2' R' U' R U' R'",
+    "algorithms": [
+      "R U R' U R U2 R'",
+      "y' R' U2 R U R' U R",
+      "y L' U2 L U L' U L",
+      "y2 L U L' U L U2 L'"
+    ]
+  },
+  "28": {
+    "id": "OLL 28",
+    "group": "All Corners Oriented",
+    "setup": "R U R' U' M' U R U' r'",
+    "algorithms": [
+      "r U R' U' M U R U' R'",
+      "r U R' U' r' R U R U' R'",
+      "R' F R S R' F' R S'",
+      "y2 M' U M U2 M' U M"
+    ]
+  },
+  "29": {
+    "id": "OLL 29",
+    "group": "Awkward Shapes",
+    "setup": "M F R' F' R U R U' R' U' M'",
+    "algorithms": [
+      "r2 D' r U r' D r2 U' r' U' r",
+      "y R U R' U' R U' R' F' U' F R U R'",
+      "y S' R U R' U' R' F R F' U S",
+      "M U R U R' U' R' F R F' M'"
+    ]
+  },
+  "30": {
+    "id": "OLL 30",
+    "group": "Awkward Shapes",
+    "setup": "F U R U2' R' U R U2' R' U' F' y2'",
+    "algorithms": [
+      "y2 F U R U2 R' U' R U2 R' U' F'",
+      "y' r' D' r U' r' D r2 U' r' U r U r'",
+      "y2 F R' F R2 U' R' U' R U R' F2",
+      "y S' R' U' R f R' U R U' F'"
+    ]
+  },
+  "31": {
+    "id": "OLL 31",
+    "group": "P Shapes",
+    "setup": "R' F R U R' U' F' U R",
+    "algorithms": [
+      "R' U' F U R U' R' F' R",
+      "y2 S' L' U' L U L F' L' f",
+      "y S R U R' U' f' U' F",
+      "y' F R' F' R U R U R' U' R U' R'"
+    ]
+  },
+  "32": {
+    "id": "OLL 32",
+    "group": "P Shapes",
+    "setup": "f R' F' R U R U' R' S'",
+    "algorithms": [
+      "S R U R' U' R' F R f'",
+      "y2 L U F' U' L' U L F L'",
+      "R U B' U' R' U R B R'",
+      "y' R' F R F' U' r U' r' U r U r'"
+    ]
+  },
+  "33": {
+    "id": "OLL 33",
+    "group": "T Shapes",
+    "setup": "F R' F' R U R U' R'",
+    "algorithms": [
+      "R U R' U' R' F R F'",
+      "y2 L' U' L U L F' L' F",
+      "y2 r' F' r U r U' r' F",
+      "R U R' F' U' F R U' R'"
+    ]
+  },
+  "34": {
+    "id": "OLL 34",
+    "group": "C Shapes",
+    "setup": "F U R' U' R' F' R U R2' U' R' y2'",
+    "algorithms": [
+      "y f R f' U' r' U' R U M'",
+      "y2 R U R2 U' R' F R U R U' F'",
+      "F R U R' U' R' F' r U R U' r'",
+      "y2 R U R' U' B' R' F R F' B"
+    ]
+  },
+  "35": {
+    "id": "OLL 35",
+    "group": "Fish Shapes",
+    "setup": "R U2' R' F R' F' R2' U2' R'",
+    "algorithms": [
+      "R U2 R2 F R F' R U2 R'",
+      "f R U R' U' f' R U R' U R U2 R'",
+      "R U2 R' d' R' F R U' R' F' R",
+      "y L' U2 L2 F' L' F L' U2 L"
+    ]
+  },
+  "36": {
+    "id": "OLL 36",
+    "group": "W Shapes",
+    "setup": "F' L F L' U' L' U' L U L' U L y2'",
+    "algorithms": [
+      "y R U R2 F' U' F U R2 U2 R'",
+      "y2 L' U' L U' L' U L U L F' L' F",
+      "y2 R U R' F' R U R' U' R' F R U' R' F R F'",
+      "R U R' U' F' U2 F U R U R'"
+    ]
+  },
+  "37": {
+    "id": "OLL 37",
+    "group": "Fish Shapes",
+    "setup": "F R U' R' U R U R' F'",
+    "algorithms": [
+      "F R' F' R U R U' R'",
+      "F R U' R' U' R U R' F'",
+      "y F' r U r' U' r' F r",
+      "y2 r2 D' r U' r' D r U r"
+    ]
+  },
+  "38": {
+    "id": "OLL 38",
+    "group": "W Shapes",
+    "setup": "F R' F' R U R U R' U' R U' R'",
+    "algorithms": [
+      "R U R' U R U' R' U' R' F R F'",
+      "y F R U' R' S U' R U R' f'",
+      "r U R' U' r' F R U R U' R' F'",
+      "y2 L U L' U L U' L' U' L' B L B'"
+    ]
+  },
+  "39": {
+    "id": "OLL 39",
+    "group": "Lightning Shapes",
+    "setup": "L U F' U' L' U L F L' y'",
+    "algorithms": [
+      "y' f' r U r' U' r' F r S",
+      "y' R U R' F' U' F U R U2 R'",
+      "y L F' L' U' L U F U' L'",
+      "y' f' L F L' U' L' U L S"
+    ]
+  },
+  "40": {
+    "id": "OLL 40",
+    "group": "Lightning Shapes",
+    "setup": "R' U' F U R U' R' F' R y'",
+    "algorithms": [
+      "y R' F R U R' U' F' U R",
+      "y' f R' F' R U R U' R' S'",
+      "R r D r' U r D' r' U' R'",
+      "y' L' U' L F U F' U' L' U2 L"
+    ]
+  },
+  "41": {
+    "id": "OLL 41",
+    "group": "Awkward Shapes",
+    "setup": "F U R U' R' F' R U2' R' U' R U' R' y2'",
+    "algorithms": [
+      "y2 R U R' U R U2 R' F R U R' U' F'",
+      "y2 F U R2 D R' U' R D' R2 F'",
+      "y' S U' R' F' U' F U R S'",
+      "M U' F' L' U' L U F M'"
+    ]
+  },
+  "42": {
+    "id": "OLL 42",
+    "group": "Awkward Shapes",
+    "setup": "F U R U' R' F' R' U2' R U R' U R",
+    "algorithms": [
+      "R' U' R U' R' U2 R F R U R' U' F'",
+      "y F S' R U R' U' F' U S",
+      "y R' F R F' R' F R F' R U R' U' R U R'",
+      "y R' U' F2 u' R U R' D R2 B"
+    ]
+  },
+  "43": {
+    "id": "OLL 43",
+    "group": "P Shapes",
+    "setup": "f' U' L' U L f",
+    "algorithms": [
+      "y R' U' F' U F R",
+      "y2 F' U' L' U L F",
+      "f' L' U' L U f",
+      "B' U' R' U R B"
+    ]
+  },
+  "44": {
+    "id": "OLL 44",
+    "group": "P Shapes",
+    "setup": "f U R U' R' f'",
+    "algorithms": [
+      "f R U R' U' f'",
+      "y2 F U R U' R' F'",
+      "y R U B U' B' R'",
+      "y' L U F U' F' L'"
+    ]
+  },
+  "45": {
+    "id": "OLL 45",
+    "group": "T Shapes",
+    "setup": "F U R U' R' F'",
+    "algorithms": [
+      "F R U R' U' F'",
+      "y R' F' U' F U R",
+      "y2 f U R U' R' f'",
+      "y2 F' L' U' L U F"
+    ]
+  },
+  "46": {
+    "id": "OLL 46",
+    "group": "C Shapes",
+    "setup": "R' U' F R' F' R U R",
+    "algorithms": [
+      "R' U' R' F R F' U R",
+      "R' F' U' F R U' R' U2 R",
+      "y F R U R' U' F' U' R U R' U R U2 R'",
+      "l' U2 L2 F' L' F U L' U l"
+    ]
+  },
+  "47": {
+    "id": "OLL 47",
+    "group": "L Shapes",
+    "setup": "F' U' L' U L U' L' U L F",
+    "algorithms": [
+      "y' F R' F' R U2 R U' R' U R U2 R'",
+      "F' L' U' L U L' U' L U F",
+      "R' U' R' F R F' R' F R F' U R",
+      "y' R' F' U' F U F' U' F U R"
+    ]
+  },
+  "48": {
+    "id": "OLL 48",
+    "group": "L Shapes",
+    "setup": "F U R U' R' U R U' R' F'",
+    "algorithms": [
+      "F R U R' U' R U R' U' F'",
+      "y2 f U R U' R' U R U' R' f'",
+      "R U2 R' U' R U R' U2 R' F R F'",
+      "F R' F' U2 R U R' U R2 U2 R'"
+    ]
+  },
+  "49": {
+    "id": "OLL 49",
+    "group": "L Shapes",
+    "setup": "r' U r2' U' r2' U' r2' U r' y2'",
+    "algorithms": [
+      "y2 r U' r2 U r2 U r2 U' r",
+      "l U' l2 U l2 U l2 U' l",
+      "R B' R2 F R2 B R2 F' R",
+      "y2 R' F R' F' R2 U2 B' R B R'"
+    ]
+  },
+  "50": {
+    "id": "OLL 50",
+    "group": "L Shapes",
+    "setup": "r U' r2' U r2' U r2' U' r",
+    "algorithms": [
+      "r' U r2 U' r2 U' r2 U r'",
+      "y2 R' F R2 B' R2 F' R2 B R'",
+      "y' R U2 R' U' R U' R' F R U R' U' F'",
+      "y2 l' U l2 U' l2 U' l2 U l'"
+    ]
+  },
+  "51": {
+    "id": "OLL 51",
+    "group": "Line Shapes",
+    "setup": "f U R U' R' U R U' R' f'",
+    "algorithms": [
+      "y2 F U R U' R' U R U' R' F'",
+      "f R U R' U' R U R' U' f'",
+      "y' R' U' R' F R F' R U' R' U2 R",
+      "y r' F' U' F U F' U' F U r"
+    ]
+  },
+  "52": {
+    "id": "OLL 52",
+    "group": "Line Shapes",
+    "setup": "F R U R' d R' U' R U' R'",
+    "algorithms": [
+      "y2 R' F' U' F U' R U R' U R",
+      "R U R' U R U' B U' B' R'",
+      "R U R' U R d' R U' R' F'",
+      "R U R' U R U' y R U' R' F'"
+    ]
+  },
+  "53": {
+    "id": "OLL 53",
+    "group": "L Shapes",
+    "setup": "r' U2' R U R' U' R U R' U r",
+    "algorithms": [
+      "r' U' R U' R' U R U' R' U2 r",
+      "y2 l' U' L U' L' U L U' L' U2 l",
+      "y r' U2 R U R' U' R U R' U r",
+      "y' l' U2 L U L' U' L U L' U l"
+    ]
+  },
+  "54": {
+    "id": "OLL 54",
+    "group": "L Shapes",
+    "setup": "r U2' R' U' R U R' U' R U' r'",
+    "algorithms": [
+      "r U R' U R U' R' U R U2 r'",
+      "y' r U2 R' U' R U R' U' R U' r'",
+      "y' r U r' R U R' U' R U R' U' r U' r'",
+      "y2 l U L' U L U' L' U L U2 l'"
+    ]
+  },
+  "55": {
+    "id": "OLL 55",
+    "group": "Line Shapes",
+    "setup": "F R' F' U2' R U R' U R2' U2' R'",
+    "algorithms": [
+      "y R' F U R U' R2 F' R2 U R' U' R",
+      "y R' F R U R U' R2 F' R2 U' R' U R U R'",
+      "R U2 R2 U' R U' R' U2 F R F'",
+      "r U2 R2 F R F' U2 r' F R F'"
+    ]
+  },
+  "56": {
+    "id": "OLL 56",
+    "group": "Line Shapes",
+    "setup": "r U r' R U R' U' R U R' U' r U' r'",
+    "algorithms": [
+      "r U r' U R U' R' U R U' R' r U' r'",
+      "r U r' U R U' R' M' U R U2 r'",
+      "F R U R' U' R F' r U R' U' r'",
+      "r' U' r U' R' U R U' R' U R r' U r"
+    ]
+  },
+  "57": {
+    "id": "OLL 57",
+    "group": "All Corners Oriented",
+    "setup": "r U R' U' M U R U' R'",
+    "algorithms": [
+      "R U R' U' M' U R U' r'",
+      "y R U' R' S' R U R' S",
+      "y R U R' S' R U' R' S",
+      "R U R' U' R' r U R U' r'"
+    ]
+  }
+} as const;
+
+/** Authoritative SpeedCubeDB catalogue state and source-ranked references for PLL. */
+export const PLL_TRAINING_CASES = {
+  "Aa": {
+    "id": "Aa",
+    "group": "Adj Swap",
+    "setup": "x R2' D2' R U R' D2' R U' R x'",
+    "algorithms": [
+      "x R' U R' D2 R U' R' D2 R2 x'",
+      "l' U R' D2 R U' R' D2 R2 x'",
+      "y x' R2 D2 R' U' R D2 R' U R' x"
+    ]
+  },
+  "Ab": {
+    "id": "Ab",
+    "group": "Adj Swap",
+    "setup": "x R' U R' D2' R U' R' D2' R2' x'",
+    "algorithms": [
+      "x R2 D2 R U R' D2 R U' R x'",
+      "y x' R U' R D2 R' U R D2 R2 x",
+      "R' B' R U' R D R' U R D' R2 B R"
+    ]
+  },
+  "E": {
+    "id": "E",
+    "group": "Opp Swap",
+    "setup": "x' D R U R' D' R U' R' D R U' R' D' R U R' x y'",
+    "algorithms": [
+      "y x' R U' R' D R U R' D' R U R' D R U' R' D' x",
+      "y R' U' R' D' R U' R' D R U R' D' R U R' D R2",
+      "R2 U F' R' U R U' R' U R U' R' U R U' F U' R2"
+    ]
+  },
+  "F": {
+    "id": "F",
+    "group": "Adj Swap",
+    "setup": "R' U' R U' R' U R U R2' F' R U R U' R' F U R y'",
+    "algorithms": [
+      "y R' U' F' R U R' U' R' F R2 U' R' U' R U R' U R",
+      "y R' F R f' R' F R2 U R' U' R' F' R2 U R' S",
+      "R' U R U' R2 F' U' F U R F R' F' R2",
+      "y R2 F R F' R' U' F' U F R2 U R' U' R"
+    ]
+  },
+  "Ga": {
+    "id": "Ga",
+    "group": "Adj Swap",
+    "setup": "R' U' R D' U R2' U R' U R U' R U' R2' D",
+    "algorithms": [
+      "R2 U R' U R' U' R U' R2 D U' R' U R D'",
+      "R2 u R' U R' U' R u' R2 F' U F",
+      "y R U R' F' R U R' U' R' F R U' R' F R2 U' R' U' R U R' F'",
+      "D' R2 U R' U R' U' R U' R2 U' D R' U R"
+    ]
+  },
+  "Gb": {
+    "id": "Gb",
+    "group": "Adj Swap",
+    "setup": "R2' U R' U R' U' R U' R2' D U' R' U R D'",
+    "algorithms": [
+      "D R' U' R U D' R2 U R' U R U' R U' R2",
+      "R' U' R U D' R2 U R' U R U' R U' R2 D",
+      "y F' U' F R2 u R' U R U' R u' R2",
+      "R' d' F R2 u R' U R U' R u' R2"
+    ]
+  },
+  "Gc": {
+    "id": "Gc",
+    "group": "Adj Swap",
+    "setup": "D' R U R' U' D R2' U' R U' R' U R' U R2'",
+    "algorithms": [
+      "R2 U' R U' R U R' U R2 D' U R U' R' D",
+      "y2 R2 F2 R U2 R U2 R' F R U R' U' R' F R2",
+      "D R2 U' R U' R U R' U R2 D' U R U' R'",
+      "R2 u' R U' R U R' u R2 f R' f'"
+    ]
+  },
+  "Gd": {
+    "id": "Gd",
+    "group": "Adj Swap",
+    "setup": "R2' U' R U' R U R' U R2' D' U R U' R' D",
+    "algorithms": [
+      "R U R' U' D R2 U' R U' R' U R' U R2 D'",
+      "D' R U R' U' D R2 U' R U' R' U R' U R2",
+      "R U R' y' R2 u' R U' R' U R' u R2",
+      "y R2 F' R U R U' R' F' R U2 R' U2 R' F2 R2"
+    ]
+  },
+  "H": {
+    "id": "H",
+    "group": "EPLL",
+    "setup": "M2' U' M2' U2' M2' U' M2'",
+    "algorithms": [
+      "M2 U M2 U2 M2 U M2",
+      "M2 U' M2 U2 M2 U' M2",
+      "R2 S2 R2 U' R2 S2 R2",
+      "M2 U2 M2 U M2 U2 M2"
+    ]
+  },
+  "Ja": {
+    "id": "Ja",
+    "group": "Adj Swap",
+    "setup": "L' R' U2' R U R' U2' L U' R y'",
+    "algorithms": [
+      "y2 x R2 F R F' R U2 r' U r U2 x'",
+      "y R' U L' U2 R U' R' U2 R L",
+      "L' U' L F L' U' L U L F' L2 U L",
+      "R U' L' U R' U2 L U' L' U2 L"
+    ]
+  },
+  "Jb": {
+    "id": "Jb",
+    "group": "Adj Swap",
+    "setup": "R U R2' F' R U R U' R' F R U' R'",
+    "algorithms": [
+      "R U R' F' R U R' U' R' F R2 U' R'",
+      "R U2 R' U' R U2 L' U R' U' L",
+      "r' F R F' r U2 R' U R U2 R'",
+      "L' U R U' L U2 R' U R U2 R'"
+    ]
+  },
+  "Na": {
+    "id": "Na",
+    "group": "Opp Swap",
+    "setup": "R U R' U2' R U R2' F' R U R U' R' F R U' R' U' R U' R'",
+    "algorithms": [
+      "R U R' U R U R' F' R U R' U' R' F R2 U' R' U2 R U' R'",
+      "F' R U R' U' R' F R2 F U' R' U' R U F' R'",
+      "R F U' R' U R U F' R2 F' R U R U' R' F",
+      "r' D r U2 r' D r U2 r' D r U2 r' D r U2 r' D r"
+    ]
+  },
+  "Nb": {
+    "id": "Nb",
+    "group": "Opp Swap",
+    "setup": "F r' F' r U r U' r2' D' F r U r' F' D r",
+    "algorithms": [
+      "R' U R U' R' F' U' F R U R' F R' F' R U' R",
+      "r' D' F r U' r' F' D r2 U r' U' r' F r F'",
+      "R' U L' U2 R U' L R' U L' U2 R U' L",
+      "R' U R U' R' F' U' F R U R' U' R U' f R f'"
+    ]
+  },
+  "Ra": {
+    "id": "Ra",
+    "group": "Adj Swap",
+    "setup": "R U2' R D R' U R D' R' U' R' U R U R' y'",
+    "algorithms": [
+      "y R U' R' U' R U R D R' U' R D' R' U2 R'",
+      "y R U R' F' R U2 R' U2 R' F R U R U2 R'",
+      "L U2 L' U2 L F' L' U' L U L F L2",
+      "y R U' R' U' R U R' U R' D' R U' R' D R2 U R'"
+    ]
+  },
+  "Rb": {
+    "id": "Rb",
+    "group": "Adj Swap",
+    "setup": "R' U R U R' U' R' D' R U R' D R U2' R",
+    "algorithms": [
+      "R' U2 R U2 R' F R U R' U' R' F' R2",
+      "y R2 F R U R U' R' F' R U2 R' U2 R",
+      "R' U2 R' D' R U' R' D R U R U' R' U' R",
+      "y R' U R U R' U' R' D' R U R' D R U2 R"
+    ]
+  },
+  "T": {
+    "id": "T",
+    "group": "Adj Swap",
+    "setup": "F R U' R' U R U R2' F' R U R U' R'",
+    "algorithms": [
+      "R U R' U' R' F R2 U' R' U' R U R' F'",
+      "R U R' U' R' F R2 U' R' U F' L' U L",
+      "R2 u R2 u' R2 F2 u' F2 u F2"
+    ]
+  },
+  "Ua": {
+    "id": "Ua",
+    "group": "EPLL",
+    "setup": "M2' U' M' U2' M U' M2'",
+    "algorithms": [
+      "y2 M2 U M U2 M' U M2",
+      "R U R' U R' U' R2 U' R' U R' U R",
+      "y R2 U' S' U2 S U' R2",
+      "y2 R U' R U R U R U' R' U' R2"
+    ]
+  },
+  "Ub": {
+    "id": "Ub",
+    "group": "EPLL",
+    "setup": "M2' U M' U2' M U M2'",
+    "algorithms": [
+      "y2 M2 U' M U2 M' U' M2",
+      "R' U R' U' R' U' R' U R U R2",
+      "R2' U R U R' U' R3 U' R' U R'",
+      "y2 R2 U R U R' U' R' U' R' U R'"
+    ]
+  },
+  "V": {
+    "id": "V",
+    "group": "Opp Swap",
+    "setup": "D2' R' U R D' R2' U' R' U R' U R' D' R U2' R'",
+    "algorithms": [
+      "R' U R' U' R D' R' D R' U D' R2 U' R2 D R2",
+      "R' U R U' R' f' U' R U2 R' U' R U' R' f R",
+      "R' U R' U' y R' F' R2 U' R' U R' F R F",
+      "y R U' R U R' D R D' R U' D R2 U R2 D' R2"
+    ]
+  },
+  "Y": {
+    "id": "Y",
+    "group": "Opp Swap",
+    "setup": "F R' F' R U R U' R' F R U' R' U R U R' F'",
+    "algorithms": [
+      "F R U' R' U' R U R' F' R U R' U' R' F R F'",
+      "F R' F R2 U' R' U' R U R' F' R U R' U' F'",
+      "R2 U' R2 U' R2 U F U F' R2 F U' F'",
+      "F R' F' R U R U' R2 U' R U R f' U' f"
+    ]
+  },
+  "Z": {
+    "id": "Z",
+    "group": "EPLL",
+    "setup": "M U2' M2' U2' M U' M2' U' M2'",
+    "algorithms": [
+      "M' U' M2 U' M2 U' M' U2 M2",
+      "M2 U M2 U M' U2 M2 U2 M'",
+      "y M2 U' M2 U' M' U2 M2 U2 M'",
+      "y M' U M2 U M2 U M' U2 M2"
+    ]
+  }
+} as const;
 
 /** Keyed by case name, then by the slot the pair goes into. */
 export const F2L_ALG_BANK: Record<

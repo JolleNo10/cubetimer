@@ -18,6 +18,38 @@ export async function fetchSpeedCubeDbPage(url: string, cacheFile: string | null
   return html;
 }
 
+export type SpeedCubeDbCaseMetadata = {
+  group: string;
+  setup: string;
+};
+
+/**
+ * Read the published case setup and source group from each case card. The algorithm
+ * tabs are parsed separately because a case card contains one setup but many tabs.
+ */
+export function parseSpeedCubeDbCaseMetadata(html: string): Map<string, SpeedCubeDbCaseMetadata> {
+  const starts = [...html.matchAll(
+    /<div class="row singlealgorithm[^>]*data-subgroup="([^"]+)"[^>]*data-alg="([^"]+)"/g,
+  )];
+  const metadata = new Map<string, SpeedCubeDbCaseMetadata>();
+  for (const [index, match] of starts.entries()) {
+    const from = match.index!;
+    const to = starts[index + 1]?.index ?? html.length;
+    const block = html.slice(from, to);
+    const setup = /<div class="setup-case[^>]*>\s*<div>setup:<\/div>([\s\S]*?)<\/div>/.exec(block)?.[1]
+      ?.replace(/<[^>]+>/g, "")
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, "&")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (setup) {
+      if (metadata.has(match[2])) throw new Error(`Duplicate SpeedCubeDB case identity: ${match[2]}`);
+      metadata.set(match[2], { group: match[1], setup });
+    }
+  }
+  return metadata;
+}
+
 /** Parse numeric data-t case/tab blocks; ignore the nonnumeric placeholder block. */
 export function parseSpeedCubeDbAlgorithmTabs(html: string): Map<string, string[][]> {
   const blocks = [...html.matchAll(/data-t="([^",]+),(\d+)"/g)];

@@ -17,6 +17,7 @@ export function Header({
   const [renaming, setRenaming] = useState(false);
   const session = state.sessions.find((s) => s.id === state.sessionId);
   const smartEvent = session ? eventInfo(session.event).smart : false;
+  const liveTiming = state.phase === "inspection" || state.phase === "solving" || state.training.phase === "solving";
   const sessionContextLocked = state.phase === "inspection" || state.phase === "solving";
 
   return (
@@ -33,11 +34,11 @@ export function Header({
         >
           Timer
         </button>
-        <button
-          className={state.area === "f2l" ? "active" : ""}
-          onClick={() => onSelectArea("f2l")}
-        >
-          F2L Training
+        <button className={state.area === "training" ? "active" : ""} onClick={() => onSelectArea("training")}>
+          Training
+        </button>
+        <button className={state.area === "statistics" ? "active" : ""} onClick={() => onSelectArea("statistics")} disabled={liveTiming}>
+          Statistics
         </button>
       </nav>
 

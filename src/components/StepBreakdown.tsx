@@ -1,7 +1,7 @@
 import { Fragment, useMemo, useState } from "react";
 import type { SolveAnalysis, SolveStep } from "../cube/analysis";
 import { faceColour, slotColours } from "../cube/colours";
-import { ollGroupForCase } from "../cube/lastLayerCases";
+import { ollGroupForCase, pllGroupForCase } from "../cube/lastLayerCases";
 import { isRotation, parseMove } from "../cube/notation";
 import { formatTime } from "../state/stats";
 import type { ReplayAction } from "./replayTimeline";
@@ -101,16 +101,21 @@ export function stepAt(steps: readonly SolveStep[], index: number): number {
 
 export type ActiveReplayAction = ReplayAction;
 
+function hasTrainableMoveRange(step: SolveStep): boolean {
+  return Number.isInteger(step.fromMove) && Number.isInteger(step.toMove) &&
+    step.fromMove >= 0 && step.toMove > step.fromMove;
+}
+
 export function canPracticeF2lStep(step: SolveStep): boolean {
-  return (
-    step.name.startsWith("F2L") &&
-    !step.skipped &&
-    Boolean(step.slot) &&
-    Number.isInteger(step.fromMove) &&
-    Number.isInteger(step.toMove) &&
-    step.fromMove >= 0 &&
-    step.toMove > step.fromMove
-  );
+  return step.name.startsWith("F2L") && !step.skipped && Boolean(step.slot) && hasTrainableMoveRange(step);
+}
+
+export function canPracticeTrainingStep(step: SolveStep): boolean {
+  if (canPracticeF2lStep(step)) return true;
+  if (step.skipped || !hasTrainableMoveRange(step) || !step.case) return false;
+  if (step.name === "OLL") return Boolean(ollGroupForCase(step.case));
+  if (step.name === "PLL") return Boolean(pllGroupForCase(step.case));
+  return false;
 }
 
 /** Find the displayed move entries corresponding to one raw replay move. */
@@ -207,7 +212,7 @@ function StepRow({
     ? new Set(activeRecordedMoveIndices(step, activeReplayAction))
     : null;
   const renderRecordedMoves = activeReplayAction !== undefined && Boolean(step.recordedMoves?.length);
-  const practice = onPractice && canPracticeF2lStep(step) && !onSelect ? (
+  const practice = onPractice && canPracticeTrainingStep(step) && !onSelect ? (
     <button
       type="button"
       className="ghost small phase-practice"

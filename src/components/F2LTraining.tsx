@@ -14,9 +14,11 @@ import { F2lCaseThumbnail } from "./F2lCaseThumbnail";
 export function F2LTraining({ state }: { state: AppState }) {
   const controller = useController();
   const elapsed = useStore(controller.elapsed);
-  const training = state.f2lTraining;
+  const training = state.training;
   const catalogue = f2lTrainingCatalogue(training.selectedLibrary);
-  const target = training.target;
+  const target = training.family === "f2l" && training.target && !("family" in training.target)
+    ? training.target
+    : null;
   const physicalLive = state.cubeStatus === "connected" || state.virtualCube;
   const displayLive = training.mode === "virtual" ? Boolean(target) : physicalLive;
   const orientationOverride = useMemo(
@@ -165,7 +167,7 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
 
 function SetupPanel({ state }: { state: AppState }) {
   const controller = useController();
-  const training = state.f2lTraining;
+  const training = state.training;
   const progress = training.setupProgress;
   const moves = training.setup.split(/\s+/).filter(Boolean);
   const preparing = training.phase === "preparing";
@@ -293,8 +295,10 @@ function SetupPanel({ state }: { state: AppState }) {
 
 function TargetPanel({ state, elapsed }: { state: AppState; elapsed: number }) {
   const controller = useController();
-  const training = state.f2lTraining;
-  const target = training.target;
+  const training = state.training;
+  const target = training.family === "f2l" && training.target && !("family" in training.target)
+    ? training.target
+    : null;
   const result = training.result;
   const references = target?.references ?? [];
   const reference = references[0];
@@ -407,8 +411,8 @@ function AttemptSection({
   liveMoveCount,
   elapsed,
 }: {
-  result: AppState["f2lTraining"]["result"];
-  phase: AppState["f2lTraining"]["phase"];
+  result: AppState["training"]["result"];
+  phase: AppState["training"]["phase"];
   liveMoveCount: number;
   elapsed: number;
 }) {

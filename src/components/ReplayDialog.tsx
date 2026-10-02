@@ -6,7 +6,7 @@ import { decodeGripTrack, rewriteWithRotations } from "../cube/gripTrack";
 import { formatTime } from "../state/stats";
 import {
   DetailedStepBreakdown,
-  canPracticeF2lStep,
+  canPracticeTrainingStep,
   stepAt,
   type ActiveReplayAction,
 } from "./StepBreakdown";
@@ -299,7 +299,7 @@ export function ReplayDialog({
                 </span>
               </>
             ) : null}
-            {currentStep && onTrainStep && canPracticeF2lStep(currentStep) ? (
+            {currentStep && onTrainStep && canPracticeTrainingStep(currentStep) ? (
               <button
                 type="button"
                 className="ghost small"
@@ -308,7 +308,7 @@ export function ReplayDialog({
                   onTrainStep(currentStep, { index, speed });
                 }}
               >
-                Train this F2L
+                Train this {currentStep.name.startsWith("F2L") ? "F2L" : currentStep.name}
               </button>
             ) : null}
             <span className="grow" />

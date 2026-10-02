@@ -18,7 +18,7 @@ There are currently no feature-specific architecture documents under `docs/archi
 | Timer lifecycle, scramble lifecycle, session context, smart-cube integration, or top-level runtime behavior | `src/state/controller.ts`, `src/state/controller.test.ts` |
 | Session/event ownership or event switching | `src/state/types.ts`, session methods in `src/state/controller.ts`, `src/components/Header.tsx`, `src/state/db.ts` |
 | Durable Session, Solve, or Settings records | `src/state/types.ts`, `src/state/db.ts` and related tests |
-| Statistics, averages, projections, or solve-history comparisons | `src/state/stats.ts`, `src/components/StatsPanel.tsx`, `src/components/SolveComparison.tsx` and related tests |
+| Statistics, averages, projections, or solve-history comparisons | `src/state/stats.ts`, `src/state/statistics.ts`, `src/components/StatisticsView.tsx`, `src/components/StatisticsCharts.tsx` and related tests |
 | JSON backup/import compatibility | backup/import methods in `src/state/controller.ts`, migration functions in `src/state/db.ts` |
 | Solve-analysis CSV import/export | `src/state/solveCsv.ts`, `src/state/csv.ts` and related tests |
 | Bluetooth or GAN cube connection | `src/bluetooth/smartCube.ts` and the relevant integration in `src/state/controller.ts` |
@@ -26,7 +26,8 @@ There are currently no feature-specific architecture documents under `docs/archi
 | CFOP solve analysis or case recognition | `src/cube/analysis.ts`, `src/cube/recognise.ts`, related domain modules and tests |
 | Scramble tracking or generation | `src/cube/scramble.ts` and relevant controller integration |
 | Cross, XCross, or Slow Solve coaching | `src/cube/crossSolver.ts`, `src/cube/crossPlans.ts`, `src/cube/crossScramble.ts`, `src/components/CoachPanel.tsx` as applicable |
-| F2L Training runtime and targets | `src/state/controller.ts`, `src/cube/f2lTraining.ts`, `src/cube/f2lTrainingCases.ts`, `src/cube/f2lCases.ts`, `src/components/F2LTraining.tsx` and relevant tests |
+| Training runtime and targets | `src/state/controller.ts`, `src/cube/training.ts`, `src/cube/f2lTraining.ts`, `src/cube/lastLayerTraining.ts`, `src/cube/lastLayerCases.ts`, `src/components/Training.tsx`, `src/components/F2LTraining.tsx` and relevant tests |
+| Generated OLL/PLL catalogue authority | `scripts/speedcubedb.ts`, `scripts/fetchAlgs.ts`, `src/cube/algBank.generated.ts`, `src/cube/algBank.test.ts` and last-layer domain tests |
 | F2L catalogue thumbnails | `src/cube/f2lThumbnail.ts`, `src/components/F2lCaseThumbnail.tsx`, generation scripts/maps and their tests |
 | Advanced F2L source authority or generated case data | the relevant Advanced F2L authority/generation module, its generator script, and focused tests |
 | Solve result or step presentation | `src/components/SolveResult.tsx`, `src/components/StepBreakdown.tsx` and related tests |
@@ -133,8 +134,9 @@ src/cube -X-> src/state
 - solve recording;
 - solve-analysis orchestration;
 - grip/orientation tracking;
-- Timer/F2L Training area transitions;
-- F2L Training runtime state;
+- Timer/Training/Statistics area transitions;
+- one shared F2L/OLL/PLL Training runtime;
+- read-only Statistics snapshot loading and area input gating;
 - persistence coordination;
 - application-facing runtime events.
 
@@ -172,7 +174,7 @@ High-frequency or narrowly scoped events should not require unrelated applicatio
 - selected historical solve;
 - replay dialog state;
 - analysis dialog state;
-- temporary return context when entering F2L Training from a result or replay.
+- temporary return context when entering Training from a result or replay.
 
 That state controls presentation and navigation.
 
@@ -234,10 +236,11 @@ A normal manually created Session inherits the selected Session's event unless a
 
 ### Session-context lock
 
-Session/event context cannot change while the timer is in:
+Session/event context cannot change during:
 
-- `inspection`;
-- `solving`.
+- Timer `inspection`;
+- Timer `solving`;
+- a Training `solving` attempt.
 
 The Controller enforces this rule; the UI also disables the corresponding controls.
 
@@ -314,6 +317,10 @@ src/cube/f2lTraining
 
 The cube layer does not import `Solve` from `src/state/types.ts`.
 
+The same narrow structural facts are used by exact OLL/PLL training. Historical
+training preserves the solve's phase boundary and recorded grip where available;
+catalogue training may randomize AUF, but exact historical targets do not.
+
 ## Smart-cube data flow
 
 `src/bluetooth/smartCube.ts` is the hardware adapter around `gan-web-bluetooth`.
@@ -357,7 +364,7 @@ Normal virtual/keyboard cube moves use the same move-processing path.
 
 A complete facelet state received from hardware may replace the pattern to resynchronize the application with the physical cube.
 
-The physical/normal `CubeModel` has a different meaning from an F2L training target.
+The physical/normal `CubeModel` has a different meaning from any virtual Training target.
 
 They must remain distinct.
 
@@ -369,26 +376,59 @@ This is used by virtual cube interaction and provides tests with a way to exerci
 
 Avoid creating parallel move-processing pipelines when the existing injection seam is sufficient.
 
-## Timer and F2L Training isolation
+## Application areas and Training isolation
 
-Timer and F2L Training are separate top-level Controller-owned application areas:
+The Controller owns three top-level application areas:
 
 ```text
 timer
-f2l
+training
+statistics
+```
+
+Timer and Training own live workflows. Statistics is a read-only/non-timing area
+for historical analytics. It gates live Timer/Training input while visible but
+does not create a third solve or training state machine. The Controller refuses
+to enter Statistics while Timer inspection/solving or a Training attempt is active.
+Entering Statistics remembers the prior runtime area without resetting its idle
+state; returning to it reconciles progress against the physical cube.
+
+Within Training, one shared lifecycle serves these families:
+
+```text
+training
+  f2l
+  oll
+  pll
 ```
 
 Switching areas resets or cancels incompatible live state.
 
 Training turns must not enter the normal timer lifecycle or ordinary solve history.
 
-### Physical versus virtual F2L state
+### Shared Training lifecycle
+
+The Controller owns one target, setup tracker, virtual pattern, attempt timer,
+move list, recovery lifecycle, and result shape. Family-specific cube modules own
+target construction, references, and completion rules. F2L keeps its catalogue and
+slot semantics; OLL/PLL use authoritative generated SpeedCubeDB setups and family
+goals.
+
+Training targets loaded virtually use a separate ephemeral pattern. The normal
+`CubeModel` remains the application's belief about the physical/normal cube.
+Training attempts are ephemeral and never become normal `Solve` records or
+statistics.
+
+Catalogue OLL/PLL data is generated and behaviourally validated ahead of time, then
+checked into the application. There is no runtime SpeedCubeDB dependency.
+
+### Physical versus virtual Training state
 
 The normal `CubeModel` continues to represent the physical or normal keyboard-driven cube.
 
-Virtual F2L practice uses a separate ephemeral Controller-owned pattern.
+Virtual Training practice uses a separate ephemeral Controller-owned pattern.
 
-A selected F2L training target must not replace the normal `CubeModel`.
+A selected F2L, OLL, or PLL training target must not replace the normal `CubeModel`.
 
 Replacing it would conflate:
 
@@ -400,11 +440,11 @@ Replacing it would conflate:
 
 ### Training from solve review
 
-A historical F2L step may be turned into an exact training target.
+A historical F2L, OLL, or PLL step may be turned into an exact training target.
 
 That operation consumes the narrow historical-solve facts described by `F2lTrainingSolveInput`; it does not redefine the persisted Solve model or normal solve-analysis ownership.
 
-F2L Training attempts remain outside ordinary timer history and statistics.
+Training attempts remain outside ordinary timer history and statistics.
 
 ## F2L catalogue thumbnails
 
@@ -602,9 +642,17 @@ Session/event concerns must not be pushed back into `Settings` as a second sourc
 
 ## Statistics
 
-Normal statistics are calculated from the selected Session's loaded solves.
+The compact Timer `StatsPanel` remains calculated from the selected Session's loaded
+solves. The full Statistics area receives a Controller-provided all-history snapshot;
+React does not read IndexedDB directly. `AppState.solves` remains the active Session's
+history.
 
-Slow/practice solves are excluded from ordinary counted statistics.
+The full view has independent event and Session filters. Event compatibility is
+resolved through `Solve.sessionId -> Session.event`; `All sessions` means all Sessions
+for one event and never combines different events. Selecting a Statistics Session is a
+view filter and does not change the active Timer Session or event.
+
+Slow/practice/replay solves are excluded from ordinary counted statistics.
 
 Rolling averages, projected long averages, bests, means, CFOP summaries, and related calculations live under `src/state/stats.ts`.
 
@@ -627,7 +675,7 @@ Important surfaces include:
 - replay;
 - analysis tools;
 - Slow Solve coaching;
-- F2L Training;
+- Training (F2L, OLL, and PLL);
 - settings.
 
 Presentation components may derive display-specific values from their inputs.
@@ -696,8 +744,8 @@ The following are current architectural rules.
 8. **The normal `CubeModel` represents the physical or normal keyboard-driven cube.**  
    Training targets and virtual F2L state must not replace it.
 
-9. **Timer and F2L Training live state remain isolated.**  
-   Training attempts must not leak into ordinary solve history or statistics.
+9. **Timer, Training, and Statistics live state remain isolated.**
+   Statistics cannot hide active timing, and Training attempts must not leak into ordinary solve history or statistics.
 
 10. **Persistent application records flow through the state/persistence layer.**  
     Components must not become direct IndexedDB owners.
@@ -711,6 +759,15 @@ The following are current architectural rules.
 
 14. **Import may merge a Session by id only when its EventId is compatible with the existing Session.**
     A conflicting EventId must never overwrite a Session that has solve history.
+
+15. **Statistics are event-safe and read-only with respect to Timer context.**
+    Cross-session analytics resolve EventId through Session identity and never mutate the selected Timer Session.
+
+16. **Training owns one shared lifecycle for F2L, OLL, and PLL.**
+    Family modules supply target/reference/completion semantics; the physical CubeModel and virtual target remain distinct.
+
+17. **Last-layer catalogue data is generated and validated ahead of time.**
+    The checked-in SpeedCubeDB-derived data is the offline runtime source; the app never fetches it at runtime.
 
 ## Rejected alternatives
 
@@ -782,6 +839,62 @@ that do not belong to the pure cube domain.
 
 `F2lTrainingSolveInput` is the narrow domain-facing seam instead.
 
+### React reading IndexedDB directly
+
+Rejected:
+
+```text
+Have StatisticsView load IndexedDB history directly.
+```
+
+Reason:
+
+```text
+Persistence remains owned by the state/Controller layer. A direct React path would create a second data-access route and could skip solve-analysis repair.
+```
+
+### Flattening every Solve across every event
+
+Rejected:
+
+```text
+Treat All sessions as one population regardless of EventId.
+```
+
+Reason:
+
+```text
+Solve deliberately has no EventId, and times/averages from different events are not one meaningful population. Event must be resolved through Solve.sessionId -> Session.event.
+```
+
+### React-only Statistics overlay
+
+Rejected:
+
+```text
+Show Statistics as an overlay while the Controller remains in Timer or Training.
+```
+
+Reason:
+
+```text
+Cube events could start or progress hidden timed activity. Statistics is an explicit non-timing Controller area instead.
+```
+
+### Separate OLL and PLL Controller states
+
+Rejected:
+
+```text
+Create separate Controller states and move pipelines for F2L, OLL, and PLL.
+```
+
+Reason:
+
+```text
+Setup tracking, virtual-pattern isolation, recovery, timing, result handling, and physical cube ownership are the same lifecycle. Parallel implementations would duplicate ownership and drift.
+```
+
 ### Replacing CubeModel with an F2L target
 
 Rejected:
@@ -798,4 +911,4 @@ desired training state would desynchronize hardware state and conflate physical
 state with training state.
 ```
 
-Virtual F2L Training keeps separate ephemeral state instead.
+Virtual Training keeps separate ephemeral state instead.

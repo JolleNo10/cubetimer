@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { Alg } from "cubing/alg";
 import {
   F2L_SLOTS,
   f2lAlgSolves,
@@ -10,11 +11,14 @@ import {
   ALG_BANK_SOURCE,
   F2L_ALG_BANK,
   OLL_ALG_BANK,
+  OLL_TRAINING_CASES,
   PLL_ALG_BANK,
+  PLL_TRAINING_CASES,
 } from "./algBank.generated";
-import { OLL_ALGORITHMS, PLL_ALGORITHMS } from "./lastLayerCases";
+import { OLL_ALGORITHMS, OLL_GROUPS, PLL_ALGORITHMS, PLL_GROUPS } from "./lastLayerCases";
 import { F2L_CASES } from "./f2lCases";
 import { get3x3x3 } from "./puzzle";
+import { recogniseOll, recognisePll, withCentresHome } from "./recognise";
 
 const kpuzzle = await get3x3x3();
 
@@ -34,6 +38,17 @@ describe("the bank covers every case", () => {
       expect(PLL_ALG_BANK[name], name).toBeTruthy();
       expect(PLL_ALG_BANK[name].length, name).toBeGreaterThan(0);
     }
+  });
+
+  it("keeps the source grouping complete and duplicate-free", () => {
+    const ollGroups = Object.values(OLL_GROUPS).flat().map(String);
+    const pllGroups = Object.values(PLL_GROUPS).flat();
+    expect(ollGroups).toHaveLength(57);
+    expect(new Set(ollGroups).size).toBe(57);
+    expect(ollGroups.every((id) => id in OLL_TRAINING_CASES)).toBe(true);
+    expect(pllGroups).toHaveLength(21);
+    expect(new Set(pllGroups).size).toBe(21);
+    expect(pllGroups.every((id) => id in PLL_TRAINING_CASES)).toBe(true);
   });
 
   it("has algorithms for all 41 F2L cases, in all four slots", () => {
@@ -86,6 +101,25 @@ describe("every algorithm in the bank solves the case it is filed under", () => 
           ).toBe(true);
         }
       }
+    }
+  });
+});
+
+describe("generated last-layer source metadata", () => {
+  it("keeps every published setup parseable, F2L-safe, and recognisable", () => {
+    expect(Object.keys(OLL_TRAINING_CASES)).toHaveLength(57);
+    expect(Object.keys(PLL_TRAINING_CASES)).toHaveLength(21);
+    for (const [caseId, item] of Object.entries(OLL_TRAINING_CASES)) {
+      const pattern = withCentresHome(kpuzzle, kpuzzle.defaultPattern().applyAlg(new Alg(item.setup)));
+      expect(item.group, `OLL ${caseId} group`).toBeTruthy();
+      expect(isF2lSolved(pattern), `OLL ${caseId} F2L`).toBe(true);
+      expect(recogniseOll(kpuzzle, pattern), `OLL ${caseId} recognition`).toBe(caseId);
+    }
+    for (const [caseId, item] of Object.entries(PLL_TRAINING_CASES)) {
+      const pattern = withCentresHome(kpuzzle, kpuzzle.defaultPattern().applyAlg(new Alg(item.setup)));
+      expect(item.group, `PLL ${caseId} group`).toBeTruthy();
+      expect(isF2lSolved(pattern), `PLL ${caseId} F2L`).toBe(true);
+      expect(recognisePll(kpuzzle, pattern), `PLL ${caseId} recognition`).toBe(caseId);
     }
   });
 });

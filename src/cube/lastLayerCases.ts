@@ -94,6 +94,21 @@ export const PLL_ALGORITHMS: Record<string, string> = {
   Z: "(M2 U) (M2 U) (M' U2) M2 (U2 M')",
 };
 
+/** The source catalogue's three PLL recognition groups. */
+export const PLL_GROUPS: Record<string, readonly string[]> = {
+  "Adj Swap": ["Aa", "Ab", "F", "Ga", "Gb", "Gc", "Gd", "Ja", "Jb", "Ra", "Rb", "T"],
+  "Opp Swap": ["E", "Na", "Nb", "V", "Y"],
+  EPLL: ["H", "Ua", "Ub", "Z"],
+};
+
+const PLL_GROUP_BY_CASE = new Map<string, string>(
+  Object.entries(PLL_GROUPS).flatMap(([group, cases]) => cases.map((name) => [name, group] as const)),
+);
+
+export function pllGroupForCase(caseName: string): string | null {
+  return PLL_GROUP_BY_CASE.get(caseName) ?? null;
+}
+
 /**
  * The shape groups solvers sort the OLL cases into, from speedcubedb.com/a/3x3.
  *
