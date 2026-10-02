@@ -23,7 +23,6 @@ export type Solve = {
   rawMs: number;
   penalty: Penalty;
   scramble: string;
-  event: EventId;
   source: "smartcube" | "keyboard" | "import";
   /** Move stream, present only for smart cube solves. */
   moves: TimedMove[];
@@ -76,7 +75,6 @@ export function effectiveMs(solve: Solve): number | null {
 }
 
 export type Settings = {
-  event: EventId;
   /**
    * Take the clock away: solve slowly and deliberately, and study the breakdown.
    * These solves are still recorded and analysed but never counted in the statistics.
@@ -109,7 +107,6 @@ export type Settings = {
 };
 
 export const DEFAULT_SETTINGS: Settings = {
-  event: "333",
   slowSolve: false,
   xCrossMaxMoves: 5,
   whiteCrossMoves: 5,

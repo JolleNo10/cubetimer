@@ -3,10 +3,10 @@ import { Alg } from "cubing/alg";
 import {
   buildWhiteCrossTarget,
   generateWhiteCrossScramble,
+  type WhiteCrossMoves,
   whiteCrossDistance,
 } from "./crossScramble";
 import { get3x3x3 } from "./puzzle";
-import type { WhiteCrossMoves } from "../state/types";
 
 const kpuzzle = await get3x3x3();
 const seed = kpuzzle.defaultPattern().applyAlg(

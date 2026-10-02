@@ -20,7 +20,6 @@ function solve(rawMs: number, penalty: Penalty = "none"): Solve {
     rawMs,
     penalty,
     scramble: "",
-    event: "333",
     source: "keyboard",
     moves: [],
   };
@@ -426,13 +425,15 @@ describe("compareSolveToHistory", () => {
     expect(compareSolveToHistory(current, [...previous, current])?.sampleSize).toBe(3);
   });
 
-  it("filters incompatible event and analysis method data", () => {
+  it("filters other sessions and incompatible analysis method data", () => {
     const valid = [
       analysedSolve("valid-1", [100, ...currentTimes.slice(1)]),
       analysedSolve("valid-2", [200, ...currentTimes.slice(1)]),
       analysedSolve("valid-3", [300, ...currentTimes.slice(1)]),
     ];
-    const otherEvent = analysedSolve("other-event", [9_000, ...currentTimes.slice(1)], { event: "222" });
+    const otherSession = analysedSolve("other-session", [9_000, ...currentTimes.slice(1)], {
+      sessionId: "other-session",
+    });
     const otherMethod = analysedSolve("other-method", [8_000, ...currentTimes.slice(1)], {
       analysis: {
         method: "OTHER",
@@ -441,7 +442,7 @@ describe("compareSolveToHistory", () => {
     });
     const current = analysedSolve("current", currentTimes);
 
-    const comparison = compareSolveToHistory(current, [...valid, otherEvent, otherMethod, current]);
+    const comparison = compareSolveToHistory(current, [...valid, otherSession, otherMethod, current]);
 
     expect(comparison?.sampleSize).toBe(3);
     expect(comparison?.steps[0].baselineMs).toBe(200);

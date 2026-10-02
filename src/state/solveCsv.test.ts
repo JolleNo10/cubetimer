@@ -7,6 +7,7 @@ import {
   parseSolveCsv,
 } from "./solveCsv";
 import { parseCsv } from "./csv";
+import { DEFAULT_EVENT_ID } from "../cube/scramble";
 
 const sample = readFileSync(
   new URL("./__fixtures__/solve-export-sample.csv", import.meta.url),
@@ -28,6 +29,8 @@ describe("solve analysis CSV", () => {
     expect(solves).toHaveLength(5);
     expect(sessions.length).toBeGreaterThan(0);
     expect(solves.every((s) => s.source === "import")).toBe(true);
+    expect(solves.every((solve) => !("event" in solve))).toBe(true);
+    expect(sessions.every((session) => session.event === DEFAULT_EVENT_ID)).toBe(true);
   });
 
   it("keeps the solve's own timing and penalties apart", () => {
@@ -152,7 +155,6 @@ describe("solves recorded here, written in the export format", () => {
       rawMs: timed.at(-1)!.t,
       penalty: "none" as const,
       scramble,
-      event: "333" as const,
       source: "smartcube" as const,
       moves: timed,
       scrambleProvider: "cubetimer:white-cross-exact:5",
@@ -272,7 +274,7 @@ describe("a solve turned partway through", () => {
 
     const solve = {
       id: "turned", sessionId: "s", createdAt: 0, rawMs: moves[moves.length - 1].t,
-      penalty: "none" as const, scramble, event: "333" as const,
+      penalty: "none" as const, scramble,
       source: "smartcube" as const, moves, analysis,
     };
     const csv = formatSolveCsv([solve], new Map([["s", "Session 1"]]));

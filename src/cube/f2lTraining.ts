@@ -1,6 +1,6 @@
 import { Alg } from "cubing/alg";
 import type { KPattern, KPuzzle } from "cubing/kpuzzle";
-import { type SolveStep } from "./analysis";
+import { type SolveAnalysis, type SolveStep } from "./analysis";
 import { faceletsToPattern } from "./facelets";
 import {
   F2L_POSITIONS,
@@ -44,7 +44,14 @@ import {
 } from "./orientation";
 import { parseFaceMove } from "./moves";
 import { reframe, withCentresHome } from "./recognise";
-import type { Solve } from "../state/types";
+export type F2lTrainingSolveInput = {
+  id: string;
+  scramble: string;
+  scrambledFacelets?: string;
+  moves: TimedMove[];
+  gripTrack?: string;
+  analysis?: Pick<SolveAnalysis, "crossFace"> | null;
+};
 
 export type F2lTrainingOrigin =
   | { kind: "catalog"; library: F2lTrainingLibrary; caseName: string; group: string }
@@ -435,7 +442,7 @@ export function buildF2lCatalogueTarget(
 }
 
 function exactStepTrainingRotation(
-  solve: Pick<Solve, "gripTrack">,
+  solve: Pick<F2lTrainingSolveInput, "gripTrack">,
   step: Pick<SolveStep, "fromMove">,
   crossFace: Face,
 ): Rotation {
@@ -454,7 +461,7 @@ function exactStepTrainingRotation(
 /** Rebuild the cube state immediately before one raw solve move boundary. */
 export function reconstructF2lStepStart(
   kpuzzle: KPuzzle,
-  solve: Pick<Solve, "scramble" | "scrambledFacelets" | "moves">,
+  solve: Pick<F2lTrainingSolveInput, "scramble" | "scrambledFacelets" | "moves">,
   fromMove: number,
 ): KPattern {
   const rawMoves = solve.moves ?? [];
@@ -470,7 +477,7 @@ export function reconstructF2lStepStart(
 
 export function buildExactF2lTarget(
   kpuzzle: KPuzzle,
-  solve: Solve,
+  solve: F2lTrainingSolveInput,
   step: SolveStep,
 ): F2lTrainingTarget {
   if (

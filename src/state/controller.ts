@@ -52,9 +52,11 @@ import { reframe } from "../cube/recognise";
 import { CubeModel, patternToFacelets } from "../cube/model";
 import { get3x3x3 } from "../cube/puzzle";
 import {
+  DEFAULT_EVENT_ID,
   ScrambleTracker,
   eventInfo,
   generateScramble,
+  type EventId,
   type ScrambleProgress,
 } from "../cube/scramble";
 import { algBetween, solveAlg } from "../cube/solver";
@@ -272,6 +274,27 @@ export class Controller {
     this.#model = model;
   }
 
+  #currentSession(): Session | undefined {
+    const { sessions, sessionId } = this.state.get();
+    return sessions.find((session) => session.id === sessionId);
+  }
+
+  #currentEvent(): EventId {
+    return this.#currentSession()?.event ?? DEFAULT_EVENT_ID;
+  }
+
+  #canChangeSessionContext(): boolean {
+    const phase = this.state.get().phase;
+    return phase !== "inspection" && phase !== "solving";
+  }
+
+  #invalidateScrambleContext(): void {
+    this.#scrambleGenerationToken++;
+    this.#tracker = null;
+    this.#scrambleBeforeSpecialGeneration = null;
+    this.#scrambleProvider = undefined;
+  }
+
   async init(): Promise<void> {
     const [settings, sessions] = await Promise.all([
       db.loadSettings(),
@@ -282,7 +305,7 @@ export class Controller {
       const session: Session = {
         id: crypto.randomUUID(),
         name: "Session 1",
-        event: settings.event,
+        event: DEFAULT_EVENT_ID,
         createdAt: Date.now(),
       };
       await db.saveSession(session);
@@ -937,7 +960,7 @@ export class Controller {
     this.#scrambleProvider = undefined;
     this.#scrambleBeforeSpecialGeneration = null;
     const token = ++this.#scrambleGenerationToken;
-    const { settings } = this.state.get();
+    const event = this.#currentEvent();
     this.state.update((s) => ({
       ...s,
       phase: "scrambling",
@@ -953,7 +976,7 @@ export class Controller {
 
     let scramble: string;
     try {
-      scramble = await generateScramble(settings.event);
+      scramble = await generateScramble(event);
     } catch (error) {
       if (token !== this.#scrambleGenerationToken) return;
       this.state.update((s) => ({
@@ -976,7 +999,7 @@ export class Controller {
     this.#scrambleBeforeSpecialGeneration = null;
     this.#scrambleProvider = scrambleProvider;
     const kpuzzle = this.#model?.kpuzzle;
-    const usesSmartCube = eventInfo(this.state.get().settings.event).smart;
+    const usesSmartCube = eventInfo(this.#currentEvent()).smart;
     this.#tracker =
       kpuzzle && usesSmartCube ? new ScrambleTracker(kpuzzle, scramble) : null;
     // A new scramble is about to be applied, so the cube is about to be back in the
@@ -1047,6 +1070,7 @@ export class Controller {
     this.#isReplay = false;
     const token = ++this.#scrambleGenerationToken;
     const { settings } = this.state.get();
+    const event = this.#currentEvent();
     const maxMoves = settings.xCrossMaxMoves;
     const maxAttempts =
       maxMoves === 4 ? XCROSS_ATTEMPTS_FOR_FOUR_MOVES : XCROSS_ATTEMPTS_FOR_LIMIT;
@@ -1062,7 +1086,7 @@ export class Controller {
       if (token !== this.#scrambleGenerationToken) return;
       let scramble: string;
       try {
-        scramble = await generateScramble(settings.event);
+        scramble = await generateScramble(event);
       } catch (error) {
         if (token === this.#scrambleGenerationToken) {
           this.state.update((s) => ({
@@ -1104,7 +1128,8 @@ export class Controller {
   async findWhiteCrossScramble(): Promise<void> {
     const kpuzzle = this.#model?.kpuzzle;
     const { settings } = this.state.get();
-    const event = eventInfo(settings.event);
+    const eventId = this.#currentEvent();
+    const event = eventInfo(eventId);
     if (
       !kpuzzle ||
       !event.smart ||
@@ -1122,7 +1147,7 @@ export class Controller {
 
     try {
       const scramble = await generateWhiteCrossScramble(
-        settings.event,
+        eventId,
         requestedMoves,
       );
       if (token === this.#scrambleGenerationToken) {
@@ -1746,7 +1771,6 @@ export class Controller {
       penalty: inspectionPenalty,
       scramble,
       scrambleProvider,
-      event: settings.event,
       source,
       moves,
       practice: settings.slowSolve || isReplay || undefined,
@@ -1831,6 +1855,20 @@ export class Controller {
   }
 
   async selectSession(sessionId: string): Promise<void> {
+    if (!this.#canChangeSessionContext()) return;
+    const target = this.state.get().sessions.find((session) => session.id === sessionId);
+    if (!target) return;
+    const current = this.#currentSession();
+    const eventChanged = current?.event !== target.event;
+    if (eventChanged) {
+      this.#invalidateScrambleContext();
+      this.state.update((s) => ({
+        ...s,
+        scrambleGeneration: null,
+        scrambleProgress: null,
+        recovery: null,
+      }));
+    }
     const solves = await this.#loadSolves(sessionId);
     this.state.update((s) => ({
       ...s,
@@ -1838,18 +1876,44 @@ export class Controller {
       solves,
       lastSolve: solves[solves.length - 1] ?? null,
     }));
+    if (eventChanged) await this.newScramble();
+    else this.#updateScrambleProgress();
   }
 
-  async createSession(name: string): Promise<void> {
+  async createSession(name: string, event: EventId = this.#currentEvent()): Promise<void> {
+    if (!this.#canChangeSessionContext()) return;
     const session: Session = {
       id: crypto.randomUUID(),
       name,
-      event: this.state.get().settings.event,
+      event,
       createdAt: Date.now(),
     };
     await db.saveSession(session);
     this.state.update((s) => ({ ...s, sessions: [...s.sessions, session] }));
     await this.selectSession(session.id);
+  }
+
+  async changeEvent(event: EventId): Promise<void> {
+    if (!this.#canChangeSessionContext()) return;
+    const state = this.state.get();
+    const session = this.#currentSession();
+    if (!session || session.event === event) return;
+
+    if (state.solves.some((solve) => solve.sessionId === session.id)) {
+      await this.createSession(`Session ${state.sessions.length + 1}`, event);
+      return;
+    }
+
+    this.#invalidateScrambleContext();
+    const updated = { ...session, event };
+    await db.saveSession(updated);
+    this.state.update((s) => ({
+      ...s,
+      sessions: s.sessions.map((candidate) =>
+        candidate.id === updated.id ? updated : candidate,
+      ),
+    }));
+    await this.newScramble();
   }
 
   async renameSession(id: string, name: string): Promise<void> {
@@ -1864,6 +1928,7 @@ export class Controller {
   }
 
   async deleteSession(id: string): Promise<void> {
+    if (!this.#canChangeSessionContext()) return;
     const { sessions } = this.state.get();
     if (sessions.length <= 1) return;
     await db.deleteSession(id);
@@ -1880,8 +1945,7 @@ export class Controller {
     const generation = this.state.get().scrambleGeneration;
     const cancelsSpecialGeneration =
       generation !== null &&
-      (changes.event !== undefined ||
-        changes.slowSolve === false ||
+      (changes.slowSolve === false ||
         (generation.kind === "xcross" &&
           (changes.xCrossMaxMoves !== undefined ||
             changes.crossColour !== undefined ||
@@ -1889,9 +1953,6 @@ export class Controller {
         (generation.kind === "cross" &&
           (changes.whiteCrossMoves !== undefined ||
             changes.crossColour !== undefined)));
-    if (changes.event !== undefined && !cancelsSpecialGeneration) {
-      this.#scrambleGenerationToken++;
-    }
     const settings = normaliseSettings({
       ...this.state.get().settings,
       ...changes,
@@ -1904,11 +1965,7 @@ export class Controller {
       ? this.#cancelSpecialScrambleGeneration()
       : null;
     await db.saveSettings(settings);
-    if (changes.event && specialCancellation !== "started") {
-      await this.newScramble();
-    } else {
-      this.#updateScrambleProgress();
-    }
+    if (specialCancellation !== "started") this.#updateScrambleProgress();
   }
 
   // ------------------------------------------------------------------ backup
@@ -1920,7 +1977,7 @@ export class Controller {
       db.loadAllSolves(),
     ]);
     return JSON.stringify(
-      { format: "cubetimer", version: 1, exportedAt: Date.now(), sessions, solves },
+      { format: "cubetimer", version: 2, exportedAt: Date.now(), sessions, solves },
       null,
       2,
     );
@@ -1932,19 +1989,20 @@ export class Controller {
    */
   async importData(json: string): Promise<{ sessions: number; solves: number }> {
     const data = JSON.parse(json) as {
-      sessions?: Session[];
-      solves?: Solve[];
+      sessions?: Array<Omit<Session, "event"> & { event?: unknown }>;
+      solves?: Array<Solve & { event?: unknown }>;
     };
     if (!Array.isArray(data.sessions) || !Array.isArray(data.solves)) {
       throw new Error("This does not look like a cubetimer export.");
     }
-    for (const session of data.sessions) {
+    for (const rawSession of data.sessions) {
+      const session = db.migrateSession(rawSession);
       if (session?.id && session.name) await db.saveSession(session);
     }
     let solves = 0;
-    for (const solve of data.solves) {
-      if (!solve?.id || !solve.sessionId || typeof solve.rawMs !== "number") continue;
-      await db.saveSolve({ ...solve, moves: solve.moves ?? [] });
+    for (const rawSolve of data.solves) {
+      if (!rawSolve?.id || !rawSolve.sessionId || typeof rawSolve.rawMs !== "number") continue;
+      await db.saveSolve(db.migrateSolve({ ...rawSolve, moves: rawSolve.moves ?? [] }));
       solves++;
     }
     this.state.update((s) => ({ ...s, sessions: [] }));

@@ -26,7 +26,6 @@ function solve(overrides: Partial<Solve> = {}): Solve {
     rawMs: moves.at(-1)!.t,
     penalty: "none",
     scramble,
-    event: "333",
     source: "smartcube",
     moves,
     ...overrides,

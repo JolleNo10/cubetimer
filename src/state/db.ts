@@ -4,6 +4,7 @@
  * Solves carry their whole move stream, so a long session can run to a few megabytes —
  * more than `localStorage` will hold, hence IndexedDB.
  */
+import { DEFAULT_EVENT_ID, EVENTS, type EventId } from "../cube/scramble";
 import { DEFAULT_SETTINGS, type Session, type Settings, type Solve } from "./types";
 
 const DB_NAME = "cubetimer";
@@ -48,6 +49,21 @@ async function store(
   return db.transaction(name, mode).objectStore(name);
 }
 
+type StoredSession = Omit<Session, "event"> & { event?: unknown };
+type StoredSolve = Solve & { event?: unknown };
+
+function isEventId(value: unknown): value is EventId {
+  return EVENTS.some((event) => event.id === value);
+}
+
+export function migrateSession(session: StoredSession): Session {
+  const { event: _legacyEvent, ...canonical } = session;
+  return {
+    ...canonical,
+    event: isEventId(session.event) ? session.event : DEFAULT_EVENT_ID,
+  };
+}
+
 /**
  * Bring a stored solve up to the current model.
  *
@@ -55,16 +71,20 @@ async function store(
  * cannot be converted: those records never held turn counts or per-step moves. They
  * are dropped rather than half-read, so the solve simply shows no breakdown.
  */
-export function migrateSolve(solve: Solve): Solve {
-  const analysis = solve.analysis as { steps?: unknown } | null | undefined;
+export function migrateSolve(solve: StoredSolve): Solve {
+  const { event: _legacyEvent, ...canonical } = solve;
+  const analysis = canonical.analysis as { steps?: unknown } | null | undefined;
   if (analysis && !Array.isArray(analysis.steps)) {
-    return { ...solve, analysis: null };
+    return { ...canonical, analysis: null, moves: canonical.moves ?? [] };
   }
-  return { ...solve, moves: solve.moves ?? [] };
+  return { ...canonical, moves: canonical.moves ?? [] };
 }
 
 export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
-  const settings = { ...DEFAULT_SETTINGS, ...(stored ?? {}) };
+  const { event: _legacyEvent, ...withoutLegacyEvent } = (stored ?? {}) as Partial<Settings> & {
+    event?: unknown;
+  };
+  const settings = { ...DEFAULT_SETTINGS, ...withoutLegacyEvent };
   return {
     ...settings,
     xCrossMaxMoves: [4, 5, 6].includes(settings.xCrossMaxMoves)
@@ -80,7 +100,7 @@ export async function loadSessions(): Promise<Session[]> {
   const sessions = await promisify(
     (await store("sessions", "readonly")).getAll() as IDBRequest<Session[]>,
   );
-  return sessions.sort((a, b) => a.createdAt - b.createdAt);
+  return sessions.map(migrateSession).sort((a, b) => a.createdAt - b.createdAt);
 }
 
 export async function saveSession(session: Session): Promise<void> {

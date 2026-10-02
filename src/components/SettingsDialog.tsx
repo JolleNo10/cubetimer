@@ -2,7 +2,6 @@ import { useState } from "react";
 import { forgetStoredMacs } from "../bluetooth/smartCube";
 import { FACE_COLOURS, FACES, faceOfColour } from "../cube/colours";
 import { frontsFor } from "../cube/orientation";
-import { EVENTS } from "../cube/scramble";
 import { useController } from "../hooks/useController";
 import type { Settings } from "../state/types";
 
@@ -35,22 +34,6 @@ export function SettingsDialog({
           </button>
         </div>
         <div className="dialog-body">
-          <div className="field">
-            <label htmlFor="event">Event</label>
-            <select
-              id="event"
-              value={settings.event}
-              onChange={(e) => set({ event: e.target.value as Settings["event"] })}
-            >
-              {EVENTS.filter((event) => event.id === "333").map((event) => (
-                <option key={event.id} value={event.id}>
-                  {event.name}
-                  {event.smart ? "" : " — no smart cube support"}
-                </option>
-              ))}
-            </select>
-          </div>
-
           <Section title="Timing">
             <Toggle
               title="Slow solve"

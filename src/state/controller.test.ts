@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Alg } from "cubing/alg";
 import { invert, reorientMove } from "../cube/orientation";
 import { F2L_TRAINING_CATALOGUES, findF2lTrainingCase } from "../cube/f2lTrainingCases";
@@ -13,7 +13,9 @@ import {
 import { CubeModel, patternToFacelets } from "../cube/model";
 import { get3x3x3 } from "../cube/puzzle";
 import { Controller } from "./controller";
-import type { Solve } from "./types";
+import * as db from "./db";
+import { DEFAULT_EVENT_ID } from "../cube/scramble";
+import { DEFAULT_SETTINGS, type Session, type Solve } from "./types";
 
 const kpuzzle = await get3x3x3();
 const BASIC_CASES = F2L_TRAINING_CATALOGUES.basic.cases;
@@ -21,9 +23,52 @@ const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
 
 afterEach(() => {
+  vi.restoreAllMocks();
   globalThis.requestAnimationFrame = originalRequestAnimationFrame;
   globalThis.cancelAnimationFrame = originalCancelAnimationFrame;
 });
+
+function session(id: string, event: Session["event"] = DEFAULT_EVENT_ID): Session {
+  return { id, name: `Session ${id}`, event, createdAt: Number(id) || 0 };
+}
+
+function solveFor(sessionId: string): Solve {
+  return {
+    id: `solve-${sessionId}`,
+    sessionId,
+    createdAt: 0,
+    rawMs: 1000,
+    penalty: "none",
+    scramble: "R U",
+    source: "keyboard",
+    moves: [],
+  };
+}
+
+function readyController(
+  sessions: Session[],
+  sessionId: string,
+  solves: Solve[] = [],
+  phase: "finished" | "inspection" | "solving" = "finished",
+): Controller {
+  const controller = new Controller(new CubeModel(kpuzzle));
+  controller.state.update((state) => ({
+    ...state,
+    ready: true,
+    sessions,
+    sessionId,
+    solves,
+    lastSolve: solves.at(-1) ?? null,
+    phase,
+  }));
+  return controller;
+}
+
+function stubPersistence() {
+  vi.spyOn(db, "saveSession").mockResolvedValue();
+  vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+  vi.spyOn(db, "deleteSession").mockResolvedValue();
+}
 
 describe("Controller application-area ownership", () => {
   it("cancels timer work without creating or changing a normal solve", () => {
@@ -396,4 +441,113 @@ describe("Controller Advanced F2L catalogue", () => {
     expect(controller.state.get().f2lTraining).toMatchObject({ selectedLibrary: "basic", selectedPosition: "BR", mode: "setup", target: null, phase: "selecting", setup: "", setupProgress: null, recovery: null, recoveryPending: false });
     expect(patternToFacelets(controller.pattern!)).toBe(physical);
   });
+});
+
+describe("Controller Session event ownership", () => {
+  it("creates the first Session with the canonical default event", async () => {
+    vi.spyOn(db, "loadSettings").mockResolvedValue({ ...DEFAULT_SETTINGS });
+    vi.spyOn(db, "loadSessions").mockResolvedValue([]);
+    vi.spyOn(db, "saveSession").mockResolvedValue();
+    vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+
+    const controller = new Controller();
+    vi.spyOn(controller, "newScramble").mockResolvedValue();
+
+    await controller.init();
+
+    expect(controller.state.get().sessions[0].event).toBe(DEFAULT_EVENT_ID);
+  });
+
+  it("changes an empty Session in place and regenerates its scramble", async () => {
+    stubPersistence();
+    const controller = readyController([session("1")], "1");
+    const newScramble = vi.spyOn(controller, "newScramble").mockResolvedValue();
+
+    await controller.changeEvent("222");
+
+    expect(controller.state.get().sessions).toEqual([
+      expect.objectContaining({ id: "1", name: "Session 1", event: "222" }),
+    ]);
+    expect(db.saveSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "1", event: "222" }),
+    );
+    expect(newScramble).toHaveBeenCalledOnce();
+  });
+
+  it("creates a new Session for an event change once history exists", async () => {
+    stubPersistence();
+    const original = session("1");
+    const solve = solveFor(original.id);
+    const controller = readyController([original], original.id, [solve]);
+    vi.spyOn(controller, "newScramble").mockResolvedValue();
+
+    await controller.changeEvent("222");
+
+    const state = controller.state.get();
+    expect(state.sessions).toHaveLength(2);
+    expect(state.sessions[0]).toMatchObject({ id: original.id, event: DEFAULT_EVENT_ID });
+    expect(state.sessions[1]).toMatchObject({ event: "222", name: "Session 2" });
+    expect(state.sessionId).toBe(state.sessions[1].id);
+    expect(state.solves).toEqual([]);
+    expect(solve.sessionId).toBe(original.id);
+  });
+
+  it("makes normal new Sessions inherit the selected Session event", async () => {
+    stubPersistence();
+    const controller = readyController([session("1", "222")], "1");
+
+    await controller.createSession("Session 2");
+
+    expect(controller.state.get().sessions.at(-1)?.event).toBe("222");
+  });
+
+  it("regenerates only when selecting a Session with a different event", async () => {
+    stubPersistence();
+    const different = readyController(
+      [session("1", "333"), session("2", "222")],
+      "1",
+    );
+    const differentScramble = vi.spyOn(different, "newScramble").mockResolvedValue();
+    await different.selectSession("2");
+    expect(differentScramble).toHaveBeenCalledOnce();
+    expect(different.state.get().sessionId).toBe("2");
+
+    stubPersistence();
+    const same = readyController(
+      [session("1", "333"), session("2", "333")],
+      "1",
+    );
+    const sameScramble = vi.spyOn(same, "newScramble").mockResolvedValue();
+    await same.selectSession("2");
+    expect(sameScramble).not.toHaveBeenCalled();
+  });
+
+  it("uses the selected Session event for smart-cube scramble tracking", () => {
+    const smart = readyController([session("1", "333")], "1");
+    smart.state.update((state) => ({ ...state, virtualCube: true }));
+    smart.setScramble("R U");
+    expect(smart.state.get().scrambleProgress).not.toBeNull();
+
+    const nonSmart = readyController([session("1", "222")], "1");
+    nonSmart.state.update((state) => ({ ...state, virtualCube: true }));
+    nonSmart.setScramble("R U");
+    expect(nonSmart.state.get().scrambleProgress).toBeNull();
+  });
+
+  it.each(["inspection", "solving"] as const)(
+    "rejects Session/event changes during %s",
+    async (phase) => {
+      stubPersistence();
+      const sessions = [session("1"), session("2", "222")];
+      const controller = readyController(sessions, "1", [solveFor("1")], phase);
+
+      await controller.selectSession("2");
+      await controller.createSession("Session 3");
+      await controller.changeEvent("222");
+      await controller.deleteSession("1");
+
+      expect(controller.state.get().sessions).toEqual(sessions);
+      expect(controller.state.get().sessionId).toBe("1");
+    },
+  );
 });

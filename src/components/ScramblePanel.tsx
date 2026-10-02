@@ -9,6 +9,7 @@ import type { AppState } from "../state/controller";
  */
 export function ScramblePanel({ state }: { state: AppState }) {
   const controller = useController();
+  const session = state.sessions.find((candidate) => candidate.id === state.sessionId);
   const { scramble, scrambleProgress: progress, recovery, recoveryPending } = state;
   const moves = scramble.split(/\s+/).filter(Boolean);
   const done = progress?.onTrack ? progress.index : 0;
@@ -25,7 +26,7 @@ export function ScramblePanel({ state }: { state: AppState }) {
               {done} / {progress.total}
             </span>
           ) : null}
-          {state.settings.slowSolve && eventInfo(state.settings.event).smart ? (
+          {state.settings.slowSolve && session && eventInfo(session.event).smart ? (
             <>
               <label
                 className="row small"

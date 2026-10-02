@@ -21,6 +21,7 @@ import {
   reconstructF2lStepStart,
   referenceExecutionSignature,
   standardF2lTrainingRotation,
+  type F2lTrainingSolveInput,
 } from "./f2lTraining";
 import { get3x3x3 } from "./puzzle";
 import { algBetween } from "./solver";
@@ -34,7 +35,6 @@ import { encodeGripTrack } from "./gripTrack";
 import { reframe, withCentresHome } from "./recognise";
 import { ScrambleTracker } from "./scramble";
 import { parseFaceMove } from "./moves";
-import type { Solve } from "../state/types";
 
 const kpuzzle = await get3x3x3();
 const BASIC_CASES = F2L_TRAINING_CATALOGUES.basic.cases;
@@ -227,7 +227,7 @@ describe("F2L training targets", () => {
         { move: "R'", t: 20 },
         { move: "U2", t: 30 },
       ],
-    } as unknown as Solve;
+    } as F2lTrainingSolveInput;
 
     const start = reconstructF2lStepStart(kpuzzle, solve, 2);
     const expected = kpuzzle
@@ -250,7 +250,7 @@ describe("F2L training targets", () => {
         { move: "B'", t: 30 },
       ],
       analysis: { crossFace: "D" },
-    } as unknown as Solve;
+    } as F2lTrainingSolveInput;
     const step = {
       name: "F2L Slot 1",
       slot: "FR",
@@ -282,7 +282,7 @@ describe("F2L training targets", () => {
       ],
       gripTrack,
       analysis: { crossFace: "D" },
-    } as unknown as Solve;
+    } as F2lTrainingSolveInput;
     const step = {
       name: "F2L Slot 1",
       slot: "FR",
@@ -308,7 +308,7 @@ describe("F2L training targets", () => {
         warnings: [],
       }),
       analysis: { crossFace: "D" },
-    } as unknown as Solve;
+    } as F2lTrainingSolveInput;
     const step = {
       name: "F2L Slot 1",
       slot: "FR",
@@ -321,7 +321,7 @@ describe("F2L training targets", () => {
 
     const withoutGrip = buildExactF2lTarget(
       kpuzzle,
-      { ...solve, gripTrack: "invalid" } as unknown as Solve,
+      { ...solve, gripTrack: "invalid" } as F2lTrainingSolveInput,
       step,
     );
     expect(withoutGrip.info.trainingRotation.orientation).toEqual(
@@ -347,7 +347,7 @@ describe("F2L training targets", () => {
         warnings: [],
       }),
       analysis: { crossFace: "D" },
-    } as unknown as Solve;
+    } as F2lTrainingSolveInput;
     const step = {
       name: "F2L Slot 1",
       slot: slotInCubeFrame(grip.orientation, "FR"),
@@ -367,7 +367,7 @@ describe("F2L training targets", () => {
       scramble: "R U",
       moves: [],
       analysis: { crossFace: "D" },
-    } as unknown as Solve;
+    } as F2lTrainingSolveInput;
     const step = {
       name: "F2L Slot 1",
       slot: "FR",
@@ -387,7 +387,7 @@ describe("F2L training targets", () => {
       scramble: f2lCase.setup,
       moves: [{ move: "U", t: 10 }],
       analysis: { crossFace: "D" },
-    } as unknown as Solve;
+    } as F2lTrainingSolveInput;
     const step = {
       name: "F2L Slot 1",
       slot: "FR",
@@ -423,7 +423,7 @@ describe("F2L training targets", () => {
         warnings: [],
       }),
       analysis: { crossFace: "U" },
-    } as unknown as Solve;
+    } as F2lTrainingSolveInput;
     const step = {
       name: "F2L Slot 3",
       slot: standard.info.slot,
@@ -494,7 +494,7 @@ describe("F2L training targets", () => {
       scrambledFacelets: patternToFacelets(start),
       moves: [{ move: "U", t: 10 }],
       analysis: { crossFace: "D" },
-    } as unknown as Solve;
+    } as F2lTrainingSolveInput;
     const step = {
       name: "F2L Slot 1",
       slot: "FR",

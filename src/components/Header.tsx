@@ -1,8 +1,7 @@
 import { useState } from "react";
-import { EVENTS, eventInfo } from "../cube/scramble";
+import { DEFAULT_EVENT_ID, EVENTS, eventInfo, type EventId } from "../cube/scramble";
 import { useController } from "../hooks/useController";
 import type { AppArea, AppState } from "../state/controller";
-import type { EventId } from "../cube/scramble";
 import { Icon } from "./Icon";
 
 export function Header({
@@ -17,7 +16,8 @@ export function Header({
   const controller = useController();
   const [renaming, setRenaming] = useState(false);
   const session = state.sessions.find((s) => s.id === state.sessionId);
-  const smartEvent = eventInfo(state.settings.event).smart;
+  const smartEvent = session ? eventInfo(session.event).smart : false;
+  const sessionContextLocked = state.phase === "inspection" || state.phase === "solving";
 
   return (
     <header className="header">
@@ -44,8 +44,9 @@ export function Header({
       {state.area === "timer" ? (
         <>
           <select
-            value={state.settings.event}
-            onChange={(e) => void controller.updateSettings({ event: e.target.value as EventId })}
+            value={session?.event ?? DEFAULT_EVENT_ID}
+            onChange={(e) => void controller.changeEvent(e.target.value as EventId)}
+            disabled={sessionContextLocked}
             aria-label="Event"
           >
             {EVENTS.filter((event) => event.id === "333").map((event) => (
@@ -73,6 +74,7 @@ export function Header({
       ) : (
         <select
           value={state.sessionId}
+          disabled={sessionContextLocked}
           onChange={(e) => {
             if (e.target.value === "__new") {
               void controller.createSession(`Session ${state.sessions.length + 1}`);
@@ -106,7 +108,7 @@ export function Header({
             void controller.deleteSession(state.sessionId);
           }
         }}
-        disabled={state.sessions.length <= 1}
+        disabled={state.sessions.length <= 1 || sessionContextLocked}
         title="Delete session"
         aria-label="Delete session"
       >

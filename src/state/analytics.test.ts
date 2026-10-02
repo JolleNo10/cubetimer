@@ -19,7 +19,7 @@ function buildSolve(solution: string, scramble: string): Solve {
   const scrambled = kpuzzle.defaultPattern().applyAlg(new Alg(scramble));
   return {
     id: "x", sessionId: "s", createdAt: 0, rawMs: moves.at(-1)!.t, penalty: "none",
-    scramble, event: "333", source: "smartcube", moves,
+    scramble, source: "smartcube", moves,
     analysis: analyseSolve(scrambled, moves),
   } as Solve;
 }

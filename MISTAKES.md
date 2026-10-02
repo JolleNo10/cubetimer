@@ -1,5 +1,16 @@
 # Mistakes
 
+## 2026-10-02 — Ownership refactor patch assembly
+
+- What happened: the first combined patch failed before applying because one
+  hunk used `export async function store` while the source declared it without
+  `export`.
+- Root cause: the patch was assembled from an indexed skeleton rather than the
+  exact live declaration.
+- Prevention: use the live file text for patch anchors and split multi-file
+  changes into smaller verified batches when a declaration is central to the
+  edit.
+
 ## 2026-10-01 — Advanced F2L thumbnail presentation
 
 - What happened: thumbnail presentation was repeatedly treated as a Basic-vs-

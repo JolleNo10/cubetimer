@@ -22,6 +22,8 @@ export const EVENTS = [
 
 export type EventId = (typeof EVENTS)[number]["id"];
 
+export const DEFAULT_EVENT_ID: EventId = "333";
+
 export function eventInfo(id: EventId) {
   return EVENTS.find((e) => e.id === id) ?? EVENTS[0];
 }

@@ -18,6 +18,7 @@ import {
 } from "../cube/notation";
 import { formatCsv, parseCsv, splitCsvLines } from "./csv";
 import type { Session, Solve } from "./types";
+import { DEFAULT_EVENT_ID } from "../cube/scramble";
 
 const STEP_SLOTS = 9;
 
@@ -213,7 +214,7 @@ export function parseSolveCsv(text: string): SolveCsvImport {
       sessions.set(sessionId, {
         id: sessionId,
         name: sessionName,
-        event: "333",
+        event: DEFAULT_EVENT_ID,
         createdAt,
       });
     }
@@ -232,7 +233,6 @@ export function parseSolveCsv(text: string): SolveCsvImport {
       rawMs: num(row.timer_time || row.solving_time || row.time),
       penalty: dnf ? "DNF" : plus2 ? "+2" : "none",
       scramble: row.scramble ?? "",
-      event: "333",
       source: "import",
       moves,
       analysis: dnf ? null : readAnalysis(row, moves),

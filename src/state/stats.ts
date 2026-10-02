@@ -62,7 +62,7 @@ export function compareSolveToHistory(
     .slice(0, currentIndex)
     .filter((solve) => {
       const analysis = solve.analysis;
-      return solve.event === currentSolve.event
+      return solve.sessionId === currentSolve.sessionId
         && solve.replay !== true
         && isSlowSolve(solve) === isSlowSolve(currentSolve)
         && analysis !== null
