@@ -1,5 +1,19 @@
 # Mistakes
 
+## 2026-10-02 — OLL/PLL catalogue thumbnail display
+
+- What happened: thumbnails read raw cube-coordinate targets instead of applying
+  the physical Training display rotation, so white appeared on top despite the
+  white-bottom/yellow-top grip. Side stickers were flattened into a detached
+  horizontal strip, and OLL exposed permutation colours rather than orientation.
+- Root cause: the thumbnail model omitted the target's display orientation and
+  family-specific presentation semantics, leaving the renderer to choose facelets
+  and an incorrect layout without focused regression coverage.
+- Prevention: the domain model must physically rotate into the display frame, own
+  canonical top-down ring ordering, and mask OLL as top-colour versus grey while
+  retaining PLL colours. Test display orientation, ring extraction, family colour
+  semantics, and attached SVG geometry.
+
 ## 2026-10-02 — Ownership refactor patch assembly
 
 - What happened: the first combined patch failed before applying because one

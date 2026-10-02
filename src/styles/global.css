@@ -993,8 +993,8 @@ button.phase-row.selectable.active {
 .last-layer-case-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(70px, 1fr)); gap: 7px; margin-top: 7px; }
 .last-layer-case-button { display: flex; min-width: 0; min-height: 70px; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: 4px; font: 11px var(--mono); }
 .last-layer-case-button.selected { color: var(--accent); border-color: var(--accent); background: color-mix(in oklab, var(--accent) 12%, transparent); }
-.last-layer-thumbnail { display: block; width: 100%; max-height: 48px; }
-.last-layer-thumbnail .ll-sticker { stroke: var(--border-strong); stroke-width: 1; }
+.last-layer-thumbnail { display: block; width: min(100%, 56px); aspect-ratio: 1; margin-inline: auto; }
+.last-layer-thumbnail .ll-sticker { stroke: #202124; stroke-width: 0.7; }
 .training-stage { min-height: 0; }
 .training-mode-switch button { padding: 4px 7px; font-size: 10px; }
 

@@ -54,7 +54,7 @@ function LastLayerTraining({ state, family }: { state: AppState; family: LastLay
       for (const item of catalogue) {
         try {
           const built = buildLastLayerCatalogueTarget(kpuzzle, family, item.id.replace(/^OLL /, ""), 0);
-          models.set(item.id, getLastLayerThumbnailModel(family, built.pattern));
+          models.set(item.id, getLastLayerThumbnailModel(family, built.pattern, built.info.trainingRotation));
         } catch {
           // A malformed generated case should be caught by domain tests; omit only its card here.
         }
