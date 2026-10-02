@@ -105,6 +105,25 @@ describe("bestAverage", () => {
     );
     expect(bestAverage(solves, 5)).toBe(12000);
   });
+
+  it.each([5, 12, 50, 100])("matches the existing rolling Ao%i values with normal and DNF history", (size) => {
+    for (const withDnfs of [false, true]) {
+      const solves = Array.from({ length: 125 }, (_, index) =>
+        solve(10_000 + (index * 337) % 8_000, withDnfs && (index === 0 || index === 1 || index === 70) ? "DNF" : "none"));
+      const achieved = Array.from({ length: solves.length - size + 1 }, (_, index) =>
+        averageOf(solves.slice(0, size + index), size))
+        .filter((average): average is number => typeof average === "number");
+      expect(bestAverage(solves, size)).toBe(achieved.length ? Math.min(...achieved) : undefined);
+    }
+  });
+
+  it("ignores DNF windows and returns unavailable when none are achieved", () => {
+    const solves = [solve(10_000), solve(12_000), solve(14_000), solve(16_000, "DNF"), solve(18_000, "DNF")];
+    expect(bestAverage(solves, 5)).toBeUndefined();
+    solves.push(solve(20_000), solve(22_000), solve(24_000), solve(26_000));
+    expect(bestAverage(solves, 5)).toBe(24_000);
+    expect(bestAverage(solves.slice(0, 4), 5)).toBeUndefined();
+  });
 });
 
 describe("formatTime", () => {

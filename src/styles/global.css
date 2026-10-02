@@ -934,6 +934,7 @@ button.phase-row.selectable.active {
 .stats-chart { display: block; width: 100%; height: auto; min-height: 190px; overflow: visible; }
 .chart-shell { min-width: 0; overflow: hidden; }
 .chart-axis { fill: var(--text-faint); font: 10px var(--mono); }
+.chart-axis line { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .chart-x-label, .chart-legend-label { fill: var(--text-faint); font-size: 10px; }
 .chart-line { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .chart-line.ao5 { stroke: var(--accent); }
@@ -944,9 +945,10 @@ button.phase-row.selectable.active {
 .chart-line.phase-pll { stroke: var(--violet); }
 .chart-session-boundary { stroke: var(--border-strong); stroke-dasharray: 2 4; vector-effect: non-scaling-stroke; }
 .chart-dnf { fill: var(--red); }
-.chart-pb { fill: var(--accent); stroke: var(--bg-elevated); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.chart-single { fill: var(--blue); opacity: .48; }
-.chart-outlier { fill: var(--amber); }
+.chart-point { fill: var(--blue); opacity: .48; }
+.chart-point.pb { fill: var(--accent); opacity: 1; stroke: var(--bg-elevated); stroke-width: 1.5; }
+.chart-point.pb circle { vector-effect: non-scaling-stroke; }
+.chart-point.outlier { fill: var(--amber); opacity: 1; }
 .chart-legend-label.singles { fill: var(--blue); }
 .chart-legend-label.ao5 { fill: var(--accent); }
 .chart-legend-label.ao12 { fill: var(--violet); }
@@ -955,7 +957,7 @@ button.phase-row.selectable.active {
 .histogram-bar { fill: color-mix(in oklab, var(--blue) 72%, transparent); }
 .chart-median { stroke: var(--amber); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .analysis-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, .8fr); gap: 18px; align-items: center; }
-.analysis-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.analysis-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
 .analysis-metric { min-width: 0; }
 .analysis-metric .stat-label { display: block; color: var(--text-faint); font-size: 10px; text-transform: uppercase; letter-spacing: .06em; }
 .analysis-metric .stat-value { display: block; margin-top: 3px; font: 600 17px var(--mono); }
@@ -979,7 +981,7 @@ button.phase-row.selectable.active {
 .stats-table tbody tr { cursor: pointer; }
 .stats-table tbody tr:hover { background: var(--panel-2); }
 .stats-table tbody tr.selected { background: color-mix(in oklab, var(--accent) 12%, transparent); }
-.stats-table tbody tr.current td:first-child::after { content: "current"; margin-left: 7px; color: var(--accent); font-size: 9px; text-transform: uppercase; }
+.stats-table td:first-child small { margin-left: 7px; color: var(--accent); font-size: 9px; text-transform: uppercase; }
 .stats-table .number { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .stats-table .muted { color: var(--text-faint); }
 .stats-loading { padding: 20px; }
@@ -1051,6 +1053,7 @@ button.icon { display: inline-grid; place-items: center; padding: 8px; }
 @media (max-width: 1180px) {
   .overview-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .stats-two-column { grid-template-columns: minmax(0, 1fr); }
+  .analysis-grid { grid-template-columns: minmax(0, 1fr); }
   .training-layout { grid-template-columns: minmax(0, 1fr) minmax(280px, 330px); }
   .training-layout .column.left { grid-column: 1 / -1; }
 }
@@ -1063,7 +1066,7 @@ button.icon { display: inline-grid; place-items: center; padding: 8px; }
   .statistics-controls .field { flex: 1 1 140px; }
   .statistics-controls button { align-self: end; }
   .analysis-grid { grid-template-columns: minmax(0, 1fr); }
-  .analysis-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .analysis-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .training-layout { grid-template-columns: minmax(0, 1fr); }
   .training-layout .column.right { order: 2; }
   .training-layout .column.left { order: 3; }

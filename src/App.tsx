@@ -67,10 +67,9 @@ export function App() {
 
   const selectArea = useCallback((area: AppArea) => {
     const returnView = trainingReturnView;
-    if (state.area === "training" && area === "timer" && returnView) {
+    if ((state.area === "training" || state.area === "statistics") && area === "timer" && returnView) {
       const solve = state.solves.find((candidate) => candidate.id === returnView.solveId);
-      if (solve) {
-        controller.returnToTimerReview();
+      if (solve && controller.returnToTimerReview()) {
         setResultSolveId(returnView.solveId);
         setReplaySolve(returnView.kind === "replay" ? solve : null);
         setReplayInitialView(returnView.kind === "replay" ? returnView.replay : null);
@@ -78,6 +77,11 @@ export function App() {
         setResumeTimerAfterTrainingReview(true);
         return;
       }
+    }
+
+    if ((state.area === "training" && area === "statistics") || (state.area === "statistics" && area === "training")) {
+      controller.setArea(area);
+      return;
     }
 
     setTrainingReturnView(null);
@@ -263,7 +267,7 @@ export function App() {
       />
 
       {state.area === "training" ? <Training state={state} /> : state.area === "statistics" ? (
-        <StatisticsView currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} />
+        <StatisticsView currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} />
       ) : <div className="app-body">
         <div className="column left">
           <ConnectionPanel state={state} />

@@ -4,6 +4,7 @@ import { useController } from "../hooks/useController";
 import {
   availableStatisticsEvents,
   deriveStatistics,
+  filterPhaseChartWindow,
   sliceChartWindow,
   type ChartWindow,
   type StatisticsSnapshot,
@@ -20,14 +21,14 @@ function value(value: number | null | undefined): string {
 function LongAverageCard({ average, finishedCount }: { average: LongAverage; finishedCount: number }) {
   const label = average.status === "projected" ? `Projected Ao${average.size}` : `Ao${average.size}`;
   const detail = average.status === "projected"
-    ? `${average.count} / ${average.size} solves · ${average.size - average.count} remaining`
+    ? `Recent-median projection · ${average.count} / ${average.size} · ${average.size - average.count} remaining`
     : average.status === "actual"
       ? `${average.size}-solve average`
       : finishedCount < 10
         ? "Needs 10 finished solves for a projection"
         : "Unavailable";
   return (
-    <div className={`stat-card average-${average.status}`}>
+    <div className={`stat-card average-${average.status}`} title={average.status === "projected" ? "Remaining solves are assumed at the median of the latest up-to-20 finished counted solves." : undefined}>
       <span className="stat-label">{label}</span>
       <strong>{value(average.value)}</strong>
       <small>{detail}</small>
@@ -48,35 +49,27 @@ function StatCard({ label, value: cardValue, detail }: { label: string; value: s
 function AnalysisSection({ model }: { model: StatisticsViewModel }) {
   const analysis = model.recognitionExecution;
   if (!analysis) {
-    return (
-      <section className="stats-section">
-        <div className="section-heading"><div><h2>Recognition &amp; execution</h2><p>No usable CFOP analysis is available for this scope.</p></div></div>
-      </section>
-    );
+    return <div className="chart-empty">No usable CFOP analysis is available for this scope.</div>;
   }
   return (
-    <section className="stats-section">
-      <div className="section-heading">
-        <div><h2>Recognition &amp; execution</h2><p>{analysis.sampleSize} analysed normal solves</p></div>
+    <div className="analysis-grid">
+      <div className="analysis-metrics">
+        <StatCard label="Mean moves" value={analysis.meanMoves.toFixed(1)} />
+        <StatCard label="Aggregate TPS" value={analysis.aggregateTps.toFixed(2)} />
+        <StatCard label="Mean recognition" value={formatTime(analysis.meanRecognitionMs)} />
+        <StatCard label="Analysis coverage" value={`${Math.round(model.analysisCoverage * 100)}%`} detail={`${model.analysisCount} / ${model.stats.solved} finished`} />
       </div>
-      <div className="analysis-grid">
-        <div className="analysis-metrics">
-          <StatCard label="Mean moves" value={analysis.meanMoves.toFixed(1)} />
-          <StatCard label="Aggregate TPS" value={analysis.aggregateTps.toFixed(2)} />
-          <StatCard label="Analysis coverage" value={`${Math.round(model.analysisCoverage * 100)}%`} detail={`${model.analysisCount} / ${model.stats.solved} finished`} />
+      <div className="recognition-split" aria-label="Recognition versus execution time">
+        <div className="split-bar">
+          <span className="recognition" style={{ width: `${analysis.recognitionShare * 100}%` }} />
+          <span className="execution" style={{ width: `${analysis.executionShare * 100}%` }} />
         </div>
-        <div className="recognition-split" aria-label="Recognition versus execution time">
-          <div className="split-bar">
-            <span className="recognition" style={{ width: `${analysis.recognitionShare * 100}%` }} />
-            <span className="execution" style={{ width: `${analysis.executionShare * 100}%` }} />
-          </div>
-          <div className="split-legend">
-            <span><i className="swatch recognition" />Recognition {formatTime(analysis.recognitionMs)} ({Math.round(analysis.recognitionShare * 100)}%)</span>
-            <span><i className="swatch execution" />Execution {formatTime(analysis.executionMs)} ({Math.round(analysis.executionShare * 100)}%)</span>
-          </div>
+        <div className="split-legend">
+          <span><i className="swatch recognition" />Recognition {formatTime(analysis.recognitionMs)} ({Math.round(analysis.recognitionShare * 100)}%)</span>
+          <span><i className="swatch execution" />Execution {formatTime(analysis.executionMs)} ({Math.round(analysis.executionShare * 100)}%)</span>
         </div>
       </div>
-    </section>
+    </div>
   );
 }
 
@@ -126,7 +119,7 @@ function SessionTable({ model, onSelect }: { model: StatisticsViewModel; onSelec
   );
 }
 
-export function StatisticsView({ currentEvent }: { currentEvent: EventId }) {
+export function StatisticsView({ currentEvent, activeSessionId }: { currentEvent: EventId; activeSessionId: string | null }) {
   const controller = useController();
   const [snapshot, setSnapshot] = useState<StatisticsSnapshot | null>(null);
   const [event, setEvent] = useState<EventId>(currentEvent || DEFAULT_EVENT_ID);
@@ -143,12 +136,6 @@ export function StatisticsView({ currentEvent }: { currentEvent: EventId }) {
     void controller.loadStatisticsSnapshot().then((loaded) => {
       if (!active) return;
       setSnapshot(loaded);
-      const options = availableStatisticsEvents(loaded);
-      setEvent((current) => options.includes(current) ? current : options[0] ?? currentEvent ?? DEFAULT_EVENT_ID);
-      setSessionId((current) => {
-        const selected = loaded.sessions.find((session) => session.id === current);
-        return selected?.event === event ? current : null;
-      });
     }).catch((loadError: unknown) => {
       if (active) setError(String(loadError));
     }).finally(() => {
@@ -157,21 +144,32 @@ export function StatisticsView({ currentEvent }: { currentEvent: EventId }) {
     return () => { active = false; };
   }, [controller, refreshToken]);
 
+  const eventOptions = useMemo(() => snapshot ? availableStatisticsEvents(snapshot) : [], [snapshot]);
+
+  useEffect(() => {
+    if (!snapshot) return;
+    const resolvedEvent = eventOptions.includes(event) ? event : eventOptions[0] ?? currentEvent ?? DEFAULT_EVENT_ID;
+    setEvent(resolvedEvent);
+    setSessionId((current) => {
+      const selected = snapshot.sessions.find((session) => session.id === current);
+      return selected?.event === resolvedEvent ? current : null;
+    });
+  }, [snapshot, eventOptions, event, currentEvent]);
+
   const model = useMemo(() => {
     if (!snapshot) return null;
     const matching = snapshot.sessions.some((candidate) => candidate.id === sessionId && candidate.event === event);
     const safeSessionId = matching ? sessionId : null;
-    return deriveStatistics(snapshot, { event, sessionId: safeSessionId });
-  }, [event, sessionId, snapshot]);
+    return deriveStatistics(snapshot, { event, sessionId: safeSessionId }, activeSessionId);
+  }, [event, sessionId, snapshot, activeSessionId]);
 
   const refresh = useCallback(() => setRefreshToken((token) => token + 1), []);
-  const eventOptions = snapshot ? availableStatisticsEvents(snapshot) : [];
   const selectedEvent = eventInfo(event);
   const scopeLabel = model?.sessionId
     ? model.eventSessions.find((session) => session.id === model.sessionId)?.name ?? "Session"
     : `All sessions · ${selectedEvent.name}`;
   const visibleTrend = model ? sliceChartWindow(model.trend, chartWindow) : [];
-  const visiblePhases = model ? sliceChartWindow(model.phaseTrend, chartWindow) : [];
+  const visiblePhases = model ? filterPhaseChartWindow(model.phaseTrend, visibleTrend, chartWindow) : [];
 
   return (
     <main className="statistics-page">
@@ -181,14 +179,14 @@ export function StatisticsView({ currentEvent }: { currentEvent: EventId }) {
           <p>{model ? `${model.stats.count} counted solves · ${model.analysisCount} analysed` : "Historical solve analytics"}</p>
         </div>
         <div className="statistics-controls">
-          <label>Event<select value={event} onChange={(e) => { setEvent(e.target.value as EventId); setSessionId(null); }} disabled={!eventOptions.length}>
+          <label className="field">Event<select value={event} onChange={(e) => { setEvent(e.target.value as EventId); setSessionId(null); }} disabled={!eventOptions.length}>
             {eventOptions.map((id) => <option key={id} value={id}>{eventInfo(id).name}</option>)}
           </select></label>
-          <label>Session<select value={model?.sessionId ?? "all"} onChange={(e) => setSessionId(e.target.value === "all" ? null : e.target.value)} disabled={!model?.eventSessions.length}>
+          <label className="field">Session<select value={model?.sessionId ?? "all"} onChange={(e) => setSessionId(e.target.value === "all" ? null : e.target.value)} disabled={!model?.eventSessions.length}>
             <option value="all">All sessions</option>
             {model?.eventSessions.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
           </select></label>
-          <label>Chart window<select value={chartWindow} onChange={(e) => setChartWindow(e.target.value === "all" ? "all" : Number(e.target.value) as ChartWindow)}>
+          <label className="field">Chart window<select value={chartWindow} onChange={(e) => setChartWindow(e.target.value === "all" ? "all" : Number(e.target.value) as ChartWindow)}>
             <option value={50}>Last 50</option><option value={100}>Last 100</option><option value={250}>Last 250</option><option value="all">All</option>
           </select></label>
           <button className="ghost" onClick={refresh} disabled={loading}>↻ Refresh</button>

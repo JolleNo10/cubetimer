@@ -1,5 +1,18 @@
 # Mistakes
 
+## 2026-10-02 — Statistics review regressions
+
+- What happened: the Statistics filter was mistaken for the active Timer Session,
+  CFOP and solve charts used different history windows, SVG classes missed their
+  styles, and opening Statistics discarded Training's historical review context.
+  Rolling calculations also copied growing prefixes unnecessarily.
+- Root cause: the first implementation's tests covered basic derivation but missed
+  independent runtime/filter identities, sparse analysis, presentation edge cases,
+  and navigation through an intermediate area.
+- Prevention: test those boundaries explicitly, use bounded rolling windows,
+  match chart windows by counted Solve IDs, and check rendered SVG classes and
+  review-return behavior alongside the existing Controller ownership rules.
+
 ## 2026-10-02 — OLL/PLL catalogue thumbnail display
 
 - What happened: thumbnails read raw cube-coordinate targets instead of applying

@@ -173,7 +173,7 @@ export function worstSingle(solves: Solve[]): number | undefined {
 export function bestAverage(solves: Solve[], n: number): number | undefined {
   let best: number | undefined;
   for (let end = n; end <= solves.length; end++) {
-    const avg = averageOf(solves.slice(0, end), n);
+    const avg = averageOf(solves.slice(end - n, end), n);
     if (typeof avg === "number" && (best === undefined || avg < best)) best = avg;
   }
   return best;

@@ -693,9 +693,11 @@ export class Controller {
     void this.useCubeStateAsScramble().catch(() => void this.newScramble());
   }
 
-  /** Leave Training without adopting its cube position as a Timer scramble. */
-  returnToTimerReview(): void {
-    if (this.state.get().area !== "training") return;
+  /** Leave Training, including its Statistics detour, without adopting its cube position. */
+  returnToTimerReview(): boolean {
+    const area = this.state.get().area;
+    if (area !== "training" && !(area === "statistics" && this.#areaBeforeStatistics === "training")) return false;
+    this.#areaBeforeStatistics = null;
     this.#cancelTimerForArea();
     this.#resetTrainingSnapshot();
     this.state.update((s) => ({
@@ -710,6 +712,7 @@ export class Controller {
       inspectionPenalty: "none",
       training: { ...emptyTrainingState(), family: s.training.family },
     }));
+    return true;
   }
 
   async selectF2lCase(caseName: string): Promise<void> {

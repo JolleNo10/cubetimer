@@ -247,6 +247,55 @@ describe("Controller application-area ownership", () => {
     expect(controller.state.get().scramble).toBe("");
   });
 
+  it("returns to Timer review through Statistics entered from Training", async () => {
+    const historicalSolve = solveFor("1");
+    const controller = readyController([session("1")], "1", [historicalSolve]);
+    controller.state.update((state) => ({ ...state, virtualCube: true, scramble: "R U" }));
+    controller.setArea("training");
+    await controller.setTrainingMode("virtual");
+    await controller.selectF2lCase("F2L 1");
+    controller.setArea("statistics");
+    controller.injectMove("L");
+    const before = controller.state.get();
+    const physicalPosition = patternToFacelets(controller.pattern!);
+    const adopt = vi.spyOn(controller, "useCubeStateAsScramble").mockResolvedValue();
+    const generate = vi.spyOn(controller, "newScramble").mockResolvedValue();
+
+    expect(controller.returnToTimerReview()).toBe(true);
+
+    expect(controller.state.get()).toMatchObject({
+      area: "timer",
+      phase: "finished",
+      sessionId: "1",
+      scramble: "",
+      training: { phase: "selecting", target: null },
+    });
+    expect(controller.state.get().solves).toBe(before.solves);
+    expect(controller.state.get().lastSolve).toBe(historicalSolve);
+    expect(patternToFacelets(controller.pattern!)).toBe(physicalPosition);
+    expect(adopt).not.toHaveBeenCalled();
+    expect(generate).not.toHaveBeenCalled();
+
+    controller.setArea("statistics");
+    expect(controller.returnToTimerReview()).toBe(false);
+    expect(controller.state.get().area).toBe("statistics");
+  });
+
+  it("does not perform Training review return when Statistics was entered from Timer", () => {
+    const controller = readyController([session("1")], "1", [solveFor("1")], "ready");
+    controller.state.update((state) => ({ ...state, scramble: "R U" }));
+    controller.setArea("statistics");
+    const before = controller.state.get();
+
+    expect(controller.returnToTimerReview()).toBe(false);
+    expect(controller.state.get()).toBe(before);
+
+    controller.setArea("timer");
+    expect(controller.state.get().area).toBe("timer");
+    expect(controller.state.get().phase).toBe("ready");
+    expect(controller.state.get().scramble).toBe("R U");
+  });
+
   it("keeps virtual practice separate from the physical cube", async () => {
     globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame;
     globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;

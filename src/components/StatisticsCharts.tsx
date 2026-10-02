@@ -98,7 +98,7 @@ export function SolveTimeTrendChart({
           const outlier = point.time > maxValue;
           const y = outlier ? PAD.top + 4 : yFor(point.time, maxValue);
           return (
-            <g key={point.id} className={point.isPb ? "chart-point pb" : "chart-point"}>
+            <g key={point.id} className={`chart-point${outlier ? " outlier" : point.isPb ? " pb" : ""}`}>
               <title>{`${point.id}: ${formatTime(point.time)}${point.isPb ? " — personal best" : ""}`}</title>
               {outlier ? <path d={`M${x},${y - 8} l7,9 h-14 z`} /> : <circle cx={x} cy={y} r={point.isPb ? 4 : 2.5} />}
             </g>
@@ -120,31 +120,36 @@ export function DistributionChart({ distribution }: { distribution: Distribution
   }
   const maxCount = Math.max(...distribution.bins.map((bin) => bin.count), 1);
   const plotHeight = HEIGHT - PAD.top - PAD.bottom;
+  const plotWidth = WIDTH - PAD.left - PAD.right;
+  const zeroRange = distribution.minMs !== undefined && distribution.minMs === distribution.maxMs;
+  const medianX = distribution.medianMs !== undefined && distribution.minMs !== undefined && distribution.maxMs !== undefined
+    ? PAD.left + plotWidth * (zeroRange ? 0.5 : (distribution.medianMs - distribution.minMs) / (distribution.maxMs - distribution.minMs))
+    : undefined;
   return (
     <div className="chart-shell">
       <svg className="stats-chart" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label="Finished solve time distribution">
         <title>Finished solve time distribution</title>
         {distribution.bins.map((bin, index) => {
-          const width = (WIDTH - PAD.left - PAD.right) / distribution.bins.length;
+          const width = plotWidth / distribution.bins.length;
           const x = PAD.left + index * width + 1;
           const barHeight = bin.count / maxCount * plotHeight;
           return (
             <g key={`${bin.startMs}-${bin.endMs}`}>
-              <title>{`${formatTime(bin.startMs)}–${formatTime(bin.endMs)}: ${bin.count} solves`}</title>
+              <title>{`${zeroRange ? formatTime(bin.startMs) : `${formatTime(bin.startMs)}–${formatTime(bin.endMs)}`}: ${bin.count} solves`}</title>
               <rect className="histogram-bar" x={x} y={HEIGHT - PAD.bottom - barHeight} width={Math.max(1, width - 2)} height={barHeight} />
               {index === 0 || index === distribution.bins.length - 1 ? (
-                <text className="chart-axis" x={x} y={HEIGHT - PAD.bottom + 18}>
+                <text className="chart-axis" x={zeroRange ? PAD.left + plotWidth / 2 : x} y={HEIGHT - PAD.bottom + 18} textAnchor={zeroRange ? "middle" : "start"}>
                   {formatTime(index === 0 ? bin.startMs : bin.endMs)}
                 </text>
               ) : null}
             </g>
           );
         })}
-        {distribution.medianMs !== undefined && distribution.minMs !== undefined && distribution.maxMs !== undefined ? (
+        {medianX !== undefined ? (
           <line
             className="chart-median"
-            x1={PAD.left + (distribution.maxMs === distribution.minMs ? 0 : (distribution.medianMs - distribution.minMs) / (distribution.maxMs - distribution.minMs) * (WIDTH - PAD.left - PAD.right))}
-            x2={PAD.left + (distribution.maxMs === distribution.minMs ? 0 : (distribution.medianMs - distribution.minMs) / (distribution.maxMs - distribution.minMs) * (WIDTH - PAD.left - PAD.right))}
+            x1={medianX}
+            x2={medianX}
             y1={PAD.top}
             y2={HEIGHT - PAD.bottom}
           />

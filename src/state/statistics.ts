@@ -44,6 +44,7 @@ export type RecognitionExecutionStats = {
   sampleSize: number;
   meanMoves: number;
   aggregateTps: number;
+  meanRecognitionMs: number;
   recognitionMs: number;
   executionMs: number;
   recognitionShare: number;
@@ -166,7 +167,7 @@ function sessionMedian(solves: readonly Solve[]): number | undefined {
 function sessionRows(
   eventSessions: Session[],
   solvesBySession: Map<string, Solve[]>,
-  currentSessionId: string | null,
+  activeSessionId: string | null,
 ): SessionComparisonRow[] {
   const rows = eventSessions.map((session) => {
     const solves = [...(solvesBySession.get(session.id) ?? [])].sort(chronological);
@@ -189,7 +190,7 @@ function sessionRows(
       || b.session.createdAt - a.session.createdAt
       || a.session.name.localeCompare(b.session.name)
       || a.session.id.localeCompare(b.session.id);
-  }).map((row) => ({ ...row, current: row.session.id === currentSessionId }));
+  }).map((row) => ({ ...row, current: row.session.id === activeSessionId }));
 }
 
 function phaseTrend(solves: readonly Solve[]): PhaseTrendPoint[] {
@@ -218,15 +219,15 @@ function makeTrend(solves: readonly Solve[]): TrendPoint[] {
     const time = effectiveMs(solve);
     const isPb = time !== null && (best === undefined || time < best);
     if (isPb) best = time;
-    const prefix = solves.slice(0, index + 1);
+    const end = index + 1;
     return {
       index: index + 1,
       id: solve.id,
       sessionId: solve.sessionId,
       createdAt: solve.createdAt,
       time,
-      ao5: averageOf(prefix, 5),
-      ao12: averageOf(prefix, 12),
+      ao5: averageOf(solves.slice(Math.max(0, end - 5), end), 5),
+      ao12: averageOf(solves.slice(Math.max(0, end - 12), end), 12),
       isPb,
     };
   });
@@ -245,6 +246,7 @@ function recognitionExecution(solves: readonly Solve[]): RecognitionExecutionSta
     sampleSize: facts.length,
     meanMoves: totalMoves / facts.length,
     aggregateTps: totalMoves / solvingMs * 1000,
+    meanRecognitionMs: recognitionMs / facts.length,
     recognitionMs,
     executionMs,
     recognitionShare: recognitionMs / solvingMs,
@@ -261,6 +263,7 @@ export function availableStatisticsEvents(snapshot: StatisticsSnapshot): EventId
 export function deriveStatistics(
   snapshot: StatisticsSnapshot,
   scope: StatisticsScope,
+  activeSessionId: string | null,
 ): StatisticsViewModel {
   const sessionsById = new Map(snapshot.sessions.map((session) => [session.id, session]));
   const eventSessions = snapshot.sessions.filter((session) => session.event === scope.event);
@@ -306,10 +309,21 @@ export function deriveStatistics(
     recognitionExecution: recognitionExecution(scopeSolves),
     cfop: stats.cfop,
     phaseTrend: phaseTrend(scopeSolves),
-    sessionComparison: sessionRows(eventSessions, bySession, scope.sessionId),
+    sessionComparison: sessionRows(eventSessions, bySession, activeSessionId),
   };
 }
 
 export function sliceChartWindow<T>(items: readonly T[], window: ChartWindow): T[] {
   return window === "all" ? [...items] : items.slice(-window);
+}
+
+/** Match CFOP presentation to the same counted-solve window as the singles chart. */
+export function filterPhaseChartWindow(
+  points: readonly PhaseTrendPoint[],
+  visibleTrend: readonly TrendPoint[],
+  window: ChartWindow,
+): PhaseTrendPoint[] {
+  if (window === "all") return [...points];
+  const visibleIds = new Set(visibleTrend.map((point) => point.id));
+  return points.filter((point) => visibleIds.has(point.solveId));
 }
