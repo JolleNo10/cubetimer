@@ -22,8 +22,8 @@ function regionBounds(markup: string) {
     });
     expect(cells).toHaveLength(region === "top" ? 9 : 3);
     for (const cell of cells) {
-      expect(cell.width).toBe(10);
-      expect(cell.height).toBe(10);
+      expect(cell.width).toBe(region === "left" || region === "right" ? 6 : 10);
+      expect(cell.height).toBe(region === "back" || region === "front" ? 6 : 10);
     }
     return [region, {
       x: Number(x), y: Number(y),
@@ -36,7 +36,7 @@ function regionBounds(markup: string) {
 describe("LastLayerCaseThumbnail", () => {
   it.each([["oll", "1"], ["pll", "Aa"]] as const)("renders %s %s as one compact attached last-layer diagram", (family, caseId) => {
     const markup = render(family, caseId);
-    expect(markup).toContain('viewBox="0 0 52 52"');
+    expect(markup).toContain('viewBox="0 0 44 44"');
     expect(markup).toContain('shape-rendering="crispEdges"');
     expect(markup).toContain('aria-hidden="true"');
     expect(markup.match(/<rect\b/g)).toHaveLength(21);
