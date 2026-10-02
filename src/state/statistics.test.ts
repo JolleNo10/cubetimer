@@ -7,6 +7,8 @@ import {
   filterPhaseChartWindow,
   percentile,
   sliceChartWindow,
+  sortRankingRows,
+  sortCasePerformance,
   type StatisticsSnapshot,
 } from "./statistics";
 import type { Penalty, Session, Solve } from "./types";
@@ -42,9 +44,15 @@ function analysed(id: string, sessionId: string, createdAt: number): Solve {
       sliceTurns: 50,
       solvingMs: 10_000,
       totalRecognitionMs: 2_000,
+      totalExecutionMs: 8_000,
+      pauses: [],
       steps: STEP_NAMES.map((name, index) => ({
         name,
         timeMs: index === 1 ? 500 : index === 2 ? 500 : index === 3 ? 500 : 1_000,
+        recognitionMs: index === 0 ? 0 : 200,
+        executionMs: index > 0 && index < 4 ? 300 : 800,
+        sliceTurns: 2, skipped: false, fromMove: index * 2, toMove: index * 2 + 2,
+        case: index === 5 ? "27" : index === 6 ? "T" : null,
       })),
     } as unknown as SolveAnalysis,
   });
@@ -168,7 +176,7 @@ describe("deriveStatistics", () => {
   it("uses validated facts for mean recognition and aggregate duration shares", () => {
     const first = analysed("first", "A", 1);
     const second = analysed("second", "A", 2);
-    second.analysis = { ...second.analysis!, solvingMs: 20_000, totalRecognitionMs: 7_000 };
+    second.analysis = { ...second.analysis!, solvingMs: 20_000, totalRecognitionMs: 7_000, totalExecutionMs: 13_000 };
     const invalid = analysed("invalid", "A", 3);
     invalid.analysis = { ...invalid.analysis!, totalRecognitionMs: 11_000 };
     const result = deriveStatistics({ sessions: [session("A")], solves: [first, second, invalid] }, { event: "333", sessionId: null }, null);
@@ -211,5 +219,229 @@ describe("filterPhaseChartWindow", () => {
     expect(filterPhaseChartWindow(model.phaseTrend, sliceChartWindow(model.trend, 100), 100).map((point) => point.solveId)).toEqual(["s51", "s76", "s101"]);
     expect(filterPhaseChartWindow(model.phaseTrend, sliceChartWindow(model.trend, 250), 250)).toEqual(model.phaseTrend);
     expect(filterPhaseChartWindow(model.phaseTrend, [], "all")).toEqual(model.phaseTrend);
+  });
+});
+
+function modelFor(solves: Solve[]) {
+  return deriveStatistics({ sessions: [session("A"), session("B")], solves }, { event: "333", sessionId: null }, "A");
+}
+
+function skipStep(solve: Solve, index: number) {
+  const steps = solve.analysis!.steps;
+  steps[index] = { ...steps[index], skipped: true, sliceTurns: 0, timeMs: 0, recognitionMs: 0, executionMs: 0, toMove: steps[index].fromMove, case: index >= 5 ? "Solved" : null };
+  for (let next = index + 1; next < steps.length; next++) {
+    const length = steps[next].toMove - steps[next].fromMove;
+    steps[next] = { ...steps[next], fromMove: steps[next - 1].toMove, toMove: steps[next - 1].toMove + length };
+  }
+}
+
+describe("historical records and performance", () => {
+  it("ranks effective Singles deterministically and reverses values without reversing ties", () => {
+    const model = modelFor([
+      solve("z", "A", 9_000, { createdAt: 1, penalty: "+2" }),
+      solve("a", "B", 11_000, { createdAt: 1 }), solve("later", "A", 11_000, { createdAt: 2 }),
+      solve("fast", "B", 10_000, { createdAt: 3 }), solve("dnf", "A", 1, { penalty: "DNF" }),
+      solve("practice", "A", 1, { practice: true }), solve("replay", "A", 1, { replay: true }), solve("slow", "A", 1, { slowSolve: true }),
+    ]);
+    expect(model.records.single.map((row) => row.id)).toEqual(["fast", "a", "z", "later"]);
+    expect(sortRankingRows(model.records.single, "desc").map((row) => row.id)).toEqual(["a", "z", "later", "fast"]);
+    expect(model.records.single.find((row) => row.id === "z")?.value).toBe(11_000);
+    expect(model.records.tps).toEqual([]);
+  });
+
+  it.each([5, 12, 50, 100] as const)("retains real rolling Ao%i membership across interleaved Sessions", (size) => {
+    const solves = Array.from({ length: 110 }, (_, index) => solve(`s${index}`, index % 2 ? "A" : "B", 30_000 - index * 100, { createdAt: index }));
+    const model = modelFor([...solves].reverse());
+    const metric = `ao${size}` as const;
+    expect(model.records[metric]).toHaveLength(111 - size);
+    for (const row of model.records[metric]) {
+      if (row.kind !== "average") throw new Error("Average expected");
+      const end = solves.findIndex((solve) => solve.id === row.endSolveId) + 1;
+      expect(row.solveIds).toEqual(solves.slice(end - size, end).map((solve) => solve.id));
+      expect(row.value).toBe(averageOf(solves.slice(0, end), size));
+      expect(row.window.entries.filter((entry) => entry.trim !== "kept")).toHaveLength(2);
+    }
+    expect(model.averageProgression[0].ao5).toBeDefined();
+    expect(model.averageProgression.find((point) => point.index === size)?.[metric]).toBeDefined();
+    expect(model.averageProgression.find((point) => point.index === size - 1)?.[metric]).toBeUndefined();
+    expect(modelFor(solves.slice(0, size - 1)).records[metric]).toEqual([]);
+  });
+
+  it("never treats projected long averages or DNF windows as records", () => {
+    const solves = Array.from({ length: 12 }, (_, index) => solve(`s${index}`, "A", 10_000, { createdAt: index }));
+    const model = modelFor(solves);
+    expect(model.stats.ao50.status).toBe("projected");
+    expect(model.records.ao50).toEqual([]);
+    expect(model.averageProgression.every((point) => point.ao50 === undefined)).toBe(true);
+    solves[10].penalty = "DNF";
+    expect(modelFor(solves).records.ao5.at(-1)?.value).toBe(10_000);
+    solves[11].penalty = "DNF";
+    const dnf = modelFor(solves);
+    expect(dnf.averageProgression.at(-1)?.ao5).toBeNull();
+    expect(dnf.records.ao5.some((row) => row.kind === "average" && row.endSolveId === "s11")).toBe(false);
+  });
+
+  it("scopes all records, cases, PBs, and sources by Event and Session", () => {
+    const a = analysed("a", "A", 1), b = analysed("b", "B", 2), other = analysed("c", "C", 3);
+    const snapshot = { sessions: [session("A"), session("B"), session("C", "222")], solves: [other, b, a] };
+    const all = deriveStatistics(snapshot, { event: "333", sessionId: null }, "C");
+    expect(all.records.single.map((row) => row.id)).toEqual(["a", "b"]);
+    expect(all.ollCases[0].solveIds).toEqual(["a", "b"]);
+    const scoped = deriveStatistics(snapshot, { event: "333", sessionId: "B" }, "A");
+    expect(scoped.records.single.map((row) => row.id)).toEqual(["b"]);
+    expect(scoped.ollCases[0].solveIds).toEqual(["b"]);
+    expect(scoped.pbHistory.single.map((row) => row.id)).toEqual(["b"]);
+    expect(scoped.bestSplits.sources.every((source) => source.record?.id === "b")).toBe(true);
+  });
+
+  it.each([0, 1, 2] as const)("detects %i consecutive pairs already solved at Cross", (count) => {
+    const item = analysed(`xcross${count}`, "A", 1);
+    for (let pair = 1; pair <= count; pair++) skipStep(item, pair);
+    const model = modelFor([item]);
+    expect(model.records.xcross).toHaveLength(count ? 1 : 0);
+    if (count) expect(model.records.xcross[0].context).toBe(`${count} pair${count > 1 ? "s" : ""} at Cross`);
+  });
+
+  it("does not count later simultaneous pair skips or skipped Cross as XCross records", () => {
+    const later = analysed("later", "A", 1); skipStep(later, 3);
+    const skippedCross = analysed("skipped-cross", "A", 2); skipStep(skippedCross, 0); skipStep(skippedCross, 1);
+    const model = modelFor([later, skippedCross]);
+    expect(model.records.xcross).toEqual([]);
+    expect(model.records.cross.map((row) => row.id)).toEqual(["later"]);
+    expect(model.records["cross-moves"].map((row) => row.id)).toEqual(["later"]);
+  });
+
+  it("uses combined F2L metrics and keeps legitimate LL skip context", () => {
+    const normal = analysed("normal", "A", 1);
+    const skipped = analysed("skip", "A", 2); skipStep(skipped, 5);
+    const model = modelFor([normal, skipped]);
+    expect(model.records.f2l[0]).toMatchObject({ value: 2_500, moves: 8 });
+    expect(model.records.f2l[0].tps).toBeCloseTo(8 / 1.7);
+    expect(model.records["f2l-moves"][0].value).toBe(8);
+    expect(model.records["f2l-tps"][0].value).toBeCloseTo(8 / 1.7);
+    expect(model.records.oll.map((row) => row.id)).toEqual(["normal"]);
+    expect(model.records["oll-tps"].map((row) => row.id)).toEqual(["normal"]);
+    expect(model.records["last-layer"][0]).toMatchObject({ id: "skip", value: 1000, context: "OLL skip" });
+    expect(model.records.execution[0].value).toBe(8_000);
+  });
+
+  it("uses execution time for phase TPS and solving time for whole-solve TPS", () => {
+    const slow = analysed("slow", "A", 1), fast = analysed("fast", "A", 2);
+    fast.analysis!.sliceTurns = 60;
+    fast.analysis!.steps[5].executionMs = 400;
+    const model = modelFor([slow, fast]);
+    expect(model.records.tps.map((row) => row.value)).toEqual([6, 5]);
+    expect(model.records["oll-tps"].map((row) => row.value)).toEqual([5, 2.5]);
+  });
+
+  it("excludes malformed analysis without excluding the Single", () => {
+    const missing = solve("keyboard", "A", 1000);
+    const invalid = analysed("invalid", "A", 2); invalid.analysis!.steps[3].executionMs = NaN;
+    const boundary = analysed("boundary", "A", 3); boundary.analysis!.steps[1].fromMove = 100;
+    const model = modelFor([missing, invalid, boundary]);
+    expect(model.records.single).toHaveLength(3);
+    expect(model.records.moves).toEqual([]);
+    expect(model.records.cross).toEqual([]);
+    expect(model.pauses).toBeUndefined();
+  });
+
+  it("summarises pair performance without zero-time skipped pairs distorting medians", () => {
+    const a = analysed("a", "A", 1), b = analysed("b", "A", 2), c = analysed("c", "A", 3);
+    b.analysis!.steps[1] = { ...b.analysis!.steps[1], timeMs: 1500, recognitionMs: 500, executionMs: 1000, sliceTurns: 8 };
+    skipStep(c, 1);
+    const first = modelFor([a, b, c]).f2lPositions[0];
+    expect(first).toMatchObject({ label: "1st pair", count: 2, skipCount: 1, bestMs: 500, medianMs: 1000, recognitionMs: 350, executionMs: 650, moves: 5 });
+    expect(first.tps).toBeCloseTo(10 / 1.3);
+    expect(first.solveIds).toEqual(["a", "b"]);
+  });
+
+  it("counts a zero-range XCross pair separately even without the skipped marker", () => {
+    const normal = analysed("normal", "A", 1), xcross = analysed("xcross", "A", 2);
+    skipStep(xcross, 1);
+    xcross.analysis!.steps[1].skipped = false;
+    const model = modelFor([normal, xcross]);
+    expect(model.records.xcross[0].context).toBe("1 pair at Cross");
+    expect(model.f2lPositions[0]).toMatchObject({ count: 1, skipCount: 1, bestMs: 500, medianMs: 500, moves: 2, solveIds: ["normal"] });
+    expect(model.records.f2l.find((row) => row.id === "xcross")?.value).toBe(2000);
+  });
+
+  it("groups OLL/PLL cases, separates skips, and sorts stably", () => {
+    const a = analysed("a", "A", 1), b = analysed("b", "B", 2), c = analysed("c", "A", 3), d = analysed("d", "A", 4);
+    b.analysis!.steps[5] = { ...b.analysis!.steps[5], timeMs: 2000, recognitionMs: 400, executionMs: 1600, sliceTurns: 6 };
+    c.analysis!.steps[5].case = "2"; c.analysis!.steps[6].case = "Ua";
+    skipStep(d, 5); skipStep(d, 6);
+    const model = modelFor([a, b, c, d]);
+    expect(model.ollCases.map((row) => row.caseId)).toEqual(["2", "27"]);
+    expect(model.ollCases[1]).toMatchObject({ count: 2, bestMs: 1000, medianMs: 1500, recognitionMs: 300, executionMs: 1200, moves: 4, solveIds: ["a", "b"] });
+    expect(model.ollCases[1].tps).toBeCloseTo(8 / 2.4);
+    expect(model.ollSkips).toBe(1); expect(model.pllSkips).toBe(1);
+    expect(model.pllCases.map((row) => row.caseId)).toEqual(["T", "Ua"]);
+    expect(sortCasePerformance(model.ollCases, "median", "desc").map((row) => row.caseId)).toEqual(["27", "2"]);
+    expect(sortCasePerformance(model.ollCases, "count", "desc")[0].caseId).toBe("27");
+  });
+
+  it("attributes pauses to the phase of the next move, including boundaries", () => {
+    const item = analysed("pausing", "A", 1);
+    item.analysis!.pauses = [
+      { afterMove: 0, startMs: 100, durationMs: 250 }, // next raw index 1, Cross
+      { afterMove: 1, startMs: 200, durationMs: 500 }, // index 2, first F2L
+      { afterMove: 9, startMs: 300, durationMs: 750 }, // index 10, OLL
+      { afterMove: 11, startMs: 400, durationMs: 1000 }, // index 12, PLL
+    ];
+    const model = modelFor([item, analysed("free", "A", 2)]);
+    expect(model.pauses).toMatchObject({ sampleSize: 2, pauseCount: 4, meanCount: 2, meanDurationMs: 625, meanTotalMs: 1250, pauseFreeCount: 1, pauseFreeShare: 0.5, longest: { solveId: "pausing", durationMs: 1000 } });
+    expect(model.pauses!.phases.map((phase) => phase.totalMs)).toEqual([250, 500, 750, 1000]);
+    expect(model.pauses!.phases.map((phase) => phase.share)).toEqual([0.1, 0.2, 0.3, 0.4]);
+  });
+
+  it("uses rolling medians of at most ten analysed solves for recognition/execution", () => {
+    const solves = Array.from({ length: 12 }, (_, index) => {
+      const item = analysed(`s${index}`, "A", index);
+      item.analysis!.totalRecognitionMs = index * 100;
+      item.analysis!.totalExecutionMs = 10_000 - index * 100;
+      return item;
+    });
+    const model = modelFor(solves);
+    expect(model.recognitionTrend.at(-1)).toMatchObject({ solveId: "s11", recognitionMs: 650, executionMs: 9350 });
+    expect(model.recognitionExecution).toMatchObject({ medianRecognitionMs: 550, medianExecutionMs: 9450, medianF2lRecognitionMs: 800, medianOllRecognitionMs: 200, medianPllRecognitionMs: 200, medianRecognitionShare: 0.055 });
+  });
+
+  it("preserves the aggregate split while measured execution excludes the opening interval", () => {
+    const item = analysed("opening", "A", 1);
+    item.analysis!.totalExecutionMs = 7500;
+    const model = modelFor([item]);
+    expect(model.recognitionExecution).toMatchObject({ executionMs: 8000, executionShare: 0.8, medianExecutionMs: 7500, medianExecutionShare: 0.75 });
+    expect(model.records.execution[0].value).toBe(7500);
+    expect(model.recognitionTrend[0].executionMs).toBe(7500);
+  });
+
+  it("records strict Single and average PBs with exact source windows", () => {
+    const solves = [20, 20, 19, 19, 18, 18, 17, 16, 15].map((ms, index) => solve(`s${index}`, "A", ms * 1000, { createdAt: index }));
+    const model = modelFor(solves);
+    expect(model.pbHistory.single.map((row) => row.id)).toEqual(["s0", "s2", "s4", "s6", "s7", "s8"]);
+    const rows = model.pbHistory.ao5;
+    expect(rows.every((row, index) => !index || row.value < rows[index - 1].value)).toBe(true);
+    const last = rows.at(-1)!;
+    if (last.kind !== "average") throw new Error("Average expected");
+    expect(last.solveIds).toEqual(["s4", "s5", "s6", "s7", "s8"]);
+    expect(last.createdAt).toBe(8);
+  });
+
+  it("selects non-skipped Best split sources and reports unavailable composites", () => {
+    const a = analysed("a", "A", 1), b = analysed("b", "A", 2);
+    b.analysis!.steps[0].timeMs = 500;
+    b.analysis!.steps[1].timeMs = 100;
+    skipStep(b, 5); skipStep(b, 6);
+    const model = modelFor([a, b]);
+    expect(model.bestSplits.sources.map((source) => source.record?.id)).toEqual(["b", "b", "a", "a"]);
+    expect(model.bestSplits.totalMs).toBe(4600);
+    expect(model.bestSplits.gapMs).toBe(5400);
+    expect(modelFor([b]).bestSplits.totalMs).toBeUndefined();
+  });
+
+  it("adds real consistency percentiles and PB/median gaps", () => {
+    const model = modelFor([10, 20, 30, 40, 50].map((ms, index) => solve(`s${index}`, "A", ms * 1000)));
+    expect(model.consistency).toMatchObject({ pbMs: 10_000, medianMs: 30_000, gapMs: 20_000, gapShare: 2 / 3, p10Ms: 14_000, p25Ms: 20_000, p75Ms: 40_000, p90Ms: 46_000 });
+    expect(modelFor([]).consistency.gapMs).toBeUndefined();
   });
 });

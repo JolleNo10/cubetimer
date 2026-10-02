@@ -939,6 +939,17 @@ button.phase-row.selectable.active {
 .chart-line { fill: none; stroke-width: 2; vector-effect: non-scaling-stroke; }
 .chart-line.ao5 { stroke: var(--accent); }
 .chart-line.ao12 { stroke: var(--violet); stroke-dasharray: 5 3; }
+.chart-line.ao50 { stroke: var(--amber); }
+.chart-line.ao100 { stroke: var(--blue); stroke-dasharray: 7 3; }
+.chart-line.recognition { stroke: var(--amber); }
+.chart-line.execution { stroke: var(--accent); }
+.chart-series-point { fill: var(--accent); }
+.chart-series-point.ao12 { fill: var(--violet); }
+.chart-series-point.ao50, .chart-series-point.recognition { fill: var(--amber); }
+.chart-series-point.ao100 { fill: var(--blue); }
+.chart-legend-label.ao50, .chart-legend-label.recognition { fill: var(--amber); }
+.chart-legend-label.ao100 { fill: var(--blue); }
+.chart-legend-label.execution { fill: var(--accent); }
 .chart-line.phase-cross { stroke: var(--blue); }
 .chart-line.phase-f2l { stroke: var(--accent); }
 .chart-line.phase-oll { stroke: var(--amber); }
@@ -985,6 +996,10 @@ button.phase-row.selectable.active {
 .stats-table .number { font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .stats-table .muted { color: var(--text-faint); }
 .stats-loading { padding: 20px; }
+.stats-detail { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 16px; margin: 14px 0; min-width: 0; }
+.stats-pagination { margin-top: 12px; justify-content: flex-end; }
+.stats-scramble, .stats-note { overflow-wrap: anywhere; }
+.statistics-solve-detail .dialog-body { display: grid; gap: 14px; }
 
 /* ---------------------------------------------------------- unified training */
 .training-screen { min-width: 0; flex: 1; display: flex; flex-direction: column; overflow: auto; }

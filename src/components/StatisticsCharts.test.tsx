@@ -1,9 +1,28 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { TrendPoint } from "../state/statistics";
-import { CfopPhaseTrendChart, DistributionChart, SolveTimeTrendChart } from "./StatisticsCharts";
+import { AverageProgressionChart, RecognitionExecutionTrendChart, CfopPhaseTrendChart, DistributionChart, SolveTimeTrendChart } from "./StatisticsCharts";
 
 describe("Statistics charts", () => {
+  it("charts actual rolling averages with unavailable or DNF windows left as gaps", () => {
+    const html = renderToStaticMarkup(<AverageProgressionChart scopeLabel="All sessions" points={[
+      { index: 5, solveId: "s5", createdAt: 5, ao5: 10000 },
+      { index: 6, solveId: "s6", createdAt: 6, ao5: null },
+      { index: 50, solveId: "s50", createdAt: 50, ao5: 9000, ao12: 11000, ao50: 12000 },
+    ]} />);
+    expect(html).toContain("Actual rolling average progression");
+    expect(html).toContain("s50 · Ao50: 12.00"); expect(html).not.toContain("Projected");
+    expect(html).toContain('class="chart-line ao100" d=""');
+    expect(html).toMatch(/class="chart-line ao5" d="M[^L]+ M/);
+    expect(renderToStaticMarkup(<AverageProgressionChart scopeLabel="All sessions" points={[]} />)).toContain("actual window of at least 5");
+  });
+
+  it("renders measured recognition/execution series with their source solve IDs", () => {
+    const html = renderToStaticMarkup(<RecognitionExecutionTrendChart scopeLabel="Session A" points={[{ index: 1, solveId: "historical", recognitionMs: 2000, executionMs: 8000 }]} />);
+    expect(html).toContain("Recognition vs execution trend for Session A");
+    expect(html).toContain("historical · Measured recognition: 2.00"); expect(html).toContain("historical · Execution: 8.00");
+  });
+
   it("distinguishes an empty CFOP scope from an empty display window", () => {
     const scope = renderToStaticMarkup(<CfopPhaseTrendChart points={[]} scopeLabel="All sessions" />);
     expect(scope).toContain("No usable CFOP analysis in this scope.");

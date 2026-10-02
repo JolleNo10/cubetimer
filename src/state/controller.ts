@@ -64,6 +64,7 @@ import {
   isLastLayerTrainingComplete,
   lastLayerCaseIds,
   type LastLayerFamily,
+  type LastLayerTrainingSet,
   type LastLayerTrainingTarget,
   type LastLayerTrainingTargetInfo,
 } from "../cube/lastLayerTraining";
@@ -738,9 +739,11 @@ export class Controller {
     }));
   }
 
-  async selectLastLayerCase(family: LastLayerFamily, caseId: string): Promise<void> {
+  async selectLastLayerCase(family: LastLayerFamily, caseId: string, catalogue?: LastLayerTrainingSet): Promise<void> {
     const settings = this.state.get().settings;
-    const trainingSet = family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet;
+    // Historical case tables name Full cases, independently of the user's library
+    // preference. Explicit catalogue navigation still uses the same lifecycle.
+    const trainingSet = catalogue ?? (family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet);
     if (!lastLayerCaseIds(family, trainingSet).includes(caseId)) return;
     this.setTrainingFamily(family);
     if (!this.#model) return;

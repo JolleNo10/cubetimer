@@ -1,4 +1,4 @@
-import { STEP_NAMES, type StepName } from "../cube/analysis";
+import { STEP_NAMES, PAUSE_THRESHOLD_MS, type StepName, type SolveStep, type SolveAnalysis } from "../cube/analysis";
 import { effectiveMs, type Solve } from "./types";
 
 const MIN_COMPARISON_SOLVES = 3;
@@ -28,6 +28,10 @@ export type AnalysedSolveFacts = {
   recognitionMs: number;
   executionMs: number;
   tps: number;
+  recognitionShare: number;
+  steps: readonly SolveStep[];
+  pauses: SolveAnalysis["pauses"];
+  xCrossCount: number;
   phases: {
     crossMs: number;
     f2lMs: number;
@@ -50,10 +54,11 @@ function compatibleAnalysis(
 ): boolean {
   return current.method === "CFOP"
     && candidate.method === current.method
+    && Array.isArray(current.steps) && Array.isArray(candidate.steps)
     && current.steps.length === STEP_NAMES.length
     && candidate.steps.length === current.steps.length
     && current.steps.every((step, index) =>
-      step.name === STEP_NAMES[index] && candidate.steps[index].name === step.name);
+      step && candidate.steps[index] && step.name === STEP_NAMES[index] && candidate.steps[index].name === step.name);
 }
 
 function median(values: number[]): number {
@@ -130,20 +135,43 @@ export function countedSolves(solves: readonly Solve[]): Solve[] {
  * average a DNF. Returns `null` for DNF and `undefined` when there are too few solves.
  */
 export function averageOf(solves: Solve[], n: number): number | null | undefined {
+  return averageWindow(solves, n)?.value;
+}
+
+export type AverageWindow = {
+  size: number;
+  value: number | null;
+  entries: { solveId: string; time: number | null; trim: "best" | "worst" | "kept"; causesDnf: boolean }[];
+};
+
+/** Exact chronological membership and trims, using the same rule as every average. */
+export function averageWindow(solves: readonly Solve[], n: number): AverageWindow | undefined {
   if (solves.length < n) return undefined;
-  return averageTimes(solves.slice(-n).map(effectiveMs));
+  const members = solves.slice(-n);
+  const summary = averageSummary(members.map(effectiveMs));
+  return { size: n, value: summary.value, entries: summary.entries.map((entry, index) => ({ ...entry, solveId: members[index].id })) };
 }
 
 /** The existing trimming/DNF rule, shared by achieved and projected averages. */
 function averageTimes(times: readonly (number | null)[]): number | null {
-  const dnfs = times.filter((t) => t === null).length;
-  if (dnfs > 1) return null;
+  return averageSummary(times).value;
+}
 
-  const finished = times.filter((t): t is number => t !== null).sort((a, b) => a - b);
-  // Trim one from each end; a DNF has already taken the slow slot.
-  const trimmed = dnfs === 1 ? finished.slice(1) : finished.slice(1, -1);
-  if (trimmed.length === 0) return null;
-  return trimmed.reduce((sum, t) => sum + t, 0) / trimmed.length;
+function averageSummary(times: readonly (number | null)[]) {
+  const sorted = times.map((time, index) => ({ time, index }))
+    .sort((a, b) => a.time === null ? b.time === null ? a.index - b.index : 1
+      : b.time === null ? -1 : a.time - b.time || a.index - b.index);
+  const best = sorted[0]?.index;
+  const worst = sorted.at(-1)?.index;
+  const kept = sorted.slice(1, -1);
+  const value = times.filter((time) => time === null).length > 1 || !kept.length
+    ? null : kept.reduce((sum, item) => sum + (item.time ?? 0), 0) / kept.length;
+  const entries = times.map((time, index) => ({
+    time,
+    trim: index === best ? "best" as const : index === worst ? "worst" as const : "kept" as const,
+    causesDnf: value === null && time === null && index !== worst,
+  }));
+  return { value, entries };
 }
 
 /** Mean of `n` with no trimming — used for mo3, and for DNF-free session means. */
@@ -233,8 +261,14 @@ function longAverage(times: (number | null)[], size: 50 | 100, baseline: number 
 }
 
 export function analysedSolveFacts(solve: Solve): AnalysedSolveFacts | null {
+  if (!isCountedSolve(solve) || effectiveMs(solve) === null) return null;
+  return validatedSolveFacts(solve);
+}
+
+/** Validate recorded analysis for read-only review, independently of ranking eligibility. */
+export function validatedSolveFacts(solve: Solve): AnalysedSolveFacts | null {
   const analysis = solve.analysis;
-  if (!isCountedSolve(solve) || effectiveMs(solve) === null || !analysis) return null;
+  if (!analysis) return null;
   const nonnegative = (value: number) => Number.isFinite(value) && value >= 0;
   if (
     !compatibleAnalysis(analysis, analysis)
@@ -242,7 +276,18 @@ export function analysedSolveFacts(solve: Solve): AnalysedSolveFacts | null {
     || !Number.isFinite(analysis.solvingMs) || analysis.solvingMs <= 0
     || !nonnegative(analysis.totalRecognitionMs)
     || analysis.totalRecognitionMs > analysis.solvingMs
-    || !analysis.steps.every((step) => nonnegative(step.timeMs))
+    || !nonnegative(analysis.totalExecutionMs) || analysis.totalExecutionMs > analysis.solvingMs
+    || !analysis.steps.every((step, index) =>
+      nonnegative(step.timeMs) && nonnegative(step.recognitionMs) && nonnegative(step.executionMs)
+      && nonnegative(step.sliceTurns) && typeof step.skipped === "boolean"
+      && (step.case == null || typeof step.case === "string")
+      && Number.isInteger(step.fromMove) && Number.isInteger(step.toMove)
+      && step.fromMove === (index === 0 ? 0 : analysis.steps[index - 1].toMove)
+      && step.toMove >= step.fromMove)
+    || !Array.isArray(analysis.pauses)
+    || !analysis.pauses.every((pause) => pause && Number.isInteger(pause.afterMove) && pause.afterMove >= 0
+      && pause.afterMove + 1 < analysis.steps.at(-1)!.toMove
+      && nonnegative(pause.startMs) && Number.isFinite(pause.durationMs) && pause.durationMs >= PAUSE_THRESHOLD_MS)
   ) return null;
 
   const [cross, f2lSlot1, f2lSlot2, f2lSlot3, f2lSlot4, oll, pll] = analysis.steps;
@@ -255,8 +300,12 @@ export function analysedSolveFacts(solve: Solve): AnalysedSolveFacts | null {
     sliceTurns: analysis.sliceTurns,
     solvingMs,
     recognitionMs,
-    executionMs: solvingMs - recognitionMs,
+    executionMs: analysis.totalExecutionMs,
     tps: analysis.sliceTurns / solvingMs * 1000,
+    recognitionShare: recognitionMs / solvingMs,
+    steps: analysis.steps,
+    pauses: analysis.pauses,
+    xCrossCount: leadingXCrossCount(analysis.steps),
     phases: {
       crossMs: cross.timeMs,
       f2lMs: f2lSlot1.timeMs + f2lSlot2.timeMs + f2lSlot3.timeMs + f2lSlot4.timeMs,
@@ -264,6 +313,17 @@ export function analysedSolveFacts(solve: Solve): AnalysedSolveFacts | null {
       pllMs: pll.timeMs,
     },
   };
+}
+
+/** Count only pairs already complete at the Cross boundary, in completion order. */
+export function leadingXCrossCount(steps: readonly SolveStep[]): number {
+  const boundary = steps[0].toMove;
+  let count = 0;
+  for (const step of steps.slice(1, 5)) {
+    if (step.fromMove !== boundary || step.toMove !== boundary || !(step.skipped || step.sliceTurns === 0)) break;
+    count++;
+  }
+  return count;
 }
 
 function analysedSessionStats(solves: Solve[]): Pick<SessionStats, "solving" | "cfop"> {

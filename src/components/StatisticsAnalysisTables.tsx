@@ -1,0 +1,62 @@
+import { useMemo, useState } from "react";
+import { formatTime, formatSolveTime } from "../state/stats";
+import { RECOGNITION_NOTE, sortCasePerformance, type CasePerformance, type CaseSort, type PerformanceSummary, type SortDirection, type StatisticsViewModel } from "../state/statistics";
+import type { Solve } from "../state/types";
+import type { LastLayerFamily } from "../cube/lastLayerTraining";
+
+export function PerformanceTable({ rows, onSelect }: { rows: readonly PerformanceSummary[]; onSelect?: (row: PerformanceSummary) => void }) {
+  return <div className="table-scroll"><table className="stats-table"><thead><tr><th>Case / position</th><th>Samples</th><th>Best</th><th>Median</th><th>Recognition median</th><th>Execution median</th><th>STM median</th><th>Execution TPS</th><th>Skips</th></tr></thead><tbody>{rows.map((row) => <tr key={row.label}><td>{onSelect ? <button className="ghost small" onClick={() => onSelect(row)}>{row.label}</button> : row.label}</td><td>{row.count}</td><td>{formatTime(row.bestMs)}</td><td>{formatTime(row.medianMs)}</td><td>{formatTime(row.recognitionMs)}</td><td>{formatTime(row.executionMs)}</td><td>{row.moves ?? "—"}</td><td>{row.tps?.toFixed(2) ?? "—"}</td><td>{row.skipCount}</td></tr>)}</tbody></table></div>;
+}
+
+export function StatisticsCaseTable({ family, rows, skipCount, model, onOpenSolve, onTrainCase }: {
+  family: LastLayerFamily; rows: readonly CasePerformance[]; skipCount: number; model: StatisticsViewModel;
+  onOpenSolve: (solve: Solve) => void; onTrainCase: (family: LastLayerFamily, caseId: string) => void;
+}) {
+  const [sort, setSort] = useState<CaseSort>("case");
+  const [direction, setDirection] = useState<SortDirection>("asc");
+  const [caseId, setCaseId] = useState<string | null>(null);
+  const sorted = useMemo(() => sortCasePerformance(rows, sort, direction), [rows, sort, direction]);
+  const selected = rows.find((row) => row.caseId === caseId);
+  const members = new Map(model.scopeSolves.map((solve) => [solve.id, solve]));
+  return <section className="stats-section"><div className="section-heading"><div><h2>{family.toUpperCase()} cases</h2><p>{skipCount} skips · {model.analysisCount ? (skipCount / model.analysisCount * 100).toFixed(1) : "—"}% of analysed solves</p></div></div>
+    <p className="small faint">{RECOGNITION_NOTE}</p>
+    <div className="statistics-controls"><label className="field">{family.toUpperCase()} case sort<select value={sort} onChange={(e) => setSort(e.target.value as CaseSort)}>{(["case", "count", "median", "recognition", "execution", "tps"] as const).map((key) => <option key={key} value={key}>{key === "tps" ? "Execution TPS" : key}</option>)}</select></label><label className="field">Direction<select value={direction} onChange={(e) => setDirection(e.target.value as SortDirection)}><option value="asc">Ascending</option><option value="desc">Descending</option></select></label></div>
+    {rows.length ? <PerformanceTable rows={sorted} onSelect={(row) => setCaseId((row as CasePerformance).caseId)} /> : <div className="chart-empty">No recognised non-skipped {family.toUpperCase()} cases in this scope.</div>}
+    {selected ? <div className="stats-detail" role="region" aria-label={`${family.toUpperCase()} case solves`}>
+      <div className="section-heading"><h3>{family.toUpperCase()} {selected.caseId} · {selected.count} solves</h3><div className="row"><button onClick={() => onTrainCase(family, selected.caseId)}>Train case</button><button className="ghost" onClick={() => setCaseId(null)}>Close case</button></div></div>
+      <div className="table-scroll"><table className="stats-table"><thead><tr><th>Solve</th><th>Session</th><th>Date</th></tr></thead><tbody>{selected.solveIds.map((id) => {
+        const solve = members.get(id);
+        return solve ? <tr key={id}><td><button className="ghost small" onClick={() => onOpenSolve(solve)}>{formatSolveTime(solve)}</button></td><td>{model.eventSessions.find((session) => session.id === solve.sessionId)?.name}</td><td>{new Date(solve.createdAt).toLocaleString()}</td></tr> : null;
+      })}</tbody></table></div>
+    </div> : null}
+  </section>;
+}
+
+export function StatisticsAnalysisTables({ model, onOpenSolve, onTrainCase }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void; onTrainCase: (family: LastLayerFamily, caseId: string) => void }) {
+  const pauses = model.pauses;
+  const consistency = model.consistency;
+  const longestSolve = model.scopeSolves.find((solve) => solve.id === pauses?.longest?.solveId);
+  return <>
+    <section className="stats-section"><div className="section-heading"><div><h2>F2L performance</h2><p>Pair completion order · skipped/XCross pairs counted separately</p></div></div><p className="small faint">{RECOGNITION_NOTE}</p>{model.analysisCount ? <PerformanceTable rows={model.f2lPositions} /> : <div className="chart-empty">No usable CFOP analysis in this scope.</div>}</section>
+    <StatisticsCaseTable family="oll" rows={model.ollCases} skipCount={model.ollSkips} model={model} onOpenSolve={onOpenSolve} onTrainCase={onTrainCase} />
+    <StatisticsCaseTable family="pll" rows={model.pllCases} skipCount={model.pllSkips} model={model} onOpenSolve={onOpenSolve} onTrainCase={onTrainCase} />
+    <section className="stats-section"><div className="section-heading"><div><h2>Pauses</h2><p>Gaps ≥250 ms, attributed to the phase containing the next raw move. Pre-first-turn planning is unmeasured.</p></div></div>
+      {pauses ? <>
+        <div className="stat-grid">{[
+          ["Mean pauses per solve", pauses.meanCount.toFixed(2)], ["Mean individual pause", formatTime(pauses.meanDurationMs)],
+          ["Mean total pause time", formatTime(pauses.meanTotalMs)], ["Pause-free solves", `${pauses.pauseFreeCount} / ${pauses.sampleSize} (${(pauses.pauseFreeShare * 100).toFixed(1)}%)`],
+        ].map(([label, value]) => <div className="stat-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+        <p>Longest pause: {longestSolve ? <button className="ghost small" onClick={() => onOpenSolve(longestSolve)}>{formatTime(pauses.longest?.durationMs)} · {longestSolve.id}</button> : "—"}</p>
+        <div className="table-scroll"><table className="stats-table"><thead><tr><th>Phase</th><th>Total pause time</th><th>Share of pauses</th></tr></thead><tbody>{pauses.phases.map((phase) => <tr key={phase.name}><td>{phase.name}</td><td>{formatTime(phase.totalMs)}</td><td>{(phase.share * 100).toFixed(1)}%</td></tr>)}</tbody></table></div>
+      </> : <div className="chart-empty">Pause analytics need usable CFOP analysis.</div>}
+    </section>
+    <section className="stats-section"><div className="section-heading"><div><h2>Consistency</h2><p>Finished effective times · full selected scope</p></div></div>
+      <div className="stat-grid">{[
+        ["Best Single", formatTime(consistency.pbMs)], ["Median", formatTime(consistency.medianMs)],
+        ["PB vs median gap", `${formatTime(consistency.gapMs)}${consistency.gapShare === undefined ? "" : ` (${(consistency.gapShare * 100).toFixed(1)}% of median)`}`],
+        ["Middle 50% · P25 → P75", `${formatTime(consistency.p25Ms)} → ${formatTime(consistency.p75Ms)}`],
+        ["Middle 80% · P10 → P90", `${formatTime(consistency.p10Ms)} → ${formatTime(consistency.p90Ms)}`],
+      ].map(([label, value]) => <div className="stat-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
+    </section>
+  </>;
+}

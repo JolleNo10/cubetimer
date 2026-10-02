@@ -96,6 +96,19 @@ function f2lTargetOf(controller: Controller): F2lTrainingTargetInfo | null {
 }
 
 describe("Controller independent last-layer Training sets", () => {
+  it("loads Full historical case catalogue navigation without changing saved 2-Look preferences", async () => {
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.state.update((state) => ({ ...state, settings: { ...state.settings, ollTrainingSet: "2look", pllTrainingSet: "2look" } }));
+    controller.setArea("statistics");
+    await controller.setTrainingMode("virtual");
+    await controller.selectLastLayerCase("oll", "27", "full");
+    expect(controller.state.get().training.target).toMatchObject({ family: "oll", trainingSet: "full", caseId: "27", origin: { kind: "catalog" } });
+    expect(controller.state.get().settings.ollTrainingSet).toBe("2look");
+    controller.againTraining();
+    expect(controller.state.get().training.target).toMatchObject({ trainingSet: "full", caseId: "27" });
+    expect(controller.state.get().solves).toEqual([]);
+  });
+
   it.each([
     ["oll", "I-Shape", "orient-edges", "virtual"],
     ["oll", "I-Shape", "orient-edges", "setup"],

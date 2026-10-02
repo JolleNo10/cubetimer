@@ -18,6 +18,7 @@ import { useAppState, useController } from "./hooks/useController";
 import type { AppArea } from "./state/controller";
 import type { Solve } from "./state/types";
 import { DEFAULT_EVENT_ID } from "./cube/scramble";
+import type { LastLayerFamily } from "./cube/lastLayerTraining";
 
 /** How long space must be held before a keyboard-timed solve will start. */
 const HOLD_MS = 350;
@@ -31,6 +32,8 @@ export function App() {
   const state = useAppState();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [replaySolve, setReplaySolve] = useState<Solve | null>(null);
+  const [replayOrigin, setReplayOrigin] = useState<"timer" | "statistics">("timer");
+  const [toolsOrigin, setToolsOrigin] = useState<"timer" | "statistics">("timer");
   const [replayInitialView, setReplayInitialView] = useState<ReplayViewState | null>(null);
   const [analyseSolve, setAnalyseSolve] = useState<Solve | null>(null);
   const [resultSolveId, setResultSolveId] = useState<string | null>(null);
@@ -39,6 +42,31 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [holding, setHolding] = useState(false);
   const [holdReady, setHoldReady] = useState(false);
+
+  const openStatisticsReplay = useCallback((solve: Solve) => {
+    setReplayOrigin("statistics");
+    setReplayInitialView(null);
+    setReplaySolve(solve);
+    setTrainingReturnView(null);
+    setResumeTimerAfterTrainingReview(false);
+  }, []);
+  const openStatisticsTools = useCallback((solve: Solve) => {
+    setToolsOrigin("statistics");
+    setAnalyseSolve(solve);
+  }, []);
+  const statisticsScopeChanged = useCallback((ids: readonly string[]) => {
+    if (replayOrigin === "statistics" && replaySolve && !ids.includes(replaySolve.id)) {
+      setReplaySolve(null); setReplayInitialView(null);
+    }
+    if (toolsOrigin === "statistics" && analyseSolve && !ids.includes(analyseSolve.id)) setAnalyseSolve(null);
+  }, [replayOrigin, replaySolve, toolsOrigin, analyseSolve]);
+  const trainStatisticsCase = useCallback((family: LastLayerFamily, caseId: string) => {
+    setTrainingReturnView(null);
+    setResumeTimerAfterTrainingReview(false);
+    setReplaySolve(null); setAnalyseSolve(null); setReplayInitialView(null);
+    controller.setArea("training");
+    void controller.selectLastLayerCase(family, caseId, "full");
+  }, [controller]);
 
   const live = state.cubeStatus === "connected" || state.virtualCube;
 
@@ -268,7 +296,7 @@ export function App() {
       />
 
       {state.area === "training" ? <Training state={state} /> : state.area === "statistics" ? (
-        <StatisticsView currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} />
+        <StatisticsView currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} onReplay={openStatisticsReplay} onTools={openStatisticsTools} onTrainCase={trainStatisticsCase} onScopeChange={statisticsScopeChanged} />
       ) : <div className="app-body">
         <div className="column left">
           <ConnectionPanel state={state} />
@@ -311,10 +339,11 @@ export function App() {
                 solves={state.solves}
                 onContinue={closeResult}
                 onReplay={(solve) => {
+                  setReplayOrigin("timer");
                   setReplayInitialView(null);
                   setReplaySolve(solve);
                 }}
-                onAnalyse={setAnalyseSolve}
+                onAnalyse={(solve) => { setToolsOrigin("timer"); setAnalyseSolve(solve); }}
                 onPracticeStep={(step) => {
                   setTrainingReturnView({ kind: "result", solveId: resultSolve.id });
                   setReplayInitialView(null);
@@ -362,7 +391,7 @@ export function App() {
             setReplaySolve(null);
             setReplayInitialView(null);
           }}
-          onTrainStep={(step, view) => {
+          onTrainStep={replayOrigin === "statistics" ? undefined : (step, view) => {
             setTrainingReturnView({
               kind: "replay",
               solveId: replaySolve.id,

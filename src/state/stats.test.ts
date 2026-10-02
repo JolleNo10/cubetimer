@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { STEP_NAMES, type SolveAnalysis } from "../cube/analysis";
 import {
   averageOf,
+  averageWindow,
   bestAverage,
   countedSolves,
   compareSolveToHistory,
@@ -42,6 +43,28 @@ function analysedSolve(
 }
 
 describe("averageOf", () => {
+  it.each([5, 12, 50, 100])("keeps numeric Ao%i behavior and explains exact trims", (size) => {
+    const items = Array.from({ length: size + 3 }, (_, index) => ({ ...solve((index + 1) * 1000), id: `s${index}` }));
+    const window = averageWindow(items, size)!;
+    expect(window.value).toBe(((4 + size + 3) / 2) * 1000);
+    expect(window.value).toBe(averageOf(items, size));
+    expect(window.entries.map((entry) => entry.solveId)).toEqual(items.slice(3).map((item) => item.id));
+    expect(window.entries[0].trim).toBe("best");
+    expect(window.entries.at(-1)?.trim).toBe("worst");
+    items.at(-1)!.penalty = "DNF";
+    expect(averageWindow(items, size)!.value).toBe(averageOf(items, size));
+    expect(averageWindow(items, size)!.entries.at(-1)).toMatchObject({ time: null, trim: "worst", causesDnf: false });
+    items.at(-2)!.penalty = "DNF";
+    const dnf = averageWindow(items, size)!;
+    expect(dnf.value).toBeNull();
+    expect(dnf.entries.at(-2)).toMatchObject({ time: null, trim: "kept", causesDnf: true });
+  });
+
+  it("trims deterministic distinct members when times tie", () => {
+    const items = Array.from({ length: 5 }, (_, index) => ({ ...solve(1000), id: `s${index}` }));
+    expect(averageWindow(items, 5)!.entries.map((entry) => entry.trim)).toEqual(["best", "kept", "kept", "kept", "worst"]);
+  });
+
   it("trims the best and worst", () => {
     const solves = [10, 12, 14, 16, 100].map((s) => solve(s * 1000));
     // Drops 10 and 100, means 12/14/16.
@@ -267,7 +290,10 @@ describe("session long averages", () => {
 describe("analysed session statistics", () => {
   function withMetrics(times: number[], turns = 50, solvingMs = 10_000, recognitionMs = 2000): Solve {
     const result = analysedSolve("analysed", times);
-    Object.assign(result.analysis!, { sliceTurns: turns, solvingMs, totalRecognitionMs: recognitionMs });
+    Object.assign(result.analysis!, {
+      sliceTurns: turns, solvingMs, totalRecognitionMs: recognitionMs, totalExecutionMs: solvingMs - recognitionMs, pauses: [],
+      steps: result.analysis!.steps.map((step, index) => ({ ...step, recognitionMs: 0, executionMs: step.timeMs, sliceTurns: 2, skipped: false, fromMove: index * 2, toMove: index * 2 + 2 })),
+    });
     return result;
   }
 

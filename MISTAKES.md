@@ -1,5 +1,11 @@
 # Mistakes
 
+## 2026-10-03 — Statistics compatibility and zero-range pairs
+
+- What happened: the first implementation changed the existing aggregate execution split and admitted an unmarked zero-range XCross pair into performance medians.
+- Root cause: a shared execution fact was repurposed without preserving its aggregate consumer, and summary skip detection used fewer conditions than XCross detection.
+- Prevention: keep existing aggregate formulas explicit when adding measured metrics, and test zero-range pairs independently of their skipped flag.
+
 ## 2026-10-02 — Statistics follow-up boundaries
 
 - What happened: Settings could reconcile Timer progress and start hidden
@@ -121,6 +127,13 @@ not independently invented states. The original entry is retained as history.
   feature files and their directly imported data modules before reporting a blocker.
 
 ## 2026-10-03
+
+- What happened: an F2L aggregate TPS regression assertion failed on the final
+  floating-point digit despite equivalent durations and move counts.
+- Root cause: the test compared division by seconds with division by milliseconds
+  followed by multiplication using exact numeric equality.
+- Prevention: use approximate assertions for non-integer derived rates; keep exact
+  assertions for source counts, boundaries, and integral timings.
 
 - What happened: new last-layer Controller setup tests expected an already matched
   target to avoid invoking the search worker, and failed to reach ready in Node.

@@ -1,9 +1,32 @@
 import { formatTime } from "../state/stats";
-import type { DistributionStats, PhaseTrendPoint, TrendPoint } from "../state/statistics";
+import type { AverageProgressionPoint, RecognitionTrendPoint, DistributionStats, PhaseTrendPoint, TrendPoint } from "../state/statistics";
 
 const WIDTH = 1000;
 const HEIGHT = 300;
 const PAD = { top: 20, right: 24, bottom: 34, left: 64 };
+
+function TimeSeriesChart({ label, series, ids }: { label: string; series: { label: string; className: string; values: (number | null | undefined)[] }[]; ids: string[] }) {
+  const max = Math.max(1000, ...series.flatMap((item) => item.values.filter((value): value is number => typeof value === "number" && Number.isFinite(value)))) * 1.1;
+  return <div className="chart-shell"><svg className="stats-chart" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={label}>
+    <title>{label}</title>
+    {[0, 0.5, 1].map((ratio) => <g className="chart-axis" key={ratio}><line x1={PAD.left} x2={WIDTH - PAD.right} y1={yFor(ratio * max, max)} y2={yFor(ratio * max, max)} /><text x={PAD.left - 10} y={yFor(ratio * max, max) + 4} textAnchor="end">{formatTime(ratio * max)}</text></g>)}
+    {series.map((item, index) => <g key={item.label}><path className={`chart-line ${item.className}`} d={linePath(item.values, max)} /><text className={`chart-legend-label ${item.className}`} x={WIDTH - PAD.right} y={PAD.top + index * 16 + 4} textAnchor="end">{item.label}</text>{item.values.map((value, point) => typeof value === "number" && Number.isFinite(value) ? <circle key={ids[point]} className={`chart-series-point ${item.className}`} cx={chartX(point, item.values.length)} cy={yFor(value, max)} r="2"><title>{`${ids[point]} · ${item.label}: ${formatTime(value)}`}</title></circle> : null)}</g>)}
+    <text className="chart-x-label" x={PAD.left} y={HEIGHT - 8}>older</text><text className="chart-x-label" x={WIDTH - PAD.right} y={HEIGHT - 8} textAnchor="end">newer</text>
+  </svg></div>;
+}
+
+export function AverageProgressionChart({ points, scopeLabel }: { points: AverageProgressionPoint[]; scopeLabel: string }) {
+  if (!points.length) return <div className="chart-empty">An actual window of at least 5 counted solves is needed for average progression.</div>;
+  return <TimeSeriesChart label={`Actual rolling average progression for ${scopeLabel}`} ids={points.map((point) => point.solveId)} series={([5, 12, 50, 100] as const).map((size) => ({ label: `Ao${size}`, className: `ao${size}`, values: points.map((point) => point[`ao${size}`]) }))} />;
+}
+
+export function RecognitionExecutionTrendChart({ points, scopeLabel }: { points: RecognitionTrendPoint[]; scopeLabel: string }) {
+  if (!points.length) return <div className="chart-empty">No analysed solves in this chart window.</div>;
+  return <TimeSeriesChart label={`Recognition vs execution trend for ${scopeLabel}`} ids={points.map((point) => point.solveId)} series={[
+    { label: "Measured recognition", className: "recognition", values: points.map((point) => point.recognitionMs) },
+    { label: "Execution", className: "execution", values: points.map((point) => point.executionMs) },
+  ]} />;
+}
 
 function chartX(index: number, length: number): number {
   return PAD.left + (length <= 1 ? 0 : (WIDTH - PAD.left - PAD.right) * index / (length - 1));
