@@ -166,7 +166,7 @@ not independently invented states. The original entry is retained as history.
 
 - What happened: the first focused Vitest run was attempted inside the Windows sandbox and failed before tests loaded.
 - Root cause: Vite's esbuild configuration needs to spawn a child process, which the sandbox rejected with `spawn EPERM`.
-- Prevention: run Vite/Vitest/build commands in the approved host context on this Windows workspace when the sandbox reports a process-spawn restriction.
+- Prevention: follow the Windows verification commands rule in `AGENTS.md` on the first invocation; keeping this known restriction only in the mistake log allowed later agents to repeat it.
 
 ## 2026-09-29
 

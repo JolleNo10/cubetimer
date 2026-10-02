@@ -57,6 +57,15 @@ instead and explain why the quick-fix path was not sufficient.
 ## Repository workflow
 
 
+### Windows verification commands
+
+On this Windows workspace, run commands that invoke Vite, Vitest, or esbuild
+(including npm test, npm run test:watch, npm run dev, and npm run build)
+directly in the approved host/escalated context. The Windows sandbox blocks
+esbuild's child-process launch with `spawn EPERM` before tests or builds start.
+For Codex exec_command, use `sandbox_permissions: "require_escalated"` on
+the first invocation and keep verification scoped to the requested change.
+
 ### Implementation delivery
 
 For a completed implementation or change task, verification is followed by
