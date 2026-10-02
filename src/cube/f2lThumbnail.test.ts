@@ -31,14 +31,9 @@ function targetPieceIds(state: F2lCatalogueCaseState) {
   return target;
 }
 
-function slotSolved(pattern: F2lCatalogueCaseState["pattern"], slot: { corner: number; edge: number }): boolean {
-  const { CORNERS, EDGES } = pattern.patternData;
-  return (
-    CORNERS.pieces[slot.corner] === slot.corner &&
-    CORNERS.orientation[slot.corner] === 0 &&
-    EDGES.pieces[slot.edge] === slot.edge &&
-    EDGES.orientation[slot.edge] === 0
-  );
+function cornerSolved(pattern: F2lCatalogueCaseState["pattern"], corner: number): boolean {
+  const { CORNERS } = pattern.patternData;
+  return CORNERS.pieces[corner] === corner && CORNERS.orientation[corner] === 0;
 }
 
 function edgeSolved(pattern: F2lCatalogueCaseState["pattern"], edge: number): boolean {
@@ -80,9 +75,12 @@ function expectedTeachingMask(
     if (edgeSolved(state.pattern, edge)) add(EDGE_FACELETS[edges.indexOf(edge)], true);
   }
   for (const slot of f2lSlotsForCrossFace("U")) {
-    if (!slotSolved(state.pattern, slot)) continue;
-    add(CORNER_FACELETS[corners.indexOf(slot.corner)], true);
-    add(EDGE_FACELETS[edges.indexOf(slot.edge)], true);
+    if (slot.corner !== target.corner && cornerSolved(state.pattern, slot.corner)) {
+      add(CORNER_FACELETS[corners.indexOf(slot.corner)], true);
+    }
+    if (slot.edge !== target.edge && edgeSolved(state.pattern, slot.edge)) {
+      add(EDGE_FACELETS[edges.indexOf(slot.edge)], true);
+    }
   }
   return [...coloured].sort((a, b) => a - b);
 }
@@ -131,14 +129,14 @@ function validateThumbnail(caseName: string, position: F2lPosition, library: F2l
     }
   }
   for (const slot of f2lSlotsForCrossFace("U")) {
-    const solved = slotSolved(state.pattern, slot);
-    const isTarget = slot.corner === target.corner || slot.edge === target.edge;
-    for (const index of [
-      ...CORNER_FACELETS[displayed.patternData.CORNERS.pieces.indexOf(slot.corner)],
-      ...EDGE_FACELETS[displayed.patternData.EDGES.pieces.indexOf(slot.edge)],
-    ]) {
+    for (const index of CORNER_FACELETS[displayed.patternData.CORNERS.pieces.indexOf(slot.corner)]) {
+      expect(coloured.has(index), `F2L corner ${slot.name}, sticker ${index}`).toBe(
+        slot.corner === target.corner || (cornerSolved(state.pattern, slot.corner) && sides.some((face) => faceletOnFace(index, face))),
+      );
+    }
+    for (const index of EDGE_FACELETS[displayed.patternData.EDGES.pieces.indexOf(slot.edge)]) {
       expect(coloured.has(index), `F2L slot ${slot.name}, sticker ${index}`).toBe(
-        isTarget || (solved && sides.some((face) => faceletOnFace(index, face))),
+        slot.edge === target.edge || (edgeSolved(state.pattern, slot.edge) && sides.some((face) => faceletOnFace(index, face))),
       );
     }
   }
@@ -282,28 +280,41 @@ describe("Advanced F2L thumbnail semantics", () => {
     expect(trapped).toBeGreaterThan(0);
   });
 
-  it.each(["AF2L 1", "AF2L 10", "AF2L 25"] as const)(
-    "%s keeps additional unsolved/trapped non-target pieces grey",
-    (caseName) => {
-      const entry = cases.find((candidate) => candidate.name === caseName)!;
-      const state = buildF2lCatalogueCaseState(kpuzzle, entry, "FR");
-      const target = targetPieceIds(state);
-      const displayed = state.pattern.applyAlg(new Alg(state.trainingRotation.tokens.join(" ")));
-      const coloured = new Set(ADVANCED_F2L_THUMBNAIL_MAP[caseName].FR.coloured);
-      let unsolved = 0;
-      for (const slot of f2lSlotsForCrossFace("U")) {
-        if (slot.name === target.name || slotSolved(state.pattern, slot)) continue;
-        unsolved++;
-        for (const index of [
-          ...CORNER_FACELETS[displayed.patternData.CORNERS.pieces.indexOf(slot.corner)],
-          ...EDGE_FACELETS[displayed.patternData.EDGES.pieces.indexOf(slot.edge)],
-        ]) {
-          expect(coloured.has(index), `${caseName} ${slot.name} sticker ${index}`).toBe(false);
+  it("colours solved non-target F2L pieces independently in partial slots", () => {
+    const directions = new Set<string>();
+    let partialSlots = 0;
+    for (const entry of cases) {
+      for (const position of F2L_POSITIONS) {
+        const state = buildF2lCatalogueCaseState(kpuzzle, entry, position);
+        const target = targetPieceIds(state);
+        const displayed = state.pattern.applyAlg(new Alg(state.trainingRotation.tokens.join(" ")));
+        const coloured = new Set(ADVANCED_F2L_THUMBNAIL_MAP[entry.name][position].coloured);
+        const sides = targetSideFaces(displayed, target);
+        for (const slot of f2lSlotsForCrossFace("U")) {
+          if (slot.name === target.name) continue;
+          const solvedCorner = cornerSolved(state.pattern, slot.corner);
+          const solvedEdge = edgeSolved(state.pattern, slot.edge);
+          if (solvedCorner === solvedEdge) continue;
+          partialSlots++;
+          directions.add(`${solvedCorner}-${solvedEdge}`);
+          for (const index of CORNER_FACELETS[displayed.patternData.CORNERS.pieces.indexOf(slot.corner)]) {
+            if (sides.some((face) => faceletOnFace(index, face))) {
+              expect(coloured.has(index), `${entry.name} ${position} ${slot.name} corner ${index}`).toBe(solvedCorner);
+            }
+          }
+          for (const index of EDGE_FACELETS[displayed.patternData.EDGES.pieces.indexOf(slot.edge)]) {
+            if (sides.some((face) => faceletOnFace(index, face))) {
+              expect(coloured.has(index), `${entry.name} ${position} ${slot.name} edge ${index}`).toBe(solvedEdge);
+            }
+          }
         }
       }
-      expect(unsolved).toBeGreaterThan(0);
-    },
-  );
+    }
+    expect(partialSlots).toBeGreaterThan(0);
+    // The checked-in catalogue currently contains only solved-corner/unsolved-edge
+    // non-target partial slots; the per-piece assertions above cover either direction.
+    expect(directions).toContain("true-false");
+  });
 
   it("generates deterministic Advanced data matching the checked-in map", () => {
     const source = renderF2lThumbnailMap(kpuzzle, "advanced");

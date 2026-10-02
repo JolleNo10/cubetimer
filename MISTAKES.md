@@ -9,9 +9,12 @@
   teaching semantics.
 - Prevention: use one state-derived stickering rule for every F2L case. Colour the
   target corner/edge wherever they are, plus the already-solved cross/F2L foundation
-  visible on the target pair's two side colours. Colour only those two side centres.
-  Everything else is grey. Basic and Advanced differ naturally because their
-  starting states contain different solved F2L structure.
+  visible on the target pair's two side colours. Test each non-target F2L corner and
+  edge independently: a solved edge remains coloured when its partner corner is
+  trapped, and vice versa. Do not collapse the foundation to an all-or-nothing slot
+  predicate. Colour only those two side centres. Everything else is grey. Basic and
+  Advanced differ naturally because their starting states contain different solved
+  F2L structure.
 
 ## 2026-10-01 — Advanced F2L published-state authority
 

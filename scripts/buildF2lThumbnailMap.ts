@@ -15,14 +15,9 @@ import { buildF2lCatalogueCaseState, type F2lCatalogueCaseState } from "../src/c
 import { EDGES_OF_FACE, FACE_OFFSET, FACES, f2lSlotsForCrossFace, type Face } from "../src/cube/moves";
 import { get3x3x3 } from "../src/cube/puzzle";
 
-function slotSolved(pattern: F2lCatalogueCaseState["pattern"], slot: { corner: number; edge: number }): boolean {
-  const { CORNERS, EDGES } = pattern.patternData;
-  return (
-    CORNERS.pieces[slot.corner] === slot.corner &&
-    CORNERS.orientation[slot.corner] === 0 &&
-    EDGES.pieces[slot.edge] === slot.edge &&
-    EDGES.orientation[slot.edge] === 0
-  );
+function cornerSolved(pattern: F2lCatalogueCaseState["pattern"], corner: number): boolean {
+  const { CORNERS } = pattern.patternData;
+  return CORNERS.pieces[corner] === corner && CORNERS.orientation[corner] === 0;
 }
 
 function edgeSolved(pattern: F2lCatalogueCaseState["pattern"], edge: number): boolean {
@@ -78,13 +73,16 @@ export function buildF2lTeachingMask(
     addStickers(coloured, EDGE_FACELETS[displayedSlot], targetSideFaces);
   }
   for (const slot of f2lSlotsForCrossFace("U")) {
-    if (!slotSolved(state.pattern, slot)) continue;
-    const displayedCorner = displayedCorners.indexOf(slot.corner);
-    const displayedEdge = displayedEdges.indexOf(slot.edge);
-    assert(displayedCorner >= 0, `Missing solved F2L corner ${slot.corner} for ${state.slot}`);
-    assert(displayedEdge >= 0, `Missing solved F2L edge ${slot.edge} for ${state.slot}`);
-    addStickers(coloured, CORNER_FACELETS[displayedCorner], targetSideFaces);
-    addStickers(coloured, EDGE_FACELETS[displayedEdge], targetSideFaces);
+    if (slot.corner !== targetSlot.corner && cornerSolved(state.pattern, slot.corner)) {
+      const displayedCorner = displayedCorners.indexOf(slot.corner);
+      assert(displayedCorner >= 0, `Missing solved F2L corner ${slot.corner} for ${state.slot}`);
+      addStickers(coloured, CORNER_FACELETS[displayedCorner], targetSideFaces);
+    }
+    if (slot.edge !== targetSlot.edge && edgeSolved(state.pattern, slot.edge)) {
+      const displayedEdge = displayedEdges.indexOf(slot.edge);
+      assert(displayedEdge >= 0, `Missing solved F2L edge ${slot.edge} for ${state.slot}`);
+      addStickers(coloured, EDGE_FACELETS[displayedEdge], targetSideFaces);
+    }
   }
 
   return [...coloured].sort((a, b) => a - b);
