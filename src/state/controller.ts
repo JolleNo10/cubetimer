@@ -1473,6 +1473,7 @@ export class Controller {
   }
 
   #startInspection(): void {
+    if (this.state.get().area !== "timer") return;
     if (this.#sessionContextBusy) return;
     this.#inspectionStartedAt = performance.now();
     this.#beeped.clear();
@@ -1754,6 +1755,7 @@ export class Controller {
   }
 
   #updateScrambleProgress(): void {
+    if (this.state.get().area !== "timer") return;
     const model = this.#model;
     const tracker = this.#tracker;
     const { phase, settings } = this.state.get();

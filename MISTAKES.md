@@ -1,5 +1,17 @@
 # Mistakes
 
+## 2026-10-02 — Statistics follow-up boundaries
+
+- What happened: Settings could reconcile Timer progress and start hidden
+  inspection in Statistics; clicking an active tab cleared review-return state;
+  an empty CFOP window was described as an empty scope.
+- Root cause: area checks covered move routing but not the Timer workflow methods,
+  App cleanup ran before detecting no-op navigation, and chart empty copy lacked
+  the distinction between historical scope and the display window.
+- Prevention: guard Timer reconciliation and inspection at their owning methods,
+  reject same-area navigation before presentation cleanup, and test Settings
+  changes while Statistics is open plus scope/window-specific chart messages.
+
 ## 2026-10-02 — Statistics review regressions
 
 - What happened: the Statistics filter was mistaken for the active Timer Session,

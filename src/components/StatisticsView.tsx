@@ -228,7 +228,7 @@ export function StatisticsView({ currentEvent, activeSessionId }: { currentEvent
           </div>
 
           <section className="stats-section"><div className="section-heading"><div><h2>Analysis</h2><p>Canonical analysed normal solves</p></div></div><AnalysisSection model={model} /></section>
-          {model.phaseTrend.length ? <section className="stats-section"><div className="section-heading"><div><h2>CFOP phase trend</h2><p>Rolling median over up to the latest 10 analysed solves</p></div></div><CfopPhaseTrendChart points={visiblePhases} scopeLabel={scopeLabel} /></section> : null}
+          {model.phaseTrend.length ? <section className="stats-section"><div className="section-heading"><div><h2>CFOP phase trend</h2><p>Rolling median over up to the latest 10 analysed solves</p></div></div><CfopPhaseTrendChart points={visiblePhases} scopeLabel={scopeLabel} emptyMessage="No analysed solves in this chart window." /></section> : null}
 
           <section className="stats-section"><div className="section-heading"><div><h2>Session comparison</h2><p>Click a row to filter Statistics only; the Timer Session stays unchanged.</p></div></div><SessionTable model={model} onSelect={setSessionId} /></section>
         </>

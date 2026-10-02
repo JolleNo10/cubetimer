@@ -1,9 +1,25 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { TrendPoint } from "../state/statistics";
-import { DistributionChart, SolveTimeTrendChart } from "./StatisticsCharts";
+import { CfopPhaseTrendChart, DistributionChart, SolveTimeTrendChart } from "./StatisticsCharts";
 
 describe("Statistics charts", () => {
+  it("distinguishes an empty CFOP scope from an empty display window", () => {
+    const scope = renderToStaticMarkup(<CfopPhaseTrendChart points={[]} scopeLabel="All sessions" />);
+    expect(scope).toContain("No usable CFOP analysis in this scope.");
+
+    const window = renderToStaticMarkup(<CfopPhaseTrendChart points={[]} scopeLabel="All sessions" emptyMessage="No analysed solves in this chart window." />);
+    expect(window).toContain("No analysed solves in this chart window.");
+    expect(window).not.toContain("No usable CFOP analysis in this scope.");
+
+    const all = renderToStaticMarkup(<CfopPhaseTrendChart points={[{
+      index: 1, solveId: "old", sessionId: "A", createdAt: 1,
+      crossMs: 1_000, f2lMs: 5_000, ollMs: 2_000, pllMs: 2_000,
+    }]} scopeLabel="All sessions" emptyMessage="No analysed solves in this chart window." />);
+    expect(all).toContain('aria-label="CFOP phase trend for All sessions"');
+    expect(all).not.toContain("No analysed solves");
+  });
+
   it("centres the median and single-value label in a constant-time distribution", () => {
     const markup = renderToStaticMarkup(<DistributionChart distribution={{
       status: "ready",

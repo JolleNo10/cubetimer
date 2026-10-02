@@ -164,11 +164,13 @@ export function DistributionChart({ distribution }: { distribution: Distribution
 export function CfopPhaseTrendChart({
   points,
   scopeLabel,
+  emptyMessage = "No usable CFOP analysis in this scope.",
 }: {
   points: PhaseTrendPoint[];
   scopeLabel: string;
+  emptyMessage?: string;
 }) {
-  if (!points.length) return <div className="chart-empty">No usable CFOP analysis in this scope.</div>;
+  if (!points.length) return <div className="chart-empty">{emptyMessage}</div>;
   const values = points.flatMap((point) => [point.crossMs, point.f2lMs, point.ollMs, point.pllMs]);
   const maxValue = Math.max(...values, 1000) * 1.1;
   const series = [

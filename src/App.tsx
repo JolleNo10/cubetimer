@@ -66,6 +66,7 @@ export function App() {
   }, [controller, resumeTimerAfterTrainingReview]);
 
   const selectArea = useCallback((area: AppArea) => {
+    if (area === state.area) return;
     const returnView = trainingReturnView;
     if ((state.area === "training" || state.area === "statistics") && area === "timer" && returnView) {
       const solve = state.solves.find((candidate) => candidate.id === returnView.solveId);

@@ -159,6 +159,41 @@ describe("Controller application-area ownership", () => {
     expect(controller.state.get().area).toBe("timer");
   });
 
+  it("defers Settings-triggered auto-inspection until Statistics returns to Timer", async () => {
+    stubTimerLoop();
+    const requestFrame = vi.spyOn(globalThis, "requestAnimationFrame");
+    const saveSettings = vi.spyOn(db, "saveSettings").mockResolvedValue();
+    const controller = readyController([session("1")], "1");
+    controller.state.update((state) => ({
+      ...state,
+      virtualCube: true,
+      settings: { ...state.settings, inspection: true, autoInspection: false, requireScramble: true, slowSolve: false },
+    }));
+    controller.setScramble("R");
+    controller.injectMove("R");
+    const before = controller.state.get();
+    expect(before.phase).toBe("ready");
+    expect(before.scrambleProgress?.done).toBe(true);
+
+    controller.setArea("statistics");
+    await controller.updateSettings({ autoInspection: true });
+
+    expect(controller.state.get().area).toBe("statistics");
+    expect(controller.state.get().phase).toBe(before.phase);
+    expect(controller.state.get().scrambleProgress).toBe(before.scrambleProgress);
+    expect(controller.inspectionLeft.get()).toBeNull();
+    expect(requestFrame).not.toHaveBeenCalled();
+    expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ autoInspection: true }));
+
+    controller.setArea("timer");
+
+    expect(controller.state.get().area).toBe("timer");
+    expect(controller.state.get().phase).toBe("inspection");
+    expect(controller.state.get().scrambleProgress?.done).toBe(true);
+    expect(controller.inspectionLeft.get()).toBe(15_000);
+    expect(requestFrame).toHaveBeenCalledOnce();
+  });
+
   it("restores an idle Training target without resetting it", async () => {
     const controller = new Controller(new CubeModel(kpuzzle));
     controller.state.update((state) => ({ ...state, virtualCube: true }));
