@@ -14,8 +14,12 @@ import { CubeModel, patternToFacelets } from "../cube/model";
 import { get3x3x3 } from "../cube/puzzle";
 import { Controller } from "./controller";
 import type { F2lTrainingTargetInfo } from "../cube/f2lTraining";
-import { cubeMove, trainingGrip } from "../cube/training";
-import { buildLastLayerCatalogueTarget, isLastLayerTrainingComplete } from "../cube/lastLayerTraining";
+import { cubeAlgorithm, cubeMove, trainingGrip } from "../cube/training";
+import { buildLastLayerCatalogueTarget, isLastLayerTrainingComplete, lastLayerCaseIds, lastLayerCaseCatalogue } from "../cube/lastLayerTraining";
+import * as solver from "../cube/solver";
+import type { SolveStep } from "../cube/analysis";
+import { isSolvedPattern } from "../cube/analysis";
+import { lastLayerCornersOriented, lastLayerCornersPermuted, lastLayerEdges, reframe, withCentresHome } from "../cube/recognise";
 import * as db from "./db";
 import { DEFAULT_EVENT_ID } from "../cube/scramble";
 import { formatSolveCsv } from "./solveCsv";
@@ -90,6 +94,147 @@ function stubPersistence() {
 function f2lTargetOf(controller: Controller): F2lTrainingTargetInfo | null {
   return controller.state.get().training.target as F2lTrainingTargetInfo | null;
 }
+
+describe("Controller independent last-layer Training sets", () => {
+  it.each([
+    ["oll", "I-Shape", "orient-edges", "virtual"],
+    ["oll", "I-Shape", "orient-edges", "setup"],
+    ["oll", "Sune", "orient-last-layer", "virtual"],
+    ["pll", "Headlights", "permute-corners", "virtual"],
+    ["pll", "Headlights", "permute-corners", "setup"],
+    ["pll", "Ua", "solve-cube", "virtual"],
+  ] as const)("completes 2-Look %s %s at %s in %s mode without Solve history", async (family, caseId, goal, mode) => {
+    stubTimerLoop();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    vi.spyOn(db, "saveSettings").mockResolvedValue();
+    const saveSolve = vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const built = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 0, "2look");
+    const source = lastLayerCaseCatalogue(family, "2look").find((item) => item.caseId === caseId)!;
+    const rawSetup = cubeAlgorithm(source.setup, trainingGrip(built.info));
+    if (mode === "setup") vi.spyOn(solver, "algBetween").mockResolvedValue(new Alg(rawSetup));
+    const model = new CubeModel(kpuzzle);
+    const controller = new Controller(model);
+    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.setTrainingFamily(family);
+    await controller.updateSettings(family === "oll" ? { ollTrainingSet: "2look" } : { pllTrainingSet: "2look" });
+    await controller.setTrainingMode(mode);
+    await controller.selectLastLayerCase(family, caseId);
+    if (mode === "setup") {
+      expect(controller.state.get().training.phase).toBe("preparing");
+      for (const move of rawSetup.split(/\s+/)) controller.injectMove(move);
+      expect(patternToFacelets(model.pattern)).toBe(patternToFacelets(built.pattern));
+    }
+    const target = controller.state.get().training.target;
+    if (!target || !("family" in target)) throw new Error("Last-layer target missing");
+    expect(target).toMatchObject({ family, trainingSet: "2look", caseId, completionGoal: goal });
+    expect(controller.state.get().training.phase).toBe("ready");
+    const rawMoves = Array.from(new Alg(target.references[0].alg).expand().childAlgNodes()).map((node) => cubeMove(node.toString(), trainingGrip(target)));
+    for (const move of rawMoves) controller.injectMove(move);
+    expect(controller.state.get().training.result).toMatchObject({ recommendedStm: target.references[0].stm, delta: 0, matchedReferenceRank: 1 });
+    expect(controller.state.get().training.phase).toBe(mode === "virtual" ? "ready" : "result");
+    expect(controller.state.get().solves).toEqual([]);
+    expect(saveSolve).not.toHaveBeenCalled();
+    const after = withCentresHome(kpuzzle, reframe(kpuzzle, built.pattern.applyAlg(new Alg(rawMoves.join(" "))), new Alg(target.trainingRotation.tokens.join(" "))));
+    if (goal === "orient-edges") {
+      expect(lastLayerEdges(after)).toBe("cross");
+      expect(lastLayerCornersOriented(after)).toBe(false);
+    } else if (goal === "permute-corners") {
+      expect(lastLayerCornersPermuted(after)).toBe(true);
+      expect(isSolvedPattern(after)).toBe(false);
+    }
+    if (mode === "virtual") {
+      controller.againTraining();
+      expect(controller.state.get().training.target).toMatchObject({ trainingSet: "2look", caseId, completionGoal: goal });
+    }
+  });
+
+  it.each(["oll", "pll"] as const)("random %s enumerates only the selected catalogue", (family) => {
+    const controller = new Controller(new CubeModel(kpuzzle));
+    const select = vi.spyOn(controller, "selectLastLayerCase").mockResolvedValue();
+    const random = vi.spyOn(Math, "random");
+    for (const trainingSet of ["full", "2look"] as const) {
+      controller.state.update((state) => ({ ...state, settings: { ...state.settings, [family === "oll" ? "ollTrainingSet" : "pllTrainingSet"]: trainingSet } }));
+      const cases = lastLayerCaseIds(family, trainingSet);
+      expect(cases).toHaveLength(trainingSet === "full" ? family === "oll" ? 57 : 21 : family === "oll" ? 10 : 6);
+      select.mockClear();
+      for (let index = 0; index < cases.length; index++) {
+        random.mockReturnValue((index + 0.5) / cases.length);
+        controller.randomTrainingCase(family);
+      }
+      expect(select.mock.calls).toEqual(cases.map((caseId) => [family, caseId]));
+    }
+  });
+
+  it.each(["oll", "pll"] as const)("rejects Full-only case selection in the 2-Look %s catalogue", async (family) => {
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.state.update((state) => ({ ...state, settings: { ...state.settings, ollTrainingSet: "2look", pllTrainingSet: "2look" } }));
+    await controller.selectLastLayerCase(family, family === "oll" ? "1" : "T");
+    expect(controller.state.get().training.target).toBeNull();
+  });
+
+  it.each(["oll", "pll"] as const)("cancels a running %s target only when its own setting changes", async (family) => {
+    stubTimerLoop();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    vi.spyOn(db, "saveSettings").mockResolvedValue();
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.setTrainingFamily(family);
+    await controller.setTrainingMode("virtual");
+    await controller.selectLastLayerCase(family, family === "oll" ? "27" : "H");
+    controller.injectMove("R");
+    expect(controller.state.get().training.phase).toBe("solving");
+    const before = controller.state.get().training;
+    await controller.updateSettings(family === "oll" ? { pllTrainingSet: "2look" } : { ollTrainingSet: "2look" });
+    expect(controller.state.get().training).toBe(before);
+    await controller.updateSettings(family === "oll" ? { ollTrainingSet: "2look" } : { pllTrainingSet: "2look" });
+    expect(controller.state.get().training).toMatchObject({ family, mode: "virtual", phase: "selecting", target: null, liveMoves: [], result: null });
+    expect(controller.elapsed.get()).toBe(0);
+    controller.injectMove("U");
+    expect(controller.state.get().training.phase).toBe("selecting");
+    expect(controller.state.get().solves).toEqual([]);
+  });
+
+  it("cancels physical setup in progress without changing mode or resurrecting its target", async () => {
+    vi.spyOn(db, "saveSettings").mockResolvedValue();
+    const pending = deferred<Alg>();
+    vi.spyOn(solver, "algBetween").mockReturnValue(pending.promise);
+    const controller = new Controller(new CubeModel(kpuzzle));
+    const selecting = controller.selectLastLayerCase("oll", "1");
+    expect(controller.state.get().training.phase).toBe("preparing");
+    await controller.updateSettings({ ollTrainingSet: "2look" });
+    pending.resolve(new Alg("R U"));
+    await selecting;
+    expect(controller.state.get().training).toMatchObject({ family: "oll", mode: "setup", phase: "selecting", target: null, setup: "" });
+  });
+
+  it("leaves F2L Training unchanged when either last-layer setting changes", async () => {
+    vi.spyOn(db, "saveSettings").mockResolvedValue();
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.setArea("training");
+    await controller.setTrainingMode("virtual");
+    await controller.selectF2lCase("F2L 1");
+    const before = controller.state.get().training;
+    await controller.updateSettings({ ollTrainingSet: "2look", pllTrainingSet: "2look" });
+    expect(controller.state.get().training).toBe(before);
+  });
+
+  it.each([["oll", "27", "OLL"], ["pll", "H", "PLL"]] as const)("retains exact historical Full %s semantics with 2-Look selected", async (family, caseId, name) => {
+    vi.spyOn(db, "saveSettings").mockResolvedValue();
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.setTrainingFamily(family);
+    await controller.setTrainingMode("virtual");
+    await controller.updateSettings({ ollTrainingSet: "2look", pllTrainingSet: "2look" });
+    const source = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 2);
+    const solve = { ...solveFor("1"), scrambledFacelets: patternToFacelets(source.pattern), analysis: { crossFace: "U" } } as Solve;
+    const step = { name, case: caseId, skipped: false, fromMove: 0, toMove: 1 } as SolveStep;
+    await controller.practiceSolveStep(solve, step);
+    expect(controller.state.get().training.target).toMatchObject({ trainingSet: "full", caseId, auf: 2, completionGoal: family === "oll" ? "orient-last-layer" : "solve-cube", origin: { kind: "solve-step", solveId: solve.id } });
+    expect(controller.state.get().training.displayFacelets).toBe(patternToFacelets(source.pattern));
+    controller.againTraining();
+    expect(controller.state.get().training.target).toMatchObject({ trainingSet: "full", auf: 2 });
+    expect(controller.state.get().training.displayFacelets).toBe(patternToFacelets(source.pattern));
+  });
+});
 
 describe("Controller application-area ownership", () => {
   it("cancels timer work without creating or changing a normal solve", () => {

@@ -1,6 +1,7 @@
 import type { SolveAnalysis, TimedMove } from "../cube/analysis";
 import type { WhiteCrossMoves } from "../cube/crossScramble";
 import type { EventId } from "../cube/scramble";
+import type { LastLayerTrainingSet } from "../cube/lastLayerTraining";
 
 export type { WhiteCrossMoves } from "../cube/crossScramble";
 
@@ -75,6 +76,9 @@ export function effectiveMs(solve: Solve): number | null {
 }
 
 export type Settings = {
+  /** Catalogue libraries for Training only; historical solve analysis is unchanged. */
+  ollTrainingSet: LastLayerTrainingSet;
+  pllTrainingSet: LastLayerTrainingSet;
   /**
    * Take the clock away: solve slowly and deliberately, and study the breakdown.
    * These solves are still recorded and analysed but never counted in the statistics.
@@ -107,6 +111,8 @@ export type Settings = {
 };
 
 export const DEFAULT_SETTINGS: Settings = {
+  ollTrainingSet: "full",
+  pllTrainingSet: "full",
   slowSolve: false,
   xCrossMaxMoves: 5,
   whiteCrossMoves: 5,

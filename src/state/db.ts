@@ -6,6 +6,7 @@
  */
 import { DEFAULT_EVENT_ID, EVENTS, type EventId } from "../cube/scramble";
 import { DEFAULT_SETTINGS, type Session, type Settings, type Solve } from "./types";
+import { normaliseLastLayerTrainingSet } from "./settings";
 
 const DB_NAME = "cubetimer";
 const DB_VERSION = 1;
@@ -87,6 +88,8 @@ export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
   const settings = { ...DEFAULT_SETTINGS, ...withoutLegacyEvent };
   return {
     ...settings,
+    ollTrainingSet: normaliseLastLayerTrainingSet(settings.ollTrainingSet),
+    pllTrainingSet: normaliseLastLayerTrainingSet(settings.pllTrainingSet),
     xCrossMaxMoves: [4, 5, 6].includes(settings.xCrossMaxMoves)
       ? settings.xCrossMaxMoves
       : DEFAULT_SETTINGS.xCrossMaxMoves,

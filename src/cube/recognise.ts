@@ -223,6 +223,15 @@ export function lastLayerCornersOriented(pattern: KPattern): boolean {
   return true;
 }
 
+/** Exact aligned LL corner permutation in the normalized solver frame. */
+export function lastLayerCornersPermuted(pattern: KPattern): boolean {
+  const pieces = pattern.patternData.CORNERS.pieces;
+  for (let i = 0; i < LAST_LAYER_SLOTS; i++) {
+    if (pieces[i] !== i) return false;
+  }
+  return true;
+}
+
 /**
  * Name the OLL case a solver faced. `pattern` must be the cube as it stood when the
  * step began, turned so the cross is on the bottom.

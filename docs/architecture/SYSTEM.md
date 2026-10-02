@@ -411,16 +411,34 @@ Training turns must not enter the normal timer lifecycle or ordinary solve histo
 The Controller owns one target, setup tracker, virtual pattern, attempt timer,
 move list, recovery lifecycle, and result shape. Family-specific cube modules own
 target construction, references, and completion rules. F2L keeps its catalogue and
-slot semantics; OLL/PLL use authoritative generated SpeedCubeDB setups and family
-goals.
+slot semantics. Last-layer targets own their training set and explicit completion
+goal: orient edges, orient the last layer, permute corners, or solve the cube.
+Completion and reference validation use that target goal after solver-frame and
+centre normalization, with F2L required to remain solved.
 
 Training targets loaded virtually use a separate ephemeral pattern. The normal
 `CubeModel` remains the application's belief about the physical/normal cube.
 Training attempts are ephemeral and never become normal `Solve` records or
 statistics.
 
-Catalogue OLL/PLL data is generated and behaviourally validated ahead of time, then
-checked into the application. There is no runtime SpeedCubeDB dependency.
+Full OLL/PLL catalogue data is generated from SpeedCubeDB, behaviourally validated
+ahead of time, and checked into `src/cube/algBank.generated.ts`. The 2-Look OLL/PLL
+catalogue is checked-in J Perm-derived source data in
+`src/cube/lastLayerTwoLookCases.ts`. Neither source is fetched at application
+runtime. Both sets use this same Controller-owned Training lifecycle.
+
+Settings independently select the catalogue for OLL and PLL catalogue Training
+and Random Case selection; both default to Full. Changing the active family's set
+cancels its target/attempt while preserving family and setup/virtual mode.
+Historical exact OLL/PLL step practice retains Full case/reference and completion
+semantics, independently of these settings; solve analysis is unchanged.
+
+Do not model 2-Look OLL/PLL as a subset or alias of Full cases. This rejected
+alternative cannot represent the stage-specific recognition cases and completion
+boundaries (orient edges, permute corners). Aliases would make targets,
+completion, thumbnails, and random training incorrect. First-look targets
+deliberately leave a Sune corner-orientation or Ua edge-permutation stage unsolved;
+their thumbnails mask the downstream pieces that are irrelevant to recognition.
 
 ### Physical versus virtual Training state
 

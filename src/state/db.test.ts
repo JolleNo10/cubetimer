@@ -48,6 +48,20 @@ describe("migrateSolve", () => {
 });
 
 describe("mergeSettings", () => {
+  it.each([undefined, {}])("defaults old last-layer settings to Full/Full", (stored) => {
+    expect(mergeSettings(stored)).toMatchObject({ ollTrainingSet: "full", pllTrainingSet: "full" });
+  });
+
+  it.each(["full", "2look"] as const)("preserves valid %s settings independently", (value) => {
+    expect(mergeSettings({ ollTrainingSet: value })).toMatchObject({ ollTrainingSet: value, pllTrainingSet: "full" });
+    expect(mergeSettings({ pllTrainingSet: value })).toMatchObject({ ollTrainingSet: "full", pllTrainingSet: value });
+    expect(mergeSettings({ ollTrainingSet: value, pllTrainingSet: value })).toMatchObject({ ollTrainingSet: value, pllTrainingSet: value });
+  });
+
+  it.each([undefined, null, "2-look", "", 2, true, {}, []])("rejects malformed persisted Training sets: %s", (value) => {
+    expect(mergeSettings({ ollTrainingSet: value, pllTrainingSet: value } as never)).toMatchObject({ ollTrainingSet: "full", pllTrainingSet: "full" });
+  });
+
   it("discards a legacy active event", () => {
     const settings = mergeSettings({ event: "222" } as never);
     expect(settings).not.toHaveProperty("event");

@@ -1,6 +1,11 @@
 import { faceOfColour, FACE_COLOURS } from "../cube/colours";
 import { frontsFor } from "../cube/orientation";
 import type { Settings } from "./types";
+import type { LastLayerTrainingSet } from "../cube/lastLayerTraining";
+
+export function normaliseLastLayerTrainingSet(value: unknown): LastLayerTrainingSet {
+  return value === "2look" ? "2look" : "full";
+}
 
 /**
  * Keep a settings change self-consistent.
@@ -10,6 +15,11 @@ import type { Settings } from "./types";
  * therefore invalidate the front, which is put right rather than left broken.
  */
 export function normaliseSettings(settings: Settings): Settings {
+  settings = {
+    ...settings,
+    ollTrainingSet: normaliseLastLayerTrainingSet(settings.ollTrainingSet),
+    pllTrainingSet: normaliseLastLayerTrainingSet(settings.pllTrainingSet),
+  };
   const bottom = faceOfColour(settings.crossColour);
   if (!bottom) return settings;
   const fronts = frontsFor(bottom);

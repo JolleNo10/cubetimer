@@ -739,12 +739,14 @@ export class Controller {
   }
 
   async selectLastLayerCase(family: LastLayerFamily, caseId: string): Promise<void> {
-    if (!lastLayerCaseIds(family).includes(caseId)) return;
+    const settings = this.state.get().settings;
+    const trainingSet = family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet;
+    if (!lastLayerCaseIds(family, trainingSet).includes(caseId)) return;
     this.setTrainingFamily(family);
     if (!this.#model) return;
     try {
       await this.#selectLastLayerTarget(
-        buildLastLayerCatalogueTarget(this.#model.kpuzzle, family, caseId, this.#randomAuf()),
+        buildLastLayerCatalogueTarget(this.#model.kpuzzle, family, caseId, this.#randomAuf(), trainingSet),
       );
     } catch (error) {
       this.state.update((s) => ({ ...s, error: String(error) }));
@@ -752,7 +754,8 @@ export class Controller {
   }
 
   randomTrainingCase(family: LastLayerFamily): void {
-    const cases = lastLayerCaseIds(family);
+    const settings = this.state.get().settings;
+    const cases = lastLayerCaseIds(family, family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet);
     const caseId = cases[Math.floor(Math.random() * cases.length)];
     if (caseId) void this.selectLastLayerCase(family, caseId);
   }
@@ -1107,7 +1110,7 @@ export class Controller {
     if (this.#model && caseId) {
       try {
         const next = target.info.origin.kind === "catalog"
-          ? buildLastLayerCatalogueTarget(this.#model.kpuzzle, family, caseId, this.#randomAuf())
+          ? buildLastLayerCatalogueTarget(this.#model.kpuzzle, family, caseId, this.#randomAuf(), target.info.trainingSet)
           : target;
         await this.#selectLastLayerTarget(next, preserveResult);
       } catch (error) {
@@ -2187,7 +2190,8 @@ export class Controller {
   // ---------------------------------------------------------------- settings
 
   async updateSettings(changes: Partial<Settings>): Promise<void> {
-    const generation = this.state.get().scrambleGeneration;
+    const current = this.state.get();
+    const generation = current.scrambleGeneration;
     const cancelsSpecialGeneration =
       generation !== null &&
       (changes.slowSolve === false ||
@@ -2199,9 +2203,13 @@ export class Controller {
           (changes.whiteCrossMoves !== undefined ||
             changes.crossColour !== undefined)));
     const settings = normaliseSettings({
-      ...this.state.get().settings,
+      ...current.settings,
       ...changes,
     });
+    const trainingSetChanged =
+      (current.training.family === "oll" && settings.ollTrainingSet !== current.settings.ollTrainingSet) ||
+      (current.training.family === "pll" && settings.pllTrainingSet !== current.settings.pllTrainingSet);
+    if (trainingSetChanged && current.training.target) this.resetTraining();
     this.state.update((s) => ({
       ...s,
       settings,

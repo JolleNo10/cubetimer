@@ -7,8 +7,7 @@ import { F2LTraining } from "./F2LTraining";
 import { LastLayerCaseThumbnail } from "./LastLayerCaseThumbnail";
 import { getLastLayerThumbnailModel } from "../cube/lastLayerThumbnail";
 import { get3x3x3 } from "../cube/puzzle";
-import { buildLastLayerCatalogueTarget, lastLayerCaseCatalogue, type LastLayerFamily } from "../cube/lastLayerTraining";
-import { ollGroupForCase, pllGroupForCase } from "../cube/lastLayerCases";
+import { buildLastLayerCatalogueTarget, lastLayerCaseCatalogue, lastLayerCaseName, type LastLayerFamily } from "../cube/lastLayerTraining";
 import { formatTime } from "../state/stats";
 import type { LastLayerThumbnailModel } from "../cube/lastLayerThumbnail";
 
@@ -39,13 +38,14 @@ function LastLayerTraining({ state, family }: { state: AppState; family: LastLay
   const controller = useController();
   const elapsed = useStore(controller.elapsed);
   const training = state.training;
+  const trainingSet = family === "oll" ? state.settings.ollTrainingSet : state.settings.pllTrainingSet;
   const target = training.target && "family" in training.target && training.target.family === family
     ? training.target
     : null;
   const physicalLive = state.cubeStatus === "connected" || state.virtualCube;
   const displayLive = training.mode === "virtual" ? Boolean(target) : physicalLive;
   const [thumbnailModels, setThumbnailModels] = useState<Map<string, LastLayerThumbnailModel>>(new Map());
-  const catalogue = useMemo(() => lastLayerCaseCatalogue(family), [family]);
+  const catalogue = useMemo(() => lastLayerCaseCatalogue(family, trainingSet), [family, trainingSet]);
 
   useEffect(() => {
     let active = true;
@@ -53,8 +53,8 @@ function LastLayerTraining({ state, family }: { state: AppState; family: LastLay
       const models = new Map<string, LastLayerThumbnailModel>();
       for (const item of catalogue) {
         try {
-          const built = buildLastLayerCatalogueTarget(kpuzzle, family, item.id.replace(/^OLL /, ""), 0);
-          models.set(item.id, getLastLayerThumbnailModel(family, built.pattern, built.info.trainingRotation));
+          const built = buildLastLayerCatalogueTarget(kpuzzle, family, item.caseId, 0, trainingSet);
+          models.set(item.id, getLastLayerThumbnailModel(family, built.pattern, built.info.trainingRotation, built.info.completionGoal));
         } catch {
           // A malformed generated case should be caught by domain tests; omit only its card here.
         }
@@ -62,10 +62,9 @@ function LastLayerTraining({ state, family }: { state: AppState; family: LastLay
       if (active) setThumbnailModels(models);
     });
     return () => { active = false; };
-  }, [catalogue, family]);
+  }, [catalogue, family, trainingSet]);
 
-  const groupFor = family === "oll" ? ollGroupForCase : pllGroupForCase;
-  const groups = useMemo(() => [...new Set(catalogue.map((item) => groupFor(item.id.replace(/^OLL /, "")) ?? item.group))], [catalogue, groupFor]);
+  const groups = useMemo(() => [...new Set(catalogue.map((item) => item.group))], [catalogue]);
 
   return (
     <div className="app-body training-layout">
@@ -73,23 +72,23 @@ function LastLayerTraining({ state, family }: { state: AppState; family: LastLay
         <ConnectionPanel state={state} />
         <div className="panel training-library">
           <div className="panel-head">
-            <span className="panel-title">{family.toUpperCase()} cases</span>
+            <span className="panel-title">{trainingSet === "2look" ? "2-Look " : ""}{family.toUpperCase()} cases</span>
             <div className="row wrap"><span className="chip small">{catalogue.length} cases</span><button className="ghost small" onClick={() => controller.randomTrainingCase(family)}>Random case</button></div>
           </div>
           <div className="panel-body">
             {groups.map((sourceGroup) => {
-              const cases = catalogue.filter((item) => (groupFor(item.id.replace(/^OLL /, "")) ?? item.group) === sourceGroup);
+              const cases = catalogue.filter((item) => item.group === sourceGroup);
               return (
                 <section className="last-layer-group" key={sourceGroup}>
                   <div className="small faint">{sourceGroup}</div>
                   <div className="last-layer-case-grid">
                     {cases.map((item) => {
-                      const caseId = family === "oll" ? item.id.replace(/^OLL /, "") : item.id;
-                      const selected = target?.caseId === caseId;
+                      const caseId = item.caseId;
+                      const selected = target?.trainingSet === trainingSet && target.caseId === caseId;
                       return (
                         <button type="button" className={`last-layer-case-button${selected ? " selected" : ""}`} key={item.id} aria-pressed={selected} aria-label={item.id} onClick={() => void controller.selectLastLayerCase(family, caseId)}>
                           {thumbnailModels.get(item.id) ? <LastLayerCaseThumbnail model={thumbnailModels.get(item.id)!} /> : null}
-                          <span>{family === "oll" ? `#${caseId}` : caseId}</span>
+                          <span>{family === "oll" && trainingSet === "full" ? `#${caseId}` : item.name}</span>
                         </button>
                       );
                     })}
@@ -166,7 +165,7 @@ function LastLayerTargetPanel({ state, elapsed, family }: { state: AppState; ela
       <div className="panel-head"><span className="panel-title">Training target</span>{result ? <span className="chip live">result</span> : null}</div>
       <div className="panel-body">
         {!target ? <div className="empty">Select a {family.toUpperCase()} case.</div> : <>
-          <div className="f2l-target-title"><strong>{target.family.toUpperCase()} {target.caseId}</strong><span className="phase-case">{target.group}</span></div>
+          <div className="f2l-target-title"><strong>{lastLayerCaseName(target.family, target.caseId, target.trainingSet)}</strong><span className="phase-case">{target.group}</span></div>
           <div className="small dim f2l-origin">{target.origin.kind === "catalog" ? "Catalogue case" : `From solve · ${target.origin.stepName}`}</div>
           <div className="f2l-reference"><div className="result-context-label">RECOMMENDED</div>{reference ? <><div className="row"><strong>{reference.stm} STM</strong></div><div className="mono f2l-reference-alg">{reference.alg}</div>{target.references.length > 1 ? <><button type="button" className="ghost small" onClick={() => setShowAlternatives((shown) => !shown)}>{showAlternatives ? "Hide alternatives" : `Show ${target.references.length - 1} alternatives`}</button>{showAlternatives ? <div className="f2l-alternatives">{target.references.slice(1).map((alternative) => <div key={`${alternative.rank}-${alternative.alg}`} className="f2l-alternative"><div className="row"><strong>#{alternative.rank}</strong><span className="small faint">{alternative.stm} STM</span></div><div className="mono f2l-reference-alg">{alternative.alg}</div></div>)}</div> : null}</> : null}</> : <div className="small faint">No validated reference for this exact target.</div>}</div>
           {result ? <div className="f2l-result-card"><div className="result-context-label">ATTEMPT</div><div className="f2l-result-stm mono">{result.stm} STM</div><div className="small">{result.matchedReferenceRank === 1 ? "Recommended solution" : result.matchedReferenceRank ? `Known alternative #${result.matchedReferenceRank}` : "Valid custom solution"}</div>{result.delta !== null ? <div className="f2l-delta">{result.delta > 0 ? `+${result.delta} STM vs recommended` : result.delta < 0 ? `${Math.abs(result.delta)} STM fewer than recommended` : "Same STM as recommended"}</div> : null}<div className="mono f2l-result-moves">{result.moves.join(" ") || "(no turns)"}</div><div className="small faint">elapsed {formatTime(result.elapsedMs || elapsed)}</div></div> : training.phase === "solving" ? <div className="f2l-live-metric"><strong className="mono">{training.liveMoves.length} turns</strong><span className="small faint">elapsed {formatTime(elapsed)}</span></div> : null}

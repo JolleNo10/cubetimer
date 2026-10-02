@@ -81,6 +81,24 @@ export function SettingsDialog({
             />
           </Section>
 
+          <Section title="Training">
+            <div className="field">
+              <label htmlFor="ollTrainingSet">OLL training set</label>
+              <select id="ollTrainingSet" value={settings.ollTrainingSet} onChange={(e) => set({ ollTrainingSet: e.target.value as Settings["ollTrainingSet"] })}>
+                <option value="full">Full OLL (57 cases)</option>
+                <option value="2look">2-Look OLL (10 cases)</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="pllTrainingSet">PLL training set</label>
+              <select id="pllTrainingSet" value={settings.pllTrainingSet} onChange={(e) => set({ pllTrainingSet: e.target.value as Settings["pllTrainingSet"] })}>
+                <option value="full">Full PLL (21 cases)</option>
+                <option value="2look">2-Look PLL (6 cases)</option>
+              </select>
+            </div>
+            <span className="help">These settings control the Training case libraries only. Solve analysis is unchanged.</span>
+          </Section>
+
           <Section title="Cube view">
             <div className="field">
               <label htmlFor="visualization">Visualisation</label>

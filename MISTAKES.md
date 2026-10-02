@@ -120,6 +120,15 @@ not independently invented states. The original entry is retained as history.
 - Prevention: when a specification requires an existing dataset, search the named
   feature files and their directly imported data modules before reporting a blocker.
 
+## 2026-10-03
+
+- What happened: new last-layer Controller setup tests expected an already matched
+  target to avoid invoking the search worker, and failed to reach ready in Node.
+- Root cause: `algBetween()` always invokes the search service, even for identical
+  patterns; the test assumed an identity fast path that does not exist.
+- Prevention: supply a known valid setup at the solver seam in Controller tests,
+  then exercise the real setup tracker, move handling, and completion lifecycle.
+
 ## 2026-09-29
 
 - What happened: widening `SolveResult.onContinue` to carry a close option briefly made the Back button pass the callback directly as a mouse event handler.
