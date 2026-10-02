@@ -8,12 +8,87 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Alg } from "cubing/alg";
 import type { KPuzzle } from "cubing/kpuzzle";
-import { CENTER_FACELETS, CORNER_FACELETS, EDGE_FACELETS, patternToFacelets } from "../src/cube/facelets";
+import { CORNER_FACELETS, EDGE_FACELETS, patternToFacelets, SOLVED_FACELETS } from "../src/cube/facelets";
 import { F2L_POSITIONS, type F2lPosition } from "../src/cube/f2lCases";
 import { f2lTrainingCatalogue, type F2lTrainingCase, type F2lTrainingLibrary } from "../src/cube/f2lTrainingCases";
-import { buildF2lCatalogueCaseState } from "../src/cube/f2lTraining";
-import { f2lSlotsForCrossFace } from "../src/cube/moves";
+import { buildF2lCatalogueCaseState, type F2lCatalogueCaseState } from "../src/cube/f2lTraining";
+import { EDGES_OF_FACE, FACE_OFFSET, FACES, f2lSlotsForCrossFace, type Face } from "../src/cube/moves";
 import { get3x3x3 } from "../src/cube/puzzle";
+
+function slotSolved(pattern: F2lCatalogueCaseState["pattern"], slot: { corner: number; edge: number }): boolean {
+  const { CORNERS, EDGES } = pattern.patternData;
+  return (
+    CORNERS.pieces[slot.corner] === slot.corner &&
+    CORNERS.orientation[slot.corner] === 0 &&
+    EDGES.pieces[slot.edge] === slot.edge &&
+    EDGES.orientation[slot.edge] === 0
+  );
+}
+
+function edgeSolved(pattern: F2lCatalogueCaseState["pattern"], edge: number): boolean {
+  const { EDGES } = pattern.patternData;
+  return EDGES.pieces[edge] === edge && EDGES.orientation[edge] === 0;
+}
+
+function faceletOnFace(index: number, face: Face): boolean {
+  return index >= FACE_OFFSET[face] && index < FACE_OFFSET[face] + 9;
+}
+
+function addStickers(
+  coloured: Set<number>,
+  stickers: readonly number[],
+  sideFaces?: readonly Face[],
+): void {
+  for (const index of stickers) {
+    if (!sideFaces || sideFaces.some((face) => faceletOnFace(index, face))) coloured.add(index);
+  }
+}
+
+/** Build the state-derived teaching mask shared by Basic and Advanced thumbnails. */
+export function buildF2lTeachingMask(
+  state: F2lCatalogueCaseState,
+  displayPattern: F2lCatalogueCaseState["pattern"],
+  targetSlot: { corner: number; edge: number },
+): number[] {
+  const displayFacelets = patternToFacelets(displayPattern);
+  const targetEdgeColours = EDGE_FACELETS[targetSlot.edge].map((index) => SOLVED_FACELETS[index]);
+  const targetSideFaces = FACES.filter((face) =>
+    targetEdgeColours.includes(displayFacelets[FACE_OFFSET[face] + 4]),
+  );
+  assert.equal(targetSideFaces.length, 2, `Expected two target side faces for ${state.slot}`);
+
+  const coloured = new Set<number>();
+  const displayedCorners = displayPattern.patternData.CORNERS.pieces;
+  const displayedEdges = displayPattern.patternData.EDGES.pieces;
+
+  // The target pair is always visible, wherever its home cubies currently are.
+  const displayedCornerSlot = displayedCorners.indexOf(targetSlot.corner);
+  const displayedEdgeSlot = displayedEdges.indexOf(targetSlot.edge);
+  assert(displayedCornerSlot >= 0, `Missing target corner for ${state.slot}`);
+  assert(displayedEdgeSlot >= 0, `Missing target edge for ${state.slot}`);
+  addStickers(coloured, CORNER_FACELETS[displayedCornerSlot]);
+  addStickers(coloured, EDGE_FACELETS[displayedEdgeSlot]);
+
+  // Only the two side-face centres and the solved first-two-layer foundation contribute context.
+  for (const face of targetSideFaces) coloured.add(FACE_OFFSET[face] + 4);
+  for (const edge of EDGES_OF_FACE.U) {
+    if (!edgeSolved(state.pattern, edge)) continue;
+    const displayedSlot = displayedEdges.indexOf(edge);
+    assert(displayedSlot >= 0, `Missing solved cross edge ${edge} for ${state.slot}`);
+    addStickers(coloured, EDGE_FACELETS[displayedSlot], targetSideFaces);
+  }
+  for (const slot of f2lSlotsForCrossFace("U")) {
+    if (!slotSolved(state.pattern, slot)) continue;
+    const displayedCorner = displayedCorners.indexOf(slot.corner);
+    const displayedEdge = displayedEdges.indexOf(slot.edge);
+    assert(displayedCorner >= 0, `Missing solved F2L corner ${slot.corner} for ${state.slot}`);
+    assert(displayedEdge >= 0, `Missing solved F2L edge ${slot.edge} for ${state.slot}`);
+    addStickers(coloured, CORNER_FACELETS[displayedCorner], targetSideFaces);
+    addStickers(coloured, EDGE_FACELETS[displayedEdge], targetSideFaces);
+  }
+
+  return [...coloured].sort((a, b) => a - b);
+}
 
 /** Identify home cubies, then locate them after the physical display rotation. */
 export function buildStoredF2lThumbnail(kpuzzle: KPuzzle, f2lCase: F2lTrainingCase, position: F2lPosition) {
@@ -21,26 +96,12 @@ export function buildStoredF2lThumbnail(kpuzzle: KPuzzle, f2lCase: F2lTrainingCa
   const target = f2lSlotsForCrossFace("U").find((candidate) => candidate.name === state.slot);
   assert(target, `Missing target slot ${state.slot} for ${f2lCase.name} ${position}`);
 
-  // Piece identities are HOME slot indices, never the occupants of an unsolved slot.
-  const targetCornerPiece = target.corner;
-  const targetEdgePiece = target.edge;
   const displayPattern = state.pattern.applyAlg(new Alg(state.trainingRotation.tokens.join(" ")));
-  const displayedCornerSlot = displayPattern.patternData.CORNERS.pieces.indexOf(targetCornerPiece);
-  const displayedEdgeSlot = displayPattern.patternData.EDGES.pieces.indexOf(targetEdgePiece);
-  assert(displayedCornerSlot >= 0, `Missing target corner for ${f2lCase.name} ${position}`);
-  assert(displayedEdgeSlot >= 0, `Missing target edge for ${f2lCase.name} ${position}`);
-
   const facelets = patternToFacelets(displayPattern);
-  const emphasized = [
-    ...CORNER_FACELETS[displayedCornerSlot],
-    ...EDGE_FACELETS[displayedEdgeSlot],
-    ...CENTER_FACELETS,
-  ].sort((a, b) => a - b);
+  const coloured = buildF2lTeachingMask(state, displayPattern, target);
   assert.equal(facelets.length, 54);
-  assert.equal(emphasized.length, 11);
-  assert.equal(new Set(emphasized).size, 11, `Invalid emphasis for ${f2lCase.name} ${position}`);
-  assert(emphasized.every((index) => Number.isInteger(index) && index >= 0 && index < 54));
-  return { facelets, emphasized };
+  assert(coloured.every((index) => Number.isInteger(index) && index >= 0 && index < 54));
+  return { facelets, coloured };
 }
 
 export function renderF2lThumbnailMap(kpuzzle: KPuzzle, library: F2lTrainingLibrary = "basic"): string {
@@ -62,7 +123,7 @@ export function renderF2lThumbnailMap(kpuzzle: KPuzzle, library: F2lTrainingLibr
   const types = library === "basic" ? [
     "export type StoredF2lThumbnail = {",
     "  facelets: string;",
-    "  emphasized: readonly number[];",
+    "  coloured: readonly number[];",
     "};",
     "",
   ] : [];

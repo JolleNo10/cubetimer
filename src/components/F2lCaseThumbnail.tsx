@@ -5,7 +5,6 @@ import type { F2lThumbnailModel } from "../cube/f2lThumbnail";
 
 type Point = { x: number; y: number };
 type Vector = Point;
-export type F2lThumbnailView = "basic" | "advanced";
 
 const MUTED_STICKER = "#52575d";
 const STICKER_STROKE = "#171a1f";
@@ -21,14 +20,10 @@ function polygonPoints(points: readonly Point[]): string {
 function stickerPresentation(
   model: F2lThumbnailModel,
   faceletsIndex: number,
-  view: F2lThumbnailView,
 ) {
-  const emphasized = model.emphasized[faceletsIndex];
   const colour = FACE_COLOURS[model.facelets[faceletsIndex] as Face]?.hex ?? MUTED_STICKER;
   return {
-    fill: emphasized || view === "advanced" ? colour : MUTED_STICKER,
-    // Preserve surrounding Advanced state without competing with the target pair.
-    fillOpacity: view === "advanced" ? (emphasized ? 1 : 0.45) : undefined,
+    fill: model.coloured[faceletsIndex] ? colour : MUTED_STICKER,
   };
 }
 
@@ -38,7 +33,6 @@ function renderFace(
   origin: Point,
   across: Vector,
   down: Vector,
-  view: F2lThumbnailView,
 ): JSX.Element[] {
   const offset = FACE_OFFSET[face];
   return Array.from({ length: 9 }, (_, index) => {
@@ -56,7 +50,7 @@ function renderFace(
         className="f2l-thumbnail-sticker"
         data-facelet={offset + index}
         points={polygonPoints([start, nextAcross, add(nextAcross, down), nextDown])}
-        {...stickerPresentation(model, offset + index, view)}
+        {...stickerPresentation(model, offset + index)}
         stroke={STICKER_STROKE}
         strokeWidth="0.9"
         strokeLinejoin="round"
@@ -65,9 +59,8 @@ function renderFace(
   });
 }
 
-export function F2lCaseThumbnail({ model, view = "basic" }: {
+export function F2lCaseThumbnail({ model }: {
   model: F2lThumbnailModel;
-  view?: F2lThumbnailView;
 }) {
   return (
     <svg
@@ -76,9 +69,9 @@ export function F2lCaseThumbnail({ model, view = "basic" }: {
       aria-hidden="true"
       focusable="false"
     >
-      {renderFace(model, "U", { x: 66, y: 12 }, { x: 12, y: 6 }, { x: -12, y: 6 }, view)}
-      {renderFace(model, "F", { x: 30, y: 30 }, { x: 12, y: 6 }, { x: 0, y: 14 }, view)}
-      {renderFace(model, "R", { x: 66, y: 48 }, { x: 12, y: -6 }, { x: 0, y: 14 }, view)}
+      {renderFace(model, "U", { x: 66, y: 12 }, { x: 12, y: 6 }, { x: -12, y: 6 })}
+      {renderFace(model, "F", { x: 30, y: 30 }, { x: 12, y: 6 }, { x: 0, y: 14 })}
+      {renderFace(model, "R", { x: 66, y: 48 }, { x: 12, y: -6 }, { x: 0, y: 14 })}
     </svg>
   );
 }

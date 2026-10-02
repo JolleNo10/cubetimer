@@ -151,7 +151,6 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
                 >
                   {model ? <F2lCaseThumbnail
                     model={model}
-                    view={library === "advanced" ? "advanced" : "basic"}
                   /> : null}
                   <span className="f2l-case-number">{shortF2lCaseLabel(f2lCase.name)}</span>
                 </button>

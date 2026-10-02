@@ -2,15 +2,16 @@
 
 ## 2026-10-01 — Advanced F2L thumbnail presentation
 
-- What happened: Basic's target-only colour treatment initially hid too much Advanced
-  context. The attempted correction overcompensated by unfolding all six faces into
-  every small case card, making the library visually dense and difficult to scan.
-- Root cause: thumbnails were treated as if they needed to expose the complete
-  authoritative cube state. That responsibility belongs to the selected main cube.
-- Prevention: keep case cards as compact recognition aids with one stable isometric
-  viewpoint. Basic mutes unrelated stickers to grey; Advanced reuses the same
-  geometry with subdued real colours for visible surrounding stickers. Full-state
-  inspection belongs in the main training cube after selection.
+- What happened: thumbnail presentation was repeatedly treated as a Basic-vs-
+  Advanced styling problem. This first hid too much Advanced context, then exposed
+  too much of the cube.
+- Root cause: the visual rule was attached to catalogue type instead of the F2L
+  teaching semantics.
+- Prevention: use one state-derived stickering rule for every F2L case. Colour the
+  target corner/edge wherever they are, plus the already-solved cross/F2L foundation
+  visible on the target pair's two side colours. Colour only those two side centres.
+  Everything else is grey. Basic and Advanced differ naturally because their
+  starting states contain different solved F2L structure.
 
 ## 2026-10-01 — Advanced F2L published-state authority
 

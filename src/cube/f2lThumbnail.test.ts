@@ -2,13 +2,13 @@ import { Alg } from "cubing/alg";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { buildStoredF2lThumbnail, renderF2lThumbnailMap } from "../../scripts/buildF2lThumbnailMap";
-import { CENTER_FACELETS, CORNER_FACELETS, EDGE_FACELETS, patternToFacelets } from "./facelets";
+import { CORNER_FACELETS, EDGE_FACELETS, patternToFacelets, SOLVED_FACELETS } from "./facelets";
 import { F2L_POSITIONS, f2lPositionTransform, type F2lPosition } from "./f2lCases";
 import { reframe } from "./recognise";
 import { F2L_TRAINING_CATALOGUES, findF2lTrainingCase, type F2lTrainingLibrary } from "./f2lTrainingCases";
 import { ADVANCED_F2L_THUMBNAIL_MAP } from "./advancedF2lThumbnailMap.generated";
 import { buildF2lCatalogueCaseState, standardF2lTrainingRotation, type F2lCatalogueCaseState } from "./f2lTraining";
-import { FACE_OFFSET, f2lSlotsForCrossFace } from "./moves";
+import { EDGES_OF_FACE, FACE_OFFSET, FACES, f2lSlotsForCrossFace, type Face } from "./moves";
 import { FACE_COLOURS } from "./colours";
 import { slotInCubeFrame } from "./orientation";
 import { get3x3x3 } from "./puzzle";
@@ -28,7 +28,63 @@ const EXPECTED_PAIRS = {
 function targetPieceIds(state: F2lCatalogueCaseState) {
   const target = f2lSlotsForCrossFace("U").find((candidate) => candidate.name === state.slot);
   if (!target) throw new Error(`Missing target slot ${state.slot}`);
-  return { corner: target.corner, edge: target.edge };
+  return target;
+}
+
+function slotSolved(pattern: F2lCatalogueCaseState["pattern"], slot: { corner: number; edge: number }): boolean {
+  const { CORNERS, EDGES } = pattern.patternData;
+  return (
+    CORNERS.pieces[slot.corner] === slot.corner &&
+    CORNERS.orientation[slot.corner] === 0 &&
+    EDGES.pieces[slot.edge] === slot.edge &&
+    EDGES.orientation[slot.edge] === 0
+  );
+}
+
+function edgeSolved(pattern: F2lCatalogueCaseState["pattern"], edge: number): boolean {
+  const { EDGES } = pattern.patternData;
+  return EDGES.pieces[edge] === edge && EDGES.orientation[edge] === 0;
+}
+
+function faceletOnFace(index: number, face: Face): boolean {
+  return index >= FACE_OFFSET[face] && index < FACE_OFFSET[face] + 9;
+}
+
+function targetSideFaces(displayed: F2lCatalogueCaseState["pattern"], target: { edge: number }): Face[] {
+  const facelets = patternToFacelets(displayed);
+  const colours = EDGE_FACELETS[target.edge].map((index) => SOLVED_FACELETS[index]);
+  const faces = FACES.filter((face) => colours.includes(facelets[FACE_OFFSET[face] + 4]));
+  expect(faces).toHaveLength(2);
+  return faces;
+}
+
+function expectedTeachingMask(
+  state: F2lCatalogueCaseState,
+  displayed: F2lCatalogueCaseState["pattern"],
+  target: { corner: number; edge: number },
+): number[] {
+  const sides = targetSideFaces(displayed, target);
+  const coloured = new Set<number>();
+  const corners = displayed.patternData.CORNERS.pieces;
+  const edges = displayed.patternData.EDGES.pieces;
+  const add = (indices: readonly number[], sideOnly = false) => {
+    for (const index of indices) {
+      if (!sideOnly || sides.some((face) => faceletOnFace(index, face))) coloured.add(index);
+    }
+  };
+
+  add(CORNER_FACELETS[corners.indexOf(target.corner)]);
+  add(EDGE_FACELETS[edges.indexOf(target.edge)]);
+  for (const face of sides) coloured.add(FACE_OFFSET[face] + 4);
+  for (const edge of EDGES_OF_FACE.U) {
+    if (edgeSolved(state.pattern, edge)) add(EDGE_FACELETS[edges.indexOf(edge)], true);
+  }
+  for (const slot of f2lSlotsForCrossFace("U")) {
+    if (!slotSolved(state.pattern, slot)) continue;
+    add(CORNER_FACELETS[corners.indexOf(slot.corner)], true);
+    add(EDGE_FACELETS[edges.indexOf(slot.edge)], true);
+  }
+  return [...coloured].sort((a, b) => a - b);
 }
 
 function validateThumbnail(caseName: string, position: F2lPosition, library: F2lTrainingLibrary = "basic") {
@@ -43,56 +99,73 @@ function validateThumbnail(caseName: string, position: F2lPosition, library: F2l
   const displayed = state.pattern.applyAlg(new Alg(state.trainingRotation.tokens.join(" ")));
   expect(stored.facelets).toBe(patternToFacelets(displayed));
   expect(stored.facelets).toHaveLength(54);
-  expect(stored.emphasized).toHaveLength(11);
-  const emphasized = new Set(stored.emphasized);
-  expect(emphasized.size).toBe(11);
-  expect(CENTER_FACELETS.every((index) => emphasized.has(index))).toBe(true);
+  const coloured = new Set(stored.coloured);
+  expect(stored.coloured).toEqual(expectedTeachingMask(state, displayed, target));
   expect(stored.facelets[FACE_OFFSET.U + 4]).toBe("D");
   expect(stored.facelets[FACE_OFFSET.F + 4]).toBe("F");
   expect(stored.facelets[FACE_OFFSET.R + 4]).toBe("L");
+  const sides = targetSideFaces(displayed, target);
+  expect(sides).not.toContain("U");
+  expect(sides.map((face) => FACE_OFFSET[face] + 4).every((index) => coloured.has(index))).toBe(true);
+  expect(FACES.filter((face) => !sides.includes(face)).every((face) => !coloured.has(FACE_OFFSET[face] + 4))).toBe(true);
 
   for (const orbit of ["CORNERS", "EDGES"] as const) {
     const targetPiece = orbit === "CORNERS" ? target.corner : target.edge;
     const mappings = orbit === "CORNERS" ? CORNER_FACELETS : EDGE_FACELETS;
     const pieces = displayed.patternData[orbit].pieces;
     expect(pieces.indexOf(targetPiece)).toBeGreaterThanOrEqual(0);
-    pieces.forEach((piece, slot) => {
-      for (const index of mappings[slot]) {
-        expect(emphasized.has(index), `${orbit} piece ${piece}, sticker ${index}`).toBe(piece === targetPiece);
-      }
-    });
+    expect(mappings[pieces.indexOf(targetPiece)].every((index) => coloured.has(index))).toBe(true);
   }
 
-  const targetIndices = stored.emphasized.filter((index) => !CENTER_FACELETS.includes(index));
-  expect(targetIndices).toHaveLength(5);
   const expected = EXPECTED_PAIRS[position];
-  expect(new Set(targetIndices.map((index) => stored.facelets[index]))).toEqual(new Set(expected.colours));
+  expect(new Set([...CORNER_FACELETS[displayed.patternData.CORNERS.pieces.indexOf(target.corner)], ...EDGE_FACELETS[displayed.patternData.EDGES.pieces.indexOf(target.edge)]].map((index) => stored.facelets[index]))).toEqual(new Set(expected.colours));
   expect(state.slot).toBe(expected.slot);
-  expect(target).toEqual({ corner: expected.corner, edge: expected.edge });
+  expect(target).toMatchObject({ corner: expected.corner, edge: expected.edge });
+
+  for (const edge of EDGES_OF_FACE.U) {
+    const indices = EDGE_FACELETS[displayed.patternData.EDGES.pieces.indexOf(edge)];
+    for (const index of indices) {
+      expect(coloured.has(index), `cross edge ${edge}, sticker ${index}`).toBe(
+        edgeSolved(state.pattern, edge) && sides.some((face) => faceletOnFace(index, face)),
+      );
+    }
+  }
+  for (const slot of f2lSlotsForCrossFace("U")) {
+    const solved = slotSolved(state.pattern, slot);
+    const isTarget = slot.corner === target.corner || slot.edge === target.edge;
+    for (const index of [
+      ...CORNER_FACELETS[displayed.patternData.CORNERS.pieces.indexOf(slot.corner)],
+      ...EDGE_FACELETS[displayed.patternData.EDGES.pieces.indexOf(slot.edge)],
+    ]) {
+      expect(coloured.has(index), `F2L slot ${slot.name}, sticker ${index}`).toBe(
+        isTarget || (solved && sides.some((face) => faceletOnFace(index, face))),
+      );
+    }
+  }
 
   const model = getF2lThumbnailModel(library, caseName, position);
   expect(model.facelets).toBe(stored.facelets);
-  expect(model.emphasized).toHaveLength(54);
-  expect(model.emphasized).toEqual(Array.from({ length: 54 }, (_, index) => emphasized.has(index)));
+  expect(model.coloured).toHaveLength(54);
+  expect(model.coloured).toEqual(Array.from({ length: 54 }, (_, index) => coloured.has(index)));
 }
 
 describe("F2L thumbnail named FR regressions", () => {
   it.each(["F2L 1", "F2L 6", "F2L 10", "F2L 25", "F2L 31", "F2L 37"])(
-    "%s FR highlights only its home pair and centres",
+    "%s FR uses only target pair and solved foundation",
     (caseName) => validateThumbnail(caseName, "FR"),
   );
 });
 
 describe("F2L thumbnail Front Right colour invariant", () => {
   it.each(BASIC_CASES.map((f2lCase) => f2lCase.name))(
-    "%s FR has exactly white/green/orange target stickers",
+    "%s FR uses target plus the state-derived foundation",
     (caseName) => validateThumbnail(caseName, "FR"),
   );
 });
 
 describe("F2L thumbnail semantics for all four positions", () => {
   it.each(BASIC_CASES.flatMap((f2lCase) => F2L_POSITIONS.map((position) => [f2lCase.name, position] as const)))(
-    "%s %s highlights exactly its home pair and centres",
+    "%s %s uses its target pair and state-derived foundation",
     (name, position) => validateThumbnail(name, position),
   );
 
@@ -133,6 +206,18 @@ describe("F2L thumbnail semantics for all four positions", () => {
     validateThumbnail("F2L 10", "FR");
   });
 
+  it("Basic FR colours the completed foundation while keeping the top centre grey", () => {
+    const stored = F2L_THUMBNAIL_MAP["F2L 1"].FR;
+    const state = buildF2lCatalogueCaseState(kpuzzle, BASIC_CASES[0], "FR");
+    const displayed = state.pattern.applyAlg(new Alg(state.trainingRotation.tokens.join(" ")));
+    const sides = targetSideFaces(displayed, targetPieceIds(state));
+    expect(stored.coloured.length).toBeGreaterThan(11);
+    expect(sides).not.toContain("U");
+    expect(sides.map((face) => FACE_OFFSET[face] + 4).every((index) => stored.coloured.includes(index))).toBe(true);
+    expect(stored.coloured).not.toContain(FACE_OFFSET.U + 4);
+    expect(stored.coloured).toEqual(expectedTeachingMask(state, displayed, targetPieceIds(state)));
+  });
+
   it("is deterministic and matches the checked-in generated source", () => {
     const source = renderF2lThumbnailMap(kpuzzle);
     expect(renderF2lThumbnailMap(kpuzzle)).toBe(source);
@@ -147,7 +232,7 @@ describe("F2L thumbnail semantics for all four positions", () => {
 describe("Advanced F2L thumbnail semantics", () => {
   const cases = F2L_TRAINING_CATALOGUES.advanced.cases;
   it.each(cases.flatMap((entry) => F2L_POSITIONS.map((position) => [entry.name, position] as const)))(
-    "%s %s highlights only its actual home pair and centres",
+    "%s %s uses its target pair and state-derived foundation",
     (name, position) => validateThumbnail(name, position, "advanced"),
   );
 
@@ -196,6 +281,29 @@ describe("Advanced F2L thumbnail semantics", () => {
     }
     expect(trapped).toBeGreaterThan(0);
   });
+
+  it.each(["AF2L 1", "AF2L 10", "AF2L 25"] as const)(
+    "%s keeps additional unsolved/trapped non-target pieces grey",
+    (caseName) => {
+      const entry = cases.find((candidate) => candidate.name === caseName)!;
+      const state = buildF2lCatalogueCaseState(kpuzzle, entry, "FR");
+      const target = targetPieceIds(state);
+      const displayed = state.pattern.applyAlg(new Alg(state.trainingRotation.tokens.join(" ")));
+      const coloured = new Set(ADVANCED_F2L_THUMBNAIL_MAP[caseName].FR.coloured);
+      let unsolved = 0;
+      for (const slot of f2lSlotsForCrossFace("U")) {
+        if (slot.name === target.name || slotSolved(state.pattern, slot)) continue;
+        unsolved++;
+        for (const index of [
+          ...CORNER_FACELETS[displayed.patternData.CORNERS.pieces.indexOf(slot.corner)],
+          ...EDGE_FACELETS[displayed.patternData.EDGES.pieces.indexOf(slot.edge)],
+        ]) {
+          expect(coloured.has(index), `${caseName} ${slot.name} sticker ${index}`).toBe(false);
+        }
+      }
+      expect(unsolved).toBeGreaterThan(0);
+    },
+  );
 
   it("generates deterministic Advanced data matching the checked-in map", () => {
     const source = renderF2lThumbnailMap(kpuzzle, "advanced");
