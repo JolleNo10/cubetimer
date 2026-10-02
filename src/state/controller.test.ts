@@ -15,6 +15,7 @@ import { get3x3x3 } from "../cube/puzzle";
 import { Controller } from "./controller";
 import * as db from "./db";
 import { DEFAULT_EVENT_ID } from "../cube/scramble";
+import { formatSolveCsv } from "./solveCsv";
 import { DEFAULT_SETTINGS, type Session, type Solve } from "./types";
 
 const kpuzzle = await get3x3x3();
@@ -45,11 +46,24 @@ function solveFor(sessionId: string): Solve {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((fulfil) => {
+    resolve = fulfil;
+  });
+  return { promise, resolve };
+}
+
+function stubTimerLoop() {
+  globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame;
+  globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+}
+
 function readyController(
   sessions: Session[],
   sessionId: string,
   solves: Solve[] = [],
-  phase: "finished" | "inspection" | "solving" = "finished",
+  phase: "finished" | "ready" | "inspection" | "solving" = "finished",
 ): Controller {
   const controller = new Controller(new CubeModel(kpuzzle));
   controller.state.update((state) => ({
@@ -550,4 +564,272 @@ describe("Controller Session event ownership", () => {
       expect(controller.state.get().sessionId).toBe("1");
     },
   );
+});
+
+describe("Controller Session-context synchronization", () => {
+  it("does not start a solve while Session selection is awaiting persistence", async () => {
+    stubTimerLoop();
+    vi.spyOn(db, "saveSession").mockResolvedValue();
+    vi.spyOn(db, "deleteSession").mockResolvedValue();
+    const loading = deferred<Solve[]>();
+    vi.spyOn(db, "loadSolves").mockImplementation((id) =>
+      id === "2" ? loading.promise : Promise.resolve([]),
+    );
+    const controller = readyController(
+      [session("1", "333"), session("2", "222")],
+      "1",
+      [],
+      "ready",
+    );
+    vi.spyOn(controller, "newScramble").mockResolvedValue();
+
+    const selecting = controller.selectSession("2");
+    controller.startFromKeyboard();
+
+    expect(controller.state.get().phase).toBe("ready");
+    loading.resolve([]);
+    await selecting;
+    expect(controller.state.get().sessionId).toBe("2");
+
+    controller.startFromKeyboard();
+    expect(controller.state.get().phase).toBe("solving");
+  });
+
+  it("does not start a solve while an empty Session event change is pending", async () => {
+    stubTimerLoop();
+    const saving = deferred<void>();
+    vi.spyOn(db, "saveSession").mockReturnValue(saving.promise);
+    vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    vi.spyOn(db, "deleteSession").mockResolvedValue();
+    const controller = readyController([session("1")], "1", [], "ready");
+    const newScramble = vi.spyOn(controller, "newScramble").mockResolvedValue();
+
+    const changing = controller.changeEvent("222");
+    controller.startFromKeyboard();
+    expect(controller.state.get().phase).toBe("ready");
+
+    saving.resolve();
+    await changing;
+    expect(controller.state.get().sessions[0].event).toBe("222");
+    expect(newScramble).toHaveBeenCalledOnce();
+  });
+
+  it("does not start a solve while the active Session is being deleted", async () => {
+    stubTimerLoop();
+    const deleting = deferred<void>();
+    vi.spyOn(db, "deleteSession").mockReturnValue(deleting.promise);
+    vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    vi.spyOn(db, "saveSession").mockResolvedValue();
+    const controller = readyController(
+      [session("1"), session("2")],
+      "1",
+      [],
+      "ready",
+    );
+    vi.spyOn(controller, "newScramble").mockResolvedValue();
+
+    const deletingSession = controller.deleteSession("1");
+    controller.startFromKeyboard();
+    expect(controller.state.get().phase).toBe("ready");
+
+    deleting.resolve();
+    await deletingSession;
+    expect(controller.state.get().sessionId).toBe("2");
+    expect(controller.state.get().solves).toEqual([]);
+  });
+
+  it("ignores an overlapping Session selection instead of allowing stale completion", async () => {
+    const loading = deferred<Solve[]>();
+    vi.spyOn(db, "loadSolves").mockImplementation((id) =>
+      id === "2" ? loading.promise : Promise.resolve([]),
+    );
+    vi.spyOn(db, "saveSession").mockResolvedValue();
+    vi.spyOn(db, "deleteSession").mockResolvedValue();
+    const controller = readyController(
+      [session("1"), session("2"), session("3")],
+      "1",
+    );
+
+    const first = controller.selectSession("2");
+    await controller.selectSession("3");
+    expect(controller.state.get().sessionId).toBe("1");
+    expect(db.loadSolves).toHaveBeenCalledTimes(1);
+
+    loading.resolve([]);
+    await first;
+    expect(controller.state.get().sessionId).toBe("2");
+  });
+});
+
+describe("Controller import Session invariants", () => {
+  function jsonExport(sessions: Session[], solves: Solve[] = []): string {
+    return JSON.stringify({ format: "cubetimer", version: 2, sessions, solves });
+  }
+
+  it("rejects a JSON event conflict before overwriting a Session with history", async () => {
+    const local = session("A", "333");
+    const localSolve = solveFor(local.id);
+    vi.spyOn(db, "loadSessions").mockResolvedValue([local]);
+    vi.spyOn(db, "loadAllSolves").mockResolvedValue([localSolve]);
+    const saveSession = vi.spyOn(db, "saveSession").mockResolvedValue();
+    const controller = readyController([local], local.id, [localSolve]);
+
+    await expect(
+      controller.importData(jsonExport([{ ...local, event: "222" }])),
+    ).rejects.toThrow(/Cannot merge session/);
+
+    expect(saveSession).not.toHaveBeenCalled();
+    expect(controller.state.get().sessions[0].event).toBe("333");
+    expect(controller.state.get().solves[0].sessionId).toBe(local.id);
+  });
+
+  it("updates an empty imported Session event and refreshes the selected scramble", async () => {
+    const before = session("A", "333");
+    const after = { ...before, event: "222" as const };
+    vi.spyOn(db, "loadSessions")
+      .mockResolvedValueOnce([before])
+      .mockResolvedValueOnce([after]);
+    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+    vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    vi.spyOn(db, "saveSession").mockResolvedValue();
+    const controller = readyController([before], before.id, [], "ready");
+    const newScramble = vi.spyOn(controller, "newScramble").mockResolvedValue();
+
+    await controller.importData(jsonExport([after]));
+
+    expect(controller.state.get().sessions).toEqual([after]);
+    expect(newScramble).toHaveBeenCalledOnce();
+  });
+
+  it("holds the Session lock for a pending JSON import", async () => {
+    stubTimerLoop();
+    const saving = deferred<void>();
+    const local = session("A");
+    const imported = { ...local, id: "B", name: "Session B" };
+    vi.spyOn(db, "loadSessions")
+      .mockResolvedValueOnce([local])
+      .mockResolvedValueOnce([local, imported]);
+    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+    vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    vi.spyOn(db, "saveSession").mockReturnValue(saving.promise);
+    const controller = readyController([local], local.id, [], "ready");
+    vi.spyOn(controller, "newScramble").mockResolvedValue();
+
+    const importing = controller.importData(jsonExport([imported]));
+    controller.startFromKeyboard();
+    expect(controller.state.get().phase).toBe("ready");
+
+    saving.resolve();
+    await importing;
+  });
+
+  it("holds the Session lock for a pending CSV import", async () => {
+    stubTimerLoop();
+    const saving = deferred<void>();
+    const local = session("A");
+    const imported: Session = {
+      id: "import:Imported",
+      name: "Imported",
+      event: DEFAULT_EVENT_ID,
+      createdAt: 0,
+    };
+    const csv = formatSolveCsv(
+      [solveFor(imported.id)],
+      new Map([[imported.id, imported.name]]),
+    );
+    vi.spyOn(db, "loadSessions")
+      .mockResolvedValueOnce([local])
+      .mockResolvedValueOnce([local, imported]);
+    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+    vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    vi.spyOn(db, "saveSession").mockReturnValue(saving.promise);
+    vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const controller = readyController([local], local.id, [], "ready");
+
+    const importing = controller.importSolveCsv(csv);
+    controller.startFromKeyboard();
+    controller.injectMove("R");
+    expect(controller.state.get().phase).toBe("ready");
+
+    saving.resolve();
+    await importing;
+  });
+
+  it("keeps repeated compatible CSV imports idempotent", async () => {
+    const local = session("A");
+    const imported: Session = {
+      id: "import:Imported",
+      name: "Imported",
+      event: DEFAULT_EVENT_ID,
+      createdAt: 0,
+    };
+    const importedSolve = solveFor(imported.id);
+    const csv = formatSolveCsv(
+      [importedSolve],
+      new Map([[imported.id, imported.name]]),
+    );
+    const sessionStore = new Map([[local.id, local]]);
+    const solveStore = new Map<string, Solve>();
+    vi.spyOn(db, "loadSessions").mockImplementation(async () => [
+      ...sessionStore.values(),
+    ]);
+    vi.spyOn(db, "loadAllSolves").mockImplementation(async () => [
+      ...solveStore.values(),
+    ]);
+    vi.spyOn(db, "loadSolves").mockImplementation(async (sessionId) =>
+      [...solveStore.values()].filter((solve) => solve.sessionId === sessionId),
+    );
+    vi.spyOn(db, "saveSession").mockImplementation(async (value) => {
+      sessionStore.set(value.id, value);
+    });
+    vi.spyOn(db, "saveSolve").mockImplementation(async (value) => {
+      solveStore.set(value.id, value);
+    });
+    const controller = readyController([local], local.id);
+
+    await controller.importSolveCsv(csv);
+    await controller.importSolveCsv(csv);
+
+    expect(sessionStore.size).toBe(2);
+    expect(solveStore.size).toBe(1);
+    expect([...solveStore.values()][0].sessionId).toBe(imported.id);
+  });
+
+  it.each(["inspection", "solving"] as const)(
+    "rejects JSON and CSV imports during %s",
+    async (phase) => {
+      const controller = readyController([session("A")], "A", [], phase);
+      const csv = formatSolveCsv(
+        [solveFor("import:Imported")],
+        new Map([["import:Imported", "Imported"]]),
+      );
+
+      await expect(controller.importData(jsonExport([session("B")]))).rejects.toThrow(
+        /Cannot import/,
+      );
+      await expect(controller.importSolveCsv(csv)).rejects.toThrow(/Cannot import/);
+    },
+  );
+
+  it("rejects a conflicting CSV Session before overwriting history", async () => {
+    const local: Session = {
+      id: "import:Imported",
+      name: "Imported",
+      event: "222",
+      createdAt: 0,
+    };
+    const localSolve = solveFor(local.id);
+    const csv = formatSolveCsv(
+      [solveFor(local.id)],
+      new Map([[local.id, local.name]]),
+    );
+    vi.spyOn(db, "loadSessions").mockResolvedValue([local]);
+    vi.spyOn(db, "loadAllSolves").mockResolvedValue([localSolve]);
+    const saveSession = vi.spyOn(db, "saveSession").mockResolvedValue();
+    const controller = readyController([local], local.id, [localSolve]);
+
+    await expect(controller.importSolveCsv(csv)).rejects.toThrow(/Cannot merge session/);
+    expect(saveSession).not.toHaveBeenCalled();
+    expect(controller.state.get().sessions[0].event).toBe("222");
+  });
 });

@@ -243,6 +243,10 @@ The Controller enforces this rule; the UI also disables the corresponding contro
 
 This prevents a running solve from changing the context under which it is being recorded.
 
+The Controller's Session-context lock spans the complete asynchronous persistence and
+state-refresh operation, and prevents a timer start or overlapping Session operation
+until it completes.
+
 ### Switching Sessions
 
 Selecting another Session loads that Session's solves.
@@ -705,6 +709,9 @@ The following are current architectural rules.
 
 13. **Generated case, algorithm, and thumbnail data is not a general architectural abstraction or discovery starting point.**
 
+14. **Import may merge a Session by id only when its EventId is compatible with the existing Session.**
+    A conflicting EventId must never overwrite a Session that has solve history.
+
 ## Rejected alternatives
 
 These alternatives are recorded because the current architecture deliberately chose a different ownership model.
@@ -740,6 +747,21 @@ Reason:
 ```text
 That would change the meaning of existing history. Once a Session has solves,
 changing event creates a new Session instead.
+```
+
+### Blindly overwriting Session events during import
+
+Rejected:
+
+```text
+Blindly overwrite Session.event during an id-based import merge.
+```
+
+Reason:
+
+```text
+It can reinterpret existing solves and bypass the same immutable-history rule
+enforced by normal event changes.
 ```
 
 ### Moving persisted Solve into the cube domain

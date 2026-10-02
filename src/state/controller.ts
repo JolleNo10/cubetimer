@@ -269,6 +269,8 @@ export class Controller {
   #moveListeners = new Set<(move: string) => void>();
   #patternListeners = new Set<(pattern: KPattern) => void>();
   #solveRecordedListeners = new Set<(solve: Solve) => void>();
+  /** Prevent Session/event persistence from racing a timer start or another mutation. */
+  #sessionContextBusy = false;
 
   constructor(model: CubeModel | null = null) {
     this.#model = model;
@@ -286,6 +288,25 @@ export class Controller {
   #canChangeSessionContext(): boolean {
     const phase = this.state.get().phase;
     return phase !== "inspection" && phase !== "solving";
+  }
+
+  #beginSessionContextMutation(): boolean {
+    if (this.#sessionContextBusy || !this.#canChangeSessionContext()) return false;
+    this.#sessionContextBusy = true;
+    return true;
+  }
+
+  #endSessionContextMutation(): void {
+    this.#sessionContextBusy = false;
+  }
+
+  async #withSessionContextMutation<T>(operation: () => Promise<T>): Promise<T | undefined> {
+    if (!this.#beginSessionContextMutation()) return undefined;
+    try {
+      return await operation();
+    } finally {
+      this.#endSessionContextMutation();
+    }
   }
 
   #invalidateScrambleContext(): void {
@@ -1187,6 +1208,7 @@ export class Controller {
   /** Space bar pressed, or the on-screen button tapped. */
   startFromKeyboard(): void {
     if (this.state.get().area !== "timer") return;
+    if (this.#sessionContextBusy) return;
     const { phase, settings } = this.state.get();
     if (phase === "solving") {
       this.#stopManualSolve();
@@ -1234,6 +1256,7 @@ export class Controller {
   }
 
   #startInspection(): void {
+    if (this.#sessionContextBusy) return;
     this.#inspectionStartedAt = performance.now();
     this.#beeped.clear();
     this.state.update((s) => ({
@@ -1251,6 +1274,7 @@ export class Controller {
     from: KPattern | null,
     source: "smartcube" | "keyboard",
   ): void {
+    if (this.#sessionContextBusy) return;
     this.#scrambledPattern = from;
     this.#startedAt = atMs;
     this.#solveMoves = [];
@@ -1347,6 +1371,10 @@ export class Controller {
     this.#traceMove(move.move, phase);
 
     if (phase === "ready" || phase === "inspection") {
+      if (this.#sessionContextBusy) {
+        this.#afterStateChange(false);
+        return;
+      }
       // The first turn is what starts the clock, and it counts as part of the solve.
       this.#startSolve(performance.now(), before, "smartcube");
       this.#solveMoves = [move];
@@ -1854,12 +1882,10 @@ export class Controller {
     return result;
   }
 
-  async selectSession(sessionId: string): Promise<void> {
-    if (!this.#canChangeSessionContext()) return;
+  async #selectSession(sessionId: string, previousEvent?: EventId): Promise<void> {
     const target = this.state.get().sessions.find((session) => session.id === sessionId);
     if (!target) return;
-    const current = this.#currentSession();
-    const eventChanged = current?.event !== target.event;
+    const eventChanged = (previousEvent ?? this.#currentSession()?.event) !== target.event;
     if (eventChanged) {
       this.#invalidateScrambleContext();
       this.state.update((s) => ({
@@ -1880,8 +1906,11 @@ export class Controller {
     else this.#updateScrambleProgress();
   }
 
-  async createSession(name: string, event: EventId = this.#currentEvent()): Promise<void> {
-    if (!this.#canChangeSessionContext()) return;
+  async selectSession(sessionId: string): Promise<void> {
+    await this.#withSessionContextMutation(() => this.#selectSession(sessionId));
+  }
+
+  async #createSession(name: string, event: EventId): Promise<void> {
     const session: Session = {
       id: crypto.randomUUID(),
       name,
@@ -1890,17 +1919,24 @@ export class Controller {
     };
     await db.saveSession(session);
     this.state.update((s) => ({ ...s, sessions: [...s.sessions, session] }));
-    await this.selectSession(session.id);
+    await this.#selectSession(session.id);
+  }
+
+  async createSession(name: string, event: EventId = this.#currentEvent()): Promise<void> {
+    await this.#withSessionContextMutation(() => this.#createSession(name, event));
   }
 
   async changeEvent(event: EventId): Promise<void> {
-    if (!this.#canChangeSessionContext()) return;
+    await this.#withSessionContextMutation(() => this.#changeEvent(event));
+  }
+
+  async #changeEvent(event: EventId): Promise<void> {
     const state = this.state.get();
     const session = this.#currentSession();
     if (!session || session.event === event) return;
 
     if (state.solves.some((solve) => solve.sessionId === session.id)) {
-      await this.createSession(`Session ${state.sessions.length + 1}`, event);
+      await this.#createSession(`Session ${state.sessions.length + 1}`, event);
       return;
     }
 
@@ -1927,16 +1963,20 @@ export class Controller {
     }));
   }
 
-  async deleteSession(id: string): Promise<void> {
-    if (!this.#canChangeSessionContext()) return;
+  async #deleteSession(id: string): Promise<void> {
     const { sessions } = this.state.get();
     if (sessions.length <= 1) return;
+    const current = this.#currentSession();
     await db.deleteSession(id);
     const remaining = sessions.filter((s) => s.id !== id);
     this.state.update((s) => ({ ...s, sessions: remaining }));
     if (this.state.get().sessionId === id) {
-      await this.selectSession(remaining[remaining.length - 1].id);
+      await this.#selectSession(remaining[remaining.length - 1].id, current?.event);
     }
+  }
+
+  async deleteSession(id: string): Promise<void> {
+    await this.#withSessionContextMutation(() => this.#deleteSession(id));
   }
 
   // ---------------------------------------------------------------- settings
@@ -1983,33 +2023,115 @@ export class Controller {
     );
   }
 
+  async #assertImportSessionCompatibility(
+    incomingSessions: Session[],
+    incomingSolveSessionIds: Set<string>,
+  ): Promise<void> {
+    const [existingSessions, existingSolves] = await Promise.all([
+      db.loadSessions(),
+      db.loadAllSolves(),
+    ]);
+    const existingById = new Map(existingSessions.map((session) => [session.id, session]));
+    const existingHistory = new Set(existingSolves.map((solve) => solve.sessionId));
+    const incomingById = new Map<string, Session>();
+
+    for (const session of incomingSessions) {
+      const previous = incomingById.get(session.id);
+      if (previous && previous.event !== session.event) {
+        throw new Error(
+          `Cannot merge session "${session.name}": the import contains conflicting events for this session.`,
+        );
+      }
+      incomingById.set(session.id, session);
+    }
+
+    for (const session of incomingById.values()) {
+      const existing = existingById.get(session.id);
+      if (
+        existing &&
+        existing.event !== session.event &&
+        (existingHistory.has(session.id) || incomingSolveSessionIds.has(session.id))
+      ) {
+        throw new Error(
+          `Cannot merge session "${session.name}": the existing and imported sessions use different events while solve history exists.`,
+        );
+      }
+    }
+  }
+
+  async #refreshAfterImport(previousSession: Session | undefined): Promise<void> {
+    const sessions = await db.loadSessions();
+    const selectedId = previousSession?.id ?? this.state.get().sessionId;
+    const target =
+      sessions.find((session) => session.id === selectedId) ?? sessions.at(-1);
+    const eventChanged =
+      previousSession !== undefined &&
+      target !== undefined &&
+      previousSession.event !== target.event;
+
+    if (eventChanged) {
+      this.#invalidateScrambleContext();
+      this.state.update((s) => ({
+        ...s,
+        scrambleGeneration: null,
+        scrambleProgress: null,
+        recovery: null,
+      }));
+    }
+
+    const solves = target ? await this.#loadSolves(target.id) : [];
+    this.state.update((s) => ({
+      ...s,
+      sessions,
+      sessionId: target?.id ?? "",
+      solves,
+      lastSolve: solves[solves.length - 1] ?? null,
+    }));
+    if (eventChanged) await this.newScramble();
+    else if (target) this.#updateScrambleProgress();
+  }
+
   /**
    * Merge an exported file back in. Sessions and solves keep their ids, so importing
    * the same file twice does not duplicate anything.
    */
   async importData(json: string): Promise<{ sessions: number; solves: number }> {
-    const data = JSON.parse(json) as {
-      sessions?: Array<Omit<Session, "event"> & { event?: unknown }>;
-      solves?: Array<Solve & { event?: unknown }>;
-    };
-    if (!Array.isArray(data.sessions) || !Array.isArray(data.solves)) {
-      throw new Error("This does not look like a cubetimer export.");
+    if (!this.#beginSessionContextMutation()) {
+      throw new Error("Cannot import while the timer or another Session operation is active.");
     }
-    for (const rawSession of data.sessions) {
-      const session = db.migrateSession(rawSession);
-      if (session?.id && session.name) await db.saveSession(session);
+    try {
+      const previousSession = this.#currentSession();
+      const data = JSON.parse(json) as {
+        sessions?: Array<Omit<Session, "event"> & { event?: unknown }>;
+        solves?: Array<Solve & { event?: unknown }>;
+      };
+      if (!Array.isArray(data.sessions) || !Array.isArray(data.solves)) {
+        throw new Error("This does not look like a cubetimer export.");
+      }
+
+      const sessions = data.sessions
+        .filter((rawSession) => rawSession && typeof rawSession === "object")
+        .map((rawSession) => db.migrateSession(rawSession))
+        .filter((session) => Boolean(session.id && session.name));
+      const importedSolves: Solve[] = [];
+      for (const rawSolve of data.solves) {
+        if (!rawSolve?.id || !rawSolve.sessionId || typeof rawSolve.rawMs !== "number") continue;
+        importedSolves.push(
+          db.migrateSolve({ ...rawSolve, moves: rawSolve.moves ?? [] }),
+        );
+      }
+      await this.#assertImportSessionCompatibility(
+        sessions,
+        new Set(importedSolves.map((solve) => solve.sessionId)),
+      );
+
+      for (const session of sessions) await db.saveSession(session);
+      for (const solve of importedSolves) await db.saveSolve(solve);
+      await this.#refreshAfterImport(previousSession);
+      return { sessions: sessions.length, solves: importedSolves.length };
+    } finally {
+      this.#endSessionContextMutation();
     }
-    let solves = 0;
-    for (const rawSolve of data.solves) {
-      if (!rawSolve?.id || !rawSolve.sessionId || typeof rawSolve.rawMs !== "number") continue;
-      await db.saveSolve(db.migrateSolve({ ...rawSolve, moves: rawSolve.moves ?? [] }));
-      solves++;
-    }
-    this.state.update((s) => ({ ...s, sessions: [] }));
-    const sessions = await db.loadSessions();
-    this.state.update((s) => ({ ...s, sessions }));
-    await this.selectSession(this.state.get().sessionId);
-    return { sessions: data.sessions.length, solves };
   }
 
   /**
@@ -2023,27 +2145,43 @@ export class Controller {
     text: string,
     onProgress?: (done: number, total: number) => void,
   ): Promise<{ solves: number; sessions: number }> {
-    const total = countSolveCsvRows(text);
-    const sessionIds = new Set<string>();
-    let done = 0;
-
-    for (const batch of solveCsvBatches(text)) {
-      for (const session of batch.sessions) {
-        if (sessionIds.has(session.id)) continue;
-        sessionIds.add(session.id);
-        await db.saveSession(session);
-      }
-      for (const solve of batch.solves) await db.saveSolve(solve);
-      done += batch.solves.length;
-      onProgress?.(done, total);
-      // Let the browser paint between batches.
-      await new Promise((resolve) => setTimeout(resolve, 0));
+    if (!this.#beginSessionContextMutation()) {
+      throw new Error("Cannot import while the timer or another Session operation is active.");
     }
+    try {
+      const previousSession = this.#currentSession();
+      const total = countSolveCsvRows(text);
+      const incomingSessions = new Map<string, Session>();
+      const incomingSolveSessionIds = new Set<string>();
+      for (const batch of solveCsvBatches(text)) {
+        for (const session of batch.sessions) incomingSessions.set(session.id, session);
+        for (const solve of batch.solves) incomingSolveSessionIds.add(solve.sessionId);
+      }
+      await this.#assertImportSessionCompatibility(
+        [...incomingSessions.values()],
+        incomingSolveSessionIds,
+      );
 
-    const sessions = await db.loadSessions();
-    this.state.update((s) => ({ ...s, sessions }));
-    await this.selectSession(this.state.get().sessionId);
-    return { solves: done, sessions: sessionIds.size };
+      const sessionIds = new Set<string>();
+      let done = 0;
+      for (const batch of solveCsvBatches(text)) {
+        for (const session of batch.sessions) {
+          if (sessionIds.has(session.id)) continue;
+          sessionIds.add(session.id);
+          await db.saveSession(session);
+        }
+        for (const solve of batch.solves) await db.saveSolve(solve);
+        done += batch.solves.length;
+        onProgress?.(done, total);
+        // Let the browser paint between batches.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+
+      await this.#refreshAfterImport(previousSession);
+      return { solves: done, sessions: sessionIds.size };
+    } finally {
+      this.#endSessionContextMutation();
+    }
   }
 
   /** Write the current session, or everything, in the solve analysis CSV format. */
