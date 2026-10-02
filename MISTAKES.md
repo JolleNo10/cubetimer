@@ -1,5 +1,11 @@
 # Mistakes
 
+## 2026-10-03 — Statistics solve review completeness
+
+- What happened: Statistics hid solve activation in metric buttons, omitted Result comparison and skip details, enabled Tools without raw moves, and left F2L sources and trend points inaccessible.
+- Root cause: review presentation was duplicated instead of shared, and tests covered callbacks without checking every solve-bearing surface or review capability.
+- Prevention: share analytical presentation with Result, derive source samples in state, and test row/keyboard activation, raw-move capability, full review context, and cross-Session isolation.
+
 ## 2026-10-03 — Statistics compatibility and zero-range pairs
 
 - What happened: the first implementation changed the existing aggregate execution split and admitted an unmarked zero-range XCross pair into performance medians.

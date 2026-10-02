@@ -1,12 +1,11 @@
-import { SolveComparisonPanel } from "./SolveComparison";
-import { DetailedStepBreakdown } from "./StepBreakdown";
+import { SolveAnalysisReview } from "./SolveAnalysisReview";
 import type { SolveStep } from "../cube/analysis";
 import { useController } from "../hooks/useController";
 import {
   practiceScrambleLabel,
   practiceScrambleTitle,
 } from "../state/scrambleProvider";
-import { compareSolveToHistory, formatSolveTime, formatTime, isSlowSolve } from "../state/stats";
+import { formatSolveTime, isSlowSolve } from "../state/stats";
 import type { Penalty, Solve } from "../state/types";
 
 const PENALTIES: { value: Penalty; label: string }[] = [
@@ -35,12 +34,10 @@ export function SolveResult({
   const moveCount = analysis?.sliceTurns ?? solve.moves.length;
   const canReplay = solve.moves.length > 0;
   const canAnalyse = Boolean(analysis && solve.moves.length > 0);
-  const pauseMs = analysis?.pauses.reduce((sum, pause) => sum + pause.durationMs, 0) ?? 0;
   const slowSolve = isSlowSolve(solve);
   const specialLabel = practiceScrambleLabel(solve.scrambleProvider);
   const specialTitle = practiceScrambleTitle(solve.scrambleProvider);
   const primary = slowSolve ? `${moveCount} moves` : formatSolveTime(solve);
-  const comparison = analysis ? compareSolveToHistory(solve, solves) : null;
 
   return (
     <section className="panel solve-result" aria-label="Solve result">
@@ -140,30 +137,7 @@ export function SolveResult({
         </div>
 
         {analysis ? (
-          <>
-            <div className="result-metrics">
-              <ResultMetric label="Measured recognition" value={formatTime(analysis.totalRecognitionMs)} />
-              <ResultMetric label="Execution" value={formatTime(analysis.totalExecutionMs)} />
-              <ResultMetric label="Moves / STM" value={String(analysis.sliceTurns)} />
-              <ResultMetric label="TPS" value={analysis.tps.toFixed(2)} />
-              <ResultMetric
-                label="Pauses"
-                value={`${analysis.pauses.length} pause${analysis.pauses.length === 1 ? "" : "s"} · ${formatTime(pauseMs)}s`}
-                detail="over 250 ms"
-              />
-            </div>
-            {analysis.stepsSkipped > 0 ? (
-              <div className="result-badge">
-                {analysis.stepsSkipped} {analysis.stepsSkipped === 1 ? "step" : "steps"} skipped
-              </div>
-            ) : null}
-
-            <DetailedStepBreakdown analysis={analysis} onPracticeStep={onPracticeStep} />
-            <SolveComparisonPanel comparison={comparison} />
-            <p className="result-note">
-              Recognition is inferred from move timing; cross planning before the first turn is not measured.
-            </p>
-          </>
+          <SolveAnalysisReview solve={solve} solves={solves} analysis={analysis} onPracticeStep={onPracticeStep} />
         ) : (
           <div className="empty result-no-analysis">
             {solve.source === "keyboard"
@@ -179,15 +153,5 @@ export function SolveResult({
         </button>
       </div>
     </section>
-  );
-}
-
-function ResultMetric({ label, value, detail }: { label: string; value: string; detail?: string }) {
-  return (
-    <div className="result-metric">
-      <span className="result-metric-label">{label}</span>
-      <strong className="mono">{value}</strong>
-      {detail ? <span className="result-metric-detail">{detail}</span> : null}
-    </div>
   );
 }

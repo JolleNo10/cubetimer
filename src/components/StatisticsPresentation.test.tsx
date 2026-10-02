@@ -9,6 +9,9 @@ import type { Solve } from "../state/types";
 import { StatisticsSolveDetail } from "./StatisticsSolveDetail";
 import { StatisticsAverageDetail, StatisticsRecords } from "./StatisticsRecords";
 import { StatisticsAnalysisTables } from "./StatisticsAnalysisTables";
+import { SolveResult } from "./SolveResult";
+import { ControllerContext } from "../hooks/useController";
+import { Controller } from "../state/controller";
 
 const kpuzzle = await get3x3x3();
 const alg = new Alg("R U R' U R U2 R'");
@@ -18,30 +21,63 @@ const sessions = [{ id: "history", name: "History Session", event: "333" as cons
 
 describe("Statistics presentation", () => {
   it("renders a read-only historical solve with seven-step CFOP, metrics, and review actions", () => {
-    const html = renderToStaticMarkup(<StatisticsSolveDetail solve={solve} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
+    const reviewed = { ...solve, inspectionMs: 12000 };
+    const html = renderToStaticMarkup(<StatisticsSolveDetail solve={reviewed} solves={[reviewed]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
     expect(html).toContain("4.10+"); expect(html).toContain("History Session");
     expect(html).toContain("Read-only note"); expect(html).toContain("STM"); expect(html).toContain("Whole-solve TPS");
     expect(html).toContain("Measured recognition"); expect(html).toContain("Execution"); expect(html).toContain("Pauses ≥250 ms");
-    expect(html).toContain("Cross"); expect(html).toContain("F2L Slot 4"); expect(html).toContain("OLL"); expect(html).toContain("PLL");
+    for (const phase of ["Cross", "F2L Slot 1", "F2L Slot 2", "F2L Slot 3", "F2L Slot 4", "OLL", "PLL"]) expect(html).toContain(phase);
+    for (const column of ["Total", "Cumulative", "Recognition", "Execution", "Moves", "TPS"]) expect(html).toContain(column);
+    expect(html).toContain("Raw time"); expect(html).toContain("2.10"); expect(html).toContain("Penalty"); expect(html).toContain("+2");
+    expect(html).toContain("Smart cube"); expect(html).toContain("Inspection"); expect(html).toContain("12.00");
+    expect(html).toContain(new Date(solve.createdAt).toLocaleString()); expect(html).toContain("R U2 R");
+    expect(html).toContain("steps skipped");
     expect(html).toContain(">Replay<"); expect(html).toContain(">Tools<");
     expect(html).toContain("Cross planning before the first turn is not measured.");
     expect(html).not.toContain("<input"); expect(html).not.toContain("<textarea");
-    for (const action of ["Delete", "Solve again", "Train", "Add a note", "Penalty"]) expect(html).not.toContain(action);
+    for (const action of ["Delete", "Solve again", "Train", "Add a note"]) expect(html).not.toContain(action);
+    expect(html).not.toMatch(/<button[^>]*>(?:OK|\+2|DNF)<\/button>/);
+    expect(html).toMatch(/<button class="ghost">Tools<\/button>/);
+    expect(html).toMatch(/<button class="ghost">Replay<\/button>/);
   });
 
   it("shows missing analysis without fabricated metrics", () => {
-    const html = renderToStaticMarkup(<StatisticsSolveDetail solve={{ ...solve, analysis: null, moves: [] }} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
+    const html = renderToStaticMarkup(<StatisticsSolveDetail solve={{ ...solve, analysis: null, moves: [] }} solves={[]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
     expect(html).toContain("No usable move-by-move CFOP analysis");
     expect(html).not.toContain("Whole-solve TPS");
     expect(html).toContain("disabled");
   });
 
   it("can review recorded CFOP analysis on a DNF average constituent", () => {
-    const html = renderToStaticMarkup(<StatisticsSolveDetail solve={{ ...solve, penalty: "DNF" }} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
+    const html = renderToStaticMarkup(<StatisticsSolveDetail solve={{ ...solve, penalty: "DNF" }} solves={[solve]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
     expect(html).toContain("DNF(2.10)");
     expect(html).toContain("Measured recognition");
     expect(html).toContain("F2L Slot 4");
     expect(html).not.toContain("No usable move-by-move");
+  });
+
+  it("keeps a stored breakdown viewable without enabling raw-move tools", () => {
+    const html = renderToStaticMarkup(<StatisticsSolveDetail solve={{ ...solve, moves: [], source: "import", penalty: "none" }} solves={[solve]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Replay<\/button>/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Tools<\/button>/);
+    expect(html).toContain("F2L Slot 4"); expect(html).toContain("Measured recognition");
+    expect(html).toContain(">OK<"); expect(html).toContain(">Import<");
+  });
+
+  it("shares comparison and post-solution information with normal Result, using same-Session history", () => {
+    const reviewed = { ...solve, createdAt: 10, analysis: { ...solve.analysis!, turnsAfterSolution: 2, pauses: [] } };
+    const history = [
+      ...Array.from({ length: 3 }, (_, index) => ({ ...solve, id: `prior${index}`, createdAt: index })),
+      ...Array.from({ length: 3 }, (_, index) => ({ ...solve, id: `other${index}`, sessionId: "other", createdAt: index + 3 })),
+      reviewed,
+    ];
+    const html = renderToStaticMarkup(<StatisticsSolveDetail solve={reviewed} solves={history} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
+    expect(html).toContain("median of last 3"); expect(html).not.toContain("median of last 6");
+    expect(html).toContain("Compared with recent solves"); expect(html).toContain("2 turns after the cube was solved");
+    const result = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><SolveResult solve={reviewed} solves={history} onContinue={() => {}} onReplay={() => {}} onAnalyse={() => {}} onPracticeStep={() => {}} /></ControllerContext.Provider>);
+    expect(result).toContain("median of last 3"); expect(result).toContain("2 turns after the cube was solved");
+    for (const action of ["Delete", "Solve again", "Train", "Back to timer"]) expect(result).toContain(action);
+    expect(result).toContain("<input"); expect(result).toMatch(/<button[^>]*>\+2<\/button>/);
   });
 
   it("explains discarded members and a retained DNF that makes the average DNF", () => {
@@ -59,6 +95,8 @@ describe("Statistics presentation", () => {
     for (const group of ["Solve", "Averages", "Phases", "Efficiency"]) expect(html).toContain(`label="${group}"`);
     expect(html).toContain("Fastest → slowest"); expect(html).toContain("Slowest → fastest");
     expect(html).toContain("PB history"); expect(html).toContain("Best splits"); expect(html).not.toContain("theoretical PB");
+    expect(html).not.toContain("historical ·");
+    expect(html).toContain("4.10+ · History Session");
   });
 
   it("renders sensible empty analysis and consistency sections", () => {

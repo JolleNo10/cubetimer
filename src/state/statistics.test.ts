@@ -353,6 +353,10 @@ describe("historical records and performance", () => {
     expect(first).toMatchObject({ label: "1st pair", count: 2, skipCount: 1, bestMs: 500, medianMs: 1000, recognitionMs: 350, executionMs: 650, moves: 5 });
     expect(first.tps).toBeCloseTo(10 / 1.3);
     expect(first.solveIds).toEqual(["a", "b"]);
+    expect(first.samples).toHaveLength(2);
+    expect(first.samples[0]).toMatchObject({ solveId: "a", timeMs: 500, recognitionMs: 200, executionMs: 300, moves: 2 });
+    expect(first.samples[0].tps).toBeCloseTo(2 / 0.3);
+    expect(first.samples[1]).toMatchObject({ solveId: "b", timeMs: 1500, recognitionMs: 500, executionMs: 1000, moves: 8, tps: 8 });
   });
 
   it("counts a zero-range XCross pair separately even without the skipped marker", () => {

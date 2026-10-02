@@ -247,8 +247,8 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTool
           <StatisticsRecords key={`records:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} />
 
           <section className="stats-section trend-section">
-            <div className="section-heading"><div><h2>Solve time trend</h2><p>{scopeLabel} · showing {chartWindow === "all" ? "all" : `the last ${chartWindow}`} counted solves</p></div></div>
-            <SolveTimeTrendChart points={visibleTrend} scopeLabel={scopeLabel} />
+            <div className="section-heading"><div><h2>Solve time trend</h2><p>{scopeLabel} · showing {chartWindow === "all" ? "all" : `the last ${chartWindow}`} counted solves · select a point to review its solve</p></div></div>
+            <SolveTimeTrendChart points={visibleTrend} scopeLabel={scopeLabel} onOpenSolve={(id) => { const solve = model.scopeSolves.find((solve) => solve.id === id); if (solve) setDetailSolve(solve); }} />
           </section>
           <section className="stats-section"><div className="section-heading"><div><h2>Average progression</h2><p>Actual Ao5/Ao12/Ao50/Ao100 windows · chart window controls presentation only</p></div></div><AverageProgressionChart points={visibleAverages} scopeLabel={scopeLabel} /></section>
 
@@ -266,7 +266,7 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTool
           <section className="stats-section"><div className="section-heading"><div><h2>Session comparison</h2><p>Click a row to filter Statistics only; the Timer Session stays unchanged.</p></div></div><SessionTable model={model} onSelect={setSessionId} /></section>
         </>
       ) : null}
-      {detailSolve && model?.scopeSolves.some((solve) => solve.id === detailSolve.id) ? <StatisticsSolveDetail solve={detailSolve} session={model.eventSessions.find((session) => session.id === detailSolve.sessionId)} onClose={() => setDetailSolve(null)} onReplay={onReplay} onTools={onTools} /> : null}
+      {detailSolve && model?.scopeSolves.some((solve) => solve.id === detailSolve.id) ? <StatisticsSolveDetail solve={detailSolve} solves={model.scopeSolves} session={model.eventSessions.find((session) => session.id === detailSolve.sessionId)} onClose={() => setDetailSolve(null)} onReplay={onReplay} onTools={onTools} /> : null}
     </main>
   );
 }

@@ -3,9 +3,10 @@ import { formatTime, formatSolveTime } from "../state/stats";
 import { RECOGNITION_NOTE, sortCasePerformance, type CasePerformance, type CaseSort, type PerformanceSummary, type SortDirection, type StatisticsViewModel } from "../state/statistics";
 import type { Solve } from "../state/types";
 import type { LastLayerFamily } from "../cube/lastLayerTraining";
+import { statisticsActivationProps } from "./statisticsInteraction";
 
 export function PerformanceTable({ rows, onSelect }: { rows: readonly PerformanceSummary[]; onSelect?: (row: PerformanceSummary) => void }) {
-  return <div className="table-scroll"><table className="stats-table"><thead><tr><th>Case / position</th><th>Samples</th><th>Best</th><th>Median</th><th>Recognition median</th><th>Execution median</th><th>STM median</th><th>Execution TPS</th><th>Skips</th></tr></thead><tbody>{rows.map((row) => <tr key={row.label}><td>{onSelect ? <button className="ghost small" onClick={() => onSelect(row)}>{row.label}</button> : row.label}</td><td>{row.count}</td><td>{formatTime(row.bestMs)}</td><td>{formatTime(row.medianMs)}</td><td>{formatTime(row.recognitionMs)}</td><td>{formatTime(row.executionMs)}</td><td>{row.moves ?? "—"}</td><td>{row.tps?.toFixed(2) ?? "—"}</td><td>{row.skipCount}</td></tr>)}</tbody></table></div>;
+  return <div className="table-scroll"><table className="stats-table"><thead><tr><th>Case / position</th><th>Samples</th><th>Best</th><th>Median</th><th>Recognition median</th><th>Execution median</th><th>STM median</th><th>Execution TPS</th><th>Skips</th></tr></thead><tbody>{rows.map((row) => <tr key={row.label} {...statisticsActivationProps(onSelect ? () => onSelect(row) : undefined, `View ${row.label} samples`)}><td>{onSelect ? <button className="ghost small stats-open-link" onClick={() => onSelect(row)}>{row.label}</button> : row.label}</td><td>{row.count}</td><td>{formatTime(row.bestMs)}</td><td>{formatTime(row.medianMs)}</td><td>{formatTime(row.recognitionMs)}</td><td>{formatTime(row.executionMs)}</td><td>{row.moves ?? "—"}</td><td>{row.tps?.toFixed(2) ?? "—"}</td><td>{row.skipCount}</td></tr>)}</tbody></table></div>;
 }
 
 export function StatisticsCaseTable({ family, rows, skipCount, model, onOpenSolve, onTrainCase }: {
@@ -26,8 +27,33 @@ export function StatisticsCaseTable({ family, rows, skipCount, model, onOpenSolv
       <div className="section-heading"><h3>{family.toUpperCase()} {selected.caseId} · {selected.count} solves</h3><div className="row"><button onClick={() => onTrainCase(family, selected.caseId)}>Train case</button><button className="ghost" onClick={() => setCaseId(null)}>Close case</button></div></div>
       <div className="table-scroll"><table className="stats-table"><thead><tr><th>Solve</th><th>Session</th><th>Date</th></tr></thead><tbody>{selected.solveIds.map((id) => {
         const solve = members.get(id);
-        return solve ? <tr key={id}><td><button className="ghost small" onClick={() => onOpenSolve(solve)}>{formatSolveTime(solve)}</button></td><td>{model.eventSessions.find((session) => session.id === solve.sessionId)?.name}</td><td>{new Date(solve.createdAt).toLocaleString()}</td></tr> : null;
+        return solve ? <tr key={id} {...statisticsActivationProps(() => onOpenSolve(solve), `View solve ${formatSolveTime(solve)} · ${new Date(solve.createdAt).toLocaleString()}`)}><td><button className="ghost small stats-open-link" onClick={() => onOpenSolve(solve)}>{formatSolveTime(solve)}</button></td><td>{model.eventSessions.find((session) => session.id === solve.sessionId)?.name}</td><td>{new Date(solve.createdAt).toLocaleString()}</td></tr> : null;
       })}</tbody></table></div>
+    </div> : null}
+  </section>;
+}
+
+export function StatisticsF2lPerformance({ model, onOpenSolve }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void }) {
+  const [position, setPosition] = useState<string | null>(null);
+  const selected = model.f2lPositions.find((row) => row.label === position);
+  const members = new Map(model.scopeSolves.map((solve) => [solve.id, solve]));
+  return <section className="stats-section">
+    <div className="section-heading"><div><h2>F2L performance</h2><p>Pair completion order · skipped/XCross pairs counted separately</p></div></div>
+    <p className="small faint">{RECOGNITION_NOTE}</p>
+    {model.analysisCount ? <PerformanceTable rows={model.f2lPositions} onSelect={(row) => setPosition(row.label)} /> : <div className="chart-empty">No usable CFOP analysis in this scope.</div>}
+    {selected ? <div className="stats-detail" role="region" aria-label="F2L position solves">
+      <div className="section-heading"><h3>{selected.label} · {selected.count} contributing solves</h3><button className="ghost" onClick={() => setPosition(null)}>Close pair</button></div>
+      {selected.samples.length ? <div className="table-scroll"><table className="stats-table">
+        <thead><tr><th>Pair time</th><th>Recognition</th><th>Execution</th><th>STM</th><th>Execution TPS</th><th>Solve time</th>{model.sessionId === null ? <th>Session</th> : null}<th>Date</th></tr></thead>
+        <tbody>{selected.samples.map((sample) => {
+          const solve = members.get(sample.solveId);
+          return solve ? <tr key={sample.solveId} {...statisticsActivationProps(() => onOpenSolve(solve), `View solve ${formatSolveTime(solve)} · ${selected.label}`)}>
+            <td>{formatTime(sample.timeMs)}</td><td>{formatTime(sample.recognitionMs)}</td><td>{formatTime(sample.executionMs)}</td><td>{sample.moves}</td><td>{sample.tps?.toFixed(2) ?? "—"}</td>
+            <td><button className="ghost small stats-open-link" onClick={() => onOpenSolve(solve)}>{formatSolveTime(solve)}</button></td>
+            {model.sessionId === null ? <td>{model.eventSessions.find((session) => session.id === solve.sessionId)?.name}</td> : null}<td>{new Date(solve.createdAt).toLocaleString()}</td>
+          </tr> : null;
+        })}</tbody>
+      </table></div> : <div className="chart-empty">No non-skipped samples for this position.</div>}
     </div> : null}
   </section>;
 }
@@ -37,7 +63,7 @@ export function StatisticsAnalysisTables({ model, onOpenSolve, onTrainCase }: { 
   const consistency = model.consistency;
   const longestSolve = model.scopeSolves.find((solve) => solve.id === pauses?.longest?.solveId);
   return <>
-    <section className="stats-section"><div className="section-heading"><div><h2>F2L performance</h2><p>Pair completion order · skipped/XCross pairs counted separately</p></div></div><p className="small faint">{RECOGNITION_NOTE}</p>{model.analysisCount ? <PerformanceTable rows={model.f2lPositions} /> : <div className="chart-empty">No usable CFOP analysis in this scope.</div>}</section>
+    <StatisticsF2lPerformance model={model} onOpenSolve={onOpenSolve} />
     <StatisticsCaseTable family="oll" rows={model.ollCases} skipCount={model.ollSkips} model={model} onOpenSolve={onOpenSolve} onTrainCase={onTrainCase} />
     <StatisticsCaseTable family="pll" rows={model.pllCases} skipCount={model.pllSkips} model={model} onOpenSolve={onOpenSolve} onTrainCase={onTrainCase} />
     <section className="stats-section"><div className="section-heading"><div><h2>Pauses</h2><p>Gaps ≥250 ms, attributed to the phase containing the next raw move. Pre-first-turn planning is unmeasured.</p></div></div>
@@ -46,7 +72,7 @@ export function StatisticsAnalysisTables({ model, onOpenSolve, onTrainCase }: { 
           ["Mean pauses per solve", pauses.meanCount.toFixed(2)], ["Mean individual pause", formatTime(pauses.meanDurationMs)],
           ["Mean total pause time", formatTime(pauses.meanTotalMs)], ["Pause-free solves", `${pauses.pauseFreeCount} / ${pauses.sampleSize} (${(pauses.pauseFreeShare * 100).toFixed(1)}%)`],
         ].map(([label, value]) => <div className="stat-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div>
-        <p>Longest pause: {longestSolve ? <button className="ghost small" onClick={() => onOpenSolve(longestSolve)}>{formatTime(pauses.longest?.durationMs)} · {longestSolve.id}</button> : "—"}</p>
+        <p>Longest pause: {longestSolve ? <button className="ghost small stats-open-link" onClick={() => onOpenSolve(longestSolve)}>{formatTime(pauses.longest?.durationMs)} · View solve {formatSolveTime(longestSolve)}</button> : "—"}</p>
         <div className="table-scroll"><table className="stats-table"><thead><tr><th>Phase</th><th>Total pause time</th><th>Share of pauses</th></tr></thead><tbody>{pauses.phases.map((phase) => <tr key={phase.name}><td>{phase.name}</td><td>{formatTime(phase.totalMs)}</td><td>{(phase.share * 100).toFixed(1)}%</td></tr>)}</tbody></table></div>
       </> : <div className="chart-empty">Pause analytics need usable CFOP analysis.</div>}
     </section>

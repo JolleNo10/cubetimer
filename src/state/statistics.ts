@@ -145,8 +145,11 @@ export type AverageProgressionPoint = {
   ao5?: number | null; ao12?: number | null; ao50?: number | null; ao100?: number | null;
 };
 export type RecognitionTrendPoint = { index: number; solveId: string; recognitionMs: number; executionMs: number };
+export type PerformanceSample = {
+  solveId: string; timeMs: number; recognitionMs: number; executionMs: number; moves: number; tps?: number;
+};
 export type PerformanceSummary = {
-  label: string; count: number; skipCount: number; solveIds: string[];
+  label: string; count: number; skipCount: number; solveIds: string[]; samples: PerformanceSample[];
   bestMs?: number; medianMs?: number; recognitionMs?: number; executionMs?: number; moves?: number; tps?: number;
 };
 export type CasePerformance = PerformanceSummary & { caseId: string };
@@ -240,6 +243,7 @@ function performance(label: string, samples: { fact: AnalysedSolveFacts; step: S
   const sum = (key: "sliceTurns" | "executionMs") => performed.reduce((total, { step }) => total + step[key], 0);
   return {
     label, count: performed.length, skipCount: samples.length - performed.length,
+    samples: performed.map(({ fact, step }) => ({ solveId: fact.id, timeMs: step.timeMs, recognitionMs: step.recognitionMs, executionMs: step.executionMs, moves: step.sliceTurns, tps: executionTps(step.sliceTurns, step.executionMs) })),
     solveIds: performed.map(({ fact }) => fact.id), bestMs: performed.length ? Math.min(...performed.map(({ step }) => step.timeMs)) : undefined,
     medianMs: median(performed.map(({ step }) => step.timeMs)), recognitionMs: median(performed.map(({ step }) => step.recognitionMs)),
     executionMs: median(performed.map(({ step }) => step.executionMs)), moves: median(performed.map(({ step }) => step.sliceTurns)),

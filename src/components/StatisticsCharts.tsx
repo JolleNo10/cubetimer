@@ -1,5 +1,6 @@
 import { formatTime } from "../state/stats";
 import type { AverageProgressionPoint, RecognitionTrendPoint, DistributionStats, PhaseTrendPoint, TrendPoint } from "../state/statistics";
+import { statisticsActivationProps } from "./statisticsInteraction";
 
 const WIDTH = 1000;
 const HEIGHT = 300;
@@ -66,9 +67,11 @@ function yFor(value: number, max: number): number {
 export function SolveTimeTrendChart({
   points,
   scopeLabel,
+  onOpenSolve,
 }: {
   points: TrendPoint[];
   scopeLabel: string;
+  onOpenSolve?: (solveId: string) => void;
 }) {
   if (!points.length) return <div className="chart-empty">No counted solves in this scope yet.</div>;
   const finished = points.flatMap((point) => point.time === null ? [] : [point.time]);
@@ -84,7 +87,7 @@ export function SolveTimeTrendChart({
       <svg
         className="stats-chart"
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-        role="img"
+        role={onOpenSolve ? "group" : "img"}
         aria-label={`Solve time trend for ${scopeLabel}`}
       >
         <title>{`Solve time, rolling averages, and personal bests — ${scopeLabel}`}</title>
@@ -110,9 +113,10 @@ export function SolveTimeTrendChart({
         <path className="chart-line ao12" d={linePath(points.map((point) => point.ao12), maxValue)} />
         {points.map((point, index) => {
           const x = chartX(index, points.length);
+          const activation = statisticsActivationProps<SVGGElement>(onOpenSolve ? () => onOpenSolve(point.id) : undefined, `View solve ${formatTime(point.time)}${point.isPb ? " · personal best" : ""} · ${new Date(point.createdAt).toLocaleString()}`);
           if (point.time === null) {
             return (
-              <g key={point.id} className="chart-dnf" transform={`translate(${x},${HEIGHT - PAD.bottom - 8})`}>
+              <g key={point.id} className="chart-dnf" transform={`translate(${x},${HEIGHT - PAD.bottom - 8})`} {...activation} role={onOpenSolve ? "button" : undefined}>
                 <title>{`${point.id}: DNF`}</title>
                 <path d="M0,-8 L7,5 L-7,5 Z" />
               </g>
@@ -121,7 +125,7 @@ export function SolveTimeTrendChart({
           const outlier = point.time > maxValue;
           const y = outlier ? PAD.top + 4 : yFor(point.time, maxValue);
           return (
-            <g key={point.id} className={`chart-point${outlier ? " outlier" : point.isPb ? " pb" : ""}`}>
+            <g key={point.id} className={`chart-point${outlier ? " outlier" : point.isPb ? " pb" : ""}`} {...activation} role={onOpenSolve ? "button" : undefined}>
               <title>{`${point.id}: ${formatTime(point.time)}${point.isPb ? " — personal best" : ""}`}</title>
               {outlier ? <path d={`M${x},${y - 8} l7,9 h-14 z`} /> : <circle cx={x} cy={y} r={point.isPb ? 4 : 2.5} />}
             </g>
