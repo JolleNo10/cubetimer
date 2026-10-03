@@ -192,7 +192,7 @@ describe("F2L training targets", () => {
 
   it("keeps a stored whole-cube rotation in display while classifying its fixed-frame turns", () => {
     expect(referenceExecutionSignature("y R U")).toEqual(["B", "U"]);
-    expect(referenceExecutionSignature("r U R'")).toBeNull();
+    expect(referenceExecutionSignature("r U R'")).toEqual(["L", "F", "R'"]);
 
     const target = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[12]);
     const reference = target.info.references[0];
@@ -556,13 +556,17 @@ describe("F2L training targets", () => {
     expect(alternative.delta).toBe(references[1].stm - references[0].stm);
   });
 
-  it("keeps wide or slice references while classifying them conservatively", () => {
+  it("matches wide or slice references while leaving unrelated executions custom", () => {
     const target = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[7]);
     const reference = target.info.references.find(
-      (candidate) => referenceExecutionSignature(candidate.alg) === null,
+      (candidate) => /[MESurfdlb]/.test(candidate.alg),
     );
     expect(reference).toBeTruthy();
     expect(reference!.stm).toBeGreaterThan(0);
+    const execution = referenceExecutionSignature(reference!.alg)!;
+    expect(calculateTrainingEfficiency(execution.map((move, t) => ({ move, t })), [reference!])).toMatchObject({
+      matchedReferenceRank: reference!.rank, stm: reference!.stm, delta: 0,
+    });
     const result = calculateTrainingEfficiency(
       [{ move: "R", t: 10 }],
       [reference!],
@@ -614,7 +618,7 @@ describe("F2L training targets", () => {
     const entry = F2L_TRAINING_CATALOGUES.advanced.cases.find((candidate) => candidate.name === "AF2L 1")!;
     const target = buildF2lCatalogueTarget(kpuzzle, entry, "BR");
     expect(f2lCatalogueSetupMoves(entry, "BR")).toBeNull();
-    expect(referenceExecutionSignature(target.info.references[0].alg)).toBeNull();
+    expect(referenceExecutionSignature(target.info.references[0].alg)).not.toBeNull();
     expect(isF2lTrainingComplete(target, solveReference(target, target.info.references[0].alg))).toBe(true);
   });
 });

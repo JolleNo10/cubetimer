@@ -158,6 +158,10 @@ not independently invented states. The original entry is retained as history.
 
 ## 2026-10-03
 
+- What happened: the new signature test file initially replaced existing Training guide tests, and a React fixture failed typecheck.
+- Root cause: the prompt's statement that no test file existed was trusted without checking the file, and a shared target union was not narrowed before extending its references.
+- Prevention: check file existence before adding files, preserve existing regression coverage, and narrow shared target unions before building family-specific fixtures. The guide tests were restored before delivery.
+
 - What happened: a Python one-line edit failed before changing any files because quoted TypeScript strings were mangled by PowerShell argument parsing.
 - Root cause: embedded quote escaping was written for a different shell boundary.
 - Prevention: use `apply_patch` for source edits containing nested quoted strings on Windows.

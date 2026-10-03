@@ -1,13 +1,16 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ControllerContext } from "../hooks/useController";
 import { Controller } from "../state/controller";
 import { CubeModel } from "../cube/model";
 import { get3x3x3 } from "../cube/puzzle";
+import { buildLastLayerCatalogueTarget, lastLayerTrainingVariants } from "../cube/lastLayerTraining";
+import { expandedAlgorithmMoves } from "../cube/training";
 import { Header } from "./Header";
 import { Training } from "./Training";
 
 const kpuzzle = await get3x3x3();
+afterEach(() => vi.restoreAllMocks());
 
 function render(controller: Controller, element: React.ReactElement): string {
   return renderToStaticMarkup(
@@ -16,6 +19,39 @@ function render(controller: Controller, element: React.ReactElement): string {
 }
 
 describe("Training area", () => {
+  it("shows the preserved attempt's algorithm and STM instead of the next target's recommendation or alternatives", async () => {
+    const variants = lastLayerTrainingVariants(kpuzzle, "pll", "Headlights", "2look");
+    const targets = variants.map((variant) => buildLastLayerCatalogueTarget(kpuzzle, "pll", "Headlights", 0, "2look", variant.id));
+    const first = targets[0].info.references[0];
+    const nextIndex = targets.findIndex((target) => target.info.references[0].alg !== first.alg && target.info.references[0].stm !== first.stm);
+    expect(nextIndex).toBeGreaterThan(0);
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.state.update((state) => ({ ...state, settings: { ...state.settings, pllTrainingSet: "2look" } }));
+    controller.setTrainingFamily("pll");
+    await controller.setTrainingMode("virtual");
+    vi.spyOn(Math, "random").mockReturnValueOnce((nextIndex + 0.5) / variants.length).mockReturnValueOnce(0);
+    await controller.selectLastLayerCase("pll", "Headlights");
+    const ready = controller.state.get();
+    const next = ready.training.target;
+    if (!next || !("family" in next)) throw new Error("Last-layer target missing");
+    // Give the next target an alternative to exercise the preserved-result guard.
+    const target = { ...next, references: [...next.references, { ...next.references[0], rank: 2, alg: "R U2 R'" }] };
+    const result = { moves: [], stm: first.stm, recommendedAlg: first.alg, recommendedStm: first.stm, matchedReferenceRank: 1, delta: 0, elapsedMs: 1000 };
+    const draw = (preserved: typeof result | null) => render(controller, <Training state={{ ...ready, training: { ...ready.training, target, result: preserved } }} />);
+    const html = draw(result);
+    const recommendation = html.split('class="f2l-reference"')[1].split('class="f2l-result-card"')[0];
+    const tokens = [...recommendation.matchAll(/<span class="training-algorithm-token[^\"]*"[^>]*>(.*?)<\/span>/g)].map((match) => match[1].replaceAll("&#x27;", "'"));
+    expect(tokens).toEqual(expandedAlgorithmMoves(first.alg));
+    expect(tokens).not.toEqual(expandedAlgorithmMoves(next.references[0].alg));
+    expect(recommendation).toContain(`<strong>${first.stm} STM</strong>`);
+    expect(recommendation).not.toContain(`<strong>${next.references[0].stm} STM</strong>`);
+    expect(html).not.toContain("alternatives");
+    const resumed = draw(null);
+    expect(resumed).toContain(`<strong>${next.references[0].stm} STM</strong>`);
+    expect(resumed).toContain("Show 1 alternatives");
+    expect(resumed).toContain('aria-current="step"');
+  });
+
   it.each(["f2l", "oll", "pll"] as const)("shows shared %s guidance only for a ready/solving reference", async (family) => {
     const controller = new Controller(new CubeModel(kpuzzle));
     controller.setArea("training");
@@ -39,7 +75,7 @@ describe("Training area", () => {
     expect(draw(solving)).toContain('aria-current="step"');
     expect(draw({ ...ready, settings: { ...ready.settings, visualization: "2D" } })).not.toContain("cube-move-guide");
     expect(draw({ ...ready, settings: { ...ready.settings, visualization: "2D" } })).toContain('aria-current="step"');
-    const result = { moves: [], stm: 1, recommendedStm: 1, matchedReferenceRank: null, delta: 0, elapsedMs: 1 };
+    const result = { moves: [], stm: 1, recommendedStm: 1, recommendedAlg: ready.training.target!.references[0].alg, matchedReferenceRank: null, delta: 0, elapsedMs: 1 };
     expect(draw({ ...ready, training: { ...ready.training, phase: "result", result } })).not.toContain("cube-move-guide");
     // Virtual automatic reload preserves its previous result while ready.
     expect(draw({ ...ready, training: { ...ready.training, result } })).not.toContain("cube-move-guide");

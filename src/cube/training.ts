@@ -229,12 +229,31 @@ function fixedFrameOuterMove(token: string, orientation: Orientation): string | 
   return reorientMove(token, invert(orientation));
 }
 
+const REFERENCE_DECOMPOSITIONS: Record<string, string> = {
+  r: "x L", Rw: "x L", l: "x' R", Lw: "x' R",
+  u: "y D", Uw: "y D", d: "y' U", Dw: "y' U",
+  f: "z B", Fw: "z B", b: "z' F", Bw: "z' F",
+  M: "x' R L'", E: "y' U D'", S: "z F' B",
+};
+
+function observableReferenceMoves(token: string): string[] {
+  const move = new Move(token);
+  const decomposition = REFERENCE_DECOMPOSITIONS[move.quantum.toString()];
+  if (!decomposition) return [token];
+  // Each decomposition consists of commuting operations about the same axis,
+  // so scaling their amounts handles inverse and double turns as well.
+  return Array.from(new Alg(decomposition).childAlgNodes()).map((node) => {
+    const operation = node as Move;
+    return new Move(operation.quantum, operation.amount * move.amount).toString();
+  });
+}
+
 /** Convert a reference algorithm to the fixed-frame turns a cube can report. */
 export function referenceExecutionSignature(algorithm: string): string[] | null {
   let orientation = IDENTITY;
   const fixedFrameMoves: string[] = [];
   try {
-    for (const token of expandedAlgorithmMoves(algorithm)) {
+    for (const token of expandedAlgorithmMoves(algorithm).flatMap(observableReferenceMoves)) {
       const parsed = parseMove(token);
       if (!parsed) return null;
       if (isRotation(parsed.family)) {
@@ -278,7 +297,7 @@ export function calculateTrainingEfficiency(
   references?: readonly TrainingReferenceLike[] | TrainingReferenceLike | null,
 ): TrainingEfficiency {
   const moves = mergeSameFaceTurns(rawMoves);
-  const stm = countTurns(moves.map(({ move }) => metricToken(move))).sliceTurns;
+  const observedStm = countTurns(moves.map(({ move }) => metricToken(move))).sliceTurns;
   const referenceList = Array.isArray(references)
     ? references.map((reference, index) => ({ ...reference, rank: reference.rank ?? index + 1 }))
     : references
@@ -286,15 +305,16 @@ export function calculateTrainingEfficiency(
       : [];
   const recommendedStm = referenceList[0]?.stm ?? null;
   const execution = moves.map(({ move }) => move);
-  const matchedReferenceRank = referenceList.find((reference) => {
+  const matchedReference = referenceList.find((reference) => {
     const signature = referenceExecutionSignature(reference.alg);
     return signature !== null && signature.length === execution.length && signature.every((move, index) => move === execution[index]);
-  })?.rank ?? null;
+  });
+  const stm = matchedReference?.stm ?? observedStm;
   return {
     moves,
     stm,
     recommendedStm,
-    matchedReferenceRank,
+    matchedReferenceRank: matchedReference?.rank ?? null,
     delta: recommendedStm === null ? null : stm - recommendedStm,
     elapsedMs: rawMoves.at(-1)?.t ?? 0,
   };

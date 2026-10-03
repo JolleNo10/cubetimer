@@ -156,7 +156,9 @@ function LastLayerTargetPanel({ state, elapsed, family }: { state: AppState; ela
     ? training.target
     : null;
   const result = training.result;
-  const reference = target?.references[0];
+  const reference = result
+    ? result.recommendedAlg === null ? null : { alg: result.recommendedAlg, stm: result.recommendedStm }
+    : target?.references[0];
 
   useEffect(() => {
     setShowAlternatives(false);
@@ -169,7 +171,11 @@ function LastLayerTargetPanel({ state, elapsed, family }: { state: AppState; ela
         {!target ? <div className="empty">Select a {family.toUpperCase()} case.</div> : <>
           <div className="f2l-target-title"><strong>{lastLayerCaseName(target.family, target.caseId, target.trainingSet)}</strong><span className="phase-case">{target.group}</span></div>
           <div className="small dim f2l-origin">{target.origin.kind === "catalog" ? "Catalogue case" : `From solve · ${target.origin.stepName}`}</div>
-          <div className="f2l-reference"><div className="result-context-label">RECOMMENDED</div>{reference ? <><div className="row"><strong>{reference.stm} STM</strong></div><TrainingAlgorithmGuide algorithm={reference.alg} guide={training.guide} active={(training.phase === "ready" || training.phase === "solving") && !training.result} />{target.references.length > 1 ? <><button type="button" className="ghost small" onClick={() => setShowAlternatives((shown) => !shown)}>{showAlternatives ? "Hide alternatives" : `Show ${target.references.length - 1} alternatives`}</button>{showAlternatives ? <div className="f2l-alternatives">{target.references.slice(1).map((alternative) => <div key={`${alternative.rank}-${alternative.alg}`} className="f2l-alternative"><div className="row"><strong>#{alternative.rank}</strong><span className="small faint">{alternative.stm} STM</span></div><div className="mono f2l-reference-alg">{alternative.alg}</div></div>)}</div> : null}</> : null}</> : <div className="small faint">No validated reference for this exact target.</div>}</div>
+          <div className="f2l-reference"><div className="result-context-label">RECOMMENDED</div>{reference ? <>
+            <div className="row"><strong>{reference.stm} STM</strong></div>
+            <TrainingAlgorithmGuide algorithm={reference.alg} guide={result ? null : training.guide} active={(training.phase === "ready" || training.phase === "solving") && !result} />
+            {!result && target.references.length > 1 ? <><button type="button" className="ghost small" onClick={() => setShowAlternatives((shown) => !shown)}>{showAlternatives ? "Hide alternatives" : `Show ${target.references.length - 1} alternatives`}</button>{showAlternatives ? <div className="f2l-alternatives">{target.references.slice(1).map((alternative) => <div key={`${alternative.rank}-${alternative.alg}`} className="f2l-alternative"><div className="row"><strong>#{alternative.rank}</strong><span className="small faint">{alternative.stm} STM</span></div><div className="mono f2l-reference-alg">{alternative.alg}</div></div>)}</div> : null}</> : null}
+          </> : <div className="small faint">No validated reference for this exact target.</div>}</div>
           {result ? <div className="f2l-result-card"><div className="result-context-label">ATTEMPT</div><div className="f2l-result-stm mono">{result.stm} STM</div><div className="small">{result.matchedReferenceRank === 1 ? "Recommended solution" : result.matchedReferenceRank ? `Known alternative #${result.matchedReferenceRank}` : "Valid custom solution"}</div>{result.delta !== null ? <div className="f2l-delta">{result.delta > 0 ? `+${result.delta} STM vs recommended` : result.delta < 0 ? `${Math.abs(result.delta)} STM fewer than recommended` : "Same STM as recommended"}</div> : null}<div className="mono f2l-result-moves">{result.moves.join(" ") || "(no turns)"}</div><div className="small faint">elapsed {formatTime(result.elapsedMs || elapsed)}</div></div> : training.phase === "solving" ? <div className="f2l-live-metric"><strong className="mono">{training.liveMoves.length} turns</strong><span className="small faint">elapsed {formatTime(elapsed)}</span></div> : null}
           <div className="row wrap f2l-actions">{training.result ? <button className="primary" onClick={() => controller.againTraining()}>Again</button> : null}<button className="ghost" onClick={() => controller.resetTraining()}>Clear case</button></div>
         </>}

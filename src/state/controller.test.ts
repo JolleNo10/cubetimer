@@ -200,6 +200,45 @@ describe("Controller shared algorithm guide", () => {
 });
 
 describe("Controller independent last-layer Training sets", () => {
+  it("preserves the completed Headlights recommendation when virtual reload selects a different variant", async () => {
+    stubTimerLoop();
+    const saveSolve = vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const variants = lastLayerTrainingVariants(kpuzzle, "pll", "Headlights", "2look");
+    const targets = variants.map((variant) => buildLastLayerCatalogueTarget(kpuzzle, "pll", "Headlights", 0, "2look", variant.id));
+    const first = targets[0];
+    const nextIndex = targets.findIndex((target) => target.info.references[0].alg !== first.info.references[0].alg);
+    expect(nextIndex).toBeGreaterThan(0);
+    const next = targets[nextIndex];
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.state.update((state) => ({ ...state, virtualCube: true, settings: { ...state.settings, pllTrainingSet: "2look" } }));
+    controller.setTrainingFamily("pll");
+    await controller.setTrainingMode("virtual");
+    const random = vi.spyOn(Math, "random")
+      .mockReturnValueOnce(0.5 / variants.length).mockReturnValueOnce(0)
+      .mockReturnValueOnce((nextIndex + 0.5) / variants.length).mockReturnValueOnce(0);
+    await controller.selectLastLayerCase("pll", "Headlights");
+    expect(controller.state.get().training.target?.references[0]).toEqual(first.info.references[0]);
+    const execution = referenceExecutionSignature(first.info.references[0].alg)!;
+    for (const move of execution) controller.injectMove(cubeMove(move, trainingGrip(first.info)));
+    const training = controller.state.get().training;
+    expect(training.phase).toBe("ready");
+    expect(training.result).toMatchObject({
+      recommendedAlg: first.info.references[0].alg, recommendedStm: first.info.references[0].stm,
+      matchedReferenceRank: 1, delta: 0,
+    });
+    expect(training.target?.references[0]).toEqual(next.info.references[0]);
+    expect(training.target).toMatchObject({ family: "pll", caseId: "Headlights", trainingSet: "2look" });
+    expect(training.displayFacelets).toBe(patternToFacelets(next.pattern));
+    expect(training.displayFacelets).not.toBe(patternToFacelets(first.pattern));
+    expect(random).toHaveBeenCalledTimes(4);
+    expect(controller.state.get().solves).toEqual([]);
+    expect(saveSolve).not.toHaveBeenCalled();
+    const nextMove = referenceExecutionSignature(next.info.references[0].alg)![0];
+    controller.injectMove(cubeMove(nextMove, trainingGrip(next.info)));
+    expect(controller.state.get().training.result).toBeNull();
+    expect(controller.state.get().training.target?.references[0]).toEqual(next.info.references[0]);
+  });
+
   it.each([
     ["oll", "Dot Shape", "orient-edges"],
     ["oll", "I-Shape", "orient-edges"],
@@ -236,9 +275,7 @@ describe("Controller independent last-layer Training sets", () => {
     const target = ready.target;
     if (!target || !("family" in target)) throw new Error("Last-layer target missing");
     random.mockReturnValueOnce(0.999).mockReturnValueOnce(0.25);
-    // A wide front turn is z B. Remove those rotations through the existing
-    // execution-signature seam to supply turns the smart cube can report.
-    const execution = referenceExecutionSignature(target.references[0].alg.replaceAll("f'", "B' z'").replaceAll("f", "z B"))!;
+    const execution = referenceExecutionSignature(target.references[0].alg)!;
     const rawMoves = execution.map((move) => cubeMove(move, trainingGrip(target)));
     for (const move of rawMoves) controller.injectMove(move);
     expect(controller.state.get().training.phase).toBe("ready");

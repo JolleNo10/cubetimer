@@ -821,8 +821,12 @@ The following are current architectural rules.
 16. **Training owns one shared lifecycle for F2L, OLL, and PLL.**
     Family modules supply target/reference/completion semantics; the physical CubeModel and virtual target remain distinct.
 
-17. **Last-layer catalogue data is generated and validated ahead of time.**
-    The checked-in SpeedCubeDB-derived data is the offline runtime source; the app never fetches it at runtime.
+17. **Last-layer catalogue authority is offline and explicit.**
+    Full OLL/PLL catalogue data is generated and validated ahead of time from
+    SpeedCubeDB and checked into the repository. 2-Look OLL/PLL curriculum data
+    is checked-in J Perm-derived authority. 2-Look first-look concrete variants
+    are derived from the checked-in Full catalogue at runtime in the cube domain.
+    The application does not fetch either external source at runtime.
 
 ## Rejected alternatives
 

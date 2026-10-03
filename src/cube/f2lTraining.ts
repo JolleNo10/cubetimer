@@ -21,6 +21,8 @@ import {
 } from "./moves";
 import {
   joinMoves,
+  isRotation,
+  parseMove,
 } from "./notation";
 import {
   IDENTITY,
@@ -270,7 +272,15 @@ function catalogueSetup(f2lCase: F2lTrainingCase, position: F2lPosition): Alg {
 }
 
 export function f2lCatalogueSetupMoves(f2lCase: F2lTrainingCase, position: F2lPosition): string | null {
-  return referenceExecutionSignature(catalogueSetup(f2lCase, position).toString())?.join(" ") ?? null;
+  const setup = catalogueSetup(f2lCase, position);
+  // Reference normalization supports wide/slice turns; setup tracking keeps its
+  // existing outer-turn/rotation vocabulary and generic solver fallback.
+  if (!Array.from(setup.expand().childAlgNodes()).every((node) => {
+    const token = node.toString();
+    const parsed = parseMove(token);
+    return parseFaceMove(token) !== null || (parsed !== null && isRotation(parsed.family));
+  })) return null;
+  return referenceExecutionSignature(setup.toString())?.join(" ") ?? null;
 }
 
 /** Shared grip/state path positions the canonical case around its intended target. */

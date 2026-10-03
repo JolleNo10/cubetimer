@@ -119,6 +119,7 @@ export type TrainingResult = {
   stm: number;
   elapsedMs: number;
   recommendedStm: number | null;
+  recommendedAlg: string | null;
   matchedReferenceRank: number | null;
   delta: number | null;
 };
@@ -1943,6 +1944,7 @@ export class Controller {
       stm: efficiency.stm,
       elapsedMs: efficiency.elapsedMs,
       recommendedStm: efficiency.recommendedStm,
+      recommendedAlg: target?.info.references[0]?.alg ?? null,
       matchedReferenceRank: efficiency.matchedReferenceRank,
       delta: efficiency.delta,
     };

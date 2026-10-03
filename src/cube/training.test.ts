@@ -1,13 +1,15 @@
-import { Alg } from "cubing/alg";
+import { Alg, Move } from "cubing/alg";
 import { describe, expect, it } from "vitest";
 import { get3x3x3 } from "./puzzle";
 import { reframe, withCentresHome } from "./recognise";
 import { rotationForGrip, IDENTITY } from "./orientation";
-import { advanceTrainingGuide, buildTrainingGuide, standardTrainingRotation, trainingGuideMove, trainingGuideProgress } from "./training";
+import { algorithmStm, calculateTrainingEfficiency, referenceExecutionSignature, advanceTrainingGuide, buildTrainingGuide, standardTrainingRotation, trainingGuideMove, trainingGuideProgress } from "./training";
 import { buildF2lCatalogueTarget } from "./f2lTraining";
 import { F2L_TRAINING_CATALOGUES } from "./f2lTrainingCases";
 import { buildLastLayerCatalogueTarget, lastLayerCaseIds } from "./lastLayerTraining";
 import { F2L_POSITIONS } from "./f2lCases";
+
+import { TWO_LOOK_CASES } from "./lastLayerTwoLookCases";
 
 const kpuzzle = await get3x3x3();
 const start = kpuzzle.defaultPattern().applyAlg("F R U");
@@ -168,5 +170,50 @@ describe("guide move semantics", () => {
   it("shows an outer face and whole cube with distinct extents", () => {
     expect(trainingGuideMove("R")).toMatchObject({ kind: "outer", layers: [1 / 3, 1] });
     expect(trainingGuideMove("x")).toMatchObject({ kind: "rotation", layers: [-1, 1] });
+  });
+});
+
+const decompositions = [
+  ["r", "x L"], ["l", "x' R"], ["u", "y D"], ["d", "y' U"],
+  ["f", "z B"], ["b", "z' F"], ["M", "x' R L'"], ["E", "y' U D'"], ["S", "z F' B"],
+] as const;
+
+describe("Training reference execution signatures", () => {
+  it.each(decompositions)("reduces %s and its inverse/double forms with cubing.js conventions", (family, decomposition) => {
+    for (const amount of [1, -1, 2]) {
+      const token = new Move(family, amount).toString();
+      const expanded = new Alg(Array.from(new Alg(decomposition).childAlgNodes()).map((node) => {
+        const move = node as Move;
+        return new Move(move.quantum, move.amount * amount);
+      }));
+      expect(kpuzzle.algToTransformation(token).isIdentical(kpuzzle.algToTransformation(expanded)), token).toBe(true);
+      const signature = referenceExecutionSignature(token);
+      expect(signature, token).not.toBeNull();
+      expect(signature, token).toEqual(referenceExecutionSignature(expanded.toString()));
+      expect(signature!.length).toBeGreaterThan(0);
+      for (const move of signature!) expect(move).toMatch(/^[URFDLB](2|'|2')?$/);
+      if (family === family.toLowerCase()) {
+        expect(referenceExecutionSignature(`${family.toUpperCase()}w${amount === -1 ? "'" : amount === 2 ? "2" : ""}`)).toEqual(signature);
+      }
+    }
+  });
+
+  it.each(Object.entries(TWO_LOOK_CASES).flatMap(([family, cases]) => cases.map((item) => ({ family, ...item }))))(
+    "matches J Perm $family $id with authoritative STM",
+    ({ algorithm }) => {
+      const signature = referenceExecutionSignature(algorithm);
+      expect(signature).not.toBeNull();
+      for (const move of signature!) expect(move).toMatch(/^[URFDLB](2|'|2')?$/);
+      const stm = algorithmStm(algorithm);
+      const result = calculateTrainingEfficiency(signature!.map((move, index) => ({ move, t: index * 100 })), [{ rank: 1, alg: algorithm, stm }]);
+      expect(result).toMatchObject({ matchedReferenceRank: 1, stm, recommendedStm: stm, delta: 0 });
+    },
+  );
+
+  it("uses the matched alternative's STM and preserves observed STM for custom solutions", () => {
+    const references = [{ rank: 1, alg: "M2 U M2 U2 M2 U M2", stm: 7 }, { rank: 2, alg: "M U M'", stm: 3 }];
+    const moves = referenceExecutionSignature(references[1].alg)!.map((move, t) => ({ move, t }));
+    expect(calculateTrainingEfficiency(moves, references)).toMatchObject({ matchedReferenceRank: 2, stm: 3, recommendedStm: 7, delta: -4 });
+    expect(calculateTrainingEfficiency([{ move: "R", t: 0 }, { move: "U", t: 100 }], references)).toMatchObject({ matchedReferenceRank: null, stm: 2, delta: -5 });
   });
 });
