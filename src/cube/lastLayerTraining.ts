@@ -198,6 +198,7 @@ function buildReferences(
   trainingRotation: LastLayerTrainingTargetInfo["trainingRotation"],
   preferredAuf?: LastLayerAuf,
   trainingSet: LastLayerTrainingSet = "full",
+  allowFinalAuf = false,
 ): LastLayerReference[] {
   const source = catalogueCase(family, caseId, trainingSet);
   const group = source.group;
@@ -208,7 +209,8 @@ function buildReferences(
       : [preferredAuf];
     // Corner permutation still completes at exact centre alignment. Arbitrary
     // Full PLL states can require AUF after the unchanged J Perm algorithm too.
-    const finalAufs: readonly LastLayerAuf[] = trainingSet === "2look" && source.completionGoal === "permute-corners"
+    // Centre-normalized catalogue states can also need a new final alignment.
+    const finalAufs: readonly LastLayerAuf[] = allowFinalAuf || (trainingSet === "2look" && source.completionGoal === "permute-corners")
       ? [0, 1, 2, 3] : [0];
     const aligned = finalAufs
       .flatMap((finalAuf) => candidates.map((auf) => ({ auf, alg: alignedAlgorithm(algorithm, auf, finalAuf) })))
@@ -258,9 +260,11 @@ export function buildLastLayerCatalogueTarget(
     reframe(kpuzzle, kpuzzle.defaultPattern(), rotation).applyAlg(new Alg(variant.setup)).applyAlg(new Alg(AUF[auf])),
     rotation.invert(),
   );
-  const pattern = handTarget;
-  const preferredAuf = trainingSet === "2look" && isFirstLook(source.completionGoal) ? undefined : auf;
-  const references = buildReferences(kpuzzle, family, caseId, pattern, trainingRotation, preferredAuf, trainingSet);
+  const pattern = withCentresHome(kpuzzle, handTarget);
+  // Removing source rotations changes the reference's alignment to fixed centers.
+  const centresNormalized = pattern !== handTarget;
+  const preferredAuf = centresNormalized || (trainingSet === "2look" && isFirstLook(source.completionGoal)) ? undefined : auf;
+  const references = buildReferences(kpuzzle, family, caseId, pattern, trainingRotation, preferredAuf, trainingSet, centresNormalized);
   if (!references.length) throw new Error(`No reference solves the exact ${family.toUpperCase()} ${caseId} target.`);
   if (targetIsComplete(source.completionGoal, pattern, trainingRotation)) throw new Error(`The ${family.toUpperCase()} ${caseId} target is already complete.`);
   return {

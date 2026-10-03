@@ -7,6 +7,7 @@ import { lastLayerCornersOriented, lastLayerCornersPermuted, lastLayerEdges, ref
 import { OLL_TRAINING_CASES, PLL_TRAINING_CASES } from "./algBank.generated";
 import { patternToFacelets } from "./model";
 import { get3x3x3 } from "./puzzle";
+import { algBetween } from "./solver";
 import {
   buildLastLayerCatalogueTarget,
   buildExactLastLayerTarget,
@@ -16,6 +17,11 @@ import {
 } from "./lastLayerTraining";
 
 const kpuzzle = await get3x3x3();
+
+function expectCentresHome(target: ReturnType<typeof buildLastLayerCatalogueTarget>) {
+  expect(target.pattern.patternData.CENTERS.pieces, `${target.info.family} ${target.info.caseId} AUF ${target.info.auf}`)
+    .toEqual(kpuzzle.defaultPattern().patternData.CENTERS.pieces);
+}
 
 function applyReference(target: ReturnType<typeof buildLastLayerCatalogueTarget>, alg: string) {
   const rotation = new Alg(target.info.trainingRotation.tokens.join(" "));
@@ -42,6 +48,7 @@ describe("generated last-layer catalogue", () => {
     for (const item of lastLayerCaseCatalogue("oll")) {
       for (const auf of [0, 1, 2, 3] as const) {
         const target = buildLastLayerCatalogueTarget(kpuzzle, "oll", item.id.replace("OLL ", ""), auf);
+        expectCentresHome(target);
         expect(isF2lSolved(trainingFrame(target)), item.id).toBe(true);
         expect(isLastLayerTrainingComplete(target.info, target.pattern), item.id).toBe(false);
         for (const reference of target.info.references) {
@@ -55,6 +62,7 @@ describe("generated last-layer catalogue", () => {
     for (const item of lastLayerCaseCatalogue("pll")) {
       for (const auf of [0, 1, 2, 3] as const) {
         const target = buildLastLayerCatalogueTarget(kpuzzle, "pll", item.id, auf);
+        expectCentresHome(target);
         expect(isF2lSolved(trainingFrame(target)), item.id).toBe(true);
         expect(isLastLayerTrainingComplete(target.info, target.pattern), item.id).toBe(false);
         for (const reference of target.info.references) {
@@ -63,6 +71,19 @@ describe("generated last-layer catalogue", () => {
           expect(isSolvedPattern(trainingFrame(target, solved)), `${item.id} #${reference.rank}`).toBe(true);
         }
       }
+    }
+  });
+
+  it.each([
+    ["oll", "39"] as const,
+    ["pll", "E"] as const,
+  ])("builds solver-safe %s %s targets from rotation-bearing setups at every AUF", async (family, caseId) => {
+    const source = kpuzzle.defaultPattern();
+    for (const auf of [0, 1, 2, 3] as const) {
+      const target = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, auf);
+      const setup = await algBetween(source, target.pattern);
+      expect(patternToFacelets(source.applyAlg(setup)), `${family} ${caseId} AUF ${auf}`)
+        .toBe(patternToFacelets(target.pattern));
     }
   });
 
@@ -204,6 +225,7 @@ describe("J Perm 2-Look catalogue", () => {
     for (const item of lastLayerCaseCatalogue(family, "2look")) {
       for (const auf of [0, 1, 2, 3] as const) {
         const target = buildLastLayerCatalogueTarget(kpuzzle, family, item.caseId, auf, "2look");
+        expectCentresHome(target);
         expect(target.info).toMatchObject({ trainingSet: "2look", group: item.group, completionGoal: item.completionGoal });
         expect(isF2lSolved(trainingFrame(target)), item.name).toBe(true);
         expect(isLastLayerTrainingComplete(target.info, target.pattern), item.name).toBe(false);
@@ -234,6 +256,7 @@ describe("J Perm 2-Look catalogue", () => {
     for (const variant of variants) {
       for (const auf of [0, 1, 2, 3] as const) {
         const target = buildLastLayerCatalogueTarget(kpuzzle, "oll", caseId, auf, "2look", variant.id);
+        expectCentresHome(target);
         const full = buildLastLayerCatalogueTarget(kpuzzle, "oll", variant.underlyingFullCaseId!, auf);
         expect(patternToFacelets(target.pattern)).toBe(patternToFacelets(full.pattern));
         expect(target.info).toMatchObject({ caseId, trainingSet: "2look", completionGoal: "orient-edges", auf });
@@ -250,6 +273,7 @@ describe("J Perm 2-Look catalogue", () => {
     for (const variant of lastLayerTrainingVariants(kpuzzle, "pll", caseId, "2look")) {
       for (const auf of [0, 1, 2, 3] as const) {
         const target = buildLastLayerCatalogueTarget(kpuzzle, "pll", caseId, auf, "2look", variant.id);
+        expectCentresHome(target);
         const full = buildLastLayerCatalogueTarget(kpuzzle, "pll", variant.underlyingFullCaseId!, auf);
         expect(patternToFacelets(target.pattern)).toBe(patternToFacelets(full.pattern));
         const checked = trainingFrame(target);
