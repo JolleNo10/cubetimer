@@ -26,7 +26,7 @@ export function ScramblePanel() {
     <div className="panel scramble-panel">
       <div className="panel-head">
         <span className="panel-title">Scramble</span>
-        <div className="row">
+        <div className="row scramble-actions">
           {tracking ? (
             <span className="chip small">
               {done} / {progress.total}

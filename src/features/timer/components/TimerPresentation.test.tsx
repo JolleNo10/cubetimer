@@ -15,6 +15,19 @@ function display(controller: Controller) {
 }
 
 describe("Timer ownership-store presentation", () => {
+  it.each([
+    ["scrambling", "Hold the timer or"], ["ready", "Hold the timer or"],
+    ["inspection", "Tap the timer or press"], ["solving", "Tap the timer or press"],
+    ["finished", "Hold the timer or"],
+  ] as const)("offers touch and keyboard instructions during %s", (phase, hint) => {
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.timer.state.update(state => ({ ...state, phase }));
+    const html = display(controller);
+    expect(html).toContain(hint);
+    expect(html).toContain("<kbd>Space</kbd>");
+    expect(html).toContain('touch-action:manipulation');
+  });
+
   it("renders inspection penalty, elapsed time and live move metrics from their owners", () => {
     const controller = new Controller(new CubeModel(kpuzzle));
     controller.timer.state.update(state => ({ ...state, phase: "inspection", inspectionPenalty: "+2" }));

@@ -28,7 +28,7 @@ export function ConnectionPanel() {
   const supported = bluetoothAvailable();
 
   return (
-    <div className="panel">
+    <div className="panel connection-panel">
       <div className="panel-head">
         <span className="panel-title">Smart cube</span>
         <span className={`chip${cubeStatus === "connected" ? " live" : ""}`}>
@@ -50,7 +50,7 @@ export function ConnectionPanel() {
           </div>
         ) : cubeStatus === "connected" ? (
           <>
-            <div className="row small">
+            <div className="row small connection-device">
               <span className="dim">{hardware?.deviceName ?? "Cube"}</span>
               <span className="grow" />
               {battery !== null ? (
@@ -125,7 +125,7 @@ function VirtualCubeControl({ enabled }: { enabled: boolean }) {
   const controller = useController();
   return (
     <div style={{ borderTop: "1px solid var(--border)", paddingTop: 10 }}>
-      <label className="row" style={{ cursor: "pointer" }}>
+      <label className="row virtual-cube-toggle" style={{ cursor: "pointer" }}>
         <input
           type="checkbox"
           checked={enabled}
@@ -135,7 +135,7 @@ function VirtualCubeControl({ enabled }: { enabled: boolean }) {
         <span className="small grow">Virtual cube (keyboard)</span>
       </label>
       {enabled ? (
-        <div className="small faint" style={{ marginTop: 8, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "2px 10px" }}>
+        <div className="small faint virtual-cube-help">
           {VIRTUAL_CUBE_HELP.map((row) => (
             <span key={row.keys}>
               <b className="mono dim">{row.keys}</b> {row.move}

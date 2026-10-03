@@ -236,13 +236,13 @@ export function ReplayDialog({
           <div className="mono small dim" style={{ wordBreak: "break-word" }}>
             {solve.scramble}
           </div>
-          <div ref={hostRef} style={{ height: 300 }} />
+          <div ref={hostRef} className="replay-cube-host" />
 
-          <div className="row">
-            <button onClick={() => seek(0)} title="Back to start">
+          <div className="row replay-transport">
+            <button onClick={() => seek(0)} title="Back to start" aria-label="Back to start">
               ⏮
             </button>
-            <button onClick={() => seek(index - 1)} disabled={index === 0}>
+            <button onClick={() => seek(index - 1)} disabled={index === 0} aria-label="Previous move">
               ◀
             </button>
             <button
@@ -255,11 +255,11 @@ export function ReplayDialog({
             >
               {playing ? "Pause" : "Play"}
             </button>
-            <button onClick={() => seek(index + 1)} disabled={index >= replayActions.length}>
+            <button onClick={() => seek(index + 1)} disabled={index >= replayActions.length} aria-label="Next move">
               ▶
             </button>
             <span className="grow" />
-            <span className="mono small">{formatTime(atMs)}</span>
+            <span className="mono small replay-time">{formatTime(atMs)}</span>
             <select
               value={speed}
               onChange={(e) => setSpeed(Number(e.target.value))}
@@ -286,7 +286,7 @@ export function ReplayDialog({
             aria-label="Move position"
           />
 
-          <div className="row small">
+          <div className="row small replay-context">
             <span className="dim">
               move {index} / {replayActions.length}
             </span>

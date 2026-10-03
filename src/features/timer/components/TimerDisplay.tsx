@@ -4,7 +4,7 @@ import type { TimerPhase } from "../TimerRuntime";
 import { effectiveMs, type Solve } from "../../../app/types";
 
 type Props = {
-  /** True while the space bar is held down before a keyboard-timed solve. */
+  /** True while the timer or Space is held before a manually timed solve. */
   holding: boolean;
   holdReady: boolean;
   onPressStart: () => void;
@@ -154,7 +154,7 @@ function buildHint({
       if (!smart) {
         return (
           <>
-            Hold <kbd>space</kbd> to start, or connect a smart cube
+            Hold the timer or <kbd>Space</kbd> to start, or connect a smart cube
           </>
         );
       }
@@ -165,14 +165,14 @@ function buildHint({
     case "ready":
       return smart
         ? "Ready — the timer starts on your first turn"
-        : <>Hold <kbd>space</kbd> to start</>;
+        : <>Hold the timer or <kbd>Space</kbd> to start</>;
     case "inspection":
-      return smart ? "Inspecting — turn the cube to start" : <>Press <kbd>space</kbd> to start</>;
+      return smart ? "Inspecting — turn the cube to start" : <>Tap the timer or press <kbd>Space</kbd> to start</>;
     case "solving":
-      return smart ? "Solve the cube to stop the timer" : <>Press <kbd>space</kbd> to stop</>;
+      return smart ? "Solve the cube to stop the timer" : <>Tap the timer or press <kbd>Space</kbd> to stop</>;
     case "finished":
       return smart
         ? "Scramble again for the next solve"
-        : <>Press <kbd>space</kbd> for the next solve</>;
+        : <>Hold the timer or <kbd>Space</kbd> for the next solve</>;
   }
 }

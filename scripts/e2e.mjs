@@ -84,6 +84,56 @@ const check = (name, condition, detail) => {
   if (!condition) failures.push(name);
 };
 
+// Test page containment separately from intentional horizontal scrollers.
+const checkHorizontalOverflow = async (name, selectors = ["html", "body", ".app"]) => {
+  const widths = await page.evaluate((selectors) => selectors.flatMap(selector =>
+    Array.from(document.querySelectorAll(selector), element => ({
+      selector, client: element.clientWidth, scroll: element.scrollWidth,
+      left: element.getBoundingClientRect().left, right: element.getBoundingClientRect().right,
+    })),
+  ), selectors);
+  const viewport = page.viewportSize().width;
+  check(name, widths.length >= selectors.length && widths.every(width =>
+    width.scroll <= width.client + 1 && width.left >= -1 && width.right <= viewport + 1), JSON.stringify(widths));
+};
+const checkControlsFit = async (name, selector) => {
+  const bounds = await page.locator(selector).evaluateAll(elements => elements.map(element => {
+    const box = element.getBoundingClientRect();
+    return { left: box.left, right: box.right, width: box.width, height: box.height };
+  }));
+  check(name, bounds.length > 0 && bounds.every(box => box.width > 0 && box.height > 0
+    && box.left >= -1 && box.right <= page.viewportSize().width + 1), JSON.stringify(bounds));
+};
+const checkMobileDialog = async name => {
+  await checkHorizontalOverflow(`${name} keeps page and dialog width contained`, ["html", "body", ".app", ".dialog", ".dialog-body"]);
+  await checkControlsFit(`${name} close action fits`, ".dialog-head button");
+};
+
+const checkMobileTimer = async (width, height = 844) => {
+  await page.setViewportSize({ width, height });
+  await checkHorizontalOverflow(`${width}px Timer has no page overflow`, ["html", "body", ".app", ".app-body", ".header", ".scramble-panel"]);
+  await checkControlsFit(`${width}px area navigation fits`, '.header-area-switch button');
+  await checkControlsFit(`${width}px Settings remains reachable`, '.header button[aria-label="Settings"]');
+  const layout = await page.locator(".app-body").evaluate(body => {
+    const main = body.querySelector(".column:not(.left):not(.right)").getBoundingClientRect();
+    return {
+      main: main.top, history: body.querySelector(".column.left").getBoundingClientRect().top,
+      stats: body.querySelector(".column.right").getBoundingClientRect().top,
+      overflow: getComputedStyle(body).overflowY,
+    };
+  });
+  check(`${width}px Timer remains the first primary content`, layout.main < layout.stats && layout.stats < layout.history, JSON.stringify(layout));
+  check(`${width}px Timer owns vertical scrolling`, layout.overflow === "auto");
+  const touch = await page.locator(".timer-card").evaluate(element => ({ height: element.getBoundingClientRect().height, touchAction: element.style.touchAction }));
+  check(`${width}px timer touch surface remains usable`, touch.height >= 100 && touch.touchAction === "manipulation", JSON.stringify(touch));
+  const viewportHeight = await page.locator(".app").evaluate(app => ({ app: app.getBoundingClientRect().height, viewport: window.innerHeight }));
+  check(`${width}px app fills the visible viewport`, Math.abs(viewportHeight.app - viewportHeight.viewport) <= 1, JSON.stringify(viewportHeight));
+};
+
+const desktopColumns = await page.locator(".app-body").evaluate(body => getComputedStyle(body).gridTemplateColumns.split(" ").length);
+check("desktop Timer retains three columns", desktopColumns === 3);
+await checkHorizontalOverflow("desktop header and page fit", ["html", "body", ".app", ".header"]);
+
 check("cube reached the scrambled state", afterScramble.hint.startsWith("Ready"), afterScramble.hint);
 const result = page.locator(".solve-result");
 check("the center result screen appears", await result.count() === 1);
@@ -215,9 +265,18 @@ await page.setViewportSize({ width: 1440, height: 900 });
 await page.screenshot({ path: "/tmp/e2e.png" });
 
 // Replay dialog.
+await page.setViewportSize({ width: 390, height: 844 });
 await page.locator(".solve-result").getByRole("button", { name: "Replay", exact: true }).click();
 await page.waitForTimeout(1200);
 check("the replay opens", (await page.locator(".dialog").count()) === 1);
+await checkMobileDialog("mobile Replay");
+await checkControlsFit("mobile Replay transport fits", ".replay-transport button, .replay-transport select, .replay-time");
+const replayCube = await page.locator(".replay-cube-host").boundingBox();
+check("mobile Replay cube has a usable size", replayCube.width >= 240 && replayCube.height >= 180 && replayCube.height < 350, JSON.stringify(replayCube));
+check("mobile Replay breakdown remains below the cube", (await page.locator(".replay-steps").boundingBox()).y > replayCube.y + replayCube.height);
+const replayStep = page.locator(".replay-steps button.phase-row.selectable").last();
+await replayStep.click();
+check("mobile Replay step still seeks", Number(await page.getByRole("slider", { name: "Move position" }).inputValue()) > 0);
 await page.screenshot({ path: "/tmp/e2e-replay.png" });
 
 await page.locator(".dialog").getByRole("button", { name: "Close" }).click();
@@ -225,6 +284,23 @@ await page.locator(".dialog").getByRole("button", { name: "Close" }).click();
 await result.getByRole("button", { name: "Back to timer", exact: true }).click();
 check("Back to timer closes the Result", await result.count() === 0);
 check("Back to timer restores the ScramblePanel", await page.locator(".scramble-panel").count() === 1);
+await page.setViewportSize({ width: 900, height: 900 });
+await checkHorizontalOverflow("tablet header and page fit", ["html", "body", ".app", ".header", ".app-body"]);
+await checkMobileTimer(390);
+await checkMobileTimer(430);
+await checkMobileTimer(360, 600);
+await page.getByRole("button", { name: "Settings", exact: true }).click();
+await checkMobileDialog("mobile Settings");
+const settingsScroll = await page.locator(".dialog-body").evaluate(body => ({ height: body.clientHeight, scroll: body.scrollHeight, overflow: getComputedStyle(body).overflowY }));
+check("mobile Settings body owns vertical scrolling", settingsScroll.scroll > settingsScroll.height && settingsScroll.overflow === "auto", JSON.stringify(settingsScroll));
+await checkControlsFit("mobile Settings Done stays reachable", ".dialog-foot button");
+await page.getByRole("button", { name: "Done", exact: true }).click();
+// Slow-solve actions are another real mobile header/panel wrapping branch.
+await page.locator(".header-context input[type=checkbox]").check();
+await checkHorizontalOverflow("mobile slow-solve controls stay contained", ["html", "body", ".app", ".app-body", ".scramble-panel"]);
+await checkControlsFit("mobile slow-solve scramble actions wrap", ".scramble-actions button, .scramble-actions select");
+await page.locator(".header-context input[type=checkbox]").uncheck();
+await page.setViewportSize({ width: 1440, height: 900 });
 await solveFreshScramble();
 check("a later solve shows a result again", await result.count() === 1);
 
@@ -289,6 +365,49 @@ if (await keyboardResult.count() === 1) {
   check("keyboard result explains missing move data", (await keyboardResult.innerText()).includes("keyboard-timed solves"));
   check("keyboard result has no Replay action", await keyboardResult.getByRole("button", { name: "Replay" }).count() === 0);
 }
+
+// All feature areas use the same phone viewport, with their own scroll owner.
+if (await keyboardResult.count()) await keyboardResult.getByRole("button", { name: "Back to timer", exact: true }).click();
+await page.setViewportSize({ width: 360, height: 800 });
+await page.getByRole("navigation", { name: "Application area" }).getByRole("button", { name: "Training", exact: true }).click();
+await page.waitForSelector(".f2l-case-button");
+await checkHorizontalOverflow("mobile Training has no page overflow", ["html", "body", ".app", ".training-screen", ".training-screen .app-body"]);
+await checkControlsFit("mobile Training family switch fits", ".training-family-switch button");
+const trainingLayout = await page.locator(".training-screen").evaluate(screen => ({
+  library: screen.querySelector(".training-library-column").getBoundingClientRect().top,
+  workspace: screen.querySelector(".training-workspace-column").getBoundingClientRect().top,
+  target: screen.querySelector(".training-target-column").getBoundingClientRect().top,
+  cases: screen.querySelector(".f2l-library").getBoundingClientRect().top,
+  connection: screen.querySelector(".connection-panel").getBoundingClientRect().top,
+  scrollOwner: getComputedStyle(screen).overflowY,
+  nestedOverflow: getComputedStyle(screen.querySelector(".app-body")).overflowY,
+}));
+check("mobile Training offers cases before workspace and target", trainingLayout.library < trainingLayout.workspace && trainingLayout.workspace < trainingLayout.target && trainingLayout.cases < trainingLayout.connection, JSON.stringify(trainingLayout));
+check("mobile Training has one page scroller", trainingLayout.scrollOwner === "auto" && trainingLayout.nestedOverflow === "visible", JSON.stringify(trainingLayout));
+const caseBoxes = await page.locator(".f2l-case-button").evaluateAll(buttons => buttons.slice(0, 4).map(button => {
+  const box = button.getBoundingClientRect(); return { width: box.width, height: box.height, top: box.top };
+}));
+check("mobile F2L cases stay tappable in multiple columns", caseBoxes.every(box => box.width >= 44 && box.height >= 44) && caseBoxes[0].top === caseBoxes[1].top, JSON.stringify(caseBoxes));
+await page.getByRole("button", { name: "Virtual case", exact: true }).click();
+await page.locator(".f2l-case-button").first().click();
+await page.locator(".training-workspace-column").scrollIntoViewIfNeeded();
+check("mobile Training setup, cube and target remain present", await page.locator(".f2l-setup-panel").count() === 1 && await page.locator(".f2l-stage .cube-view").count() === 1 && await page.locator(".f2l-target-panel").count() === 1);
+await page.getByRole("button", { name: "OLL", exact: true }).click();
+await page.waitForSelector(".last-layer-case-button");
+await checkHorizontalOverflow("mobile OLL catalogue stays contained", ["html", "body", ".app", ".training-screen", ".training-screen .app-body"]);
+
+await page.getByRole("navigation", { name: "Application area" }).getByRole("button", { name: "Statistics", exact: true }).click();
+await page.waitForSelector(".stats-chart");
+await checkHorizontalOverflow("mobile Statistics has no page overflow", ["html", "body", ".app", ".statistics-page"]);
+await checkControlsFit("mobile Statistics filters and navigation fit", ".statistics-controls select, .statistics-controls button, .statistics-navigation button");
+const charts = await page.locator(".chart-shell").evaluateAll(shells => shells.map(shell => ({ width: shell.clientWidth, scroll: shell.scrollWidth, overflow: getComputedStyle(shell).overflowX })));
+check("mobile Statistics charts pan inside their shells", charts.length > 0 && charts.every(chart => chart.scroll > chart.width && chart.overflow === "auto"), JSON.stringify(charts));
+const tables = await page.locator(".table-scroll").evaluateAll(shells => shells.map(shell => ({ width: shell.clientWidth, scroll: shell.scrollWidth, overflow: getComputedStyle(shell).overflowX })));
+check("mobile Statistics tables pan inside their shells", tables.length > 0 && tables.some(table => table.scroll > table.width) && tables.every(table => table.overflow === "auto"), JSON.stringify(tables));
+await page.locator('.stats-chart g[role="button"]').first().click();
+await page.waitForSelector(".statistics-solve-detail");
+await checkMobileDialog("mobile Statistics detail");
+await page.getByRole("button", { name: "Close solve detail" }).click();
 
 check("no console or page errors", problems.length === 0, problems.join(" | "));
 await browser.close();

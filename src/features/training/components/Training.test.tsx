@@ -173,6 +173,14 @@ describe("Header application navigation", () => {
     expect(html).toContain(">Training<");
     expect(html).toContain(">Statistics<");
     expect(html).toContain('aria-label="Application area"');
+    expect(html).toContain('class="area-switch header-area-switch"');
+    expect(html).toContain('class="header-context"');
+    expect(html).toContain('class="header-status"');
+    for (const label of ["Event", "Session", "Rename session", "Delete session", "Settings"]) {
+      expect(html).toContain(`aria-label="${label}"`);
+    }
+    expect(html).toContain("slow solve");
+    expect(html).toContain('class="header-device-name"');
     expect(html).toMatch(/Statistics<\/button>/);
     expect(html).toContain("disabled");
   });

@@ -31,7 +31,7 @@ export function Header({
         cubetimer
       </div>
 
-      <nav className="area-switch" aria-label="Application area">
+      <nav className="area-switch header-area-switch" aria-label="Application area">
         <button
           className={state.area === "timer" ? "active" : ""}
           onClick={() => onSelectArea("timer")}
@@ -47,7 +47,7 @@ export function Header({
       </nav>
 
       {state.area === "timer" ? (
-        <>
+        <div className="header-context" aria-label="Timer context controls">
           <select
             value={session?.event ?? DEFAULT_EVENT_ID}
             onChange={(e) => void controller.changeEvent(e.target.value as EventId)}
@@ -65,7 +65,7 @@ export function Header({
         <input
           autoFocus
           defaultValue={session.name}
-          style={{ width: 160 }}
+          className="header-session-name"
           onBlur={(e) => {
             void controller.renameSession(session.id, e.target.value.trim() || session.name);
             setRenaming(false);
@@ -78,6 +78,7 @@ export function Header({
         />
       ) : (
         <select
+          className="header-session-select"
           value={state.sessionId}
           disabled={sessionContextLocked}
           onChange={(e) => {
@@ -131,19 +132,19 @@ export function Header({
         />
         slow solve
           </label>
-        </>
+        </div>
       ) : null}
 
-      <span className="header-spacer" />
+      <div className="header-status">
 
       {state.area === "timer" && !smartEvent ? (
-        <span className="chip warn">smart cube tracking is 3x3x3 only</span>
+        <span className="chip warn header-warning">smart cube tracking is 3x3x3 only</span>
       ) : null}
-      <span className={`chip${state.cubeStatus === "connected" ? " live" : ""}`}>
+      <span className={`chip header-device${state.cubeStatus === "connected" ? " live" : ""}`}>
         <span className="dot" />
-        {state.cubeStatus === "connected"
+        <span className="header-device-name">{state.cubeStatus === "connected"
           ? (state.hardware?.deviceName ?? "cube")
-          : "no cube"}
+          : "no cube"}</span>
         {state.cubeStatus === "connected" && state.battery !== null
           ? ` · ${state.battery}%`
           : ""}
@@ -156,6 +157,7 @@ export function Header({
       >
         <Icon name="settings" />
       </button>
+      </div>
     </header>
   );
 }

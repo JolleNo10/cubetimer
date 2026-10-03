@@ -21,7 +21,7 @@ export function SettingsDialog({
   return (
     <div className="backdrop" onClick={onClose}>
       <div
-        className="dialog"
+        className="dialog settings-dialog"
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
@@ -177,7 +177,7 @@ export function SettingsDialog({
             </div>
             <div className="row wrap">
               <button onClick={() => void exportSolves(controller)}>Export JSON</button>
-              <label className="row" style={{ cursor: "pointer" }}>
+              <label className="row data-import-action" style={{ cursor: "pointer" }}>
                 <span className="chip">Import JSON…</span>
                 <input
                   type="file"
@@ -199,7 +199,7 @@ export function SettingsDialog({
               <button onClick={() => void exportCsv(controller, "all")}>
                 Export all CSV
               </button>
-              <label className="row" style={{ cursor: "pointer" }}>
+              <label className="row data-import-action" style={{ cursor: "pointer" }}>
                 <span className="chip">Import CSV…</span>
                 <input
                   type="file"
@@ -225,7 +225,7 @@ export function SettingsDialog({
           </Section>
 
           <Section title="Bluetooth">
-            <div className="row">
+            <div className="row settings-bluetooth-row">
               <div className="grow small faint">
                 Cube MAC addresses are remembered so you are not asked again.
               </div>

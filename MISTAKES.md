@@ -379,3 +379,11 @@ not independently invented states. The original entry is retained as history.
 - What happened: middle-slice Training guidance showed a large internal slab instead of the affected cubies' visible surfaces.
 - Root cause: the overlay rendered the faces of an affected-layer prism, including its internal cut face.
 - Prevention: highlight only exterior surface bands using the domain-provided axis and layer interval, with slice surface regressions.
+
+- What happened: narrow Training inherited Timer's history-last column order, placing required case selection below the workspace; Statistics charts shrank their labels to phone width.
+- Root cause: desktop stacking rules were reused across areas without accounting for task order or a chart's readable canvas size.
+- Prevention: give each area explicit phone ordering/scroll ownership and contain chart panning, verified at 360–390 px in the existing browser harness.
+
+- What happened: the first mobile Replay layout assertion compared positions captured before and after selecting a step scrolled the dialog.
+- Root cause: the cube's cached viewport coordinates no longer shared the breakdown's scroll position.
+- Prevention: compare layout geometry at the same moment, before interactions that can scroll it.
