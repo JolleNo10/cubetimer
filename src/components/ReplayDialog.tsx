@@ -126,7 +126,7 @@ export function ReplayDialog({
         ? new Alg(solve.scramble).concat(new Alg(opening.join(" ")))
         : new Alg(solve.scramble),
       cameraLatitude: 27,
-      cameraLongitude: -32,
+      cameraLongitude: 32,
       tempoScale: 6,
       alg: "",
     });

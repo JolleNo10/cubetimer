@@ -119,7 +119,7 @@ export function CubeView({
       backView: settings.showBackView ? "top-right" : "none",
       experimentalSetupAnchor: "start",
       cameraLatitude: 27,
-      cameraLongitude: -32,
+      cameraLongitude: 32,
       tempoScale: 5,
       alg: "",
     });
