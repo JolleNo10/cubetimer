@@ -164,6 +164,18 @@ not independently invented states. The original entry is retained as history.
 
 ## 2026-10-03
 
+- What happened: the initial Session extraction could overwrite a completed rename when applying a context result after history loading.
+- Root cause: a service result carried an earlier Session-list snapshot, while rename intentionally remains independent of timing-context locking.
+- Prevention: preserve live updates to unchanged Session records when applying transitions, and cover renames completed during pending context resolution.
+
+- What happened: the Phase 1 test move left an unused Controller test import, and a new scramble-progress assertion treated `done` as a move count.
+- Root cause: test relocation did not include an import-use check, and the progress field name was assumed instead of checked against `ScrambleProgress`.
+- Prevention: remove unused fixture imports when moving tests, and inspect the state contract before asserting runtime progress.
+
+- What happened: an architecture documentation patch failed on its final Statistics hunk.
+- Root cause: the hunk assumed a paragraph started on a separate line, while the source wrapped it into the preceding sentence.
+- Prevention: match the exact local paragraph before applying documentation edits.
+
 - What happened: the new signature test file initially replaced existing Training guide tests, and a React fixture failed typecheck.
 - Root cause: the prompt's statement that no test file existed was trusted without checking the file, and a shared target union was not narrowed before extending its references.
 - Prevention: check file existence before adding files, preserve existing regression coverage, and narrow shared target unions before building family-specific fixtures. The guide tests were restored before delivery.

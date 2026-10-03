@@ -22,7 +22,7 @@ import { lastLayerCornersPermuted, lastLayerEdges, reframe, withCentresHome } fr
 import * as db from "./db";
 import { DEFAULT_EVENT_ID } from "../cube/scramble";
 import { formatSolveCsv } from "./solveCsv";
-import { DEFAULT_SETTINGS, type Session, type Solve } from "./types";
+import type { Session, Solve } from "./types";
 
 const kpuzzle = await get3x3x3();
 const BASIC_CASES = F2L_TRAINING_CATALOGUES.basic.cases;
@@ -1093,20 +1093,6 @@ describe("Controller Advanced F2L catalogue", () => {
 });
 
 describe("Controller Session event ownership", () => {
-  it("creates the first Session with the canonical default event", async () => {
-    vi.spyOn(db, "loadSettings").mockResolvedValue({ ...DEFAULT_SETTINGS });
-    vi.spyOn(db, "loadSessions").mockResolvedValue([]);
-    vi.spyOn(db, "saveSession").mockResolvedValue();
-    vi.spyOn(db, "loadSolves").mockResolvedValue([]);
-
-    const controller = new Controller();
-    vi.spyOn(controller, "newScramble").mockResolvedValue();
-
-    await controller.init();
-
-    expect(controller.state.get().sessions[0].event).toBe(DEFAULT_EVENT_ID);
-  });
-
   it("changes an empty Session in place and regenerates its scramble", async () => {
     stubPersistence();
     const controller = readyController([session("1")], "1");
@@ -1121,33 +1107,6 @@ describe("Controller Session event ownership", () => {
       expect.objectContaining({ id: "1", event: "222" }),
     );
     expect(newScramble).toHaveBeenCalledOnce();
-  });
-
-  it("creates a new Session for an event change once history exists", async () => {
-    stubPersistence();
-    const original = session("1");
-    const solve = solveFor(original.id);
-    const controller = readyController([original], original.id, [solve]);
-    vi.spyOn(controller, "newScramble").mockResolvedValue();
-
-    await controller.changeEvent("222");
-
-    const state = controller.state.get();
-    expect(state.sessions).toHaveLength(2);
-    expect(state.sessions[0]).toMatchObject({ id: original.id, event: DEFAULT_EVENT_ID });
-    expect(state.sessions[1]).toMatchObject({ event: "222", name: "Session 2" });
-    expect(state.sessionId).toBe(state.sessions[1].id);
-    expect(state.solves).toEqual([]);
-    expect(solve.sessionId).toBe(original.id);
-  });
-
-  it("makes normal new Sessions inherit the selected Session event", async () => {
-    stubPersistence();
-    const controller = readyController([session("1", "222")], "1");
-
-    await controller.createSession("Session 2");
-
-    expect(controller.state.get().sessions.at(-1)?.event).toBe("222");
   });
 
   it("regenerates only when selecting a Session with a different event", async () => {
@@ -1199,9 +1158,51 @@ describe("Controller Session event ownership", () => {
       expect(controller.state.get().sessionId).toBe("1");
     },
   );
+
+  it("rejects Session context changes and imports during a Training solving attempt", async () => {
+    const sessions = [session("1"), session("2", "222")];
+    const controller = readyController(sessions, "1");
+    controller.state.update((state) => ({
+      ...state, area: "training", training: { ...state.training, phase: "solving" },
+    }));
+    const before = controller.state.get();
+    await controller.selectSession("2");
+    await controller.createSession("Third");
+    await controller.changeEvent("222");
+    await controller.deleteSession("1");
+    await expect(controller.importData("{}")).rejects.toThrow(/Cannot import/);
+    await expect(controller.importSolveCsv("")).rejects.toThrow(/Cannot import/);
+    expect(controller.state.get()).toBe(before);
+  });
 });
 
 describe("Controller Session-context synchronization", () => {
+  it.each(["select", "create", "change", "delete"] as const)(
+    "preserves a completed rename while %s resolves a persisted context transition",
+    async (operation) => {
+      const sessions = [session("1"), session("2")];
+      const controller = readyController(sessions, "1", [solveFor("1")]);
+      const history = deferred<Solve[]>();
+      const historyStarted = deferred<void>();
+      vi.spyOn(db, "loadSolves").mockImplementation(() => {
+        historyStarted.resolve();
+        return history.promise;
+      });
+      vi.spyOn(db, "saveSession").mockResolvedValue();
+      vi.spyOn(db, "deleteSession").mockResolvedValue();
+      vi.spyOn(controller, "newScramble").mockResolvedValue();
+      const pending = operation === "select" ? controller.selectSession("2")
+        : operation === "create" ? controller.createSession("Third")
+        : operation === "change" ? controller.changeEvent("222")
+        : controller.deleteSession("1");
+      await historyStarted.promise;
+      await controller.renameSession("2", "Renamed during load");
+      history.resolve([]);
+      await pending;
+      expect(controller.state.get().sessions.find((session) => session.id === "2")?.name).toBe("Renamed during load");
+    },
+  );
+
   it("does not start a solve while Session selection is awaiting persistence", async () => {
     stubTimerLoop();
     vi.spyOn(db, "saveSession").mockResolvedValue();
@@ -1296,27 +1297,10 @@ describe("Controller Session-context synchronization", () => {
   });
 });
 
-describe("Controller import Session invariants", () => {
+describe("Controller import runtime integration", () => {
   function jsonExport(sessions: Session[], solves: Solve[] = []): string {
     return JSON.stringify({ format: "cubetimer", version: 2, sessions, solves });
   }
-
-  it("rejects a JSON event conflict before overwriting a Session with history", async () => {
-    const local = session("A", "333");
-    const localSolve = solveFor(local.id);
-    vi.spyOn(db, "loadSessions").mockResolvedValue([local]);
-    vi.spyOn(db, "loadAllSolves").mockResolvedValue([localSolve]);
-    const saveSession = vi.spyOn(db, "saveSession").mockResolvedValue();
-    const controller = readyController([local], local.id, [localSolve]);
-
-    await expect(
-      controller.importData(jsonExport([{ ...local, event: "222" }])),
-    ).rejects.toThrow(/Cannot merge session/);
-
-    expect(saveSession).not.toHaveBeenCalled();
-    expect(controller.state.get().sessions[0].event).toBe("333");
-    expect(controller.state.get().solves[0].sessionId).toBe(local.id);
-  });
 
   it("updates an empty imported Session event and refreshes the selected scramble", async () => {
     const before = session("A", "333");
@@ -1328,12 +1312,85 @@ describe("Controller import Session invariants", () => {
     vi.spyOn(db, "loadSolves").mockResolvedValue([]);
     vi.spyOn(db, "saveSession").mockResolvedValue();
     const controller = readyController([before], before.id, [], "ready");
+    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.setScramble("R U");
+    expect(controller.state.get().scrambleProgress).not.toBeNull();
+    controller.state.update((state) => ({ ...state, scrambleGeneration: { kind: "cross" } }));
     const newScramble = vi.spyOn(controller, "newScramble").mockResolvedValue();
 
     await controller.importData(jsonExport([after]));
 
     expect(controller.state.get().sessions).toEqual([after]);
+    expect(controller.state.get()).toMatchObject({
+      scrambleProgress: null, scrambleGeneration: null, recovery: null,
+    });
     expect(newScramble).toHaveBeenCalledOnce();
+    // The old 333 tracker must also be gone after applying the persisted result.
+    controller.injectMove("R");
+    expect(controller.state.get().scrambleProgress).toBeNull();
+  });
+
+  it("reconciles a same-event import without regenerating the current scramble", async () => {
+    const local = session("A");
+    const historical = solveFor(local.id);
+    vi.spyOn(db, "loadSessions").mockResolvedValue([local]);
+    vi.spyOn(db, "loadAllSolves").mockResolvedValue([historical]);
+    vi.spyOn(db, "loadSolves").mockResolvedValue([historical]);
+    vi.spyOn(db, "saveSession").mockResolvedValue();
+    const controller = readyController([local], local.id);
+    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.setScramble("R U");
+    const newScramble = vi.spyOn(controller, "newScramble").mockResolvedValue();
+    await controller.importData(jsonExport([local]));
+    expect(newScramble).not.toHaveBeenCalled();
+    expect(controller.state.get().solves).toEqual([historical]);
+    expect(controller.state.get().lastSolve).toBe(historical);
+    expect(controller.state.get().scramble).toBe("R U");
+    controller.injectMove("R");
+    expect(controller.state.get().scrambleProgress?.index).toBe(1);
+  });
+
+  it("keeps the JSON import lock through history reload and scramble regeneration, then releases it", async () => {
+    stubTimerLoop();
+    const before = session("A");
+    const after = { ...before, event: "222" as const };
+    vi.spyOn(db, "loadSessions").mockResolvedValueOnce([before]).mockResolvedValueOnce([after]);
+    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+    vi.spyOn(db, "saveSession").mockResolvedValue();
+    const historyStarted = deferred<void>();
+    const history = deferred<Solve[]>();
+    vi.spyOn(db, "loadSolves").mockImplementation(() => {
+      historyStarted.resolve();
+      return history.promise;
+    });
+    const scrambleStarted = deferred<void>();
+    const scramble = deferred<void>();
+    const controller = readyController([before], before.id, [], "ready");
+    vi.spyOn(controller, "newScramble").mockImplementation(() => {
+      scrambleStarted.resolve();
+      return scramble.promise;
+    });
+    const importing = controller.importData(jsonExport([after]));
+    await historyStarted.promise;
+    controller.startFromKeyboard();
+    expect(controller.state.get().phase).toBe("ready");
+    await expect(controller.importSolveCsv("")).rejects.toThrow(/Cannot import/);
+    history.resolve([]);
+    await scrambleStarted.promise;
+    controller.startFromKeyboard();
+    expect(controller.state.get().phase).toBe("ready");
+    scramble.resolve();
+    await importing;
+    controller.startFromKeyboard();
+    expect(controller.state.get().phase).toBe("solving");
+  });
+
+  it("releases the import lock after an import failure", async () => {
+    stubTimerLoop();
+    const controller = readyController([session("A")], "A", [], "ready");
+    await expect(controller.importData("{invalid")).rejects.toBeInstanceOf(SyntaxError);
+    controller.startFromKeyboard();
+    expect(controller.state.get().phase).toBe("solving");
   });
 
   it("holds the Session lock for a pending JSON import", async () => {
@@ -1390,46 +1447,6 @@ describe("Controller import Session invariants", () => {
     await importing;
   });
 
-  it("keeps repeated compatible CSV imports idempotent", async () => {
-    const local = session("A");
-    const imported: Session = {
-      id: "import:Imported",
-      name: "Imported",
-      event: DEFAULT_EVENT_ID,
-      createdAt: 0,
-    };
-    const importedSolve = solveFor(imported.id);
-    const csv = formatSolveCsv(
-      [importedSolve],
-      new Map([[imported.id, imported.name]]),
-    );
-    const sessionStore = new Map([[local.id, local]]);
-    const solveStore = new Map<string, Solve>();
-    vi.spyOn(db, "loadSessions").mockImplementation(async () => [
-      ...sessionStore.values(),
-    ]);
-    vi.spyOn(db, "loadAllSolves").mockImplementation(async () => [
-      ...solveStore.values(),
-    ]);
-    vi.spyOn(db, "loadSolves").mockImplementation(async (sessionId) =>
-      [...solveStore.values()].filter((solve) => solve.sessionId === sessionId),
-    );
-    vi.spyOn(db, "saveSession").mockImplementation(async (value) => {
-      sessionStore.set(value.id, value);
-    });
-    vi.spyOn(db, "saveSolve").mockImplementation(async (value) => {
-      solveStore.set(value.id, value);
-    });
-    const controller = readyController([local], local.id);
-
-    await controller.importSolveCsv(csv);
-    await controller.importSolveCsv(csv);
-
-    expect(sessionStore.size).toBe(2);
-    expect(solveStore.size).toBe(1);
-    expect([...solveStore.values()][0].sessionId).toBe(imported.id);
-  });
-
   it.each(["inspection", "solving"] as const)(
     "rejects JSON and CSV imports during %s",
     async (phase) => {
@@ -1446,25 +1463,4 @@ describe("Controller import Session invariants", () => {
     },
   );
 
-  it("rejects a conflicting CSV Session before overwriting history", async () => {
-    const local: Session = {
-      id: "import:Imported",
-      name: "Imported",
-      event: "222",
-      createdAt: 0,
-    };
-    const localSolve = solveFor(local.id);
-    const csv = formatSolveCsv(
-      [solveFor(local.id)],
-      new Map([[local.id, local.name]]),
-    );
-    vi.spyOn(db, "loadSessions").mockResolvedValue([local]);
-    vi.spyOn(db, "loadAllSolves").mockResolvedValue([localSolve]);
-    const saveSession = vi.spyOn(db, "saveSession").mockResolvedValue();
-    const controller = readyController([local], local.id, [localSolve]);
-
-    await expect(controller.importSolveCsv(csv)).rejects.toThrow(/Cannot merge session/);
-    expect(saveSession).not.toHaveBeenCalled();
-    expect(controller.state.get().sessions[0].event).toBe("222");
-  });
 });

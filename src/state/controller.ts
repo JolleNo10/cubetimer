@@ -80,9 +80,11 @@ import {
   type Quaternion,
 } from "../bluetooth/smartCube";
 import * as db from "./db";
-import { rebuildAnalysis } from "./repair";
+import * as solveHistory from "./solveHistory";
+import * as sessionService from "./sessionService";
+import * as dataTransfer from "./dataTransfer";
+import type { SessionContextTransition } from "./sessionService";
 import { normaliseSettings } from "./settings";
-import { countSolveCsvRows, solveCsvBatches, formatSolveCsv } from "./solveCsv";
 import { whiteCrossProvider, xCrossProvider } from "./scrambleProvider";
 import { Store } from "./store";
 import { debugEnabled, debugLog } from "../util/debug";
@@ -312,8 +314,7 @@ export class Controller {
   }
 
   #currentSession(): Session | undefined {
-    const { sessions, sessionId } = this.state.get();
-    return sessions.find((session) => session.id === sessionId);
+    return sessionService.currentSession(this.state.get());
   }
 
   #currentEvent(): EventId {
@@ -372,26 +373,10 @@ export class Controller {
   }
 
   async init(): Promise<void> {
-    const [settings, sessions] = await Promise.all([
-      db.loadSettings(),
-      db.loadSessions(),
-    ]);
-    let allSessions = sessions;
-    if (allSessions.length === 0) {
-      const session: Session = {
-        id: crypto.randomUUID(),
-        name: "Session 1",
-        event: DEFAULT_EVENT_ID,
-        createdAt: Date.now(),
-      };
-      await db.saveSession(session);
-      allSessions = [session];
-    }
-    const sessionId = allSessions[allSessions.length - 1].id;
-    // The model has to exist before solves are loaded, since repairing a breakdown
-    // needs the puzzle.
+    const settings = await db.loadSettings();
+    // History repair needs the puzzle before loading the initial Session context.
     this.#model = await CubeModel.create();
-    const solves = await this.#loadSolves(sessionId);
+    const { sessions, sessionId, solves } = await sessionService.loadInitialContext(this.#model.kpuzzle);
 
     this.cube.setHandlers({
       onMove: (move) => this.#onMove(move),
@@ -433,7 +418,7 @@ export class Controller {
       ...s,
       ready: true,
       settings,
-      sessions: allSessions,
+      sessions,
       sessionId,
       solves,
       lastSolve: solves[solves.length - 1] ?? null,
@@ -2042,7 +2027,7 @@ export class Controller {
           : null,
     };
 
-    await db.saveSolve(solve);
+    await solveHistory.saveSolve(solve);
     this.state.update((s) => ({
       ...s,
       phase: "finished",
@@ -2060,8 +2045,7 @@ export class Controller {
   async updateSolve(id: string, changes: Partial<Solve>): Promise<void> {
     const solve = this.state.get().solves.find((s) => s.id === id);
     if (!solve) return;
-    const updated = { ...solve, ...changes };
-    await db.saveSolve(updated);
+    const updated = await solveHistory.updateSolve(solve, changes);
     this.state.update((s) => ({
       ...s,
       solves: s.solves.map((x) => (x.id === id ? updated : x)),
@@ -2070,7 +2054,7 @@ export class Controller {
   }
 
   async deleteSolve(id: string): Promise<void> {
-    await db.deleteSolve(id);
+    await solveHistory.deleteSolve(id);
     this.state.update((s) => {
       const solves = s.solves.filter((x) => x.id !== id);
       return {
@@ -2084,49 +2068,25 @@ export class Controller {
 
   // ---------------------------------------------------------------- sessions
 
-  /**
-   * Load a session's solves, rebuilding any breakdown that could not be read.
-   *
-   * The breakdown is derived from the scramble and the move stream, both of which are
-   * stored, so a solve analysed under an older model gets re-analysed rather than
-   * losing its detail. Repairs are saved, so each solve is only done once.
-   */
-  async #loadSolves(sessionId: string): Promise<Solve[]> {
-    return this.#repairLoadedSolves(await db.loadSolves(sessionId));
-  }
-
-  async #repairLoadedSolves(solves: Solve[]): Promise<Solve[]> {
-    const kpuzzle = this.#model?.kpuzzle;
-    if (!kpuzzle) return solves;
-
-    const result: Solve[] = [];
-    for (const solve of solves) {
-      const rebuilt = rebuildAnalysis(kpuzzle, solve);
-      if (rebuilt) {
-        await db.saveSolve(rebuilt);
-        result.push(rebuilt);
-      } else {
-        result.push(solve);
-      }
-    }
-    return result;
-  }
-
-  /** Read all historical data for statistics without changing the active Timer state. */
+  /** Read all historical data without changing the active Timer state. */
   async loadStatisticsSnapshot(): Promise<StatisticsSnapshot> {
-    const [sessions, solves] = await Promise.all([
-      db.loadSessions(),
-      db.loadAllSolves(),
-    ]);
-    const repaired = await this.#repairLoadedSolves(solves);
-    repaired.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
-    return { sessions, solves: repaired };
+    return solveHistory.loadStatisticsSnapshot(this.#model?.kpuzzle);
   }
 
-  async #selectSession(sessionId: string, previousEvent?: EventId): Promise<void> {
-    const target = this.state.get().sessions.find((session) => session.id === sessionId);
-    if (!target) return;
-    const eventChanged = (previousEvent ?? this.#currentSession()?.event) !== target.event;
+  #sessionsAfterTransition(sessions: Session[], previous: Session[], current: Session[]): Session[] {
+    // Renaming does not replace timing context and may finish while history loads.
+    // Preserve live updates to records the service left unchanged.
+    return sessions.map((session) => previous.includes(session)
+      ? current.find((candidate) => candidate.id === session.id) ?? session
+      : session);
+  }
+
+  async #applySessionContext(
+    transition: SessionContextTransition | undefined,
+    previousSessions: Session[] = [],
+  ): Promise<void> {
+    if (!transition) return;
+    const { sessions, sessionId, solves, eventChanged } = transition;
     if (eventChanged) {
       this.#invalidateScrambleContext();
       this.state.update((s) => ({
@@ -2136,88 +2096,63 @@ export class Controller {
         recovery: null,
       }));
     }
-    const solves = await this.#loadSolves(sessionId);
     this.state.update((s) => ({
       ...s,
+      sessions: this.#sessionsAfterTransition(sessions, previousSessions, s.sessions),
       sessionId,
       solves,
       lastSolve: solves[solves.length - 1] ?? null,
     }));
     if (eventChanged) await this.newScramble();
-    else this.#updateScrambleProgress();
+    else if (sessionId) this.#updateScrambleProgress();
   }
 
   async selectSession(sessionId: string): Promise<void> {
-    await this.#withSessionContextMutation(() => this.#selectSession(sessionId));
-  }
-
-  async #createSession(name: string, event: EventId): Promise<void> {
-    const session: Session = {
-      id: crypto.randomUUID(),
-      name,
-      event,
-      createdAt: Date.now(),
-    };
-    await db.saveSession(session);
-    this.state.update((s) => ({ ...s, sessions: [...s.sessions, session] }));
-    await this.#selectSession(session.id);
+    await this.#withSessionContextMutation(async () => {
+      const current = this.state.get();
+      const transition = await sessionService.selectSession(this.#model?.kpuzzle, current, sessionId);
+      await this.#applySessionContext(transition, current.sessions);
+    });
   }
 
   async createSession(name: string, event: EventId = this.#currentEvent()): Promise<void> {
-    await this.#withSessionContextMutation(() => this.#createSession(name, event));
+    await this.#withSessionContextMutation(async () => {
+      const current = this.state.get();
+      const transition = await sessionService.createSession(this.#model?.kpuzzle, current, name, event);
+      await this.#applySessionContext(transition, current.sessions);
+    });
   }
 
   async changeEvent(event: EventId): Promise<void> {
-    await this.#withSessionContextMutation(() => this.#changeEvent(event));
-  }
-
-  async #changeEvent(event: EventId): Promise<void> {
-    const state = this.state.get();
-    const session = this.#currentSession();
-    if (!session || session.event === event) return;
-
-    if (state.solves.some((solve) => solve.sessionId === session.id)) {
-      await this.#createSession(`Session ${state.sessions.length + 1}`, event);
-      return;
-    }
-
-    this.#invalidateScrambleContext();
-    const updated = { ...session, event };
-    await db.saveSession(updated);
-    this.state.update((s) => ({
-      ...s,
-      sessions: s.sessions.map((candidate) =>
-        candidate.id === updated.id ? updated : candidate,
-      ),
-    }));
-    await this.newScramble();
+    await this.#withSessionContextMutation(async () => {
+      const current = this.state.get();
+      const transition = await sessionService.changeEvent(this.#model?.kpuzzle, current, event);
+      await this.#applySessionContext(transition, current.sessions);
+    });
   }
 
   async renameSession(id: string, name: string): Promise<void> {
-    const session = this.state.get().sessions.find((s) => s.id === id);
-    if (!session) return;
-    const updated = { ...session, name };
-    await db.saveSession(updated);
+    const updated = await sessionService.renameSession(this.state.get().sessions, id, name);
+    if (!updated) return;
     this.state.update((s) => ({
       ...s,
-      sessions: s.sessions.map((x) => (x.id === id ? updated : x)),
+      sessions: s.sessions.map((session) => session.id === id ? updated : session),
     }));
   }
 
-  async #deleteSession(id: string): Promise<void> {
-    const { sessions } = this.state.get();
-    if (sessions.length <= 1) return;
-    const current = this.#currentSession();
-    await db.deleteSession(id);
-    const remaining = sessions.filter((s) => s.id !== id);
-    this.state.update((s) => ({ ...s, sessions: remaining }));
-    if (this.state.get().sessionId === id) {
-      await this.#selectSession(remaining[remaining.length - 1].id, current?.event);
-    }
-  }
-
   async deleteSession(id: string): Promise<void> {
-    await this.#withSessionContextMutation(() => this.#deleteSession(id));
+    await this.#withSessionContextMutation(async () => {
+      const current = this.state.get();
+      const transition = await sessionService.deleteSession(this.#model?.kpuzzle, current, id);
+      if (transition?.sessionId === this.state.get().sessionId) {
+        this.state.update((s) => ({
+          ...s,
+          sessions: this.#sessionsAfterTransition(transition.sessions, current.sessions, s.sessions),
+        }));
+      } else {
+        await this.#applySessionContext(transition, current.sessions);
+      }
+    });
   }
 
   // ---------------------------------------------------------------- settings
@@ -2258,135 +2193,22 @@ export class Controller {
 
   /** Everything the app has stored, as JSON, so a session is never trapped here. */
   async exportData(): Promise<string> {
-    const [sessions, solves] = await Promise.all([
-      db.loadSessions(),
-      db.loadAllSolves(),
-    ]);
-    return JSON.stringify(
-      { format: "cubetimer", version: 2, exportedAt: Date.now(), sessions, solves },
-      null,
-      2,
-    );
+    return dataTransfer.exportData();
   }
 
-  async #assertImportSessionCompatibility(
-    incomingSessions: Session[],
-    incomingSolveSessionIds: Set<string>,
-  ): Promise<void> {
-    const [existingSessions, existingSolves] = await Promise.all([
-      db.loadSessions(),
-      db.loadAllSolves(),
-    ]);
-    const existingById = new Map(existingSessions.map((session) => [session.id, session]));
-    const existingHistory = new Set(existingSolves.map((solve) => solve.sessionId));
-    const incomingById = new Map<string, Session>();
-
-    for (const session of incomingSessions) {
-      const previous = incomingById.get(session.id);
-      if (previous && previous.event !== session.event) {
-        throw new Error(
-          `Cannot merge session "${session.name}": the import contains conflicting events for this session.`,
-        );
-      }
-      incomingById.set(session.id, session);
-    }
-
-    for (const session of incomingById.values()) {
-      const existing = existingById.get(session.id);
-      if (
-        existing &&
-        existing.event !== session.event &&
-        (existingHistory.has(session.id) || incomingSolveSessionIds.has(session.id))
-      ) {
-        throw new Error(
-          `Cannot merge session "${session.name}": the existing and imported sessions use different events while solve history exists.`,
-        );
-      }
-    }
-  }
-
-  async #refreshAfterImport(previousSession: Session | undefined): Promise<void> {
-    const sessions = await db.loadSessions();
-    const selectedId = previousSession?.id ?? this.state.get().sessionId;
-    const target =
-      sessions.find((session) => session.id === selectedId) ?? sessions.at(-1);
-    const eventChanged =
-      previousSession !== undefined &&
-      target !== undefined &&
-      previousSession.event !== target.event;
-
-    if (eventChanged) {
-      this.#invalidateScrambleContext();
-      this.state.update((s) => ({
-        ...s,
-        scrambleGeneration: null,
-        scrambleProgress: null,
-        recovery: null,
-      }));
-    }
-
-    const solves = target ? await this.#loadSolves(target.id) : [];
-    this.state.update((s) => ({
-      ...s,
-      sessions,
-      sessionId: target?.id ?? "",
-      solves,
-      lastSolve: solves[solves.length - 1] ?? null,
-    }));
-    if (eventChanged) await this.newScramble();
-    else if (target) this.#updateScrambleProgress();
-  }
-
-  /**
-   * Merge an exported file back in. Sessions and solves keep their ids, so importing
-   * the same file twice does not duplicate anything.
-   */
   async importData(json: string): Promise<{ sessions: number; solves: number }> {
     if (!this.#beginSessionContextMutation()) {
       throw new Error("Cannot import while the timer or another Session operation is active.");
     }
     try {
-      const previousSession = this.#currentSession();
-      const data = JSON.parse(json) as {
-        sessions?: Array<Omit<Session, "event"> & { event?: unknown }>;
-        solves?: Array<Solve & { event?: unknown }>;
-      };
-      if (!Array.isArray(data.sessions) || !Array.isArray(data.solves)) {
-        throw new Error("This does not look like a cubetimer export.");
-      }
-
-      const sessions = data.sessions
-        .filter((rawSession) => rawSession && typeof rawSession === "object")
-        .map((rawSession) => db.migrateSession(rawSession))
-        .filter((session) => Boolean(session.id && session.name));
-      const importedSolves: Solve[] = [];
-      for (const rawSolve of data.solves) {
-        if (!rawSolve?.id || !rawSolve.sessionId || typeof rawSolve.rawMs !== "number") continue;
-        importedSolves.push(
-          db.migrateSolve({ ...rawSolve, moves: rawSolve.moves ?? [] }),
-        );
-      }
-      await this.#assertImportSessionCompatibility(
-        sessions,
-        new Set(importedSolves.map((solve) => solve.sessionId)),
-      );
-
-      for (const session of sessions) await db.saveSession(session);
-      for (const solve of importedSolves) await db.saveSolve(solve);
-      await this.#refreshAfterImport(previousSession);
-      return { sessions: sessions.length, solves: importedSolves.length };
+      const result = await dataTransfer.importData(this.#model?.kpuzzle, this.state.get(), json);
+      await this.#applySessionContext(result.context);
+      return { sessions: result.sessions, solves: result.solves };
     } finally {
       this.#endSessionContextMutation();
     }
   }
 
-  /**
-   * Import a solve analysis CSV export.
-   *
-   * Solves keep their original ids, so importing the same archive twice updates rather
-   * than duplicates. Work is done in batches with a yield between them, so a very large
-   * archive imports without locking up the page.
-   */
   async importSolveCsv(
     text: string,
     onProgress?: (done: number, total: number) => void,
@@ -2395,48 +2217,17 @@ export class Controller {
       throw new Error("Cannot import while the timer or another Session operation is active.");
     }
     try {
-      const previousSession = this.#currentSession();
-      const total = countSolveCsvRows(text);
-      const incomingSessions = new Map<string, Session>();
-      const incomingSolveSessionIds = new Set<string>();
-      for (const batch of solveCsvBatches(text)) {
-        for (const session of batch.sessions) incomingSessions.set(session.id, session);
-        for (const solve of batch.solves) incomingSolveSessionIds.add(solve.sessionId);
-      }
-      await this.#assertImportSessionCompatibility(
-        [...incomingSessions.values()],
-        incomingSolveSessionIds,
-      );
-
-      const sessionIds = new Set<string>();
-      let done = 0;
-      for (const batch of solveCsvBatches(text)) {
-        for (const session of batch.sessions) {
-          if (sessionIds.has(session.id)) continue;
-          sessionIds.add(session.id);
-          await db.saveSession(session);
-        }
-        for (const solve of batch.solves) await db.saveSolve(solve);
-        done += batch.solves.length;
-        onProgress?.(done, total);
-        // Let the browser paint between batches.
-        await new Promise((resolve) => setTimeout(resolve, 0));
-      }
-
-      await this.#refreshAfterImport(previousSession);
-      return { solves: done, sessions: sessionIds.size };
+      const result = await dataTransfer.importSolveCsv(this.#model?.kpuzzle, this.state.get(), text, onProgress);
+      await this.#applySessionContext(result.context);
+      return { solves: result.solves, sessions: result.sessions };
     } finally {
       this.#endSessionContextMutation();
     }
   }
 
-  /** Write the current session, or everything, in the solve analysis CSV format. */
   async exportSolveCsv(scope: "session" | "all"): Promise<string> {
     const { sessions, solves } = this.state.get();
-    const names = new Map(sessions.map((s) => [s.id, s.name]));
-    const rows = scope === "all" ? await db.loadAllSolves() : solves;
-    const ordered = [...rows].sort((a, b) => a.createdAt - b.createdAt);
-    return formatSolveCsv(ordered, names);
+    return dataTransfer.exportSolveCsv(scope, sessions, solves);
   }
 
   dismissError(): void {

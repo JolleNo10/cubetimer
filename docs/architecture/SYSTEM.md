@@ -16,11 +16,11 @@ There are currently no feature-specific architecture documents under `docs/archi
 | --- | --- |
 | Application bootstrapping or global composition | `src/main.tsx`, `src/App.tsx`, `src/hooks/useController.ts` |
 | Timer lifecycle, scramble lifecycle, session context, smart-cube integration, or top-level runtime behavior | `src/state/controller.ts`, `src/state/controller.test.ts` |
-| Session/event ownership or event switching | `src/state/types.ts`, session methods in `src/state/controller.ts`, `src/components/Header.tsx`, `src/state/db.ts` |
-| Durable Session, Solve, or Settings records | `src/state/types.ts`, `src/state/db.ts` and related tests |
+| Session/event ownership or event switching | `src/state/types.ts`, `src/state/sessionService.ts`, runtime integration in `src/state/controller.ts` and related tests |
+| Durable Session, Solve, or Settings records | `src/state/types.ts`, `src/state/db.ts`; `src/state/solveHistory.ts` for history loading/repair and Solve persistence |
 | Statistics, averages, projections, or solve-history comparisons | `src/state/stats.ts`, `src/state/statistics.ts`, `src/components/StatisticsView.tsx`, `src/components/StatisticsCharts.tsx` and related tests |
-| JSON backup/import compatibility | backup/import methods in `src/state/controller.ts`, migration functions in `src/state/db.ts` |
-| Solve-analysis CSV import/export | `src/state/solveCsv.ts`, `src/state/csv.ts` and related tests |
+| JSON backup/import compatibility | `src/state/dataTransfer.ts`, import compatibility in `src/state/sessionService.ts`, migration functions in `src/state/db.ts` and related tests |
+| Solve-analysis CSV import/export | `src/state/dataTransfer.ts`, `src/state/solveCsv.ts`, `src/state/csv.ts` and related tests |
 | Bluetooth or GAN cube connection | `src/bluetooth/smartCube.ts` and the relevant integration in `src/state/controller.ts` |
 | Cube state, facelets, moves, notation, orientation, or grip | the specific module under `src/cube/` and its matching tests |
 | CFOP solve analysis or case recognition | `src/cube/analysis.ts`, `src/cube/recognise.ts`, related domain modules and tests |
@@ -96,14 +96,37 @@ src/bluetooth
   move timestamp fitting
 
 src/state
-  Controller/application orchestration
   persisted Session and Solve records
   Settings
-  IndexedDB
-  migrations
   statistics
-  JSON backup/import
-  CSV import/export coordination
+
+src/state/controller.ts
+  live application orchestration
+  Timer/Training/Statistics area coordination
+  runtime application state and physical cube coordination
+  session-context runtime locking
+  applying persisted context transitions
+  Settings loading and persistence
+
+src/state/sessionService.ts
+  Session lifecycle persistence
+  Session/EventId invariants
+  persisted Session-context transitions
+  import merge compatibility
+
+src/state/solveHistory.ts
+  persisted Solve history
+  repair/rebuild persistence through repair.ts
+  Statistics history snapshots
+  Solve persistence operations
+
+src/state/dataTransfer.ts
+  JSON backup/import workflow
+  solve-analysis CSV import/export workflow
+
+src/state/db.ts
+  IndexedDB adapter and record migration
+  low-level CRUD, Settings storage, Session delete cascade
 
 src/components
   React presentation and interaction
@@ -130,17 +153,24 @@ src/cube -X-> src/state
 - smart-cube and virtual-cube move handling;
 - physical cube-state coordination;
 - inspection and solve timing;
-- session selection and event context;
-- solve recording;
+- applying selected Session/event context;
+- live Solve construction and recording consequences;
 - solve-analysis orchestration;
 - grip/orientation tracking;
 - Timer/Training/Statistics area transitions;
 - one shared F2L/OLL/PLL Training runtime;
-- read-only Statistics snapshot loading and area input gating;
-- persistence coordination;
+- public Statistics snapshot facade and area input gating;
+- delegation to persisted application workflows;
 - application-facing runtime events.
 
 This logic lives outside React intentionally. Cube events may arrive frequently and timing updates every animation frame.
+
+Controller owns runtime consequences. Services own persisted application workflows
+and return explicit results without mutating `AppState`. For example,
+`sessionService.ts` reports that the selected Session changed from event 333 to 222;
+Controller invalidates the current scramble context and generates a 222 scramble.
+The service does not depend on Timer/Training phases, scramble tracking, or live
+cube state.
 
 ### Observable state
 
@@ -178,7 +208,8 @@ High-frequency or narrowly scoped events should not require unrelated applicatio
 
 That state controls presentation and navigation.
 
-It must not duplicate the timer, cube, session, training, or persistence state machines owned by the Controller.
+It must not duplicate Controller runtime state machines or the persisted workflows
+owned by the state application services.
 
 ## Session and event ownership
 
@@ -213,6 +244,12 @@ The Controller resolves the current event from the selected Session and falls ba
 ### Changing event
 
 Changing event preserves the meaning of existing history.
+
+`sessionService.ts` owns this persisted rule and returns the selected Session,
+Session list, Solve history, and whether the event changed. It also owns initial
+Session creation, event inheritance, selection/history resolution, renaming,
+deletion fallback, and import merge compatibility. Controller applies the result
+and its runtime consequences under the Session-context lock.
 
 For an empty selected Session:
 
@@ -253,6 +290,9 @@ until it completes.
 ### Switching Sessions
 
 Selecting another Session loads that Session's solves.
+
+SessionService resolves the transition through SolveHistory, which loads and
+repairs persisted history. The Controller applies it to active application state.
 
 If the target Session has a different event, the Controller invalidates the old scramble context and generates a scramble for the newly selected event.
 
@@ -520,7 +560,8 @@ Conceptually:
 scramble state + timed moves + grip information
 -> analyseSolve(...)
 -> Solve
--> IndexedDB
+-> SolveHistory persistence
+-> db.ts / IndexedDB
 -> Controller active state
 -> result / history / statistics UI
 ```
@@ -551,6 +592,11 @@ Raw solve facts are authoritative.
 `SolveAnalysis` is derived and rebuildable.
 
 When stored analysis uses an obsolete/unreadable shape, loading may rebuild it from retained scramble/move facts and persist the repaired record.
+
+`solveHistory.ts` owns Session and Statistics history loading and persistence of
+successful repairs. `repair.ts` derives the repaired Solve using cube-domain
+analysis; raw scramble/move facts remain authoritative. Already valid analysis is
+left untouched, and successful repairs are persisted once.
 
 Native CFOP analysis consists of:
 
@@ -620,7 +666,26 @@ The current ownership model does not require an IndexedDB schema-version bump be
 
 Components do not write IndexedDB directly.
 
-Persistence flows through the state/Controller layer.
+Persisted application workflows flow through concrete state services:
+
+```text
+React
+  |
+  v
+Controller public API
+  |
+  +--> SessionService / SolveHistory / DataTransfer
+          |
+          v
+        db.ts
+          |
+          v
+       IndexedDB
+```
+
+Controller retains Settings persistence in this phase. `db.ts` owns low-level
+storage and migration, rather than Session event-change policy, active selection,
+import compatibility, or runtime permission to change context.
 
 ### Legacy normalization
 
@@ -640,7 +705,8 @@ There are two distinct interchange formats.
 
 ### JSON backup
 
-The Controller's JSON export currently writes:
+`dataTransfer.ts` owns JSON export/import; Controller exposes the public facade.
+The export writes:
 
 ```text
 format: cubetimer
@@ -660,6 +726,15 @@ Import preserves stable IDs, so re-importing the same records updates rather tha
 The CSV format has no event field.
 
 Sessions created from CSV imports therefore receive `DEFAULT_EVENT_ID`.
+
+`dataTransfer.ts` owns CSV import/export orchestration, including stable-ID
+upserts, batched writes, progress callbacks, and browser yields between batches.
+Both JSON and CSV workflows validate Session merge compatibility through
+`sessionService.ts` before any writes. After importing, SessionService reloads
+the persisted context, retaining the selected Session when available and using
+the newest Session as fallback. Controller applies the result, reconciles
+same-event scramble progress, or invalidates incompatible scramble/recovery state
+and regenerates for a changed event. Its runtime lock spans the entire operation.
 
 The CSV contract should not be changed casually as a side effect of internal persistence refactoring.
 
@@ -686,7 +761,7 @@ Session/event concerns must not be pushed back into `Settings` as a second sourc
 The compact Timer `StatsPanel` remains calculated from the selected Session's loaded
 solves. The full Statistics area receives a Controller-provided all-history snapshot;
 React does not read IndexedDB directly. `AppState.solves` remains the active Session's
-history.
+history. The facade delegates snapshot loading and repair to `solveHistory.ts`.
 
 The full view has independent event and Session filters. Event compatibility is
 resolved through `Solve.sessionId -> Session.event`; `All sessions` means all Sessions
@@ -828,9 +903,28 @@ The following are current architectural rules.
     are derived from the checked-in Full catalogue at runtime in the cube domain.
     The application does not fetch either external source at runtime.
 
+18. **Persisted workflows are separate from live runtime orchestration.**
+    SessionService, SolveHistory, and DataTransfer own persisted application-data
+    workflows and return explicit results. Controller owns Timer/Training runtime
+    policy and applies the runtime consequences of those results.
+
 ## Rejected alternatives
 
 These alternatives are recorded because the current architecture deliberately chose a different ownership model.
+
+### Moving the Session-context lock and scramble consequences into SessionService
+
+Rejected because it would couple a persistence-oriented Session service to Timer
+phases, Training attempts, scramble tracking, and live cube runtime. SessionService
+determines persisted Session transitions; Controller owns whether a live transition
+is currently allowed and what runtime state must be invalidated afterward.
+
+### One generic persistence/application service
+
+Replacing Controller's persisted workflows with one large generic service would
+reproduce its responsibility concentration under a new name. SessionService,
+SolveHistory, and DataTransfer remain concrete boundaries with distinct invariants;
+there is no generic repository framework.
 
 ### Flattening Sessions into rolling averages
 
@@ -916,7 +1010,7 @@ Have StatisticsView load IndexedDB history directly.
 Reason:
 
 ```text
-Persistence remains owned by the state/Controller layer. A direct React path would create a second data-access route and could skip solve-analysis repair.
+Persistence workflows remain behind the Controller public API and state application services. A direct React path would create a second data-access route and could skip solve-analysis repair.
 ```
 
 ### Flattening every Solve across every event
