@@ -9,12 +9,14 @@ import {
   describeGrip,
   faceAtPosition,
   frontsFor,
+  gripFromDescription,
   reorientMove,
   reorientMoves,
   rotationForCrossFace,
   rotationForGrip,
   rotationTokensBetween,
   slotInCubeFrame,
+  slotInHeldFrame,
 } from "./orientation";
 import { get3x3x3 } from "./puzzle";
 import { patternToFacelets } from "./facelets";
@@ -192,6 +194,24 @@ describe("slotInCubeFrame", () => {
     const { orientation } = rotationForGrip("U", "F")!;
     expect(faceAtPosition(orientation, "D")).toBe("U");
     expect(faceAtPosition(orientation, "R")).toBe("L");
+  });
+});
+
+describe("slotInHeldFrame", () => {
+  it("round-trips every F2L slot through the persisted frame for all valid grips", () => {
+    for (const bottom of FACES) for (const front of frontsFor(bottom)) {
+      const { orientation } = rotationForGrip(bottom, front)!;
+      const persistedGrip = gripFromDescription(describeGrip(orientation))!;
+      for (const slot of ["FR", "FL", "BR", "BL"]) {
+        const persistedSlot = slotInCubeFrame(orientation, slot);
+        expect(slotInHeldFrame(persistedGrip, persistedSlot), `${bottom}/${front}: ${persistedSlot}`).toBe(slot);
+        expect(slotInHeldFrame(persistedGrip, [...persistedSlot].reverse().join(""))).toBe(slot);
+      }
+    }
+  });
+
+  it.each(["", "F", "FRR", "FF", "UU", "UD", "FB", "RL", "FQ", "fr", null, undefined])("rejects malformed/non-edge slot %s", (slot) => {
+    expect(slotInHeldFrame(IDENTITY, slot)).toBeNull();
   });
 });
 

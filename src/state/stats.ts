@@ -23,6 +23,7 @@ export type AnalysedSolveFacts = {
   id: string;
   sessionId: string;
   createdAt: number;
+  rotation: SolveAnalysis["rotation"];
   sliceTurns: number;
   solvingMs: number;
   recognitionMs: number;
@@ -298,6 +299,7 @@ export function validatedSolveFacts(solve: Solve): AnalysedSolveFacts | null {
     id: solve.id,
     sessionId: solve.sessionId,
     createdAt: solve.createdAt,
+    rotation: analysis.rotation,
     sliceTurns: analysis.sliceTurns,
     solvingMs,
     recognitionMs,

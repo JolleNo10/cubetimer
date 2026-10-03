@@ -1,5 +1,6 @@
 import { analysedSolveFacts, averageWindow, countedSolves, sessionStats, type AverageWindow, type AnalysedSolveFacts, type CfopPhaseMedian, type SessionStats } from "./stats";
 import type { SolveStep } from "../cube/analysis";
+import { gripFromDescription, slotInHeldFrame } from "../cube/orientation";
 import { eventInfo, type EventId } from "../cube/scramble";
 import { effectiveMs, type Session, type Solve } from "./types";
 
@@ -148,7 +149,7 @@ export type RankingRow = {
   moves?: number; tps?: number; totalTime: number | null; context: string;
 } & ({ kind: "solve"; solveId: string } | { kind: "average"; endSolveId: string; window: AverageWindow; solveIds: string[]; startAt: number });
 export type AverageProgressionPoint = {
-  index: number; solveId: string; createdAt: number;
+  index: number; solveId: string; sessionId: string; createdAt: number;
   ao5?: number | null; ao12?: number | null; ao50?: number | null; ao100?: number | null;
 };
 export type RecognitionTrendPoint = { index: number; solveId: string; recognitionMs: number; executionMs: number; unclassifiedMs: number };
@@ -264,7 +265,7 @@ function recordModels(solves: readonly Solve[], facts: readonly AnalysedSolveFac
       }
       add("last-layer", oll.timeMs + pll.timeMs, [skipped(oll) ? "OLL skip" : "", skipped(pll) ? "PLL skip" : ""].filter(Boolean).join(" · "), oll.sliceTurns + pll.sliceTurns, executionTps(oll.sliceTurns + pll.sliceTurns, oll.executionMs + pll.executionMs));
     }
-    const point: AverageProgressionPoint = { index: index + 1, solveId: solve.id, createdAt: solve.createdAt };
+    const point: AverageProgressionPoint = { index: index + 1, solveId: solve.id, sessionId: solve.sessionId, createdAt: solve.createdAt };
     for (const size of AVERAGE_SIZES) {
       const metric = `ao${size}` as const;
       const window = rolling.get(solve.id)?.[metric];
@@ -568,7 +569,10 @@ export function deriveStatistics(
       f2l: fact?.phases.f2lMs, oll: fact?.phases.ollMs, pll: fact?.phases.pllMs, xCrossCount: fact?.xCrossCount,
     };
   });
-  const pairs = facts.flatMap((fact) => fact.steps.slice(1, 5).map((step) => ({ fact, step })));
+  const pairs = facts.flatMap((fact) => {
+    const orientation = typeof fact.rotation === "string" && fact.rotation.length === 2 ? gripFromDescription(fact.rotation) : null;
+    return fact.steps.slice(1, 5).map((step) => ({ fact, step, slot: orientation ? slotInHeldFrame(orientation, step.slot) : null }));
+  });
   const slots = ["FR", "FL", "BR", "BL"] as const;
   const medianMs = percentile(finished, 0.5);
   const consistency: ConsistencyStats = {
@@ -610,8 +614,8 @@ export function deriveStatistics(
     sessionComparison: sessionRows(eventSessions, bySession, activeSessionId),
     ...recordModel,
     solveRows, latestAverages,
-    f2lSlots: slots.map((slot) => performance(slot, pairs.filter(({ step }) => step.slot === slot))),
-    f2lUnassignedCount: pairs.filter(({ step }) => !slots.some((slot) => step.slot === slot)).length,
+    f2lSlots: slots.map((slot) => performance(slot, pairs.filter((pair) => pair.slot === slot))),
+    f2lUnassignedCount: pairs.filter((pair) => !slots.some((slot) => pair.slot === slot)).length,
     f2lPositions: ["1st pair", "2nd pair", "3rd pair", "4th pair"].map((label, index) => performance(label, facts.map((fact) => ({ fact, step: fact.steps[index + 1] })))),
     ollCases: casePerformance(facts, 5), pllCases: casePerformance(facts, 6),
     ollSkips: facts.filter((fact) => skipped(fact.steps[5])).length,

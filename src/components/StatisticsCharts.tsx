@@ -24,19 +24,20 @@ function TimeAxis({ domain }: { domain: TimeDomain }) {
   })}</>;
 }
 
-function TimeSeriesChart({ label, series, ids }: { label: string; series: { label: string; className: string; values: (number | null | undefined)[] }[]; ids: string[] }) {
+function TimeSeriesChart({ label, series, ids }: { label: string; series: { label: string; className: string; values: (number | null | undefined)[]; segmentKeys?: readonly string[] }[]; ids: string[] }) {
   const domain = timeSeriesDomain(series.flatMap((item) => item.values));
   return <div className="chart-shell"><svg className="stats-chart" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={label} data-y-min={domain.min} data-y-max={domain.max}>
     <title>{label}</title>
     <TimeAxis domain={domain} />
-    {series.map((item, index) => <g key={item.label}><path className={`chart-line ${item.className}`} d={linePath(item.values, domain)} /><text className={`chart-legend-label ${item.className}`} x={WIDTH - PAD.right} y={PAD.top + index * 16 + 4} textAnchor="end">{item.label}</text>{item.values.map((value, point) => typeof value === "number" && Number.isFinite(value) ? <circle key={ids[point]} className={`chart-series-point ${item.className}`} cx={chartX(point, item.values.length)} cy={yFor(value, domain)} r="2"><title>{`${ids[point]} · ${item.label}: ${formatTime(value)}`}</title></circle> : null)}</g>)}
+    {series.map((item, index) => <g key={item.label}><path className={`chart-line ${item.className}`} d={linePath(item.values, domain, item.segmentKeys)} /><text className={`chart-legend-label ${item.className}`} x={WIDTH - PAD.right} y={PAD.top + index * 16 + 4} textAnchor="end">{item.label}</text>{item.values.map((value, point) => typeof value === "number" && Number.isFinite(value) ? <circle key={ids[point]} className={`chart-series-point ${item.className}`} cx={chartX(point, item.values.length)} cy={yFor(value, domain)} r="2"><title>{`${ids[point]} · ${item.label}: ${formatTime(value)}`}</title></circle> : null)}</g>)}
     <text className="chart-x-label" x={PAD.left} y={HEIGHT - 8}>older</text><text className="chart-x-label" x={WIDTH - PAD.right} y={HEIGHT - 8} textAnchor="end">newer</text>
   </svg></div>;
 }
 
 export function AverageProgressionChart({ points, scopeLabel }: { points: AverageProgressionPoint[]; scopeLabel: string }) {
   if (!points.length) return <div className="chart-empty">An actual window of at least 5 counted solves is needed for average progression.</div>;
-  return <TimeSeriesChart label={`Actual rolling average progression for ${scopeLabel}`} ids={points.map((point) => point.solveId)} series={([5, 12, 50, 100] as const).map((size) => ({ label: `Ao${size}`, className: `ao${size}`, values: points.map((point) => point[`ao${size}`]) }))} />;
+  const sessionIds = points.map((point) => point.sessionId);
+  return <TimeSeriesChart label={`Actual rolling average progression for ${scopeLabel}`} ids={points.map((point) => point.solveId)} series={([5, 12, 50, 100] as const).map((size) => ({ label: `Ao${size}`, className: `ao${size}`, values: points.map((point) => point[`ao${size}`]), segmentKeys: sessionIds }))} />;
 }
 
 export function RecognitionExecutionTrendChart({ points, scopeLabel }: { points: RecognitionTrendPoint[]; scopeLabel: string }) {
@@ -52,9 +53,10 @@ function chartX(index: number, length: number): number {
   return PAD.left + (length <= 1 ? 0 : (WIDTH - PAD.left - PAD.right) * index / (length - 1));
 }
 
-function linePath(values: (number | null | undefined)[], domain: TimeDomain): string {
+function linePath(values: (number | null | undefined)[], domain: TimeDomain, segmentKeys?: readonly string[]): string {
   let path = "";
   let active = false;
+  let previousSegment: string | undefined;
   values.forEach((value, index) => {
     if (value === null || value === undefined || !Number.isFinite(value)) {
       active = false;
@@ -62,8 +64,10 @@ function linePath(values: (number | null | undefined)[], domain: TimeDomain): st
     }
     const x = chartX(index, values.length);
     const y = yFor(value, domain);
+    if (segmentKeys && segmentKeys[index] !== previousSegment) active = false;
     path += `${active ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)} `;
     active = true;
+    previousSegment = segmentKeys?.[index];
   });
   return path.trim();
 }
@@ -98,9 +102,14 @@ export function SolveTimeTrendChart({
     ...(typeof point.ao5 === "number" && Number.isFinite(point.ao5) ? [point.ao5] : []),
     ...(typeof point.ao12 === "number" && Number.isFinite(point.ao12) ? [point.ao12] : []),
   ]);
-  const p95 = percentile(finished, 0.95) ?? 1;
-  const clipHigh = Math.max(p95 * 1.15, ...rollingValues, 1000);
-  const domain = timeSeriesDomain([...finished.map((time) => Math.min(time, clipHigh)), ...rollingValues]);
+  let singlesForDomain = finished;
+  if (finished.length >= 20) {
+    const p5 = percentile(finished, 0.05)!;
+    const p95 = percentile(finished, 0.95)!;
+    singlesForDomain = finished.map((time) => Math.max(p5, Math.min(time, p95)));
+  }
+  const domain = timeSeriesDomain([...singlesForDomain, ...rollingValues]);
+  const sessionIds = points.map((point) => point.sessionId);
   return (
     <div className="chart-shell">
       <svg
@@ -122,8 +131,8 @@ export function SolveTimeTrendChart({
             y2={HEIGHT - PAD.bottom}
           />
         ) : null)}
-        <path className="chart-line ao5" d={linePath(points.map((point) => point.ao5), domain)} />
-        <path className="chart-line ao12" d={linePath(points.map((point) => point.ao12), domain)} />
+        <path className="chart-line ao5" d={linePath(points.map((point) => point.ao5), domain, sessionIds)} />
+        <path className="chart-line ao12" d={linePath(points.map((point) => point.ao12), domain, sessionIds)} />
         {points.map((point, index) => {
           if (point.time !== null && !Number.isFinite(point.time)) return null;
           const x = chartX(index, points.length);
@@ -136,12 +145,14 @@ export function SolveTimeTrendChart({
               </g>
             );
           }
-          const outlier = point.time > domain.max;
-          const y = outlier ? PAD.top + 4 : yFor(point.time, domain);
+          const outlierHigh = point.time > domain.max;
+          const outlierLow = point.time < domain.min;
+          const outlier = outlierHigh || outlierLow;
+          const y = outlierHigh ? PAD.top + 4 : outlierLow ? HEIGHT - PAD.bottom : yFor(point.time, domain);
           return (
-            <g key={point.id} className={`chart-point${outlier ? " outlier" : point.isPb ? " pb" : ""}`} {...activation} role={onOpenSolve ? "button" : undefined}>
+            <g key={point.id} className={`chart-point${outlier ? ` outlier${outlierLow ? " outlier-low" : ""}` : point.isPb ? " pb" : ""}`} {...activation} role={onOpenSolve ? "button" : undefined}>
               <title>{`${point.id}: ${formatTime(point.time)}${point.isPb ? " — personal best" : ""}`}</title>
-              {outlier ? <path d={`M${x},${y - 8} l7,9 h-14 z`} /> : <circle cx={x} cy={y} r={point.isPb ? 4 : 2.5} />}
+              {outlier ? <path d={outlierLow ? `M${x},${y} l7,-9 h-14 z` : `M${x},${y - 8} l7,9 h-14 z`} /> : <circle cx={x} cy={y} r={point.isPb ? 4 : 2.5} />}
             </g>
           );
         })}

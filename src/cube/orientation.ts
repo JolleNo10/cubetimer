@@ -221,6 +221,15 @@ export function slotInCubeFrame(orientation: Orientation, slot: string): string 
   );
 }
 
+/** Map a persisted cube-frame edge/slot back to its position in the held grip. */
+export function slotInHeldFrame(orientation: Orientation, cubeFrameSlot: string | null | undefined): string | null {
+  if (typeof cubeFrameSlot !== "string" || cubeFrameSlot.length !== 2) return null;
+  const faces = [...cubeFrameSlot] as Face[];
+  if (faces[0] === faces[1] || !faces.every((face) => FACES.includes(face))) return null;
+  const positions = faces.map((face) => orientation[face]);
+  return EDGE_NAMES.find((name) => positions.every((position) => name.includes(position))) ?? null;
+}
+
 /**
  * Two-letter summary of the grip: the faces of the *scrambled* cube that the solver put
  * at the bottom and the back. `DB` therefore means the cube was held as scrambled.

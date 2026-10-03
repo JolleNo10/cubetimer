@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { STEP_NAMES, type SolveAnalysis } from "../cube/analysis";
 import { DEFAULT_EVENT_ID } from "../cube/scramble";
+import { describeGrip, rotationForGrip, slotInCubeFrame } from "../cube/orientation";
 import { averageOf } from "./stats";
 import {
   deriveStatistics,
@@ -260,11 +261,16 @@ describe("historical records and performance", () => {
     expect(sortSolveRows(model.solveRows, "ao5", "desc").map((row) => row.solve.id)).toEqual(["s6", "s4", "s5", "s0", "s1", "s2", "s3"]);
   });
 
-  it("uses actual F2L slots without guessing missing slots, preserving order and skips", () => {
+  it("normalizes persisted F2L slots from different grips, preserving order and skips", () => {
     const a = analysed("a", "A", 1), b = analysed("b", "A", 2), c = analysed("c", "A", 3);
-    for (const item of [a, b, c]) for (const [index, slot] of (["BL", "FR", "BR", "FL"] as const).entries()) item.analysis!.steps[index + 1].slot = slot;
-    b.analysis!.steps[1].slot = "FR";
-    b.analysis!.steps[2].slot = "BL";
+    const grips = [rotationForGrip("D", "F")!, rotationForGrip("F", "U")!, rotationForGrip("R", "F")!];
+    for (const [index, item] of [a, b, c].entries()) {
+      item.analysis!.rotation = describeGrip(grips[index].orientation);
+      for (const [order, slot] of ["BL", "FR", "BR", "FL"].entries()) item.analysis!.steps[order + 1].slot = slotInCubeFrame(grips[index].orientation, slot);
+    }
+    b.analysis!.steps[1].slot = slotInCubeFrame(grips[1].orientation, "FR");
+    b.analysis!.steps[2].slot = slotInCubeFrame(grips[1].orientation, "BL");
+    expect([b.analysis!.steps[1].slot, c.analysis!.steps[1].slot].every((slot) => !["FR", "FL", "BR", "BL"].includes(slot!))).toBe(true);
     b.analysis!.steps[2].timeMs = 1500;
     skipStep(c, 1);
     c.analysis!.steps[2].slot = null;
@@ -275,6 +281,23 @@ describe("historical records and performance", () => {
     expect(model.f2lSlots[3]).toMatchObject({ count: 2, skipCount: 1, medianMs: 1000 });
     expect(model.f2lUnassignedCount).toBe(2);
     expect(model.f2lPositions[0]).toMatchObject({ label: "1st pair", count: 2, skipCount: 1, medianMs: 500 });
+  });
+
+  it.each([undefined, "", "DD", "DU", "DBextra"])("leaves F2L slots unassigned when saved grip %s cannot be parsed", (rotation) => {
+    const item = analysed("invalid-grip", "A", 1);
+    item.analysis!.rotation = rotation as string;
+    for (const [index, slot] of ["FR", "FL", "BR", "BL"].entries()) item.analysis!.steps[index + 1].slot = slot;
+    const model = modelFor([item]);
+    expect(model.f2lUnassignedCount).toBe(4);
+    expect(model.f2lSlots.every((row) => row.count === 0)).toBe(true);
+    expect(model.f2lPositions.every((row) => row.count === 1)).toBe(true);
+  });
+
+  it("does not guess a canonical F2L position for a valid edge outside the held F2L slots", () => {
+    const item = analysed("non-f2l-slot", "A", 1);
+    item.analysis!.rotation = "DB";
+    for (const step of item.analysis!.steps.slice(1, 5)) step.slot = "UR";
+    expect(modelFor([item]).f2lUnassignedCount).toBe(4);
   });
 
   it("never sums an XCross-reduced F2L into Best Splits", () => {
@@ -316,6 +339,7 @@ describe("historical records and performance", () => {
       expect(row.window.entries.filter((entry) => entry.trim !== "kept")).toHaveLength(2);
       expect(model.solveRows.find((item) => item.solve.id === row.endSolveId)?.averages[metric]).toBe(row.window);
       expect(model.averageProgression.find((point) => point.solveId === row.endSolveId)?.[metric]).toBe(row.value);
+      expect(model.averageProgression.find((point) => point.solveId === row.endSolveId)?.sessionId).toBe(row.sessionId);
     }
     expect(model.averageProgression[0].ao5).toBeDefined();
     expect(model.averageProgression.find((point) => point.index === size * 2 - 1)?.[metric]).toBeDefined();

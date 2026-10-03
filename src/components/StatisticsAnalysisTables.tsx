@@ -40,7 +40,7 @@ export function StatisticsF2lPerformance({ model, onOpenSolve }: { model: Statis
   const selected = rows.find((row) => row.label === position);
   const members = new Map(model.scopeSolves.map((solve) => [solve.id, solve]));
   return <section className="stats-section">
-    <div className="section-heading"><div><h2>F2L performance</h2><p>Pair completion order · skipped/XCross pairs counted separately</p></div></div>
+    <div className="section-heading"><div><h2>F2L performance</h2><p>{mode === "slot" ? "Solver-relative F2L slot · skipped/XCross pairs counted separately" : "Pair completion order · skipped/XCross pairs counted separately"}</p></div></div>
     <p className="small faint">{RECOGNITION_NOTE}</p>
     <div className="statistics-mode" role="group" aria-label="F2L grouping">
       <button className="ghost" aria-pressed={mode === "slot"} onClick={() => { setMode("slot"); setPosition(null); }}>By slot</button>

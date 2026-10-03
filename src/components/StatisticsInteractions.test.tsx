@@ -179,6 +179,7 @@ describe("Statistics user interactions", () => {
     const render = () => renderRoot(() => StatisticsF2lPerformance({ model: f2lModel, onOpenSolve }));
     let tree = render();
     const performance = find(tree, (element) => element.type === PerformanceTable);
+    expect(find(tree, (element) => element.type === "p" && element.props.children === "Solver-relative F2L slot · skipped/XCross pairs counted separately")).toBeDefined();
     const summary = PerformanceTable(performance.props as Parameters<typeof PerformanceTable>[0]);
     const fourth = elements(summary).filter((element) => element.type === "tr" && element.props.tabIndex === 0)[3];
     fourth.props.onKeyDown(keyEvent("Enter"));
@@ -194,19 +195,23 @@ describe("Statistics user interactions", () => {
     expect(find(tree, (element) => element.type === "h3").props.children[0]).toBe("BL");
     find(tree, (element) => element.type === "button" && element.props.children === "By solve order").props.onClick();
     tree = render();
+    expect(find(tree, (element) => element.type === "p" && element.props.children === "Pair completion order · skipped/XCross pairs counted separately")).toBeDefined();
     expect(find(tree, (element) => element.type === PerformanceTable).props.rows.map((row: { label: string }) => row.label)).toEqual(["1st pair", "2nd pair", "3rd pair", "4th pair"]);
     expect(elements(tree).some((element) => element.props["aria-label"] === "F2L position solves")).toBe(false);
     find(tree, (element) => element.type === "button" && element.props.children === "By slot").props.onClick();
     expect(find(render(), (element) => element.type === PerformanceTable).props.rows.map((row: { label: string }) => row.label)).toEqual(["FR", "FL", "BR", "BL"]);
+    expect(find(render(), (element) => element.type === "p" && element.props.children === "Solver-relative F2L slot · skipped/XCross pairs counted separately")).toBeDefined();
   });
 
   it("opens singles, PBs, outliers, and DNFs from accessible chart points", () => {
-    const points = Array.from({ length: 25 }, (_, index) => ({ index: index + 1, id: `point${index}`, sessionId: "A", createdAt: index, time: index === 0 ? 1000000 : index === 24 ? null : 10000, isPb: index === 1, ao5: undefined, ao12: undefined }));
+    const points = Array.from({ length: 25 }, (_, index) => ({ index: index + 1, id: `point${index}`, sessionId: "A", createdAt: index, time: index === 0 ? 1000000 : index === 2 ? 100 : index === 24 ? null : 10000, isPb: index === 1, ao5: undefined, ao12: undefined }));
     const onOpenSolve = vi.fn();
     const tree = SolveTimeTrendChart({ points, scopeLabel: "All sessions", onOpenSolve });
     const interactive = elements(tree).filter((element) => element.type === "g" && element.props.role === "button");
     expect(interactive).toHaveLength(25);
     expect(interactive[0].props.className).toContain("outlier"); expect(interactive[1].props.className).toContain("pb");
+    expect(interactive[2].props.className).toContain("outlier-low");
+    expect(interactive[2].props["aria-label"]).toContain("View solve 0.10");
     expect(interactive[24].props.className).toBe("chart-dnf");
     for (const index of [0, 1, 2, 24]) {
       expect(interactive[index].props.tabIndex).toBe(0);
