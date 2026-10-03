@@ -10,4 +10,3 @@ describe("formatTime", () => {
     expect(formatTime(undefined)).toBe("—");
   });
 });
-

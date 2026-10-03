@@ -359,3 +359,7 @@ not independently invented states. The original entry is retained as history.
 - What happened: the first subscription/boundary fixtures failed at their own clock and TypeScript AST seams.
 - Root cause: the Node fixture omitted the shared RAF stub, and AST text reads assumed parent links while memo component inspection assumed an ordinary element type.
 - Prevention: stub the existing clock seam, supply the source file to AST text reads, and inspect opaque React component types before narrowing.
+
+- What happened: a handoff commit included an extra EOF blank line flagged by the staged whitespace check.
+- Root cause: the commit was sequenced after the check without inspecting its exit result.
+- Prevention: inspect verification results before starting dependent Git mutations, and remove extraction artifacts before staging moved tests.
