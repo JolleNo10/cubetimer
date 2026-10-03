@@ -287,6 +287,26 @@ The Controller's Session-context lock spans the complete asynchronous persistenc
 state-refresh operation, and prevents a timer start or overlapping Session operation
 until it completes.
 
+### Session persistence serialization
+
+Controller serializes persisted Session mutations. Context-changing Session
+operations additionally hold the Session-context runtime lock; metadata-only
+rename participates in persistence serialization without becoming a Timer/Training
+context transition.
+
+| Boundary | Operations | Purpose |
+| --- | --- | --- |
+| Session persistence queue | select, create, change event, delete, rename, JSON import, CSV import | Prevent concurrent full-record Session writes and stale context application |
+| Session runtime-context lock | select, create, change event, delete, JSON import, CSV import | Protect Timer/Training context, Session identity, EventId, and scramble semantics |
+
+Context-changing requests acquire the runtime lock before waiting for the queue,
+so Timer start stays blocked even when the request is waiting behind rename.
+Each queued operation reads the latest context when it executes and includes both
+persistence and Controller application, through history reload and scramble
+consequences. A rejected operation does not poison subsequent queued work.
+Rename alone remains available during active timing and does not invalidate the
+scramble or replace the active history.
+
 ### Switching Sessions
 
 Selecting another Session loads that Session's solves.
@@ -911,6 +931,13 @@ The following are current architectural rules.
 ## Rejected alternatives
 
 These alternatives are recorded because the current architecture deliberately chose a different ownership model.
+
+### Merge/reconcile stale Session snapshots after concurrent writes
+
+Rejected because `db.saveSession()` writes complete Session records with IndexedDB
+`put()`. Re-applying old in-memory snapshots cannot reliably prevent one persisted
+full-record write from overwriting another field. Serialization is the authoritative
+concurrency boundary; object identity is not part of the Session transition contract.
 
 ### Moving the Session-context lock and scramble consequences into SessionService
 

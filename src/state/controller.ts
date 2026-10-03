@@ -306,8 +306,9 @@ export class Controller {
   #moveListeners = new Set<(move: string) => void>();
   #patternListeners = new Set<(pattern: KPattern) => void>();
   #solveRecordedListeners = new Set<(solve: Solve) => void>();
-  /** Prevent Session/event persistence from racing a timer start or another mutation. */
+  /** Protect active runtime context while a context transition is pending. */
   #sessionContextBusy = false;
+  #sessionMutationQueue: Promise<void> = Promise.resolve();
 
   constructor(model: CubeModel | null = null) {
     this.#model = model;
@@ -359,10 +360,17 @@ export class Controller {
   async #withSessionContextMutation<T>(operation: () => Promise<T>): Promise<T | undefined> {
     if (!this.#beginSessionContextMutation()) return undefined;
     try {
-      return await operation();
+      return await this.#queueSessionMutation(operation);
     } finally {
       this.#endSessionContextMutation();
     }
+  }
+
+  /** Serialize persistence and live application together; failures leave the queue usable. */
+  #queueSessionMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const pending = this.#sessionMutationQueue.then(operation);
+    this.#sessionMutationQueue = pending.then(() => {}, () => {});
+    return pending;
   }
 
   #invalidateScrambleContext(): void {
@@ -2073,17 +2081,8 @@ export class Controller {
     return solveHistory.loadStatisticsSnapshot(this.#model?.kpuzzle);
   }
 
-  #sessionsAfterTransition(sessions: Session[], previous: Session[], current: Session[]): Session[] {
-    // Renaming does not replace timing context and may finish while history loads.
-    // Preserve live updates to records the service left unchanged.
-    return sessions.map((session) => previous.includes(session)
-      ? current.find((candidate) => candidate.id === session.id) ?? session
-      : session);
-  }
-
   async #applySessionContext(
     transition: SessionContextTransition | undefined,
-    previousSessions: Session[] = [],
   ): Promise<void> {
     if (!transition) return;
     const { sessions, sessionId, solves, eventChanged } = transition;
@@ -2098,7 +2097,7 @@ export class Controller {
     }
     this.state.update((s) => ({
       ...s,
-      sessions: this.#sessionsAfterTransition(sessions, previousSessions, s.sessions),
+      sessions,
       sessionId,
       solves,
       lastSolve: solves[solves.length - 1] ?? null,
@@ -2111,15 +2110,15 @@ export class Controller {
     await this.#withSessionContextMutation(async () => {
       const current = this.state.get();
       const transition = await sessionService.selectSession(this.#model?.kpuzzle, current, sessionId);
-      await this.#applySessionContext(transition, current.sessions);
+      await this.#applySessionContext(transition);
     });
   }
 
-  async createSession(name: string, event: EventId = this.#currentEvent()): Promise<void> {
+  async createSession(name: string, event?: EventId): Promise<void> {
     await this.#withSessionContextMutation(async () => {
       const current = this.state.get();
       const transition = await sessionService.createSession(this.#model?.kpuzzle, current, name, event);
-      await this.#applySessionContext(transition, current.sessions);
+      await this.#applySessionContext(transition);
     });
   }
 
@@ -2127,17 +2126,19 @@ export class Controller {
     await this.#withSessionContextMutation(async () => {
       const current = this.state.get();
       const transition = await sessionService.changeEvent(this.#model?.kpuzzle, current, event);
-      await this.#applySessionContext(transition, current.sessions);
+      await this.#applySessionContext(transition);
     });
   }
 
   async renameSession(id: string, name: string): Promise<void> {
-    const updated = await sessionService.renameSession(this.state.get().sessions, id, name);
-    if (!updated) return;
-    this.state.update((s) => ({
-      ...s,
-      sessions: s.sessions.map((session) => session.id === id ? updated : session),
-    }));
+    await this.#queueSessionMutation(async () => {
+      const updated = await sessionService.renameSession(this.state.get().sessions, id, name);
+      if (!updated) return;
+      this.state.update((s) => ({
+        ...s,
+        sessions: s.sessions.map((session) => session.id === id ? updated : session),
+      }));
+    });
   }
 
   async deleteSession(id: string): Promise<void> {
@@ -2147,10 +2148,10 @@ export class Controller {
       if (transition?.sessionId === this.state.get().sessionId) {
         this.state.update((s) => ({
           ...s,
-          sessions: this.#sessionsAfterTransition(transition.sessions, current.sessions, s.sessions),
+          sessions: transition.sessions,
         }));
       } else {
-        await this.#applySessionContext(transition, current.sessions);
+        await this.#applySessionContext(transition);
       }
     });
   }
@@ -2201,9 +2202,11 @@ export class Controller {
       throw new Error("Cannot import while the timer or another Session operation is active.");
     }
     try {
-      const result = await dataTransfer.importData(this.#model?.kpuzzle, this.state.get(), json);
-      await this.#applySessionContext(result.context);
-      return { sessions: result.sessions, solves: result.solves };
+      return await this.#queueSessionMutation(async () => {
+        const result = await dataTransfer.importData(this.#model?.kpuzzle, this.state.get(), json);
+        await this.#applySessionContext(result.context);
+        return { sessions: result.sessions, solves: result.solves };
+      });
     } finally {
       this.#endSessionContextMutation();
     }
@@ -2217,9 +2220,11 @@ export class Controller {
       throw new Error("Cannot import while the timer or another Session operation is active.");
     }
     try {
-      const result = await dataTransfer.importSolveCsv(this.#model?.kpuzzle, this.state.get(), text, onProgress);
-      await this.#applySessionContext(result.context);
-      return { solves: result.solves, sessions: result.sessions };
+      return await this.#queueSessionMutation(async () => {
+        const result = await dataTransfer.importSolveCsv(this.#model?.kpuzzle, this.state.get(), text, onProgress);
+        await this.#applySessionContext(result.context);
+        return { solves: result.solves, sessions: result.sessions };
+      });
     } finally {
       this.#endSessionContextMutation();
     }

@@ -1177,31 +1177,126 @@ describe("Controller Session event ownership", () => {
 });
 
 describe("Controller Session-context synchronization", () => {
-  it.each(["select", "create", "change", "delete"] as const)(
-    "preserves a completed rename while %s resolves a persisted context transition",
+  it("queues rename after pending selection and persists the completed context", async () => {
+    const sessions = [session("1"), session("2")];
+    const controller = readyController(sessions, "1");
+    const history = deferred<Solve[]>();
+    const started = deferred<void>();
+    vi.spyOn(db, "loadSolves").mockImplementation(() => {
+      started.resolve();
+      return history.promise;
+    });
+    const save = vi.spyOn(db, "saveSession").mockResolvedValue();
+    const selecting = controller.selectSession("2");
+    await started.promise;
+    const renaming = controller.renameSession("2", "Renamed");
+    expect(save).not.toHaveBeenCalled();
+    history.resolve([]);
+    await Promise.all([selecting, renaming]);
+    expect(controller.state.get().sessionId).toBe("2");
+    expect(controller.state.get().sessions[1]).toEqual({ ...sessions[1], name: "Renamed" });
+    expect(save).toHaveBeenCalledExactlyOnceWith(controller.state.get().sessions[1]);
+  });
+
+  it("preserves event and rename in storage when rename follows a pending event write", async () => {
+    let stored = session("1");
+    const controller = readyController([stored], "1");
+    const write = deferred<void>();
+    const started = deferred<void>();
+    vi.spyOn(db, "saveSession").mockImplementation(async (value) => {
+      if (value.event === "222" && value.name === "Session 1") {
+        started.resolve();
+        await write.promise;
+      }
+      stored = { ...value };
+    });
+    vi.spyOn(controller, "newScramble").mockResolvedValue();
+    const changing = controller.changeEvent("222");
+    await started.promise;
+    const renaming = controller.renameSession("1", "Renamed");
+    write.resolve();
+    await Promise.all([changing, renaming]);
+    expect(stored).toMatchObject({ name: "Renamed", event: "222" });
+    expect(controller.state.get().sessions[0]).toEqual(stored);
+  });
+
+  it.each(["select", "change", "create", "import"] as const)(
+    "locks Timer immediately while %s waits behind rename and reads its completed state",
     async (operation) => {
+      stubTimerLoop();
       const sessions = [session("1"), session("2")];
-      const controller = readyController(sessions, "1", [solveFor("1")]);
-      const history = deferred<Solve[]>();
-      const historyStarted = deferred<void>();
-      vi.spyOn(db, "loadSolves").mockImplementation(() => {
-        historyStarted.resolve();
-        return history.promise;
+      const storage = new Map(sessions.map((value) => [value.id, value]));
+      const controller = readyController(sessions, "1", [], "ready");
+      const write = deferred<void>();
+      const started = deferred<void>();
+      const save = vi.spyOn(db, "saveSession").mockImplementation(async (value) => {
+        if (value.name === "Renamed" && value.event === "333") {
+          started.resolve();
+          await write.promise;
+        }
+        storage.set(value.id, { ...value });
       });
-      vi.spyOn(db, "saveSession").mockResolvedValue();
-      vi.spyOn(db, "deleteSession").mockResolvedValue();
+      vi.spyOn(db, "loadSessions").mockImplementation(async () => [...storage.values()]);
+      vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+      vi.spyOn(db, "loadSolves").mockResolvedValue([]);
       vi.spyOn(controller, "newScramble").mockResolvedValue();
-      const pending = operation === "select" ? controller.selectSession("2")
-        : operation === "create" ? controller.createSession("Third")
+      const renaming = controller.renameSession("1", "Renamed");
+      await started.promise;
+      const changing = operation === "select" ? controller.selectSession("2")
         : operation === "change" ? controller.changeEvent("222")
-        : controller.deleteSession("1");
-      await historyStarted.promise;
-      await controller.renameSession("2", "Renamed during load");
-      history.resolve([]);
-      await pending;
-      expect(controller.state.get().sessions.find((session) => session.id === "2")?.name).toBe("Renamed during load");
+        : operation === "create" ? controller.createSession("Third")
+        : controller.importData(JSON.stringify({ format: "cubetimer", version: 2, sessions: [session("2")], solves: [] }));
+      controller.startFromKeyboard();
+      expect(controller.state.get().phase).toBe("ready");
+      expect(save).toHaveBeenCalledTimes(1);
+      write.resolve();
+      await Promise.all([renaming, changing]);
+      expect(controller.state.get().sessions.find((value) => value.id === "1")).toEqual(storage.get("1"));
+      expect(storage.get("1")).toMatchObject({ name: "Renamed", event: operation === "change" ? "222" : "333" });
+      expect(controller.state.get().sessionId).toBe(operation === "select" ? "2"
+        : operation === "create" ? controller.state.get().sessions.at(-1)!.id : "1");
     },
   );
+
+  it.each(["ready", "inspection", "solving"] as const)("rename stays metadata-only during Timer %s", async (phase) => {
+    stubTimerLoop();
+    const write = deferred<void>();
+    const started = deferred<void>();
+    vi.spyOn(db, "saveSession").mockImplementation(() => {
+      started.resolve();
+      return write.promise;
+    });
+    const controller = readyController([session("1")], "1", [], phase);
+    const scramble = vi.spyOn(controller, "newScramble").mockResolvedValue();
+    const renaming = controller.renameSession("1", "Renamed");
+    await started.promise;
+    if (phase !== "solving") controller.startFromKeyboard();
+    expect(controller.state.get().phase).toBe("solving");
+    write.resolve();
+    await renaming;
+    expect(controller.state.get().sessions[0].name).toBe("Renamed");
+    expect(scramble).not.toHaveBeenCalled();
+  });
+
+  it("allows rename during a Training attempt", async () => {
+    vi.spyOn(db, "saveSession").mockResolvedValue();
+    const controller = readyController([session("1")], "1");
+    controller.state.update((state) => ({ ...state, area: "training", training: { ...state.training, phase: "solving" } }));
+    await controller.renameSession("1", "Renamed");
+    expect(controller.state.get().training.phase).toBe("solving");
+    expect(controller.state.get().sessions[0].name).toBe("Renamed");
+  });
+
+  it("executes queued mutations after a persistence rejection", async () => {
+    const save = vi.spyOn(db, "saveSession").mockRejectedValueOnce(new Error("write failed")).mockResolvedValue();
+    const controller = readyController([session("1")], "1");
+    const failing = controller.renameSession("1", "Failed");
+    const succeeding = controller.renameSession("1", "Succeeded");
+    await expect(failing).rejects.toThrow("write failed");
+    await succeeding;
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(controller.state.get().sessions[0].name).toBe("Succeeded");
+  });
 
   it("does not start a solve while Session selection is awaiting persistence", async () => {
     stubTimerLoop();
@@ -1301,6 +1396,35 @@ describe("Controller import runtime integration", () => {
   function jsonExport(sessions: Session[], solves: Solve[] = []): string {
     return JSON.stringify({ format: "cubetimer", version: 2, sessions, solves });
   }
+
+  it.each(["json", "csv"] as const)("queues rename through %s import context reload and scramble consequences", async (format) => {
+    let stored = session("import:Imported");
+    const controller = readyController([stored], stored.id);
+    const imported = { ...stored, name: "Imported", event: format === "json" ? "222" as const : "333" as const };
+    const write = deferred<void>();
+    const started = deferred<void>();
+    vi.spyOn(db, "loadSessions").mockImplementation(async () => [{ ...stored }]);
+    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+    vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const save = vi.spyOn(db, "saveSession").mockImplementation(async (value) => {
+      if (value.name === "Imported") {
+        started.resolve();
+        await write.promise;
+      }
+      stored = { ...value };
+    });
+    vi.spyOn(controller, "newScramble").mockResolvedValue();
+    const importing = format === "json" ? controller.importData(jsonExport([imported]))
+      : controller.importSolveCsv(formatSolveCsv([solveFor(imported.id)], new Map([[imported.id, imported.name]])));
+    await started.promise;
+    const renaming = controller.renameSession(imported.id, "Renamed");
+    expect(save).toHaveBeenCalledTimes(1);
+    write.resolve();
+    await Promise.all([importing, renaming]);
+    expect(stored).toMatchObject({ name: "Renamed", event: imported.event });
+    expect(controller.state.get().sessions[0]).toEqual(stored);
+  });
 
   it("updates an empty imported Session event and refreshes the selected scramble", async () => {
     const before = session("A", "333");

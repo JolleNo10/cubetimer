@@ -287,3 +287,13 @@ not independently invented states. The original entry is retained as history.
 - What happened: the handoff check ran `git rev-parse --abbrev-ref --symbolic-full-name @{upstream}` through PowerShell and failed before Git executed.
 - Root cause: PowerShell parsed `@{upstream}` as a hashtable expression.
 - Prevention: quote Git refspecs that begin with `@` in PowerShell, for example `git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}'`.
+
+## 2026-10-03
+
+- What happened: concurrent Session rename could race event/import Session writes.
+- Root cause: Session records use full-record IndexedDB `put()` operations while rename was outside the Session mutation serialization boundary; live snapshot reconciliation did not protect storage.
+- Prevention: serialize all persisted Session mutations, including context application, and keep metadata serialization separate from the runtime Session-context lock.
+
+- What happened: the first rename eligibility test expected keyboard start during inspection to preserve inspection and also invoked it during solving, triggering asynchronous solve recording.
+- Root cause: the test ignored that the keyboard action starts from inspection and stops an existing solve.
+- Prevention: test rename availability during solving without invoking stop, and assert existing keyboard transition semantics when checking rename does not lock Timer start.

@@ -79,7 +79,7 @@ describe("Session persisted transitions", () => {
     vi.spyOn(db, "loadSolves").mockResolvedValue([]);
     const result = (await service.changeEvent(kpuzzle, previous, "222"))!;
     expect(result.sessions).toHaveLength(2);
-    expect(result.sessions[0]).toBe(previous.sessions[0]);
+    expect(result.sessions[0]).toEqual(previous.sessions[0]);
     expect(result.sessions[1]).toMatchObject({ name: "Session 2", event: "222" });
     expect(result.sessions[1].id).not.toBe("1");
     expect(result.sessionId).toBe(result.sessions[1].id);

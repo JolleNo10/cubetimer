@@ -10,7 +10,6 @@ export type SessionContext = {
   solves: Solve[];
 };
 
-/** Unchanged Session entries retain their input references for live-state reconciliation. */
 export type SessionContextTransition = SessionContext & { eventChanged: boolean };
 
 export function currentSession(context: SessionContext): Session | undefined {
