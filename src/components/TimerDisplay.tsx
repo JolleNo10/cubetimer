@@ -1,10 +1,10 @@
 import { useController, useStore } from "../hooks/useController";
 import { formatTime } from "../state/stats";
-import type { AppState } from "../state/controller";
+import type { AppSnapshot } from "../state/controller";
 import { effectiveMs, type Solve } from "../state/types";
 
 type Props = {
-  state: AppState;
+  state: AppSnapshot;
   /** True while the space bar is held down before a keyboard-timed solve. */
   holding: boolean;
   holdReady: boolean;
@@ -110,7 +110,7 @@ export function TimerDisplay({
 }
 
 /** In slow solve mode nothing is being raced, so the prompts say so. */
-function slowHint(phase: AppState["phase"], smart: boolean) {
+function slowHint(phase: AppSnapshot["phase"], smart: boolean) {
   switch (phase) {
     case "scrambling":
       return smart ? "Apply the scramble, then solve at your own pace" : "Slow solve";
@@ -140,10 +140,10 @@ function buildHint({
   holding,
   state,
 }: {
-  phase: AppState["phase"];
+  phase: AppSnapshot["phase"];
   smart: boolean;
   holding: boolean;
-  state: AppState;
+  state: AppSnapshot;
 }) {
   if (holding) return "Release to start";
   switch (phase) {

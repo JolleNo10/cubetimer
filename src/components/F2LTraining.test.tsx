@@ -13,7 +13,7 @@ const kpuzzle = await get3x3x3();
 function render(controller: Controller) {
   return renderToStaticMarkup(
     <ControllerContext.Provider value={controller}>
-      <F2LTraining state={controller.state.get()} />
+      <F2LTraining state={controller.snapshot()} />
     </ControllerContext.Provider>,
   );
 }

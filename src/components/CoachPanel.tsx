@@ -17,7 +17,7 @@ import {
 } from "../cube/orientation";
 import { get3x3x3 } from "../cube/puzzle";
 import { reframe } from "../cube/recognise";
-import type { TimerPhase } from "../state/controller";
+import type { TimerPhase } from "../state/timerRuntime";
 import type { Settings } from "../state/types";
 import { GripLabel } from "./GripLabel";
 

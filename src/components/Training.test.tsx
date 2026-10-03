@@ -1,11 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ControllerContext } from "../hooks/useController";
-import { Controller } from "../state/controller";
+import { buildLastLayerCatalogueTarget, lastLayerTrainingVariants } from "../cube/lastLayerTraining";
 import { CubeModel } from "../cube/model";
 import { get3x3x3 } from "../cube/puzzle";
-import { buildLastLayerCatalogueTarget, lastLayerTrainingVariants } from "../cube/lastLayerTraining";
 import { expandedAlgorithmMoves } from "../cube/training";
+import { ControllerContext } from "../hooks/useController";
+import { Controller } from "../state/controller";
 import { Header } from "./Header";
 import { Training } from "./Training";
 
@@ -26,12 +26,12 @@ describe("Training area", () => {
     const nextIndex = targets.findIndex((target) => target.info.references[0].alg !== first.alg && target.info.references[0].stm !== first.stm);
     expect(nextIndex).toBeGreaterThan(0);
     const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, settings: { ...state.settings, pllTrainingSet: "2look" } }));
+    controller.settings.set({ ...controller.settings.get(), pllTrainingSet: "2look" });
     controller.setTrainingFamily("pll");
     await controller.setTrainingMode("virtual");
     vi.spyOn(Math, "random").mockReturnValueOnce((nextIndex + 0.5) / variants.length).mockReturnValueOnce(0);
     await controller.selectLastLayerCase("pll", "Headlights");
-    const ready = { ...controller.state.get(), training: controller.training.state.get() };
+    const ready = { ...controller.snapshot(), training: controller.training.state.get() };
     const next = ready.training.target;
     if (!next || next.family === "f2l") throw new Error("Last-layer target missing");
     // Give the next target an alternative to exercise the preserved-result guard.
@@ -39,7 +39,7 @@ describe("Training area", () => {
     const result = { moves: [], stm: first.stm, recommendedAlg: first.alg, recommendedStm: first.stm, matchedReferenceRank: 1, delta: 0, elapsedMs: 1000 };
     const draw = (preserved: typeof result | null) => {
       controller.training.state.set({ ...ready.training, target, result: preserved });
-      return render(controller, <Training state={ready} />);
+      return render(controller, <Training />);
     };
     const html = draw(result);
     const recommendation = html.split('class="f2l-reference"')[1].split('class="f2l-result-card"')[0];
@@ -62,10 +62,11 @@ describe("Training area", () => {
     await controller.setTrainingMode("virtual");
     if (family === "f2l") await controller.selectF2lCase("F2L 1");
     else await controller.selectLastLayerCase(family, family === "oll" ? "27" : "T");
-    const ready = { ...controller.state.get(), training: controller.training.state.get() };
+    const ready = { ...controller.snapshot(), training: controller.training.state.get() };
     const draw = (state: typeof ready) => {
       controller.training.state.set(state.training);
-      return render(controller, <Training state={state} />);
+      controller.settings.set(state.settings);
+      return render(controller, <Training />);
     };
     const html = draw(ready);
     expect(html).toContain('aria-current="step"');
@@ -77,8 +78,12 @@ describe("Training area", () => {
     expect(draw(preparing)).not.toContain('aria-current="step"');
     expect(draw(preparing)).toContain('aria-label="Recommended algorithm"');
     expect(draw(preparing)).not.toMatch(/Move \d+ \/|Guide complete/);
-    const solving = { ...ready, training: { ...ready.training, phase: "solving" as const,
-      guide: { ...ready.training.guide!, confirmed: 1, currentMove: null } } };
+    const solving = {
+      ...ready, training: {
+        ...ready.training, phase: "solving" as const,
+        guide: { ...ready.training.guide!, confirmed: 1, currentMove: null }
+      }
+    };
     expect(draw(solving)).toContain('training-algorithm-token completed');
     expect(draw(solving)).toContain('aria-current="step"');
     expect(draw(solving)).toContain(`Move 2 / ${ready.training.guide!.moves.length}`);
@@ -102,9 +107,9 @@ describe("Training area", () => {
     ["pll", 6, "1: Corners", "2: Edges", ["Diagonal", "Headlights", "H", "Ua", "Ub", "Z"]],
   ] as const)("renders the named 2-Look %s library without Full labels", (family, count, firstGroup, secondGroup, names) => {
     const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, settings: { ...state.settings, ollTrainingSet: "2look", pllTrainingSet: "2look" } }));
+    controller.settings.set({ ...controller.settings.get(), ollTrainingSet: "2look", pllTrainingSet: "2look" });
     controller.setTrainingFamily(family);
-    const html = render(controller, <Training state={controller.state.get()} />);
+    const html = render(controller, <Training />);
     expect(html.match(/class="last-layer-case-button/g)).toHaveLength(count);
     expect(html).toContain(`2-Look ${family.toUpperCase()} cases`);
     expect(html).toContain(`${count} cases`);
@@ -117,11 +122,11 @@ describe("Training area", () => {
 
   it("shows a 2-Look target's friendly name and recorded set", async () => {
     const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, settings: { ...state.settings, pllTrainingSet: "2look" } }));
+    controller.settings.set({ ...controller.settings.get(), pllTrainingSet: "2look" });
     controller.setTrainingFamily("pll");
     await controller.setTrainingMode("virtual");
     await controller.selectLastLayerCase("pll", "Headlights");
-    expect(render(controller, <Training state={controller.state.get()} />)).toContain("2-Look PLL Headlights");
+    expect(render(controller, <Training />)).toContain("2-Look PLL Headlights");
   });
 
   it("identifies historical Full targets even inside a 2-Look library", async () => {
@@ -130,8 +135,8 @@ describe("Training area", () => {
     await controller.setTrainingMode("virtual");
     await controller.selectLastLayerCase("pll", "H");
     // Exact historical targets can be Full while Settings select 2-Look.
-    controller.state.update((state) => ({ ...state, settings: { ...state.settings, pllTrainingSet: "2look" } }));
-    const html = render(controller, <Training state={controller.state.get()} />);
+    controller.settings.set({ ...controller.settings.get(), pllTrainingSet: "2look" });
+    const html = render(controller, <Training />);
     expect(html).toContain("<strong>PLL H</strong>");
     expect(html).not.toContain('last-layer-case-button selected');
   });
@@ -140,18 +145,18 @@ describe("Training area", () => {
     const controller = new Controller(new CubeModel(kpuzzle));
     controller.state.update((state) => ({ ...state, ready: true, area: "training" }));
 
-    const f2l = render(controller, <Training state={controller.state.get()} />);
+    const f2l = render(controller, <Training />);
     expect(f2l).toContain("F2L cases");
     expect(f2l).toContain("OLL");
     expect(f2l).toContain("PLL");
 
     controller.setTrainingFamily("oll");
-    const oll = render(controller, <Training state={controller.state.get()} />);
+    const oll = render(controller, <Training />);
     expect(oll.match(/class="last-layer-case-button/g)).toHaveLength(57);
     expect(oll).toContain("dot");
 
     controller.setTrainingFamily("pll");
-    const pll = render(controller, <Training state={controller.state.get()} />);
+    const pll = render(controller, <Training />);
     expect(pll.match(/class="last-layer-case-button/g)).toHaveLength(21);
     expect(pll).toContain("Adj Swap");
     expect(pll).toContain("EPLL");
@@ -161,12 +166,9 @@ describe("Training area", () => {
 describe("Header application navigation", () => {
   it("shows Timer, Training, and Statistics and gates Statistics during timing", () => {
     const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({
-      ...state,
-      ready: true,
-      phase: "solving",
-    }));
-    const html = render(controller, <Header state={controller.state.get()} onOpenSettings={() => {}} onSelectArea={() => {}} />);
+    controller.state.update((state) => ({ ...state, ready: true }));
+    controller.timer.state.update((state) => ({ ...state, phase: "solving" }));
+    const html = render(controller, <Header onOpenSettings={() => { }} onSelectArea={() => { }} />);
     expect(html).toContain(">Timer<");
     expect(html).toContain(">Training<");
     expect(html).toContain(">Statistics<");

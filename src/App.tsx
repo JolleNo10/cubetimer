@@ -1,24 +1,24 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnalyticsDialog } from "./components/AnalyticsDialog";
 import { CoachPanel } from "./components/CoachPanel";
 import { ConnectionPanel } from "./components/ConnectionPanel";
 import { CubeView } from "./components/CubeView";
-import { Training } from "./components/Training";
 import { Header } from "./components/Header";
 import { ReplayDialog, type ReplayViewState } from "./components/ReplayDialog";
 import { ScramblePanel } from "./components/ScramblePanel";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { SolveList } from "./components/SolveList";
 import { SolveResult } from "./components/SolveResult";
-import { StatsPanel } from "./components/StatsPanel";
 import { StatisticsView } from "./components/StatisticsView";
+import { StatsPanel } from "./components/StatsPanel";
 import { TimerDisplay } from "./components/TimerDisplay";
+import { Training } from "./components/Training";
 import { VIRTUAL_CUBE_KEYS } from "./components/VirtualCubeKeys";
-import { useAppState, useController } from "./hooks/useController";
-import type { AppArea } from "./state/controller";
-import type { Solve } from "./state/types";
-import { DEFAULT_EVENT_ID } from "./cube/scramble";
 import type { LastLayerFamily } from "./cube/lastLayerTraining";
+import { DEFAULT_EVENT_ID } from "./cube/scramble";
+import { useAppState, useController, useCubeState, useSessionState, useSettings, useTimerState } from "./hooks/useController";
+import type { AppArea, AppSnapshot } from "./state/controller";
+import type { Solve } from "./state/types";
 
 /** How long space must be held before a keyboard-timed solve will start. */
 const HOLD_MS = 350;
@@ -29,7 +29,7 @@ type TrainingReturnView =
 
 export function App() {
   const controller = useController();
-  const state = useAppState();
+  const state = { ...useAppState(), ...useSessionState(), settings: useSettings() };
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [replaySolve, setReplaySolve] = useState<Solve | null>(null);
   const [replayOrigin, setReplayOrigin] = useState<"timer" | "statistics">("timer");
@@ -68,7 +68,6 @@ export function App() {
     void controller.selectLastLayerCase(family, caseId, "full");
   }, [controller]);
 
-  const live = state.cubeStatus === "connected" || state.virtualCube;
 
   const resultSolve = useMemo(
     () =>
@@ -178,7 +177,7 @@ export function App() {
       closeResult();
       return;
     }
-    const current = controller.state.get();
+    const current = controller.snapshot();
     if (current.phase === "solving") {
       // A solve the cube started is stopped by solving the cube, not by a key or a tap.
       if (current.solveSource === "keyboard") controller.startFromKeyboard();
@@ -233,7 +232,7 @@ export function App() {
         controller.cancel();
         return;
       }
-      if (controller.state.get().virtualCube && !event.metaKey && !event.ctrlKey) {
+      if (controller.snapshot().virtualCube && !event.metaKey && !event.ctrlKey) {
         const move = VIRTUAL_CUBE_KEYS[event.key.toLowerCase()];
         if (move) {
           event.preventDefault();
@@ -290,14 +289,13 @@ export function App() {
   return (
     <div className="app">
       <Header
-        state={state}
         onOpenSettings={() => setSettingsOpen(true)}
         onSelectArea={selectArea}
       />
 
-      {state.area === "training" ? <Training state={state} /> : state.area === "statistics" ? (
+      {state.area === "training" ? <Training /> : state.area === "statistics" ? (
         <StatisticsView currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} onReplay={openStatisticsReplay} onTools={openStatisticsTools} onTrainCase={trainStatisticsCase} onScopeChange={statisticsScopeChanged} />
-      ) : <div className="app-body">
+      ) : <TimerWorkspace>{(state) => <div className="app-body">
         <div className="column left">
           <ConnectionPanel state={state} />
           <SolveList
@@ -323,7 +321,7 @@ export function App() {
             </div>
           ) : null}
           {!resultSolve ? <ScramblePanel state={state} /> : null}
-          {state.settings.slowSolve && live && !resultSolve ? (
+          {state.settings.slowSolve && (state.cubeStatus === "connected" || state.virtualCube) && !resultSolve ? (
             <CoachPanel
               facelets={state.cubeFacelets}
               settings={state.settings}
@@ -367,7 +365,7 @@ export function App() {
                   settings={state.settings}
                   facelets={state.cubeFacelets}
                   gyroSupported={state.hardware?.gyroSupported ?? false}
-                  live={live}
+                  live={state.cubeStatus === "connected" || state.virtualCube}
                   scramble={state.scramble}
                 />
               </>
@@ -378,7 +376,7 @@ export function App() {
         <div className="column right">
           <StatsPanel solves={state.solves} />
         </div>
-      </div>}
+      </div>}</TimerWorkspace>}
 
       {settingsOpen ? (
         <SettingsDialog settings={state.settings} onClose={() => setSettingsOpen(false)} />
@@ -411,4 +409,12 @@ export function App() {
       ) : null}
     </div>
   );
+}
+
+/** High-frequency Timer and cube subscriptions stay below application navigation. */
+function TimerWorkspace({ children }: { children: (state: AppSnapshot) => ReactNode }) {
+  const controller = useController();
+  const timer = useTimerState();
+  const cube = useCubeState();
+  return children({ ...controller.snapshot(), ...timer, ...cube });
 }

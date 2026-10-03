@@ -4,11 +4,11 @@ import { F2L_POSITIONS, f2lPositionLabel } from "../cube/f2lCases";
 import { getF2lThumbnailModel } from "../cube/f2lThumbnail";
 import { F2L_TRAINING_CATALOGUES, f2lTrainingCatalogue, shortF2lCaseLabel, type F2lTrainingCase, type F2lTrainingLibrary } from "../cube/f2lTrainingCases";
 import { useController, useTrainingState } from "../hooks/useController";
-import type { AppState } from "../state/controller";
+import type { TrainingEnvironment } from "./TrainingWorkspace";
 import { F2lCaseThumbnail } from "./F2lCaseThumbnail";
 import { TrainingWorkspace } from "./TrainingWorkspace";
 
-export function F2LTraining({ state }: { state: AppState }) {
+export function F2LTraining({ state }: { state: TrainingEnvironment }) {
   const training = useTrainingState();
   const catalogue = f2lTrainingCatalogue(training.f2lSelection.library);
   return <TrainingWorkspace state={state} library={<F2lLibraryPanel />} details={<F2lTargetDetails />}

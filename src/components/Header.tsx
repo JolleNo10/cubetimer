@@ -1,24 +1,27 @@
 import { useState } from "react";
 import { DEFAULT_EVENT_ID, EVENTS, eventInfo, type EventId } from "../cube/scramble";
-import { useController, useTrainingState } from "../hooks/useController";
-import type { AppArea, AppState } from "../state/controller";
+import { useAppState, useController, useSessionState, useSettings, useStoreValue } from "../hooks/useController";
+import type { AppArea } from "../state/controller";
 import { Icon } from "./Icon";
 
 export function Header({
-  state,
   onOpenSettings,
   onSelectArea,
 }: {
-  state: AppState;
   onOpenSettings: () => void;
   onSelectArea: (area: AppArea) => void;
 }) {
   const controller = useController();
-  const training = useTrainingState();
+  const trainingPhase = useStoreValue(controller.training.state, value => value.phase);
+  const phase = useStoreValue(controller.timer.state, value => value.phase);
+  const cubeStatus = useStoreValue(controller.physical.state, value => value.cubeStatus);
+  const hardware = useStoreValue(controller.physical.state, value => value.hardware);
+  const battery = useStoreValue(controller.physical.state, value => value.battery);
+  const state = { ...useAppState(), ...useSessionState(), settings: useSettings(), phase, cubeStatus, hardware, battery };
   const [renaming, setRenaming] = useState(false);
   const session = state.sessions.find((s) => s.id === state.sessionId);
   const smartEvent = session ? eventInfo(session.event).smart : false;
-  const liveTiming = state.phase === "inspection" || state.phase === "solving" || training.phase === "solving";
+  const liveTiming = state.phase === "inspection" || state.phase === "solving" || trainingPhase === "solving";
   const sessionContextLocked = state.phase === "inspection" || state.phase === "solving";
 
   return (

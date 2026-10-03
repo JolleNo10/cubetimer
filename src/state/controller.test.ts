@@ -1,8 +1,8 @@
 import { Alg } from "cubing/alg";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-buildF2lCatalogueTarget,
-f2lTrainingGrip
+  buildF2lCatalogueTarget,
+  f2lTrainingGrip
 } from "../cube/f2lTraining";
 import { F2L_TRAINING_CATALOGUES } from "../cube/f2lTrainingCases";
 import { buildLastLayerCatalogueTarget, isLastLayerTrainingComplete } from "../cube/lastLayerTraining";
@@ -55,7 +55,7 @@ function deferred<T>() {
 
 function stubTimerLoop() {
   globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame;
-  globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+  globalThis.cancelAnimationFrame = (() => { }) as typeof cancelAnimationFrame;
 }
 
 function readyController(
@@ -65,15 +65,9 @@ function readyController(
   phase: "finished" | "ready" | "inspection" | "solving" = "finished",
 ): Controller {
   const controller = new Controller(new CubeModel(kpuzzle));
-  controller.state.update((state) => ({
-    ...state,
-    ready: true,
-    sessions,
-    sessionId,
-    solves,
-    lastSolve: solves.at(-1) ?? null,
-    phase,
-  }));
+  controller.state.update((state) => ({ ...state, ready: true }));
+  controller.sessions.update((state) => ({ ...state, sessions, sessionId, solves, lastSolve: solves.at(-1) ?? null }));
+  controller.timer.state.update((state) => ({ ...state, phase }));
   return controller;
 }
 
@@ -84,12 +78,12 @@ function stubPersistence() {
 }
 
 describe("Controller Training settings integration", () => {
-it.each(["oll", "pll"] as const)("cancels a running %s target only when its own setting changes", async (family) => {
+  it.each(["oll", "pll"] as const)("cancels a running %s target only when its own setting changes", async (family) => {
     stubTimerLoop();
     vi.spyOn(Math, "random").mockReturnValue(0);
     vi.spyOn(db, "saveSettings").mockResolvedValue();
     const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.physical.state.update((state) => ({ ...state, virtualCube: true }));
     controller.setTrainingFamily(family);
     await controller.setTrainingMode("virtual");
     await controller.selectLastLayerCase(family, family === "oll" ? "27" : "H");
@@ -103,9 +97,9 @@ it.each(["oll", "pll"] as const)("cancels a running %s target only when its own 
     expect(controller.elapsed.get()).toBe(0);
     controller.injectMove("U");
     expect(controller.training.state.get().phase).toBe("selecting");
-    expect(controller.state.get().solves).toEqual([]);
+    expect(controller.snapshot().solves).toEqual([]);
   });
-it("cancels physical setup in progress without changing mode or resurrecting its target", async () => {
+  it("cancels physical setup in progress without changing mode or resurrecting its target", async () => {
     vi.spyOn(db, "saveSettings").mockResolvedValue();
     const pending = deferred<Alg>();
     vi.spyOn(solver, "algBetween").mockReturnValue(pending.promise);
@@ -117,7 +111,7 @@ it("cancels physical setup in progress without changing mode or resurrecting its
     await selecting;
     expect(controller.training.state.get()).toMatchObject({ family: "oll", mode: "setup", phase: "selecting", target: null, setup: "" });
   });
-it("leaves F2L Training unchanged when either last-layer setting changes", async () => {
+  it("leaves F2L Training unchanged when either last-layer setting changes", async () => {
     vi.spyOn(db, "saveSettings").mockResolvedValue();
     const controller = new Controller(new CubeModel(kpuzzle));
     controller.setArea("training");
@@ -133,23 +127,17 @@ describe("Controller application-area ownership", () => {
   it("cancels timer work without creating or changing a normal solve", () => {
     const controller = new Controller();
     const solve = { id: "existing" } as Solve;
-    controller.state.update((state) => ({
-      ...state,
-      phase: "solving",
-      solveSource: "smartcube",
-      liveMoves: ["R"],
-      solves: [solve],
-      lastSolve: solve,
-    }));
+    controller.timer.state.update((state) => ({ ...state, phase: "solving", solveSource: "smartcube", liveMoves: ["R"] }));
+    controller.sessions.update((state) => ({ ...state, solves: [solve], lastSolve: solve }));
 
     controller.setArea("training");
     controller.injectMove("U");
 
-    expect(controller.state.get().area).toBe("training");
-    expect(controller.state.get().phase).toBe("scrambling");
+    expect(controller.snapshot().area).toBe("training");
+    expect(controller.snapshot().phase).toBe("scrambling");
     expect(controller.training.state.get().phase).toBe("selecting");
-    expect(controller.state.get().solves).toEqual([solve]);
-    expect(controller.state.get().lastSolve).toBe(solve);
+    expect(controller.snapshot().solves).toEqual([solve]);
+    expect(controller.snapshot().lastSolve).toBe(solve);
   });
 
   it.each([
@@ -161,40 +149,37 @@ describe("Controller application-area ownership", () => {
 
     controller.setArea("statistics");
 
-    expect(controller.state.get().area).toBe("timer");
+    expect(controller.snapshot().area).toBe("timer");
   });
 
   it("refuses Statistics while a Training attempt is solving", () => {
     const controller = readyController([session("1")], "1");
     controller.training.state.update((state) => ({ ...state, phase: "solving" }));
-    controller.state.update((state) => ({
-    ...state,
-    area: "training"
-}));
+    controller.state.update((state) => ({ ...state, area: "training" }));
 
     controller.setArea("statistics");
 
-    expect(controller.state.get().area).toBe("training");
+    expect(controller.snapshot().area).toBe("training");
   });
 
   it("keeps idle Timer state and ignores workflow input while Statistics is open", () => {
     const solve = solveFor("1");
     const controller = readyController([session("1")], "1", [solve], "ready");
-    controller.state.update((state) => ({ ...state, scramble: "R U", liveMoves: [] }));
-    const before = controller.state.get();
+    controller.timer.state.update((state) => ({ ...state, scramble: "R U", liveMoves: [] }));
+    const before = controller.snapshot();
 
     controller.setArea("statistics");
     controller.injectMove("R");
 
-    expect(controller.state.get().area).toBe("statistics");
-    expect(controller.state.get().phase).toBe("ready");
-    expect(controller.state.get().sessionId).toBe(before.sessionId);
-    expect(controller.state.get().solves).toEqual(before.solves);
-    expect(controller.state.get().scramble).toBe(before.scramble);
-    expect(controller.state.get().liveMoves).toEqual([]);
+    expect(controller.snapshot().area).toBe("statistics");
+    expect(controller.snapshot().phase).toBe("ready");
+    expect(controller.snapshot().sessionId).toBe(before.sessionId);
+    expect(controller.snapshot().solves).toEqual(before.solves);
+    expect(controller.snapshot().scramble).toBe(before.scramble);
+    expect(controller.snapshot().liveMoves).toEqual([]);
 
     controller.setArea("timer");
-    expect(controller.state.get().area).toBe("timer");
+    expect(controller.snapshot().area).toBe("timer");
   });
 
   it("defers Settings-triggered auto-inspection until Statistics returns to Timer", async () => {
@@ -202,39 +187,36 @@ describe("Controller application-area ownership", () => {
     const requestFrame = vi.spyOn(globalThis, "requestAnimationFrame");
     const saveSettings = vi.spyOn(db, "saveSettings").mockResolvedValue();
     const controller = readyController([session("1")], "1");
-    controller.state.update((state) => ({
-      ...state,
-      virtualCube: true,
-      settings: { ...state.settings, inspection: true, autoInspection: false, requireScramble: true, slowSolve: false },
-    }));
+    controller.physical.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.settings.set({ ...controller.settings.get(), inspection: true, autoInspection: false, requireScramble: true, slowSolve: false });
     controller.setScramble("R");
     controller.injectMove("R");
-    const before = controller.state.get();
+    const before = controller.snapshot();
     expect(before.phase).toBe("ready");
     expect(before.scrambleProgress?.done).toBe(true);
 
     controller.setArea("statistics");
     await controller.updateSettings({ autoInspection: true });
 
-    expect(controller.state.get().area).toBe("statistics");
-    expect(controller.state.get().phase).toBe(before.phase);
-    expect(controller.state.get().scrambleProgress).toBe(before.scrambleProgress);
+    expect(controller.snapshot().area).toBe("statistics");
+    expect(controller.snapshot().phase).toBe(before.phase);
+    expect(controller.snapshot().scrambleProgress).toBe(before.scrambleProgress);
     expect(controller.inspectionLeft.get()).toBeNull();
     expect(requestFrame).not.toHaveBeenCalled();
     expect(saveSettings).toHaveBeenCalledWith(expect.objectContaining({ autoInspection: true }));
 
     controller.setArea("timer");
 
-    expect(controller.state.get().area).toBe("timer");
-    expect(controller.state.get().phase).toBe("inspection");
-    expect(controller.state.get().scrambleProgress?.done).toBe(true);
+    expect(controller.snapshot().area).toBe("timer");
+    expect(controller.snapshot().phase).toBe("inspection");
+    expect(controller.snapshot().scrambleProgress?.done).toBe(true);
     expect(controller.inspectionLeft.get()).toBe(15_000);
     expect(requestFrame).toHaveBeenCalledOnce();
   });
 
   it("restores an idle Training target without resetting it", async () => {
     const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.physical.state.update((state) => ({ ...state, virtualCube: true }));
     controller.setArea("training");
     await controller.setF2lMode("virtual");
     await controller.selectF2lCase("F2L 1");
@@ -242,7 +224,7 @@ describe("Controller application-area ownership", () => {
     const display = controller.training.state.get().displayFacelets;
 
     controller.setArea("statistics");
-    expect(controller.state.get().area).toBe("statistics");
+    expect(controller.snapshot().area).toBe("statistics");
     controller.setArea("training");
 
     expect(controller.training.state.get().target).toBe(target);
@@ -252,8 +234,9 @@ describe("Controller application-area ownership", () => {
   it("loads a statistics snapshot without changing active Timer state", async () => {
     const activeSolve = solveFor("1");
     const controller = readyController([session("1")], "1", [activeSolve], "ready");
-    controller.state.update((state) => ({ ...state, area: "statistics", scramble: "R U" }));
-    const before = controller.state.get();
+    controller.state.update((state) => ({ ...state, area: "statistics" }));
+    controller.timer.state.update((state) => ({ ...state, scramble: "R U" }));
+    const before = controller.snapshot();
     const historical = solveFor("other");
     vi.spyOn(db, "loadSessions").mockResolvedValue([session("1"), session("2", "222")]);
     vi.spyOn(db, "loadAllSolves").mockResolvedValue([historical]);
@@ -261,18 +244,18 @@ describe("Controller application-area ownership", () => {
     const snapshot = await controller.loadStatisticsSnapshot();
 
     expect(snapshot.solves).toEqual([historical]);
-    expect(controller.state.get().area).toBe(before.area);
-    expect(controller.state.get().sessionId).toBe(before.sessionId);
-    expect(controller.state.get().solves).toBe(before.solves);
-    expect(controller.state.get().lastSolve).toBe(before.lastSolve);
-    expect(controller.state.get().scramble).toBe(before.scramble);
+    expect(controller.snapshot().area).toBe(before.area);
+    expect(controller.snapshot().sessionId).toBe(before.sessionId);
+    expect(controller.snapshot().solves).toBe(before.solves);
+    expect(controller.snapshot().lastSolve).toBe(before.lastSolve);
+    expect(controller.snapshot().scramble).toBe(before.scramble);
   });
 
   it("runs an OLL attempt through the shared virtual Training lifecycle", async () => {
     stubTimerLoop();
     vi.spyOn(Math, "random").mockReturnValue(0);
     const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.physical.state.update((state) => ({ ...state, virtualCube: true }));
     controller.setArea("training");
     controller.setTrainingFamily("oll");
     await controller.setTrainingMode("virtual");
@@ -290,16 +273,16 @@ describe("Controller application-area ownership", () => {
 
     expect(controller.training.state.get().phase).toBe("ready");
     expect(controller.training.state.get().result?.stm).toBeGreaterThan(0);
-    expect(controller.state.get().solves).toEqual([]);
+    expect(controller.snapshot().solves).toEqual([]);
   });
 
   it("parks Timer for a historical review without adopting the training position", async () => {
     globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame;
-    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+    globalThis.cancelAnimationFrame = (() => { }) as typeof cancelAnimationFrame;
     const controller = new Controller(
       new CubeModel(kpuzzle, kpuzzle.defaultPattern().applyAlg(new Alg("R U"))),
     );
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.physical.state.update((state) => ({ ...state, virtualCube: true }));
     controller.setArea("training");
     await controller.setF2lMode("virtual");
     await controller.selectF2lCase("F2L 1");
@@ -308,28 +291,29 @@ describe("Controller application-area ownership", () => {
 
     controller.returnToTimerReview();
 
-    expect(controller.state.get().area).toBe("timer");
-    expect(controller.state.get().phase).toBe("finished");
-    expect(controller.state.get().phase).not.toBe("ready");
-    expect(controller.state.get().phase).not.toBe("inspection");
-    expect(controller.state.get().phase).not.toBe("solving");
+    expect(controller.snapshot().area).toBe("timer");
+    expect(controller.snapshot().phase).toBe("finished");
+    expect(controller.snapshot().phase).not.toBe("ready");
+    expect(controller.snapshot().phase).not.toBe("inspection");
+    expect(controller.snapshot().phase).not.toBe("solving");
     expect(controller.training.state.get().phase).toBe("selecting");
     expect(controller.training.state.get().target).toBeNull();
-    expect(controller.state.get().solves).toEqual([]);
+    expect(controller.snapshot().solves).toEqual([]);
     expect(patternToFacelets(controller.pattern!)).toBe(trainingPosition);
-    expect(controller.state.get().scramble).toBe("");
+    expect(controller.snapshot().scramble).toBe("");
   });
 
   it("returns to Timer review through Statistics entered from Training", async () => {
     const historicalSolve = solveFor("1");
     const controller = readyController([session("1")], "1", [historicalSolve]);
-    controller.state.update((state) => ({ ...state, virtualCube: true, scramble: "R U" }));
+    controller.physical.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.timer.state.update((state) => ({ ...state, scramble: "R U" }));
     controller.setArea("training");
     await controller.setTrainingMode("virtual");
     await controller.selectF2lCase("F2L 1");
     controller.setArea("statistics");
     controller.injectMove("L");
-    const before = controller.state.get();
+    const before = controller.snapshot();
     const physicalPosition = patternToFacelets(controller.pattern!);
     const adopt = vi.spyOn(controller, "useCubeStateAsScramble").mockResolvedValue();
     const generate = vi.spyOn(controller, "newScramble").mockResolvedValue();
@@ -337,45 +321,45 @@ describe("Controller application-area ownership", () => {
     expect(controller.returnToTimerReview()).toBe(true);
     expect(controller.training.state.get()).toMatchObject({ phase: "selecting", target: null });
 
-    expect(controller.state.get()).toMatchObject({
+    expect(controller.snapshot()).toMatchObject({
       area: "timer",
       phase: "finished",
       sessionId: "1",
       scramble: "",
     });
-    expect(controller.state.get().solves).toBe(before.solves);
-    expect(controller.state.get().lastSolve).toBe(historicalSolve);
+    expect(controller.snapshot().solves).toBe(before.solves);
+    expect(controller.snapshot().lastSolve).toBe(historicalSolve);
     expect(patternToFacelets(controller.pattern!)).toBe(physicalPosition);
     expect(adopt).not.toHaveBeenCalled();
     expect(generate).not.toHaveBeenCalled();
 
     controller.setArea("statistics");
     expect(controller.returnToTimerReview()).toBe(false);
-    expect(controller.state.get().area).toBe("statistics");
+    expect(controller.snapshot().area).toBe("statistics");
   });
 
   it("does not perform Training review return when Statistics was entered from Timer", () => {
     const controller = readyController([session("1")], "1", [solveFor("1")], "ready");
-    controller.state.update((state) => ({ ...state, scramble: "R U" }));
+    controller.timer.state.update((state) => ({ ...state, scramble: "R U" }));
     controller.setArea("statistics");
-    const before = controller.state.get();
+    const before = controller.snapshot();
 
     expect(controller.returnToTimerReview()).toBe(false);
-    expect(controller.state.get()).toBe(before);
+    expect(controller.snapshot()).toEqual(before);
 
     controller.setArea("timer");
-    expect(controller.state.get().area).toBe("timer");
-    expect(controller.state.get().phase).toBe("ready");
-    expect(controller.state.get().scramble).toBe("R U");
+    expect(controller.snapshot().area).toBe("timer");
+    expect(controller.snapshot().phase).toBe("ready");
+    expect(controller.snapshot().scramble).toBe("R U");
   });
 
   it("keeps virtual practice separate from the physical cube", async () => {
     globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame;
-    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+    globalThis.cancelAnimationFrame = (() => { }) as typeof cancelAnimationFrame;
 
     const physicalStart = kpuzzle.defaultPattern().applyAlg(new Alg("R U F"));
     const controller = new Controller(new CubeModel(kpuzzle, physicalStart));
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.physical.state.update((state) => ({ ...state, virtualCube: true }));
     controller.setArea("training");
     await controller.setF2lMode("virtual");
     await controller.selectF2lCase("F2L 1");
@@ -396,7 +380,7 @@ describe("Controller application-area ownership", () => {
 
     const completedResult = controller.training.state.get().result;
     expect(controller.training.state.get().phase).toBe("ready");
-    expect(controller.state.get().solves).toEqual([]);
+    expect(controller.snapshot().solves).toEqual([]);
     expect(patternToFacelets(controller.pattern!)).toBe(patternToFacelets(physicalAfter));
     expect(controller.training.state.get().displayFacelets).toBe(
       patternToFacelets(target.pattern),
@@ -444,7 +428,7 @@ describe("Controller Session event ownership", () => {
 
     await controller.changeEvent("222");
 
-    expect(controller.state.get().sessions).toEqual([
+    expect(controller.snapshot().sessions).toEqual([
       expect.objectContaining({ id: "1", name: "Session 1", event: "222" }),
     ]);
     expect(db.saveSession).toHaveBeenCalledWith(
@@ -462,7 +446,7 @@ describe("Controller Session event ownership", () => {
     const differentScramble = vi.spyOn(different, "newScramble").mockResolvedValue();
     await different.selectSession("2");
     expect(differentScramble).toHaveBeenCalledOnce();
-    expect(different.state.get().sessionId).toBe("2");
+    expect(different.snapshot().sessionId).toBe("2");
 
     stubPersistence();
     const same = readyController(
@@ -476,14 +460,14 @@ describe("Controller Session event ownership", () => {
 
   it("uses the selected Session event for smart-cube scramble tracking", () => {
     const smart = readyController([session("1", "333")], "1");
-    smart.state.update((state) => ({ ...state, virtualCube: true }));
+    smart.physical.state.update((state) => ({ ...state, virtualCube: true }));
     smart.setScramble("R U");
-    expect(smart.state.get().scrambleProgress).not.toBeNull();
+    expect(smart.snapshot().scrambleProgress).not.toBeNull();
 
     const nonSmart = readyController([session("1", "222")], "1");
-    nonSmart.state.update((state) => ({ ...state, virtualCube: true }));
+    nonSmart.physical.state.update((state) => ({ ...state, virtualCube: true }));
     nonSmart.setScramble("R U");
-    expect(nonSmart.state.get().scrambleProgress).toBeNull();
+    expect(nonSmart.snapshot().scrambleProgress).toBeNull();
   });
 
   it.each(["inspection", "solving"] as const)(
@@ -498,8 +482,8 @@ describe("Controller Session event ownership", () => {
       await controller.changeEvent("222");
       await controller.deleteSession("1");
 
-      expect(controller.state.get().sessions).toEqual(sessions);
-      expect(controller.state.get().sessionId).toBe("1");
+      expect(controller.snapshot().sessions).toEqual(sessions);
+      expect(controller.snapshot().sessionId).toBe("1");
     },
   );
 
@@ -507,17 +491,15 @@ describe("Controller Session event ownership", () => {
     const sessions = [session("1"), session("2", "222")];
     const controller = readyController(sessions, "1");
     controller.training.state.update((state) => ({ ...state, phase: "solving" }));
-    controller.state.update((state) => ({
-    ...state, area: "training"
-}));
-    const before = controller.state.get();
+    controller.state.update((state) => ({ ...state, area: "training" }));
+    const before = controller.snapshot();
     await controller.selectSession("2");
     await controller.createSession("Third");
     await controller.changeEvent("222");
     await controller.deleteSession("1");
     await expect(controller.importData("{}")).rejects.toThrow(/Cannot import/);
     await expect(controller.importSolveCsv("")).rejects.toThrow(/Cannot import/);
-    expect(controller.state.get()).toBe(before);
+    expect(controller.snapshot()).toEqual(before);
   });
 });
 
@@ -538,9 +520,9 @@ describe("Controller Session-context synchronization", () => {
     expect(save).not.toHaveBeenCalled();
     history.resolve([]);
     await Promise.all([selecting, renaming]);
-    expect(controller.state.get().sessionId).toBe("2");
-    expect(controller.state.get().sessions[1]).toEqual({ ...sessions[1], name: "Renamed" });
-    expect(save).toHaveBeenCalledExactlyOnceWith(controller.state.get().sessions[1]);
+    expect(controller.snapshot().sessionId).toBe("2");
+    expect(controller.snapshot().sessions[1]).toEqual({ ...sessions[1], name: "Renamed" });
+    expect(save).toHaveBeenCalledExactlyOnceWith(controller.snapshot().sessions[1]);
   });
 
   it("preserves event and rename in storage when rename follows a pending event write", async () => {
@@ -562,7 +544,7 @@ describe("Controller Session-context synchronization", () => {
     write.resolve();
     await Promise.all([changing, renaming]);
     expect(stored).toMatchObject({ name: "Renamed", event: "222" });
-    expect(controller.state.get().sessions[0]).toEqual(stored);
+    expect(controller.snapshot().sessions[0]).toEqual(stored);
   });
 
   it.each(["select", "change", "create", "import"] as const)(
@@ -589,17 +571,17 @@ describe("Controller Session-context synchronization", () => {
       await started.promise;
       const changing = operation === "select" ? controller.selectSession("2")
         : operation === "change" ? controller.changeEvent("222")
-        : operation === "create" ? controller.createSession("Third")
-        : controller.importData(JSON.stringify({ format: "cubetimer", version: 2, sessions: [session("2")], solves: [] }));
+          : operation === "create" ? controller.createSession("Third")
+            : controller.importData(JSON.stringify({ format: "cubetimer", version: 2, sessions: [session("2")], solves: [] }));
       controller.startFromKeyboard();
-      expect(controller.state.get().phase).toBe("ready");
+      expect(controller.snapshot().phase).toBe("ready");
       expect(save).toHaveBeenCalledTimes(1);
       write.resolve();
       await Promise.all([renaming, changing]);
-      expect(controller.state.get().sessions.find((value) => value.id === "1")).toEqual(storage.get("1"));
+      expect(controller.snapshot().sessions.find((value) => value.id === "1")).toEqual(storage.get("1"));
       expect(storage.get("1")).toMatchObject({ name: "Renamed", event: operation === "change" ? "222" : "333" });
-      expect(controller.state.get().sessionId).toBe(operation === "select" ? "2"
-        : operation === "create" ? controller.state.get().sessions.at(-1)!.id : "1");
+      expect(controller.snapshot().sessionId).toBe(operation === "select" ? "2"
+        : operation === "create" ? controller.snapshot().sessions.at(-1)!.id : "1");
     },
   );
 
@@ -616,10 +598,10 @@ describe("Controller Session-context synchronization", () => {
     const renaming = controller.renameSession("1", "Renamed");
     await started.promise;
     if (phase !== "solving") controller.startFromKeyboard();
-    expect(controller.state.get().phase).toBe("solving");
+    expect(controller.snapshot().phase).toBe("solving");
     write.resolve();
     await renaming;
-    expect(controller.state.get().sessions[0].name).toBe("Renamed");
+    expect(controller.snapshot().sessions[0].name).toBe("Renamed");
     expect(scramble).not.toHaveBeenCalled();
   });
 
@@ -630,7 +612,7 @@ describe("Controller Session-context synchronization", () => {
     controller.state.update((state) => ({ ...state, area: "training" }));
     await controller.renameSession("1", "Renamed");
     expect(controller.training.state.get().phase).toBe("solving");
-    expect(controller.state.get().sessions[0].name).toBe("Renamed");
+    expect(controller.snapshot().sessions[0].name).toBe("Renamed");
   });
 
   it("executes queued mutations after a persistence rejection", async () => {
@@ -641,7 +623,7 @@ describe("Controller Session-context synchronization", () => {
     await expect(failing).rejects.toThrow("write failed");
     await succeeding;
     expect(save).toHaveBeenCalledTimes(2);
-    expect(controller.state.get().sessions[0].name).toBe("Succeeded");
+    expect(controller.snapshot().sessions[0].name).toBe("Succeeded");
   });
 
   it("does not start a solve while Session selection is awaiting persistence", async () => {
@@ -663,13 +645,13 @@ describe("Controller Session-context synchronization", () => {
     const selecting = controller.selectSession("2");
     controller.startFromKeyboard();
 
-    expect(controller.state.get().phase).toBe("ready");
+    expect(controller.snapshot().phase).toBe("ready");
     loading.resolve([]);
     await selecting;
-    expect(controller.state.get().sessionId).toBe("2");
+    expect(controller.snapshot().sessionId).toBe("2");
 
     controller.startFromKeyboard();
-    expect(controller.state.get().phase).toBe("solving");
+    expect(controller.snapshot().phase).toBe("solving");
   });
 
   it("does not start a solve while an empty Session event change is pending", async () => {
@@ -683,11 +665,11 @@ describe("Controller Session-context synchronization", () => {
 
     const changing = controller.changeEvent("222");
     controller.startFromKeyboard();
-    expect(controller.state.get().phase).toBe("ready");
+    expect(controller.snapshot().phase).toBe("ready");
 
     saving.resolve();
     await changing;
-    expect(controller.state.get().sessions[0].event).toBe("222");
+    expect(controller.snapshot().sessions[0].event).toBe("222");
     expect(newScramble).toHaveBeenCalledOnce();
   });
 
@@ -707,12 +689,12 @@ describe("Controller Session-context synchronization", () => {
 
     const deletingSession = controller.deleteSession("1");
     controller.startFromKeyboard();
-    expect(controller.state.get().phase).toBe("ready");
+    expect(controller.snapshot().phase).toBe("ready");
 
     deleting.resolve();
     await deletingSession;
-    expect(controller.state.get().sessionId).toBe("2");
-    expect(controller.state.get().solves).toEqual([]);
+    expect(controller.snapshot().sessionId).toBe("2");
+    expect(controller.snapshot().solves).toEqual([]);
   });
 
   it("ignores an overlapping Session selection instead of allowing stale completion", async () => {
@@ -729,12 +711,12 @@ describe("Controller Session-context synchronization", () => {
 
     const first = controller.selectSession("2");
     await controller.selectSession("3");
-    expect(controller.state.get().sessionId).toBe("1");
+    expect(controller.snapshot().sessionId).toBe("1");
     expect(db.loadSolves).toHaveBeenCalledTimes(1);
 
     loading.resolve([]);
     await first;
-    expect(controller.state.get().sessionId).toBe("2");
+    expect(controller.snapshot().sessionId).toBe("2");
   });
 });
 
@@ -769,7 +751,7 @@ describe("Controller import runtime integration", () => {
     write.resolve();
     await Promise.all([importing, renaming]);
     expect(stored).toMatchObject({ name: "Renamed", event: imported.event });
-    expect(controller.state.get().sessions[0]).toEqual(stored);
+    expect(controller.snapshot().sessions[0]).toEqual(stored);
   });
 
   it("updates an empty imported Session event and refreshes the selected scramble", async () => {
@@ -782,22 +764,22 @@ describe("Controller import runtime integration", () => {
     vi.spyOn(db, "loadSolves").mockResolvedValue([]);
     vi.spyOn(db, "saveSession").mockResolvedValue();
     const controller = readyController([before], before.id, [], "ready");
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.physical.state.update((state) => ({ ...state, virtualCube: true }));
     controller.setScramble("R U");
-    expect(controller.state.get().scrambleProgress).not.toBeNull();
-    controller.state.update((state) => ({ ...state, scrambleGeneration: { kind: "cross" } }));
+    expect(controller.snapshot().scrambleProgress).not.toBeNull();
+    controller.timer.state.update((state) => ({ ...state, scrambleGeneration: { kind: "cross" } }));
     const newScramble = vi.spyOn(controller, "newScramble").mockResolvedValue();
 
     await controller.importData(jsonExport([after]));
 
-    expect(controller.state.get().sessions).toEqual([after]);
-    expect(controller.state.get()).toMatchObject({
+    expect(controller.snapshot().sessions).toEqual([after]);
+    expect(controller.snapshot()).toMatchObject({
       scrambleProgress: null, scrambleGeneration: null, recovery: null,
     });
     expect(newScramble).toHaveBeenCalledOnce();
     // The old 333 tracker must also be gone after applying the persisted result.
     controller.injectMove("R");
-    expect(controller.state.get().scrambleProgress).toBeNull();
+    expect(controller.snapshot().scrambleProgress).toBeNull();
   });
 
   it("reconciles a same-event import without regenerating the current scramble", async () => {
@@ -808,16 +790,16 @@ describe("Controller import runtime integration", () => {
     vi.spyOn(db, "loadSolves").mockResolvedValue([historical]);
     vi.spyOn(db, "saveSession").mockResolvedValue();
     const controller = readyController([local], local.id);
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.physical.state.update((state) => ({ ...state, virtualCube: true }));
     controller.setScramble("R U");
     const newScramble = vi.spyOn(controller, "newScramble").mockResolvedValue();
     await controller.importData(jsonExport([local]));
     expect(newScramble).not.toHaveBeenCalled();
-    expect(controller.state.get().solves).toEqual([historical]);
-    expect(controller.state.get().lastSolve).toBe(historical);
-    expect(controller.state.get().scramble).toBe("R U");
+    expect(controller.snapshot().solves).toEqual([historical]);
+    expect(controller.snapshot().lastSolve).toBe(historical);
+    expect(controller.snapshot().scramble).toBe("R U");
     controller.injectMove("R");
-    expect(controller.state.get().scrambleProgress?.index).toBe(1);
+    expect(controller.snapshot().scrambleProgress?.index).toBe(1);
   });
 
   it("keeps the JSON import lock through history reload and scramble regeneration, then releases it", async () => {
@@ -843,16 +825,16 @@ describe("Controller import runtime integration", () => {
     const importing = controller.importData(jsonExport([after]));
     await historyStarted.promise;
     controller.startFromKeyboard();
-    expect(controller.state.get().phase).toBe("ready");
+    expect(controller.snapshot().phase).toBe("ready");
     await expect(controller.importSolveCsv("")).rejects.toThrow(/Cannot import/);
     history.resolve([]);
     await scrambleStarted.promise;
     controller.startFromKeyboard();
-    expect(controller.state.get().phase).toBe("ready");
+    expect(controller.snapshot().phase).toBe("ready");
     scramble.resolve();
     await importing;
     controller.startFromKeyboard();
-    expect(controller.state.get().phase).toBe("solving");
+    expect(controller.snapshot().phase).toBe("solving");
   });
 
   it("releases the import lock after an import failure", async () => {
@@ -860,7 +842,7 @@ describe("Controller import runtime integration", () => {
     const controller = readyController([session("A")], "A", [], "ready");
     await expect(controller.importData("{invalid")).rejects.toBeInstanceOf(SyntaxError);
     controller.startFromKeyboard();
-    expect(controller.state.get().phase).toBe("solving");
+    expect(controller.snapshot().phase).toBe("solving");
   });
 
   it("holds the Session lock for a pending JSON import", async () => {
@@ -879,7 +861,7 @@ describe("Controller import runtime integration", () => {
 
     const importing = controller.importData(jsonExport([imported]));
     controller.startFromKeyboard();
-    expect(controller.state.get().phase).toBe("ready");
+    expect(controller.snapshot().phase).toBe("ready");
 
     saving.resolve();
     await importing;
@@ -911,7 +893,7 @@ describe("Controller import runtime integration", () => {
     const importing = controller.importSolveCsv(csv);
     controller.startFromKeyboard();
     controller.injectMove("R");
-    expect(controller.state.get().phase).toBe("ready");
+    expect(controller.snapshot().phase).toBe("ready");
 
     saving.resolve();
     await importing;
@@ -952,7 +934,7 @@ describe("Controller Training composition", () => {
     expect(rootChanged).not.toHaveBeenCalled();
     expect(controller.pattern!.isIdentical(physical.applyMove("R"))).toBe(true);
     expect(controller.training.state.get().phase).toBe("solving");
-    expect(controller.state.get().solves).toEqual([]);
+    expect(controller.snapshot().solves).toEqual([]);
   });
 
   it("uses the shared RAF to publish elapsed from the Training timestamp", async () => {
@@ -972,5 +954,21 @@ describe("Controller Training composition", () => {
     controller.resetTraining();
     expect(globalThis.cancelAnimationFrame).toHaveBeenCalled();
     expect(controller.training.elapsedAt(1250)).toBeNull();
+  });
+});
+
+
+describe("Controller store ownership", () => {
+  it("publishes Timer moves only to the physical and Timer subscribers", () => {
+    stubTimerLoop();
+    const controller = readyController([session("1")], "1");
+    controller.setVirtualCube(true); controller.setScramble("R U");
+    const app = vi.fn(), sessions = vi.fn(), settings = vi.fn(), cube = vi.fn(), timer = vi.fn(), training = vi.fn();
+    controller.state.subscribe(app); controller.sessions.subscribe(sessions); controller.settings.subscribe(settings);
+    controller.physical.state.subscribe(cube); controller.timer.state.subscribe(timer); controller.training.state.subscribe(training);
+    controller.injectMove("R"); controller.injectMove("U"); controller.injectMove("U'");
+    expect(cube).toHaveBeenCalled(); expect(timer).toHaveBeenCalled();
+    expect(app).not.toHaveBeenCalled(); expect(sessions).not.toHaveBeenCalled(); expect(settings).not.toHaveBeenCalled(); expect(training).not.toHaveBeenCalled();
+    expect(controller.state.get()).toEqual({ ready: true, area: "timer", error: null });
   });
 });

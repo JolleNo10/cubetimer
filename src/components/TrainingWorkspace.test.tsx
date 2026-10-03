@@ -55,9 +55,9 @@ describe("shared Training presentation", () => {
 
   it.each(["setup", "virtual"] as const)("uses the %s cube display source without losing physical sync", async mode => {
     const controller = await selected();
-    controller.state.update(state => ({ ...state, cubeStatus: "connected" }));
+    controller.physical.state.update((state) => ({ ...state, cubeStatus: "connected" }));
     controller.training.state.update(state => ({ ...state, mode, displayFacelets: "target-facelets" }));
-    const html = render(controller, <TrainingCubeStage state={controller.state.get()} />);
+    const html = render(controller, <TrainingCubeStage state={controller.snapshot()} />);
     expect(html).toContain(`data-source="${mode === "setup" ? "physical" : "virtual"}"`);
     expect(html).toContain('data-live="true"');
     expect(html).toContain('data-facelets="target-facelets"');

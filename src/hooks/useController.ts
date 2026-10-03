@@ -21,3 +21,13 @@ export function useAppState() {
 export function useTrainingState() {
   return useStore(useController().training.state);
 }
+
+export function useTimerState() { return useStore(useController().timer.state); }
+export function useCubeState() { return useStore(useController().physical.state); }
+export function useSessionState() { return useStore(useController().sessions); }
+export function useSettings() { return useStore(useController().settings); }
+
+/** Select stable facts without subscribing a consumer to unrelated move updates. */
+export function useStoreValue<T, V>(store: Store<T>, select: (value: T) => V): V {
+  return useSyncExternalStore(store.subscribe, () => select(store.get()), () => select(store.get()));
+}

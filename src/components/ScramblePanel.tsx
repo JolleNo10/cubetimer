@@ -1,13 +1,13 @@
 import { useController } from "../hooks/useController";
 import { eventInfo } from "../cube/scramble";
-import type { AppState } from "../state/controller";
+import type { AppSnapshot } from "../state/controller";
 
 /**
  * The scramble, with the moves already applied to the cube struck through.
  * When the cube wanders off the scramble a fix-up sequence is offered instead of
  * making the user start over.
  */
-export function ScramblePanel({ state }: { state: AppState }) {
+export function ScramblePanel({ state }: { state: AppSnapshot }) {
   const controller = useController();
   const session = state.sessions.find((candidate) => candidate.id === state.sessionId);
   const { scramble, scrambleProgress: progress, recovery, recoveryPending } = state;

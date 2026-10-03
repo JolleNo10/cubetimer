@@ -1,11 +1,11 @@
 import { useState } from "react";
 import { bluetoothAvailable } from "../bluetooth/smartCube";
 import { useController } from "../hooks/useController";
-import type { AppState } from "../state/controller";
+import type { CubeState } from "../state/physicalCubeRuntime";
 import { VIRTUAL_CUBE_HELP } from "./VirtualCubeKeys";
 
 /** Connection state, battery and hardware details for the smart cube. */
-export function ConnectionPanel({ state }: { state: AppState }) {
+export function ConnectionPanel({ state }: { state: CubeState }) {
   const controller = useController();
   const [macRequest, setMacRequest] = useState<{
     deviceName: string;

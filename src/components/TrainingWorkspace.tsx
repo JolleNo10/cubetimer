@@ -1,14 +1,16 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useController, useStore, useTrainingState } from "../hooks/useController";
-import type { AppState } from "../state/controller";
+import type { AppSnapshot } from "../state/controller";
 import type { TrainingState } from "../state/trainingRuntime";
 import { formatTime } from "../state/stats";
 import { ConnectionPanel } from "./ConnectionPanel";
 import { CubeView } from "./CubeView";
 import { TrainingAlgorithmGuide } from "./TrainingAlgorithmGuide";
 
+export type TrainingEnvironment = Pick<AppSnapshot, "settings" | "hardware" | "battery" | "cubeFacelets" | "cubeStatus" | "virtualCube" | "error">;
+
 export function TrainingWorkspace({ state, library, details, emptyMessage }: {
-  state: AppState; library: ReactNode; details: ReactNode; emptyMessage: ReactNode;
+  state: TrainingEnvironment; library: ReactNode; details: ReactNode; emptyMessage: ReactNode;
 }) {
   const controller = useController();
   const training = useTrainingState();
@@ -39,7 +41,7 @@ export function TrainingWorkspace({ state, library, details, emptyMessage }: {
   );
 }
 
-export function TrainingCubeStage({ state }: { state: AppState }) {
+export function TrainingCubeStage({ state }: { state: TrainingEnvironment }) {
   const training = useTrainingState();
   const target = training.target;
   const physicalLive = state.cubeStatus === "connected" || state.virtualCube;

@@ -44,30 +44,24 @@ Stop discovery once ownership, data flow, affected contracts, and the required c
 Cubetimer is a browser application built around one long-lived application controller.
 
 ```text
-Smart cube                    Keyboard / UI
-    |                              |
-    v                              |
-SmartCube                          |
-adapter                            |
-    |                              |
-    +-----------> Controller <-----+
-                    |
-        +-----------+------------+
-        |           |            |
-        v           v            v
-   cube/domain   persistence   stores/events
-      logic
-        \           |            /
-         \          |           /
-          +---------+----------+
-                    |
-                    v
-                 React UI
+SmartCube -> PhysicalCubeRuntime -> Controller routing <- Keyboard / UI
+                     |                    |
+                 CubeModel       +--------+--------+
+                                 |                 |
+                            TimerRuntime     TrainingRuntime
+                                 |                 |
+                              cube/domain mechanics
+                                 |
+                    ownership stores / narrow events
+                                 |
+                              React UI
+
+Controller -> SessionService / SolveHistory / DataTransfer -> db.ts
 ```
 
 The important ownership direction is:
 
-- hardware transport feeds facts into the Controller;
+- hardware transport feeds facts into PhysicalCubeRuntime;
 - user interactions invoke Controller operations;
 - the Controller owns cross-cutting runtime orchestration;
 - `src/cube` owns cube/domain computation;
@@ -103,11 +97,19 @@ src/state
 src/state/controller.ts
   live application orchestration
   Timer/Training/Statistics area coordination
-  runtime application state and physical cube coordination
-  TrainingRuntime composition and shared elapsed RAF scheduling
+  runtime composition and physical cube coordination
+  PhysicalCubeRuntime, TimerRuntime, and TrainingRuntime composition and shared elapsed RAF scheduling
   session-context runtime locking
   applying persisted context transitions
   Settings loading and persistence
+
+src/state/physicalCubeRuntime.ts
+  single physical CubeModel and SmartCube event acquisition
+  device/battery/facelet facts, gyro/grip and recentre events
+
+src/state/timerRuntime.ts
+  Timer Store, scramble, inspection, solve and recovery lifecycle
+  solve facts and analysis construction; injected persistence callback
 
 src/state/trainingRuntime.ts
   single Training Store and ephemeral Training lifecycle
@@ -152,22 +154,21 @@ src/cube -X-> src/state
 
 `src/main.tsx` creates one long-lived `Controller`, calls `controller.init()`, and exposes it to React through `ControllerContext`.
 
-`src/state/controller.ts` owns cross-cutting application behavior, including:
+Controller composes one long-lived PhysicalCubeRuntime, TimerRuntime and
+TrainingRuntime. It owns application-area routing, Session/runtime integration,
+Settings persistence, public UI facades, and the shared elapsed RAF scheduler.
 
-- timer phases;
-- scramble lifecycle;
-- smart-cube and virtual-cube move handling;
-- physical cube-state coordination;
-- inspection and solve timing;
-- applying selected Session/event context;
-- live Solve construction and recording consequences;
-- solve-analysis orchestration;
-- grip/orientation tracking;
-- Timer/Training/Statistics area transitions;
-- composition of one long-lived F2L/OLL/PLL TrainingRuntime;
-- public Statistics snapshot facade and area input gating;
-- delegation to persisted application workflows;
-- application-facing runtime events.
+PhysicalCubeRuntime owns physical/device/grip facts: the single physical CubeModel,
+SmartCube handlers, hardware/battery state, facelet synchronization, gyro readings,
+LiveGrip and recentre listeners. It publishes each physical move after updating the
+model; Controller routes it to the active runtime. Synthetic turns enter the same
+path through `Controller.injectMove()`.
+
+TimerRuntime owns the Timer/solve lifecycle: phase, scramble tracker and generation,
+inspection, elapsed timestamp, recovery cancellation, raw moves/readings, starting
+pattern, penalty/source, Solve construction and analysis. Controller supplies active
+Session/EventId, Settings and a SolveHistory persistence callback. TimerRuntime does
+not own Session persistence. TrainingRuntime remains the sibling Training owner.
 
 This logic lives outside React intentionally. Cube events may arrive frequently and timing updates every animation frame.
 
@@ -182,21 +183,29 @@ cube state.
 
 `src/state/store.ts` provides the small observable `Store<T>` abstraction.
 
-The Controller exposes:
+Observable stores follow ownership:
 
-- main application state;
-- elapsed time;
-- inspection time remaining;
+| Store | Owner and content |
+| --- | --- |
+| `Controller.state` | Ready, application area and global error |
+| `Controller.sessions` | Sessions, selected id, active history and last Solve |
+| `Controller.settings` | Settings, including OLL/PLL training-set preferences |
+| `physical.state` | Device status, hardware, battery and physical facelets |
+| `timer.state` | Timer phase, scramble/progress/generation, recovery, live moves, source and penalty |
+| `training.state` | Training lifecycle only |
+| `Controller.elapsed`, `inspectionLeft` | Shared elapsed publication and Timer inspection remaining |
 
-through narrow stores.
+`AppState` contains neither Timer nor Training nor physical cube state. There is no
+observable aggregate mirror. `Controller.snapshot()` composes a read-only value for
+synchronous actions; it does not publish or store a second copy. React subscribes
+through ownership hooks. Timer/cube high-frequency subscriptions live below App
+navigation; Header selects stable phase/device facts. Training subscribes directly
+to TrainingRuntime. Presentation-only selection/dialog/hold state remains React-owned.
 
-`TrainingRuntime.state` is the only observable owner of Training state. `AppState`
-does not contain or mirror Training state. Training UI subscribes directly through
-`useTrainingState()`; ordinary Training turns update its Store rather than the
-application root. Controller owns the physical model and refreshes its global
-facelet snapshot at area boundaries. One Controller RAF loop reads
-`training.elapsedAt(now)`; TrainingRuntime owns the attempt timestamp and requests
-clock start/stop through injected callbacks.
+One Controller RAF scheduler asks TimerRuntime to tick or reads
+`training.elapsedAt(now)`. The runtimes own their timestamps and request shared
+clock start/stop through injected callbacks. Timer and Training own independent
+recovery cancellation tokens and share the pure `calculateRecovery()` solver path.
 
 `src/hooks/useController.ts` connects stores to React through `useSyncExternalStore`.
 
@@ -405,9 +414,10 @@ The normal hardware path is:
 GAN cube
 -> gan-web-bluetooth
 -> SmartCube
--> Controller
--> CubeModel
--> Timer / analysis or, when Training is active, TrainingRuntime
+-> PhysicalCubeRuntime
+-> single physical CubeModel
+-> Controller input routing
+-> TimerRuntime / analysis or, when Training is active, TrainingRuntime
 -> Training Store (TrainingRuntime.state) / other stores and narrow events
 -> React Training UI / other presentation
 ```
@@ -444,7 +454,7 @@ They must remain distinct.
 
 ## Virtual and injected input
 
-`Controller.injectMove()` deliberately feeds a synthetic move into the same Controller move-processing seam used by smart-cube moves.
+`Controller.injectMove()` delegates to the same PhysicalCubeRuntime move-processing seam used by smart-cube moves.
 
 This is used by virtual cube interaction and provides tests with a way to exercise the normal runtime path without a separate implementation.
 
@@ -484,7 +494,8 @@ Training turns must not enter the normal timer lifecycle or ordinary solve histo
 
 TrainingRuntime owns one target, setup tracker, virtual pattern, attempt timer,
 move list, guide, recovery lifecycle, and result shape. Controller owns application
-routing, physical CubeModel and common input routing; it delegates Training moves
+routing/composition and common input routing; PhysicalCubeRuntime owns the
+physical CubeModel. Controller delegates Training moves
 and lifecycle actions through narrow injected dependencies. The shared target
 preparation pipeline preserves the direct catalogue F2L setup optimization before
 falling back to `algBetween()`. Timer and Training own separate recovery cancellation
@@ -602,7 +613,7 @@ scramble state + timed moves + grip information
 -> Solve
 -> SolveHistory persistence
 -> db.ts / IndexedDB
--> Controller active state
+-> Controller Session Store
 -> result / history / statistics UI
 ```
 
@@ -800,7 +811,7 @@ Session/event concerns must not be pushed back into `Settings` as a second sourc
 
 The compact Timer `StatsPanel` remains calculated from the selected Session's loaded
 solves. The full Statistics area receives a Controller-provided all-history snapshot;
-React does not read IndexedDB directly. `AppState.solves` remains the active Session's
+React does not read IndexedDB directly. `Controller.sessions.solves` remains the active Session's
 history. The facade delegates snapshot loading and repair to `solveHistory.ts`.
 
 The full view has independent event and Session filters. Event compatibility is
@@ -934,7 +945,7 @@ The following are current architectural rules.
     achieved Session-local windows.
 
 16. **TrainingRuntime is the single owner of the ephemeral Training state machine and observable Training state.**
-    Controller owns application routing and the physical CubeModel and delegates
+    Controller owns application routing, composes PhysicalCubeRuntime and delegates
     Training lifecycle/input operations to TrainingRuntime.
     Every Training target carries an explicit `family` discriminator; runtime and
     presentation must not infer family from unrelated field presence.
@@ -956,7 +967,18 @@ The following are current architectural rules.
     workflows and return explicit results. Controller owns Timer/Training runtime
     policy and applies the runtime consequences of those results.
 
+19. **PhysicalCubeRuntime owns physical/device/grip facts; TimerRuntime owns Timer/solve lifecycle.**
+    TrainingRuntime owns Training lifecycle. Controller composes and coordinates
+    them. There is exactly one physical CubeModel, consumed by both feature runtimes.
+
 ## Rejected alternatives
+
+### One CubeModel per feature
+
+Timer and Training observe the same physical cube. Competing physical models would
+allow input, synchronization and grip facts to drift. PhysicalCubeRuntime owns
+one model; virtual Training keeps only its separate ephemeral target pattern.
+
 
 These alternatives are recorded because the current architecture deliberately chose a different ownership model.
 

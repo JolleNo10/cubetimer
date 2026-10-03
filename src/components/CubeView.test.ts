@@ -19,7 +19,7 @@ const BASIC_CASES = F2L_TRAINING_CATALOGUES.basic.cases;
 describe("CubeView training orientation", () => {
   it("only includes and locks the instructional overlay for a supplied 3D guide move", () => {
     const controller = new Controller(new CubeModel(kpuzzle));
-    const state = controller.state.get();
+    const state = controller.snapshot();
     const markup = (visualization: "3D" | "2D" | "off", guideMove = null as ReturnType<typeof trainingGuideMove>) => renderToStaticMarkup(
       createElement(ControllerContext.Provider, { value: controller }, createElement(CubeView, {
         settings: { ...state.settings, visualization }, facelets: state.cubeFacelets, gyroSupported: false,

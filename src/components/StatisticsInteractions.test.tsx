@@ -28,7 +28,12 @@ vi.mock("react", async (original) => ({
     hooks.dependencies[index] = dependencies;
   }, useRef: (value: unknown) => ({ current: value }),
 }));
-vi.mock("../hooks/useController", () => ({ useController: () => hooks.controller, useAppState: () => (hooks.controller as Controller).state.get() }));
+vi.mock("../hooks/useController", () => ({
+  useController: () => hooks.controller,
+  useAppState: () => (hooks.controller as Controller).state.get(),
+  useSessionState: () => (hooks.controller as Controller).sessions.get(),
+  useSettings: () => (hooks.controller as Controller).settings.get(),
+}));
 
 type Element = ReactElement<Record<string, any>>;
 function renderRoot(make: () => ReactElement): Element { hooks.cursor = 0; hooks.effectCursor = 0; hooks.effects = []; return make() as Element; }
@@ -224,7 +229,8 @@ describe("Statistics user interactions", () => {
 
   it("loads through the Controller, keeps records beyond Chart window, and clears out-of-scope solve detail", async () => {
     const controller = new Controller(); hooks.controller = controller;
-    controller.state.update((state) => ({ ...state, area: "statistics", sessionId: "A" }));
+    controller.state.update((state) => ({ ...state, area: "statistics" }));
+controller.sessions.update((state) => ({ ...state, sessionId: "A" }));
     const select = vi.spyOn(controller, "selectSession");
     const history: StatisticsSnapshot = { sessions: [...snapshot.sessions, { id: "C", name: "2x2", event: "222", createdAt: 3 }], solves: [...snapshot.solves, ...Array.from({ length: 104 }, (_, index) => item(`extra${index}`, "A", 15000, index + 6)), item("other-event", "C", 1000, 120)] };
     const load = vi.spyOn(controller, "loadStatisticsSnapshot").mockResolvedValue(history);
@@ -253,7 +259,7 @@ describe("Statistics user interactions", () => {
       tree = render();
     }
     expect(load).toHaveBeenCalledOnce();
-    expect(controller.state.get().area).toBe("statistics");
+    expect(controller.snapshot().area).toBe("statistics");
     records.props.onOpenSolve(snapshot.solves[0]);
     tree = render(); expect(find(tree, (element) => element.type === StatisticsSolveDetail).props.solve.sessionId).toBe("B");
     const session = elements(tree).filter((element) => element.type === "select")[1];
@@ -261,7 +267,7 @@ describe("Statistics user interactions", () => {
     tree = render(); for (const effect of hooks.effects) effect();
     expect(elements(tree).some((element) => element.type === StatisticsSolveDetail)).toBe(false);
     expect(onScopeChange).toHaveBeenLastCalledWith(history.solves.filter((solve) => solve.sessionId === "A").map((solve) => solve.id));
-    expect(controller.state.get().sessionId).toBe("A");
+    expect(controller.snapshot().sessionId).toBe("A");
     expect(select).not.toHaveBeenCalled();
     find(tree, (element) => element.type === StatisticsRecords).props.onOpenSolve(snapshot.solves[1]);
     tree = render(); expect(find(tree, (element) => element.type === StatisticsSolveDetail).props.solve.id).toBe("s1");
@@ -269,12 +275,13 @@ describe("Statistics user interactions", () => {
     tree = render(); for (const effect of hooks.effects) effect();
     expect(elements(tree).some((element) => element.type === StatisticsSolveDetail)).toBe(false);
     expect(onScopeChange).toHaveBeenLastCalledWith(["other-event"]);
-    expect(controller.state.get().sessionId).toBe("A"); expect(load).toHaveBeenCalledOnce();
+    expect(controller.snapshot().sessionId).toBe("A"); expect(load).toHaveBeenCalledOnce();
   });
 
   it("passes cross-Session Solve objects to global Replay/Tools and disables Replay training", () => {
     const controller = new Controller(); hooks.controller = controller;
-    controller.state.update((state) => ({ ...state, ready: true, area: "statistics", sessionId: "A", sessions: snapshot.sessions, solves: [snapshot.solves[1]] }));
+    controller.state.update((state) => ({ ...state, ready: true, area: "statistics" }));
+controller.sessions.update((state) => ({ ...state, sessionId: "A", sessions: snapshot.sessions, solves: [snapshot.solves[1]] }));
     const select = vi.spyOn(controller, "selectSession");
     const render = () => renderRoot(() => App());
     let tree = render();
@@ -285,7 +292,7 @@ describe("Statistics user interactions", () => {
     expect(replay.props.solve).toBe(snapshot.solves[0]);
     expect(replay.props.onTrainStep).toBeUndefined();
     expect(find(tree, (element) => element.type === AnalyticsDialog).props.solve).toBe(snapshot.solves[0]);
-    expect(controller.state.get().sessionId).toBe("A"); expect(select).not.toHaveBeenCalled();
+    expect(controller.snapshot().sessionId).toBe("A"); expect(select).not.toHaveBeenCalled();
     find(tree, (element) => element.type === StatisticsView).props.onScopeChange(["s1"]);
     tree = render();
     expect(elements(tree).some((element) => element.type === ReplayDialog || element.type === AnalyticsDialog)).toBe(false);

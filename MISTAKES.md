@@ -317,3 +317,17 @@ not independently invented states. The original entry is retained as history.
 - What happened: the first shared Training presentation lost last-layer Complete status after virtual automatic reload and hid F2L result alternatives.
 - Root cause: shared rendering flattened family-specific result/target relationships: last-layer retries may change reference context while F2L retains its catalogue reference options.
 - Prevention: share presentation structure while preserving result-aware status and family-specific reference availability, covered by component regressions.
+
+## 2026-10-03
+
+- What happened: initial store-split fixtures retained whole-root identity assertions and updater-local Settings references after moving to independent stores.
+- Root cause: mechanical migration preserved assumptions about the old aggregate observable owner.
+- Prevention: initialize each ownership store directly, compare composed snapshots semantically, and test that move updates do not notify App/Session/Settings subscribers.
+
+- What happened: Timer recovery could finish after its scramble tracker was replaced.
+- Root cause: tracker replacement did not consistently invalidate the recovery token, and stale completion cleared a newer pending flag.
+- Prevention: invalidate recovery when replacing/cancelling Timer context and apply completion/pending updates only for the current token.
+
+- What happened: the new physical-runtime gesture fixture confused F2L's four D-turn retry with the Timer's three U-turn recentre gesture.
+- Root cause: the fixture inferred behavior from the Training gesture rather than loading the shared gesture contract.
+- Prevention: inspect the family/area-specific gesture definitions before asserting runtime observations.

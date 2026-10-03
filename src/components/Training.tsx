@@ -3,13 +3,14 @@ import type { LastLayerThumbnailModel } from "../cube/lastLayerThumbnail";
 import { getLastLayerThumbnailModel } from "../cube/lastLayerThumbnail";
 import { buildLastLayerCatalogueTarget, lastLayerCaseCatalogue, lastLayerCaseName, type LastLayerFamily } from "../cube/lastLayerTraining";
 import { get3x3x3 } from "../cube/puzzle";
-import { useController, useTrainingState } from "../hooks/useController";
-import type { AppState } from "../state/controller";
+import { useAppState, useController, useCubeState, useSettings, useTrainingState } from "../hooks/useController";
 import { F2LTraining } from "./F2LTraining";
 import { LastLayerCaseThumbnail } from "./LastLayerCaseThumbnail";
+import type { TrainingEnvironment } from "./TrainingWorkspace";
 import { TrainingWorkspace } from "./TrainingWorkspace";
 
-export function Training({ state }: { state: AppState }) {
+export function Training() {
+  const state = { ...useCubeState(), settings: useSettings(), error: useAppState().error };
   const controller = useController();
   const family = useTrainingState().family;
   return (
@@ -32,12 +33,12 @@ export function Training({ state }: { state: AppState }) {
   );
 }
 
-function LastLayerTraining({ state, family }: { state: AppState; family: LastLayerFamily }) {
+function LastLayerTraining({ state, family }: { state: TrainingEnvironment; family: LastLayerFamily }) {
   return <TrainingWorkspace state={state} library={<LastLayerCaseLibrary state={state} family={family} />}
     details={<LastLayerTargetDetails family={family} />} emptyMessage={<>Select a {family.toUpperCase()} case.</>} />;
 }
 
-function LastLayerCaseLibrary({ state, family }: { state: AppState; family: LastLayerFamily }) {
+function LastLayerCaseLibrary({ state, family }: { state: TrainingEnvironment; family: LastLayerFamily }) {
   const controller = useController();
   const training = useTrainingState();
   const trainingSet = family === "oll" ? state.settings.ollTrainingSet : state.settings.pllTrainingSet;
