@@ -4,7 +4,7 @@ import { useController } from "../../../app/useController";
 import {
   practiceScrambleLabel,
   practiceScrambleTitle,
-} from "../../timer/scrambleProvider";
+} from "../../../app/scrambleProvider";
 import { formatSolveTime, isSlowSolve } from "../../statistics/state/stats";
 import type { Penalty, Solve } from "../../../app/types";
 

@@ -1,10 +1,9 @@
-import { useController, useStore } from "../../../app/useController";
-import { formatTime } from "../../statistics/state/stats";
-import type { AppSnapshot } from "../../../app/Controller";
+import { formatTime } from "../../../shared/time";
+import { useController, useSettings, useStore, useStoreValue } from "../../../app/useController";
+import type { TimerPhase } from "../TimerRuntime";
 import { effectiveMs, type Solve } from "../../../app/types";
 
 type Props = {
-  state: AppSnapshot;
   /** True while the space bar is held down before a keyboard-timed solve. */
   holding: boolean;
   holdReady: boolean;
@@ -13,7 +12,6 @@ type Props = {
 };
 
 export function TimerDisplay({
-  state,
   holding,
   holdReady,
   onPressStart,
@@ -22,21 +20,26 @@ export function TimerDisplay({
   const controller = useController();
   const elapsed = useStore(controller.elapsed);
   const inspectionLeft = useStore(controller.inspectionLeft);
-  const { phase, settings, lastSolve } = state;
+  const settings = useSettings();
+  const phase = useStoreValue(controller.timer.state, state => state.phase);
+  const inspectionPenalty = useStoreValue(controller.timer.state, state => state.inspectionPenalty);
+  const liveMoves = useStoreValue(controller.timer.state, state => state.liveMoves);
+  const offTrack = useStoreValue(controller.timer.state, state => Boolean(state.scrambleProgress && !state.scrambleProgress.onTrack));
+  const lastSolve = useStoreValue(controller.sessions, state => state.lastSolve);
   const slow = settings.slowSolve;
 
-  const smart = state.cubeStatus === "connected" || state.virtualCube;
+  const smart = useStoreValue(controller.physical.state, state => state.cubeStatus === "connected" || state.virtualCube);
   let text: string;
   let tone = "waiting";
 
   if (phase === "inspection" && inspectionLeft !== null) {
     const left = Math.ceil(inspectionLeft / 1000);
-    text = left > 0 ? String(left) : state.inspectionPenalty === "DNF" ? "DNF" : "+2";
-    tone = state.inspectionPenalty === "none" ? "inspect" : "danger";
+    text = left > 0 ? String(left) : inspectionPenalty === "DNF" ? "DNF" : "+2";
+    tone = inspectionPenalty === "none" ? "inspect" : "danger";
   } else if (phase === "solving") {
     // Slow solving counts moves, not seconds: the clock is not the point.
     text = slow
-      ? String(state.liveMoves.length)
+      ? String(liveMoves.length)
       : settings.hideTimeWhileSolving
         ? "solving"
         : formatTime(elapsed);
@@ -67,7 +70,7 @@ export function TimerDisplay({
 
   const hint = slow
     ? slowHint(phase, smart)
-    : buildHint({ phase, smart, holding, state });
+    : buildHint({ phase, smart, holding, offTrack });
 
   return (
     <div
@@ -89,13 +92,13 @@ export function TimerDisplay({
       {phase === "solving" || phase === "finished" ? (
         <div className="timer-meta">
           <span>
-            moves <b>{phase === "solving" ? state.liveMoves.length : (lastSolve?.moves.length ?? 0)}</b>
+            moves <b>{phase === "solving" ? liveMoves.length : (lastSolve?.moves.length ?? 0)}</b>
           </span>
           <span>
             tps{" "}
             <b>
               {formatTps(
-                phase === "solving" ? state.liveMoves.length : (lastSolve?.moves.length ?? 0),
+                phase === "solving" ? liveMoves.length : (lastSolve?.moves.length ?? 0),
                 phase === "solving" ? elapsed : (lastSolve?.rawMs ?? 0),
               )}
             </b>
@@ -110,7 +113,7 @@ export function TimerDisplay({
 }
 
 /** In slow solve mode nothing is being raced, so the prompts say so. */
-function slowHint(phase: AppSnapshot["phase"], smart: boolean) {
+function slowHint(phase: TimerPhase, smart: boolean) {
   switch (phase) {
     case "scrambling":
       return smart ? "Apply the scramble, then solve at your own pace" : "Slow solve";
@@ -138,12 +141,12 @@ function buildHint({
   phase,
   smart,
   holding,
-  state,
+  offTrack,
 }: {
-  phase: AppSnapshot["phase"];
+  phase: TimerPhase;
   smart: boolean;
   holding: boolean;
-  state: AppSnapshot;
+  offTrack: boolean;
 }) {
   if (holding) return "Release to start";
   switch (phase) {
@@ -155,7 +158,7 @@ function buildHint({
           </>
         );
       }
-      if (state.scrambleProgress && !state.scrambleProgress.onTrack) {
+      if (offTrack) {
         return "Cube is off the scramble — follow the fix-up below";
       }
       return "Apply the scramble to your cube";

@@ -6,7 +6,6 @@ import {
   bestAverage,
   countedSolves,
   compareSolveToHistory,
-  formatTime,
   isSlowSolve,
   meanOf,
   sessionStats,
@@ -146,16 +145,6 @@ describe("bestAverage", () => {
     solves.push(solve(20_000), solve(22_000), solve(24_000), solve(26_000));
     expect(bestAverage(solves, 5)).toBe(24_000);
     expect(bestAverage(solves.slice(0, 4), 5)).toBeUndefined();
-  });
-});
-
-describe("formatTime", () => {
-  it("formats seconds and minutes", () => {
-    expect(formatTime(9876)).toBe("9.88");
-    expect(formatTime(62340)).toBe("1:02.34");
-    expect(formatTime(3_600_000)).toBe("60:00.00");
-    expect(formatTime(null)).toBe("DNF");
-    expect(formatTime(undefined)).toBe("—");
   });
 });
 

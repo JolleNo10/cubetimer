@@ -7,16 +7,16 @@ import { faceColour, faceOfColour } from "../../cube/colours";
 import { hasXCrossIn } from "../../cube/crossPlans";
 import { generateWhiteCrossScramble } from "../../cube/crossScramble";
 import { encodeGripTrack, rewriteWithRotations, trackGrip, type GripTrack } from "../../cube/gripTrack";
-import { patternToFacelets } from "../../cube/model";
+import { patternToFacelets, type CubeModel } from "../../cube/model";
+import type { Face } from "../../cube/moves";
 import { rotationForCrossFace, rotationForGrip } from "../../cube/orientation";
 import { get3x3x3 } from "../../cube/puzzle";
 import { reframe } from "../../cube/recognise";
 import { ScrambleTracker, eventInfo, generateScramble, type EventId, type ScrambleProgress } from "../../cube/scramble";
 import { solveAlg } from "../../cube/solver";
 import { debugEnabled, debugLog } from "../../util/debug";
-import type { PhysicalCubeRuntime } from "../../app/PhysicalCubeRuntime";
 import { calculateRecovery, type Recovery } from "../../shared/recovery";
-import { whiteCrossProvider, xCrossProvider } from "./scrambleProvider";
+import { whiteCrossProvider, xCrossProvider } from "../../app/scrambleProvider";
 import { Store } from "../../shared/store";
 import type { Settings, Solve } from "../../app/types";
 
@@ -27,8 +27,19 @@ export type TimerState = {
   recovery: Recovery | null; recoveryPending: boolean; liveMoves: string[]; solveSource: "smartcube" | "keyboard" | null; inspectionPenalty: "none" | "+2" | "DNF"
 };
 type ScrambleContext = { scramble: string; provider?: string };
+export type TimerPhysicalCube = {
+  readonly model: CubeModel | null;
+  readonly hasCube: boolean;
+  readonly pose: Quaternion | null;
+  readonly grip: { bottom: Face; front: Face } | null;
+  readonly gripReference: Quaternion | null;
+  readonly gripLocked: boolean;
+  resetGrip(): void;
+  holdBottom(bottom: Face | null): void;
+  lockGripReference(): void;
+};
 export type TimerDependencies = {
-  physical: Pick<PhysicalCubeRuntime, "model" | "hasCube" | "pose" | "grip" | "gripReference" | "gripLocked" | "resetGrip" | "holdBottom" | "lockGripReference">;
+  physical: TimerPhysicalCube;
   getSettings: () => Settings;
   getEvent: () => EventId;
   getSessionId: () => string;

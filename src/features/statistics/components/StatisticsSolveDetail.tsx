@@ -1,4 +1,5 @@
-import { validatedSolveFacts, formatSolveTime, formatTime } from "../state/stats";
+import { formatTime } from "../../../shared/time";
+import { validatedSolveFacts, formatSolveTime } from "../state/stats";
 import { effectiveMs, type Session, type Solve } from "../../../app/types";
 import { SolveAnalysisReview } from "../../history/components/SolveAnalysisReview";
 

@@ -1,3 +1,4 @@
+import { formatTime } from "../../../shared/time";
 import { STEP_NAMES, PAUSE_THRESHOLD_MS, type StepName, type SolveStep, type SolveAnalysis } from "../../../cube/analysis";
 import { effectiveMs, type Solve } from "../../../app/types";
 
@@ -382,21 +383,6 @@ export function sessionStats(all: Solve[]): SessionStats {
     bestAo12: bestAverage(solves, 12),
     ...analysedSessionStats(solves),
   };
-}
-
-/** `12.34`, `1:02.34`, or `DNF`. */
-export function formatTime(
-  ms: number | null | undefined,
-  options: { decimals?: number } = {},
-): string {
-  if (ms === undefined) return "—";
-  if (ms === null) return "DNF";
-  const decimals = options.decimals ?? 2;
-  const totalSeconds = ms / 1000;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds - minutes * 60;
-  if (minutes === 0) return seconds.toFixed(decimals);
-  return `${minutes}:${seconds.toFixed(decimals).padStart(decimals + 3, "0")}`;
 }
 
 export function formatSolveTime(solve: Solve): string {

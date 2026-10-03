@@ -54,9 +54,9 @@ React components are not a second application state machine.
 src/
   app/
     App.tsx, Controller.ts, PhysicalCubeRuntime.ts
-    useController.ts, types.ts, settings.ts, components/
+    useController.ts, types.ts, settings.ts, scrambleProvider.ts, components/
   features/
-    timer/           TimerRuntime.ts, scrambleProvider.ts, components/
+    timer/           TimerRuntime.ts, components/
     training/        TrainingRuntime.ts, components/
     sessions/        sessionService.ts
     history/         solveHistory.ts, repair.ts, components/
@@ -66,7 +66,7 @@ src/
     bluetooth/       smartCube.ts (transport)
     persistence/     db.ts (IndexedDB adapter)
   shared/
-    store.ts, recovery.ts, ui/
+    store.ts, recovery.ts, time.ts, ui/
   cube/              pure cube domain and clearly named generated datasets
 ```
 

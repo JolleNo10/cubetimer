@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnalyticsDialog } from "../features/history/components/AnalyticsDialog";
-import { CoachPanel } from "../features/timer/components/CoachPanel";
+import { TimerCoachPanel } from "../features/timer/components/CoachPanel";
 import { ConnectionPanel } from "../shared/ui/ConnectionPanel";
-import { CubeView } from "../shared/ui/CubeView";
+import { TimerCubeStage } from "../features/timer/components/TimerCubeStage";
 import { Header } from "./components/Header";
 import { ReplayDialog, type ReplayViewState } from "../features/history/components/ReplayDialog";
 import { ScramblePanel } from "../features/timer/components/ScramblePanel";
@@ -16,8 +16,8 @@ import { Training } from "../features/training/components/Training";
 import { VIRTUAL_CUBE_KEYS } from "../shared/ui/VirtualCubeKeys";
 import type { LastLayerFamily } from "../cube/lastLayerTraining";
 import { DEFAULT_EVENT_ID } from "../cube/scramble";
-import { useAppState, useController, useCubeState, useSessionState, useSettings, useTimerState } from "./useController";
-import type { AppArea, AppSnapshot } from "./Controller";
+import { useAppState, useController, useSessionState, useSettings } from "./useController";
+import type { AppArea } from "./Controller";
 import type { Solve } from "./types";
 
 /** How long space must be held before a keyboard-timed solve will start. */
@@ -295,9 +295,9 @@ export function App() {
 
       {state.area === "training" ? <Training /> : state.area === "statistics" ? (
         <StatisticsView currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} onReplay={openStatisticsReplay} onTools={openStatisticsTools} onTrainCase={trainStatisticsCase} onScopeChange={statisticsScopeChanged} />
-      ) : <TimerWorkspace>{(state) => <div className="app-body">
+      ) : <div className="app-body">
         <div className="column left">
-          <ConnectionPanel state={state} />
+          <ConnectionPanel />
           <SolveList
             solves={state.solves}
             selectedId={selectedSolve?.id ?? null}
@@ -320,16 +320,8 @@ export function App() {
               </button>
             </div>
           ) : null}
-          {!resultSolve ? <ScramblePanel state={state} /> : null}
-          {state.settings.slowSolve && (state.cubeStatus === "connected" || state.virtualCube) && !resultSolve ? (
-            <CoachPanel
-              facelets={state.cubeFacelets}
-              settings={state.settings}
-              phase={state.phase}
-              scramble={state.scramble}
-              liveMoves={state.liveMoves}
-            />
-          ) : null}
+          {!resultSolve ? <ScramblePanel /> : null}
+          {!resultSolve ? <TimerCoachPanel /> : null}
           <div className="stage">
             {resultSolve ? (
               <SolveResult
@@ -355,19 +347,12 @@ export function App() {
             ) : (
               <>
                 <TimerDisplay
-                  state={state}
                   holding={holding}
                   holdReady={holdReady}
                   onPressStart={pressStart}
                   onPressEnd={pressEnd}
                 />
-                <CubeView
-                  settings={state.settings}
-                  facelets={state.cubeFacelets}
-                  gyroSupported={state.hardware?.gyroSupported ?? false}
-                  live={state.cubeStatus === "connected" || state.virtualCube}
-                  scramble={state.scramble}
-                />
+                <TimerCubeStage />
               </>
             )}
           </div>
@@ -376,7 +361,7 @@ export function App() {
         <div className="column right">
           <StatsPanel solves={state.solves} />
         </div>
-      </div>}</TimerWorkspace>}
+      </div>}
 
       {settingsOpen ? (
         <SettingsDialog settings={state.settings} onClose={() => setSettingsOpen(false)} />
@@ -409,12 +394,4 @@ export function App() {
       ) : null}
     </div>
   );
-}
-
-/** High-frequency Timer and cube subscriptions stay below application navigation. */
-function TimerWorkspace({ children }: { children: (state: AppSnapshot) => ReactNode }) {
-  const controller = useController();
-  const timer = useTimerState();
-  const cube = useCubeState();
-  return children({ ...controller.snapshot(), ...timer, ...cube });
 }

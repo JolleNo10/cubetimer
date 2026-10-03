@@ -1,56 +1,78 @@
+import { formatTime } from "../../../shared/time";
 import { useEffect, useState, type ReactNode } from "react";
-import { useController, useStore, useTrainingState } from "../../../app/useController";
-import type { AppSnapshot } from "../../../app/Controller";
+import { useController, useSettings, useStore, useStoreValue, useTrainingState } from "../../../app/useController";
 import type { TrainingState } from "../TrainingRuntime";
-import { formatTime } from "../../statistics/state/stats";
+
 import { ConnectionPanel } from "../../../shared/ui/ConnectionPanel";
 import { CubeView } from "../../../shared/ui/CubeView";
 import { TrainingAlgorithmGuide } from "./TrainingAlgorithmGuide";
 
-export type TrainingEnvironment = Pick<AppSnapshot, "settings" | "hardware" | "battery" | "cubeFacelets" | "cubeStatus" | "virtualCube" | "error">;
-
-export function TrainingWorkspace({ state, library, details, emptyMessage }: {
-  state: TrainingEnvironment; library: ReactNode; details: ReactNode; emptyMessage: ReactNode;
+export function TrainingWorkspace({ library, details, emptyMessage }: {
+  library: ReactNode; details: ReactNode; emptyMessage: ReactNode;
 }) {
   const controller = useController();
-  const training = useTrainingState();
-  const elapsed = useStore(controller.elapsed);
-  const f2l = training.family === "f2l";
+  const family = useStoreValue(controller.training.state, state => state.family);
+  const error = useStoreValue(controller.state, state => state.error);
+  const f2l = family === "f2l";
   return (
     <div className={`app-body ${f2l ? "f2l-training" : "training"}-layout`}>
-      <div className="column left"><ConnectionPanel state={state} />{library}</div>
+      <div className="column left"><ConnectionPanel />{library}</div>
       <div className="column">
-        {state.error ? <div className="notice error"><span className="grow">{state.error}</span><button className="ghost" onClick={() => controller.dismissError()}>Dismiss</button></div> : null}
+        {error ? <div className="notice error"><span className="grow">{error}</span><button className="ghost" onClick={() => controller.dismissError()}>Dismiss</button></div> : null}
         <TrainingSetupPanel />
-        <TrainingCubeStage state={state} />
+        <TrainingCubeStage />
       </div>
       <div className="column right">
-        <div className={`panel ${f2l ? "f2l" : "training"}-target-panel`}>
-          <div className="panel-head"><span className="panel-title">Training target</span>{training.result ? <span className="chip live">result</span> : null}</div>
-          <div className="panel-body">
-            {!training.target ? <div className="empty">{emptyMessage}</div> : <>
-              {details}
-              <TrainingReferences />
-              <TrainingAttemptResult result={training.result} phase={training.phase} liveMoveCount={training.liveMoves.length} elapsed={elapsed} />
-              <TrainingActions />
-            </>}
-          </div>
-        </div>
+        <TrainingTargetPanel details={details} emptyMessage={emptyMessage} />
       </div>
     </div>
   );
 }
 
-export function TrainingCubeStage({ state }: { state: TrainingEnvironment }) {
+function TrainingTargetPanel({ details, emptyMessage }: { details: ReactNode; emptyMessage: ReactNode }) {
+  const controller = useController();
+  const family = useStoreValue(controller.training.state, state => state.family);
+  const target = useStoreValue(controller.training.state, state => state.target);
+  const result = useStoreValue(controller.training.state, state => state.result);
+  const f2l = family === "f2l";
+  return (
+    <div className={`panel ${f2l ? "f2l" : "training"}-target-panel`}>
+      <div className="panel-head"><span className="panel-title">Training target</span>{result ? <span className="chip live">result</span> : null}</div>
+      <div className="panel-body">
+        {!target ? <div className="empty">{emptyMessage}</div> : <>
+          {details}
+          <TrainingReferences />
+          <TrainingAttempt />
+          <TrainingActions />
+        </>}
+      </div>
+    </div>
+  );
+}
+
+function TrainingAttempt() {
+  const controller = useController();
+  const training = useTrainingState();
+  const elapsed = useStore(controller.elapsed);
+  return <TrainingAttemptResult result={training.result} phase={training.phase} liveMoveCount={training.liveMoves.length} elapsed={elapsed} />;
+}
+
+export function TrainingCubeStage() {
+  const controller = useController();
+  const settings = useSettings();
+  const cubeFacelets = useStoreValue(controller.physical.state, state => state.cubeFacelets);
+  const gyroSupported = useStoreValue(controller.physical.state, state => state.hardware?.gyroSupported ?? false);
+  const cubeStatus = useStoreValue(controller.physical.state, state => state.cubeStatus);
+  const virtualCube = useStoreValue(controller.physical.state, state => state.virtualCube);
   const training = useTrainingState();
   const target = training.target;
-  const physicalLive = state.cubeStatus === "connected" || state.virtualCube;
+  const physicalLive = cubeStatus === "connected" || virtualCube;
   return <div className={`stage ${training.family === "f2l" ? "f2l" : "training"}-stage`}>
-    <CubeView settings={state.settings} facelets={state.cubeFacelets} gyroSupported={state.hardware?.gyroSupported ?? false}
+    <CubeView settings={settings} facelets={cubeFacelets} gyroSupported={gyroSupported}
       live={training.mode === "virtual" ? Boolean(target) : physicalLive} scramble=""
-      displayFacelets={training.displayFacelets || state.cubeFacelets} displayRevision={training.displayRevision}
+      displayFacelets={training.displayFacelets || cubeFacelets} displayRevision={training.displayRevision}
       displaySource={training.mode === "virtual" ? "virtual" : "physical"} orientationOverride={target?.trainingRotation.orientation}
-      physicalSyncAvailable={state.cubeStatus === "connected"}
+      physicalSyncAvailable={cubeStatus === "connected"}
       guideMove={target && target.references.length > 0 && (training.phase === "ready" || training.phase === "solving") && !training.result ? training.guide?.currentMove : null} />
   </div>;
 }

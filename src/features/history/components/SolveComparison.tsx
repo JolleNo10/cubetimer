@@ -1,5 +1,6 @@
+import { formatTime } from "../../../shared/time";
 import type { SolveComparison } from "../../statistics/state/stats";
-import { formatTime } from "../../statistics/state/stats";
+
 
 export type ComparisonDelta = {
   text: string;

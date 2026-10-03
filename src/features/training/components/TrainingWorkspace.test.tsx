@@ -57,7 +57,7 @@ describe("shared Training presentation", () => {
     const controller = await selected();
     controller.physical.state.update((state) => ({ ...state, cubeStatus: "connected" }));
     controller.training.state.update(state => ({ ...state, mode, displayFacelets: "target-facelets" }));
-    const html = render(controller, <TrainingCubeStage state={controller.snapshot()} />);
+    const html = render(controller, <TrainingCubeStage />);
     expect(html).toContain(`data-source="${mode === "setup" ? "physical" : "virtual"}"`);
     expect(html).toContain('data-live="true"');
     expect(html).toContain('data-facelets="target-facelets"');

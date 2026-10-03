@@ -3,16 +3,14 @@ import type { LastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
 import { getLastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
 import { buildLastLayerCatalogueTarget, lastLayerCaseCatalogue, lastLayerCaseName, type LastLayerFamily } from "../../../cube/lastLayerTraining";
 import { get3x3x3 } from "../../../cube/puzzle";
-import { useAppState, useController, useCubeState, useSettings, useTrainingState } from "../../../app/useController";
+import { useController, useStoreValue } from "../../../app/useController";
 import { F2LTraining } from "./F2LTraining";
 import { LastLayerCaseThumbnail } from "./LastLayerCaseThumbnail";
-import type { TrainingEnvironment } from "./TrainingWorkspace";
 import { TrainingWorkspace } from "./TrainingWorkspace";
 
 export function Training() {
-  const state = { ...useCubeState(), settings: useSettings(), error: useAppState().error };
   const controller = useController();
-  const family = useTrainingState().family;
+  const family = useStoreValue(controller.training.state, state => state.family);
   return (
     <div className="training-screen">
       <nav className="training-family-switch area-switch" aria-label="Training family">
@@ -28,22 +26,22 @@ export function Training() {
           </button>
         ))}
       </nav>
-      {family === "f2l" ? <F2LTraining state={state} /> : <LastLayerTraining state={state} family={family} />}
+      {family === "f2l" ? <F2LTraining /> : <LastLayerTraining family={family} />}
     </div>
   );
 }
 
-function LastLayerTraining({ state, family }: { state: TrainingEnvironment; family: LastLayerFamily }) {
-  return <TrainingWorkspace state={state} library={<LastLayerCaseLibrary state={state} family={family} />}
+function LastLayerTraining({ family }: { family: LastLayerFamily }) {
+  return <TrainingWorkspace library={<LastLayerCaseLibrary family={family} />}
     details={<LastLayerTargetDetails family={family} />} emptyMessage={<>Select a {family.toUpperCase()} case.</>} />;
 }
 
-function LastLayerCaseLibrary({ state, family }: { state: TrainingEnvironment; family: LastLayerFamily }) {
+function LastLayerCaseLibrary({ family }: { family: LastLayerFamily }) {
   const controller = useController();
-  const training = useTrainingState();
-  const trainingSet = family === "oll" ? state.settings.ollTrainingSet : state.settings.pllTrainingSet;
-  const target = training.target && training.target.family === family
-    ? training.target
+  const selectedTarget = useStoreValue(controller.training.state, state => state.target);
+  const trainingSet = useStoreValue(controller.settings, settings => family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet);
+  const target = selectedTarget?.family === family
+    ? selectedTarget
     : null;
   const [thumbnailModels, setThumbnailModels] = useState<Map<string, LastLayerThumbnailModel>>(new Map());
   const catalogue = useMemo(() => lastLayerCaseCatalogue(family, trainingSet), [family, trainingSet]);
@@ -100,8 +98,9 @@ function LastLayerCaseLibrary({ state, family }: { state: TrainingEnvironment; f
 }
 
 function LastLayerTargetDetails({ family }: { family: LastLayerFamily }) {
-  const training = useTrainingState();
-  const target = training.target?.family === family ? training.target : null;
+  const controller = useController();
+  const selectedTarget = useStoreValue(controller.training.state, state => state.target);
+  const target = selectedTarget?.family === family ? selectedTarget : null;
   if (!target) return null;
   return <>
     <div className="f2l-target-title"><strong>{lastLayerCaseName(target.family, target.caseId, target.trainingSet)}</strong><span className="phase-case">{target.group}</span></div>

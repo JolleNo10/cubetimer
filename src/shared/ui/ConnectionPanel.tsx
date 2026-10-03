@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { bluetoothAvailable } from "../../infrastructure/bluetooth/smartCube";
-import { useController } from "../../app/useController";
-import type { CubeState } from "../../app/PhysicalCubeRuntime";
+import { useController, useStoreValue } from "../../app/useController";
 import { VIRTUAL_CUBE_HELP } from "./VirtualCubeKeys";
 
 /** Connection state, battery and hardware details for the smart cube. */
-export function ConnectionPanel({ state }: { state: CubeState }) {
+export function ConnectionPanel() {
   const controller = useController();
+  const cubeStatus = useStoreValue(controller.physical.state, state => state.cubeStatus);
+  const hardware = useStoreValue(controller.physical.state, state => state.hardware);
+  const battery = useStoreValue(controller.physical.state, state => state.battery);
+  const virtualCube = useStoreValue(controller.physical.state, state => state.virtualCube);
   const [macRequest, setMacRequest] = useState<{
     deviceName: string;
     resolve: (mac: string | null) => void;
@@ -22,7 +25,6 @@ export function ConnectionPanel({ state }: { state: CubeState }) {
         }),
     );
 
-  const { cubeStatus, hardware, battery } = state;
   const supported = bluetoothAvailable();
 
   return (
@@ -93,7 +95,7 @@ export function ConnectionPanel({ state }: { state: CubeState }) {
           </>
         )}
 
-        <VirtualCubeControl enabled={state.virtualCube} />
+        <VirtualCubeControl enabled={virtualCube} />
       </div>
 
       {macRequest ? (

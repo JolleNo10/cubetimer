@@ -3,7 +3,7 @@ import { useController } from "../../../app/useController";
 import {
   practiceScrambleLabel,
   practiceScrambleTitle,
-} from "../../timer/scrambleProvider";
+} from "../../../app/scrambleProvider";
 import { bestSingle, countedSolves, formatSolveTime, isSlowSolve } from "../../statistics/state/stats";
 import { effectiveMs, type Solve } from "../../../app/types";
 

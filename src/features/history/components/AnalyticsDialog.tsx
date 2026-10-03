@@ -1,9 +1,9 @@
+import { formatTime } from "../../../shared/time";
 import { useEffect, useState } from "react";
 import { Alg } from "cubing/alg";
 import { get3x3x3 } from "../../../cube/puzzle";
 import { analyseAlternatives, type SolveAnalytics, type StepAnalytics } from "../../statistics/state/analytics";
 import { MAX_SEARCH_DEPTH } from "../../../cube/optimise";
-import { formatTime } from "../../statistics/state/stats";
 import { effectiveMs, type Solve } from "../../../app/types";
 import { GripLabel } from "../../../shared/ui/GripLabel";
 

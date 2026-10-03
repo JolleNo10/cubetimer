@@ -1,5 +1,6 @@
+import { formatTime } from "../../../shared/time";
 import { useMemo, useState } from "react";
-import { formatTime, formatSolveTime, type AverageWindow } from "../state/stats";
+import { formatSolveTime, type AverageWindow } from "../state/stats";
 import { RANKING_METRICS, RECOGNITION_NOTE, sortRankingRows, sortSolveRows, type AverageMetric, type SolveSortColumn, type PbMetric, type RankingMetric, type RankingRow, type SortDirection, type StatisticsViewModel } from "../state/statistics";
 import type { Session, Solve } from "../../../app/types";
 import { statisticsActivationProps } from "./statisticsInteraction";

@@ -1,20 +1,26 @@
-import { useController } from "../../../app/useController";
+import { useController, useSessionState, useSettings, useStoreValue } from "../../../app/useController";
 import { eventInfo } from "../../../cube/scramble";
-import type { AppSnapshot } from "../../../app/Controller";
 
 /**
  * The scramble, with the moves already applied to the cube struck through.
  * When the cube wanders off the scramble a fix-up sequence is offered instead of
  * making the user start over.
  */
-export function ScramblePanel({ state }: { state: AppSnapshot }) {
+export function ScramblePanel() {
   const controller = useController();
-  const session = state.sessions.find((candidate) => candidate.id === state.sessionId);
-  const { scramble, scrambleProgress: progress, recovery, recoveryPending } = state;
+  const { sessions, sessionId } = useSessionState();
+  const settings = useSettings();
+  const session = sessions.find(candidate => candidate.id === sessionId);
+  const scramble = useStoreValue(controller.timer.state, state => state.scramble);
+  const progress = useStoreValue(controller.timer.state, state => state.scrambleProgress);
+  const recovery = useStoreValue(controller.timer.state, state => state.recovery);
+  const recoveryPending = useStoreValue(controller.timer.state, state => state.recoveryPending);
+  const phase = useStoreValue(controller.timer.state, state => state.phase);
+  const scrambleGeneration = useStoreValue(controller.timer.state, state => state.scrambleGeneration);
   const moves = scramble.split(/\s+/).filter(Boolean);
   const done = progress?.onTrack ? progress.index : 0;
   const offTrack = progress !== null && !progress.onTrack;
-  const tracking = progress !== null && state.phase === "scrambling";
+  const tracking = progress !== null && phase === "scrambling";
 
   return (
     <div className="panel scramble-panel">
@@ -26,7 +32,7 @@ export function ScramblePanel({ state }: { state: AppSnapshot }) {
               {done} / {progress.total}
             </span>
           ) : null}
-          {state.settings.slowSolve && session && eventInfo(session.event).smart ? (
+          {settings.slowSolve && session && eventInfo(session.event).smart ? (
             <>
               <label
                 className="row small"
@@ -35,7 +41,7 @@ export function ScramblePanel({ state }: { state: AppSnapshot }) {
                 <span className="faint">White cross</span>
                 <select
                   aria-label="White cross moves"
-                  value={state.settings.whiteCrossMoves}
+                  value={settings.whiteCrossMoves}
                   onChange={(e) =>
                     void controller.updateSettings({
                       whiteCrossMoves: Number(e.target.value) as 1 | 2 | 3 | 4 | 5 | 6 | 7,
@@ -52,12 +58,12 @@ export function ScramblePanel({ state }: { state: AppSnapshot }) {
               <button
                 className="ghost"
                 disabled={
-                  state.scrambleGeneration !== null || state.settings.crossColour !== "white"
+                  scrambleGeneration !== null || settings.crossColour !== "white"
                 }
                 onClick={() => void controller.findWhiteCrossScramble()}
                 title={
-                  state.settings.crossColour === "white"
-                    ? `Generate a scramble with an exact ${state.settings.whiteCrossMoves}-move white cross`
+                  settings.crossColour === "white"
+                    ? `Generate a scramble with an exact ${settings.whiteCrossMoves}-move white cross`
                     : "White-cross generation currently supports white only"
                 }
               >
@@ -67,7 +73,7 @@ export function ScramblePanel({ state }: { state: AppSnapshot }) {
                 <span className="faint">XCross ≤</span>
                 <select
                   aria-label="XCross maximum moves"
-                  value={state.settings.xCrossMaxMoves}
+                  value={settings.xCrossMaxMoves}
                   onChange={(e) =>
                     void controller.updateSettings({
                       xCrossMaxMoves: Number(e.target.value) as 4 | 5 | 6,
@@ -83,9 +89,9 @@ export function ScramblePanel({ state }: { state: AppSnapshot }) {
               </label>
               <button
                 className="ghost"
-                disabled={state.scrambleGeneration !== null}
+                disabled={scrambleGeneration !== null}
                 onClick={() => void controller.findXCrossScramble()}
-                title={`Find a scramble with an XCross in ${state.settings.xCrossMaxMoves} moves or fewer`}
+                title={`Find a scramble with an XCross in ${settings.xCrossMaxMoves} moves or fewer`}
               >
                 XCross
               </button>
@@ -97,16 +103,16 @@ export function ScramblePanel({ state }: { state: AppSnapshot }) {
         </div>
       </div>
       <div className="panel-body">
-        {state.scrambleGeneration?.kind === "cross" ? (
+        {scrambleGeneration?.kind === "cross" ? (
           <div className="generation-status" role="status" aria-live="polite">
             <span className="spinner" aria-hidden="true" />
             Generating white-cross scramble…
           </div>
-        ) : state.scrambleGeneration?.kind === "xcross" ? (
+        ) : scrambleGeneration?.kind === "xcross" ? (
           <div className="generation-status" role="status" aria-live="polite">
             <span className="spinner" aria-hidden="true" />
-            Generating XCross… {state.scrambleGeneration.attempts}{" "}
-            {state.scrambleGeneration.attempts === 1 ? "variation" : "variations"} tried
+            Generating XCross… {scrambleGeneration.attempts}{" "}
+            {scrambleGeneration.attempts === 1 ? "variation" : "variations"} tried
           </div>
         ) : scramble ? (
           <div className="scramble">

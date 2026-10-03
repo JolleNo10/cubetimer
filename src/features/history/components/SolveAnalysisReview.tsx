@@ -1,5 +1,6 @@
+import { formatTime } from "../../../shared/time";
 import type { SolveAnalysis, SolveStep } from "../../../cube/analysis";
-import { compareSolveToHistory, formatTime } from "../../statistics/state/stats";
+import { compareSolveToHistory } from "../../statistics/state/stats";
 import { RECOGNITION_NOTE } from "../../statistics/state/statistics";
 import type { Solve } from "../../../app/types";
 import { SolveComparisonPanel } from "./SolveComparison";

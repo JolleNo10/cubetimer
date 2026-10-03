@@ -1,4 +1,4 @@
-import { formatTime } from "../state/stats";
+import { formatTime } from "../../../shared/time";
 import type { AverageProgressionPoint, RecognitionTrendPoint, DistributionStats, PhaseTrendPoint, TrendPoint } from "../state/statistics";
 import { statisticsActivationProps } from "./statisticsInteraction";
 

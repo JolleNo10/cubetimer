@@ -1,5 +1,5 @@
-import type { WhiteCrossMoves } from "../../cube/crossScramble";
-import type { XCrossMaxMoves } from "../../app/types";
+import type { WhiteCrossMoves } from "../cube/crossScramble";
+import type { XCrossMaxMoves } from "./types";
 
 type PracticeScrambleDetails = {
   label: string;

@@ -1,5 +1,6 @@
+import { formatTime } from "../../../shared/time";
 import { useMemo } from "react";
-import { formatTime, sessionStats, type LongAverage } from "../state/stats";
+import { sessionStats, type LongAverage } from "../state/stats";
 import type { Solve } from "../../../app/types";
 
 export function StatsPanel({ solves }: { solves: Solve[] }) {

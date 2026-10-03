@@ -3,23 +3,24 @@ import { faceColour, slotColours } from "../../../cube/colours";
 import { F2L_POSITIONS, f2lPositionLabel } from "../../../cube/f2lCases";
 import { getF2lThumbnailModel } from "../../../cube/f2lThumbnail";
 import { F2L_TRAINING_CATALOGUES, f2lTrainingCatalogue, shortF2lCaseLabel, type F2lTrainingCase, type F2lTrainingLibrary } from "../../../cube/f2lTrainingCases";
-import { useController, useTrainingState } from "../../../app/useController";
-import type { TrainingEnvironment } from "./TrainingWorkspace";
+import { useController, useStoreValue } from "../../../app/useController";
 import { F2lCaseThumbnail } from "./F2lCaseThumbnail";
 import { TrainingWorkspace } from "./TrainingWorkspace";
 
-export function F2LTraining({ state }: { state: TrainingEnvironment }) {
-  const training = useTrainingState();
-  const catalogue = f2lTrainingCatalogue(training.f2lSelection.library);
-  return <TrainingWorkspace state={state} library={<F2lLibraryPanel />} details={<F2lTargetDetails />}
+export function F2LTraining() {
+  const controller = useController();
+  const library = useStoreValue(controller.training.state, state => state.f2lSelection.library);
+  const catalogue = f2lTrainingCatalogue(library);
+  return <TrainingWorkspace library={<F2lLibraryPanel />} details={<F2lTargetDetails />}
     emptyMessage={<>Select one of the {catalogue.cases.length} {catalogue.label} cases, or use Train from a solve review.</>} />;
 }
 
 function F2lLibraryPanel() {
   const controller = useController();
-  const training = useTrainingState();
-  const catalogue = f2lTrainingCatalogue(training.f2lSelection.library);
-  const target = training.target?.family === "f2l" ? training.target : null;
+  const selection = useStoreValue(controller.training.state, state => state.f2lSelection);
+  const selectedTarget = useStoreValue(controller.training.state, state => state.target);
+  const catalogue = f2lTrainingCatalogue(selection.library);
+  const target = selectedTarget?.family === "f2l" ? selectedTarget : null;
   return (
     <div className="panel f2l-library">
       <div className="panel-head">
@@ -30,8 +31,8 @@ function F2lLibraryPanel() {
               <button
                 type="button"
                 key={option.library}
-                className={training.f2lSelection.library === option.library ? "active" : ""}
-                aria-pressed={training.f2lSelection.library === option.library}
+                className={selection.library === option.library ? "active" : ""}
+                aria-pressed={selection.library === option.library}
                 onClick={() => controller.setF2lLibrary(option.library)}
               >
                 {option.label}
@@ -46,7 +47,7 @@ function F2lLibraryPanel() {
         <nav className="f2l-position-switch" aria-label="F2L position">
           {F2L_POSITIONS.map((position) => {
             const fixed = target?.origin.kind === "solve-step";
-            const selected = training.f2lSelection.position === position;
+            const selected = selection.position === position;
             return (
               <button
                 type="button"
@@ -62,10 +63,10 @@ function F2lLibraryPanel() {
           })}
         </nav>
         <F2lCaseLibrary
-          library={training.f2lSelection.library}
+          library={selection.library}
           cases={catalogue.cases}
-          selectedPosition={training.f2lSelection.position}
-          selectedCaseName={target?.origin.kind === "catalog" && target.origin.library === training.f2lSelection.library
+          selectedPosition={selection.position}
+          selectedCaseName={target?.origin.kind === "catalog" && target.origin.library === selection.library
             ? target.origin.caseName
             : null}
         />
@@ -125,8 +126,9 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
 });
 
 function F2lTargetDetails() {
-  const training = useTrainingState();
-  const target = training.target?.family === "f2l" ? training.target : null;
+  const controller = useController();
+  const selectedTarget = useStoreValue(controller.training.state, state => state.target);
+  const target = selectedTarget?.family === "f2l" ? selectedTarget : null;
   if (!target) return null;
   const reference = target.references[0];
   const slotName = slotColours(target.slot) ?? target.slot;

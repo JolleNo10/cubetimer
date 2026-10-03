@@ -1,5 +1,6 @@
+import { formatTime } from "../../../shared/time";
 import { useMemo, useState } from "react";
-import { formatTime, formatSolveTime } from "../state/stats";
+import { formatSolveTime } from "../state/stats";
 import { RECOGNITION_NOTE, sortCasePerformance, type CasePerformance, type CaseSort, type PerformanceSummary, type SortDirection, type StatisticsViewModel } from "../state/statistics";
 import type { Solve } from "../../../app/types";
 import type { LastLayerFamily } from "../../../cube/lastLayerTraining";

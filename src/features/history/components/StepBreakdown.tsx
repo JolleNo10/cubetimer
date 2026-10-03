@@ -1,9 +1,9 @@
+import { formatTime } from "../../../shared/time";
 import { Fragment, useMemo, useState } from "react";
 import type { SolveAnalysis, SolveStep } from "../../../cube/analysis";
 import { faceColour, slotColours } from "../../../cube/colours";
 import { ollGroupForCase, pllGroupForCase } from "../../../cube/lastLayerCases";
 import { isRotation, parseMove } from "../../../cube/notation";
-import { formatTime } from "../../statistics/state/stats";
 import type { ReplayAction } from "./replayTimeline";
 
 export const STEP_COLORS: Record<string, string> = {

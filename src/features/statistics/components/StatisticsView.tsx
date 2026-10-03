@@ -1,3 +1,4 @@
+import { formatTime } from "../../../shared/time";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DEFAULT_EVENT_ID, eventInfo, type EventId } from "../../../cube/scramble";
 import { useController } from "../../../app/useController";
@@ -11,7 +12,7 @@ import {
   type StatisticsViewModel,
 } from "../state/statistics";
 import { effectiveMs, type Solve } from "../../../app/types";
-import { formatTime, type LongAverage } from "../state/stats";
+import { type LongAverage } from "../state/stats";
 import { AverageProgressionChart, RecognitionExecutionTrendChart, CfopPhaseTrendChart, DistributionChart, SolveTimeTrendChart } from "./StatisticsCharts";
 import { StatisticsRecords, StatisticsCfopRecords, StatisticsBestSplits } from "./StatisticsRecords";
 import { StatisticsAnalysisTables, StatisticsConsistency, StatisticsPauses } from "./StatisticsAnalysisTables";

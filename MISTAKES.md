@@ -351,3 +351,11 @@ not independently invented states. The original entry is retained as history.
 - What happened: asynchronous physical-state scramble adoption could overwrite a newer scramble and clear newer pending state.
 - Root cause: adoption did not participate in scramble-generation ownership or guard its completion cleanup.
 - Prevention: reuse the scramble-generation token and check ownership before applying results, reporting failures, or clearing pending state.
+
+- What happened: physical and runtime updates still rerendered Timer history/statistics and Training case libraries after stores were separated.
+- Root cause: aggregate Timer/Training presentation subscriptions reconnected unrelated surfaces to the high-frequency stores.
+- Prevention: subscribe at the consuming surface, select stable navigation/catalogue facts, and protect isolation with notification/render counters.
+
+- What happened: the first subscription/boundary fixtures failed at their own clock and TypeScript AST seams.
+- Root cause: the Node fixture omitted the shared RAF stub, and AST text reads assumed parent links while memo component inspection assumed an ordinary element type.
+- Prevention: stub the existing clock seam, supply the source file to AST text reads, and inspect opaque React component types before narrowing.

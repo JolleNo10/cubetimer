@@ -14,6 +14,7 @@ These documents describe current state. Start at [SYSTEM.md](SYSTEM.md); load on
 | CSV contract | `src/features/data-transfer/solveCsv.ts`, `csv.ts`, transfer tests |
 | Statistics scope/averages/projections | `src/features/statistics/state/stats.ts`, `statistics.ts`; `src/features/statistics/components/StatisticsView.tsx`, `StatisticsCharts.tsx` |
 | Solve/replay/result presentation | `src/features/history/components/SolveResult.tsx`, `StepBreakdown.tsx`, `ReplayDialog.tsx`, `replayTimeline.ts`, `replayFocus.ts` |
+| Persisted Solve scramble-provider encoding/display labels | `src/app/scrambleProvider.ts` |
 
 Load [RUNTIME.md](RUNTIME.md) for live context integration, [TRAINING.md](TRAINING.md) for historical practice, or [CUBE.md](CUBE.md) for derived analysis/frame meaning.
 
@@ -177,6 +178,12 @@ The current ownership model does not require an IndexedDB schema-version bump be
 - `Settings`.
 
 Components do not write IndexedDB directly.
+
+`src/app/scrambleProvider.ts` owns the encoding and display labels for persisted
+`Solve.scrambleProvider` metadata shared by Timer production and history/result
+presentation. Provider strings retain their interchange meaning independently of
+the feature that produces them. Generic time formatting belongs to `src/shared/time.ts`;
+Statistics calculations remain in the Statistics feature.
 
 Persisted application workflows flow through concrete state services:
 

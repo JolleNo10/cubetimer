@@ -1,9 +1,9 @@
+import { formatTime } from "../../../shared/time";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alg } from "cubing/alg";
 import { TwistyPlayer } from "cubing/twisty";
 import { reorientMove, rotationForCrossFace } from "../../../cube/orientation";
 import { decodeGripTrack, rewriteWithRotations } from "../../../cube/gripTrack";
-import { formatTime } from "../../statistics/state/stats";
 import {
   DetailedStepBreakdown,
   canPracticeTrainingStep,

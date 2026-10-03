@@ -8,7 +8,9 @@ These documents describe current state. Start at [SYSTEM.md](SYSTEM.md); load on
 | --- | --- |
 | Composition, area routing or Session/runtime integration | `src/app/Controller.ts`, `src/app/Controller.test.ts` |
 | Physical model, device events, grip or synchronization | `src/app/PhysicalCubeRuntime.ts`; transport in `src/infrastructure/bluetooth/smartCube.ts` |
-| Timer, inspection, scrambles, solve facts or analysis orchestration | `src/features/timer/TimerRuntime.ts`, `scrambleProvider.ts` |
+| Timer, inspection, scrambles, solve facts or analysis orchestration | `src/features/timer/TimerRuntime.ts` |
+| Persisted scramble-provider encoding/display labels | `src/app/scrambleProvider.ts` |
+| Generic millisecond/time formatting | `src/shared/time.ts` |
 | React subscriptions/navigation | `src/app/App.tsx`, `useController.ts`, the relevant feature/shared component |
 | Cross/XCross/Slow Solve | `src/cube/crossSolver.ts`, `crossPlans.ts`, `crossScramble.ts`; `src/features/timer/components/CoachPanel.tsx` |
 
@@ -33,6 +35,10 @@ inspection, elapsed timestamp, recovery cancellation, raw moves/readings, starti
 pattern, penalty/source, Solve construction and analysis. Controller supplies active
 Session/EventId, Settings and a SolveHistory persistence callback. TimerRuntime does
 not own Session persistence. TrainingRuntime remains the sibling Training owner.
+
+Feature runtimes consume narrow structural physical-cube contracts. Controller
+passes PhysicalCubeRuntime into those contracts; feature runtimes do not import
+concrete application runtime classes.
 
 This logic lives outside React intentionally. Cube events may arrive frequently and timing updates every animation frame.
 
@@ -65,6 +71,14 @@ synchronous actions; it does not publish or store a second copy. React subscribe
 through ownership hooks. Timer/cube high-frequency subscriptions live below App
 navigation; Header selects stable phase/device facts. Training subscribes directly
 to TrainingRuntime. Presentation-only selection/dialog/hold state remains React-owned.
+
+High-frequency physical and Timer stores are subscribed at the smallest feature
+surface that consumes them. Navigation, history, statistics summaries, and case
+libraries must not receive physical move updates through aggregate snapshots.
+Connection controls select device facts; scramble, coach, Timer display and cube
+surfaces subscribe locally. Training navigation selects its family, libraries select
+case preferences/targets, and setup/cube/attempt surfaces own their live subscriptions.
+Selectors return primitive values or stable references contained in their store.
 
 One Controller RAF scheduler asks TimerRuntime to tick or reads
 `training.elapsedAt(now)`. The runtimes own their timestamps and request shared
@@ -232,6 +246,13 @@ Material browser boundaries include:
 Remembered Bluetooth MAC addresses are stored separately in `localStorage`, not in the IndexedDB application records.
 
 ## Rejected alternatives
+
+### Aggregate observable feature snapshots
+
+Rejected because an aggregate Timer or Training snapshot reconnects unrelated
+presentation to physical/runtime updates and recreates the rerender fan-out that
+ownership stores are intended to remove. Compose synchronous action snapshots
+only; presentation subscribes to the facts consumed by each surface.
 
 ### One CubeModel per feature
 

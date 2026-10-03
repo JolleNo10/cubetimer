@@ -20,6 +20,24 @@ import { reframe } from "../../../cube/recognise";
 import type { TimerPhase } from "../TimerRuntime";
 import type { Settings } from "../../../app/types";
 import { GripLabel } from "../../../shared/ui/GripLabel";
+import { useController, useSettings, useStoreValue } from "../../../app/useController";
+
+export function TimerCoachPanel() {
+  const controller = useController();
+  const slow = useStoreValue(controller.settings, settings => settings.slowSolve);
+  const live = useStoreValue(controller.physical.state, state => state.cubeStatus === "connected" || state.virtualCube);
+  return slow && live ? <LiveCoachPanel /> : null;
+}
+
+function LiveCoachPanel() {
+  const controller = useController();
+  const settings = useSettings();
+  const facelets = useStoreValue(controller.physical.state, state => state.cubeFacelets);
+  const phase = useStoreValue(controller.timer.state, state => state.phase);
+  const scramble = useStoreValue(controller.timer.state, state => state.scramble);
+  const liveMoves = useStoreValue(controller.timer.state, state => state.liveMoves);
+  return <CoachPanel facelets={facelets} settings={settings} phase={phase} scramble={scramble} liveMoves={liveMoves} />;
+}
 
 /** Wait this long after the last turn before thinking, so turning stays smooth. */
 const SETTLE_MS = 180;
