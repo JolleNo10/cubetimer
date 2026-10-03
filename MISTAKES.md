@@ -311,3 +311,9 @@ not independently invented states. The original entry is retained as history.
 - What happened: the first Header migration put the Training subscription hook inside a short-circuit expression.
 - Root cause: replacing a state read inline made hook invocation depend on the Timer phase.
 - Prevention: call subscription hooks unconditionally at component entry and use the returned state in eligibility expressions.
+
+## 2026-10-03
+
+- What happened: the first shared Training presentation lost last-layer Complete status after virtual automatic reload and hid F2L result alternatives.
+- Root cause: shared rendering flattened family-specific result/target relationships: last-layer retries may change reference context while F2L retains its catalogue reference options.
+- Prevention: share presentation structure while preserving result-aware status and family-specific reference availability, covered by component regressions.
