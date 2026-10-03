@@ -94,6 +94,111 @@ function f2lTargetOf(controller: Controller): F2lTrainingTargetInfo | null {
   return controller.state.get().training.target as F2lTrainingTargetInfo | null;
 }
 
+describe("Controller shared algorithm guide", () => {
+  async function select(family: "f2l" | "oll" | "pll", mode: "setup" | "virtual") {
+    stubTimerLoop();
+    if (mode === "setup" && family !== "f2l") {
+      // Search uses randomness too; calculate a real setup before fixing the
+      // catalogue AUF draw, as in the existing physical Training fixtures.
+      const built = buildLastLayerCatalogueTarget(kpuzzle, family, family === "oll" ? "27" : "T");
+      const setup = await solver.algBetween(kpuzzle.defaultPattern(), built.pattern);
+      vi.spyOn(solver, "algBetween").mockResolvedValue(setup);
+    }
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.state.update((state) => ({ ...state, virtualCube: true }));
+    controller.setArea("training");
+    controller.setTrainingFamily(family);
+    await controller.setTrainingMode(mode);
+    if (family === "f2l") await controller.selectF2lCase("F2L 1");
+    else await controller.selectLastLayerCase(family, family === "oll" ? "27" : "T");
+    expect(controller.state.get().error).toBeNull();
+    const target = controller.state.get().training.target!;
+    if (mode === "setup") {
+      for (const move of controller.state.get().training.setup.split(" ").filter(Boolean)) {
+        controller.injectMove(cubeMove(move, trainingGrip(target)));
+      }
+    }
+    expect(controller.state.get().training.phase).toBe("ready");
+    return controller;
+  }
+
+  it.each(["f2l", "oll", "pll"] as const)("uses actual %s patterns in both modes, allows deviations, and completes custom solutions", async (family) => {
+    for (const mode of ["setup", "virtual"] as const) {
+      const controller = await select(family, mode);
+      const ready = controller.state.get().training;
+      const target = ready.target!;
+      const grip = trainingGrip(target);
+      expect(ready.guide).toMatchObject({ confirmed: 0, currentMove: { token: ready.guide!.moves[0] } });
+      const physicalStart = controller.pattern!;
+      const reference = referenceExecutionSignature(target.references[0].alg)!;
+      // Six repetitions are a state identity but a different execution. The
+      // reference guide must remain advisory during this deliberate detour.
+      const detour = Array.from(new Alg("(F U F' U')6").expand().childAlgNodes()).map((node) => node.toString());
+      controller.injectMove(cubeMove(detour[0], grip));
+      expect(controller.state.get().training.phase).toBe("solving");
+      expect(controller.state.get().training.target).toBe(target);
+      expect(controller.state.get().training.result).toBeNull();
+      expect(controller.state.get().training.guide?.confirmed).toBe(0);
+      for (const move of detour.slice(1)) controller.injectMove(cubeMove(move, grip));
+      expect(controller.state.get().training.result).toBeNull();
+      controller.injectMove(cubeMove(reference[0], grip));
+      expect(controller.state.get().training.guide?.confirmed).toBe(1);
+      for (const move of reference.slice(1)) controller.injectMove(cubeMove(move, grip));
+      const result = controller.state.get().training.result;
+      expect(result).not.toBeNull();
+      expect(result?.matchedReferenceRank).toBeNull();
+      expect(controller.state.get().solves).toEqual([]);
+      if (mode === "setup") {
+        expect(controller.state.get().training.phase).toBe("result");
+        expect(controller.state.get().training.guide?.currentMove).toBeNull();
+      } else {
+        // Existing virtual automatic reload preserves the result for review.
+        expect(controller.state.get().training.phase).toBe("ready");
+        expect(controller.state.get().training.guide?.confirmed).toBe(0);
+        expect(patternToFacelets(controller.pattern!)).toBe(patternToFacelets(physicalStart.applyAlg(
+          [...detour, ...reference].map((move) => cubeMove(move, grip)).join(" "))));
+      }
+      controller.againTraining();
+      await Promise.resolve();
+      expect(controller.state.get().training.guide?.confirmed).toBe(0);
+      expect(controller.state.get().training.guide?.currentMove?.token).toBe(controller.state.get().training.guide?.moves[0]);
+      expect(controller.state.get().training.result).toBeNull();
+    }
+  });
+
+  it("resets progression on another target, family, mode, and Training reset", async () => {
+    const controller = await select("f2l", "virtual");
+    const target = controller.state.get().training.target!;
+    controller.injectMove(cubeMove(controller.state.get().training.guide!.moves[0], trainingGrip(target)));
+    expect(controller.state.get().training.guide?.confirmed).toBe(1);
+    await controller.selectF2lCase("F2L 4");
+    expect(controller.state.get().training.guide?.confirmed).toBe(0);
+    controller.injectMove(cubeMove(controller.state.get().training.guide!.moves[0], trainingGrip(controller.state.get().training.target!)));
+    await controller.setTrainingMode("setup");
+    expect(controller.state.get().training.guide?.confirmed).toBe(0);
+    controller.setTrainingFamily("oll");
+    expect(controller.state.get().training.guide).toBeNull();
+    await controller.setTrainingMode("virtual");
+    await controller.selectLastLayerCase("oll", "27");
+    expect(controller.state.get().training.guide?.confirmed).toBe(0);
+    controller.resetTraining();
+    expect(controller.state.get().training.guide).toBeNull();
+  });
+
+  it("omits guidance for an exact F2L target without a validated reference", async () => {
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.setArea("training");
+    await controller.setTrainingMode("virtual");
+    const slot = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0]).info.slot;
+    await controller.practiceF2lStep({ id: "no-reference", scramble: "R", moves: [{ move: "R'", t: 1 }],
+      analysis: { crossFace: "U" } } as Solve,
+    { name: "F2L Slot 1", slot, fromMove: 0, toMove: 1, skipped: false } as SolveStep);
+    expect(controller.state.get().training.target?.references).toEqual([]);
+    expect(controller.state.get().training.guide).toBeNull();
+  });
+});
+
 describe("Controller independent last-layer Training sets", () => {
   it.each([
     ["oll", "Dot Shape", "orient-edges"],

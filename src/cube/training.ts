@@ -1,10 +1,11 @@
-import { Alg } from "cubing/alg";
+import { Alg, Move } from "cubing/alg";
 import type { KPattern, KPuzzle } from "cubing/kpuzzle";
 import { faceletsToPattern } from "./facelets";
 import { countTurns, joinMoves, mergeSameFaceTurns, isRotation, parseMove, OUTER_FACES, type TimedMove } from "./notation";
 import type { Face } from "./moves";
 import {
   compose,
+  ALL_ORIENTATIONS,
   GENERATORS,
   invert,
   IDENTITY,
@@ -13,6 +14,133 @@ import {
   type Orientation,
   type Rotation,
 } from "./orientation";
+import { reframe, withCentresHome } from "./recognise";
+
+export type TrainingGuideMove = {
+  token: string;
+  kind: "outer" | "wide" | "slice" | "rotation";
+  axis: "x" | "y" | "z";
+  /** A layer interval in the fixed solver-facing cube, from -1 to 1. */
+  layers: readonly [number, number];
+  /** Right-hand rotation about the positive axis; half turns have no required direction. */
+  direction: -1 | 1;
+  halfTurn: boolean;
+};
+
+const GUIDE_FACES = {
+  R: { axis: "x", side: 1 }, L: { axis: "x", side: -1 },
+  U: { axis: "y", side: 1 }, D: { axis: "y", side: -1 },
+  F: { axis: "z", side: 1 }, B: { axis: "z", side: -1 },
+} as const;
+
+type GuideKind = TrainingGuideMove["kind"];
+const GUIDE_FAMILIES: Record<string, { face: Face; kind: GuideKind }> = {
+  ...Object.fromEntries(OUTER_FACES.flatMap((face) => [
+    [face, { face, kind: "outer" }],
+    [face.toLowerCase(), { face, kind: "wide" }],
+    [`${face}w`, { face, kind: "wide" }],
+  ])),
+  M: { face: "L", kind: "slice" }, E: { face: "D", kind: "slice" }, S: { face: "F", kind: "slice" },
+  x: { face: "R", kind: "rotation" }, y: { face: "U", kind: "rotation" }, z: { face: "F", kind: "rotation" },
+};
+
+function guideLayers(kind: GuideKind, side: number): readonly [number, number] {
+  if (kind === "rotation") return [-1, 1];
+  if (kind === "slice") return [-1 / 3, 1 / 3];
+  const inner = kind === "wide" ? -1 / 3 : 1 / 3;
+  return side === 1 ? [inner, 1] : [-1, -inner];
+}
+
+/** cubing.js owns notation parsing, including wide turns and expanded groups. */
+export function trainingGuideMove(token: string, orientation: Orientation = IDENTITY): TrainingGuideMove | null {
+  try {
+    const move = new Move(token);
+    const family = GUIDE_FAMILIES[move.quantum.family];
+    const turns = ((move.amount % 4) + 4) % 4;
+    if (!turns || !family) return null;
+    const { face, kind } = family;
+    const { axis, side } = GUIDE_FACES[orientation[face]];
+    const layers = guideLayers(kind, side);
+    return { token, kind, axis, layers, direction: (turns === 3 ? side : -side) as -1 | 1, halfTurn: turns === 2 };
+  } catch {
+    return null;
+  }
+}
+
+export type TrainingGuideProgress = {
+  moves: readonly string[];
+  confirmed: number;
+  currentMove: TrainingGuideMove | null;
+  finished: boolean;
+};
+
+export type TrainingGuide = {
+  moves: readonly string[];
+  guideMoves: readonly TrainingGuideMove[];
+  checkpointKeys: readonly string[];
+  rotation: Alg;
+};
+
+function guidePatternKey(pattern: KPattern): string {
+  const normalized = withCentresHome(pattern.kpuzzle, pattern);
+  // Smart cubes do not report center sticker orientation. Piece state is truth.
+  return JSON.stringify([normalized.patternData.CORNERS, normalized.patternData.EDGES]);
+}
+
+/** Build once from the exact target, through the same frame as reference validation. */
+export function buildTrainingGuide(
+  pattern: KPattern,
+  target: { trainingRotation: Rotation; references: readonly TrainingReferenceLike[] },
+): TrainingGuide | null {
+  const reference = target.references[0];
+  if (!reference) return null;
+  try {
+    const moves = Array.from(new Alg(reference.alg).expand().childAlgNodes())
+      .filter((node): node is Move => node instanceof Move).map((node) => node.toString());
+    if (!moves.length) return null;
+    const kpuzzle = pattern.kpuzzle;
+    const rotation = new Alg(target.trainingRotation.tokens.join(" "));
+    let checkpoint = reframe(kpuzzle, pattern, rotation);
+    const checkpointKeys = [guidePatternKey(checkpoint)];
+    const guideMoves: TrainingGuideMove[] = [];
+    for (const token of moves) {
+      // Wide/slice turns and rotations change center locations. Reuse the existing
+      // orientation group to express the next arrow in the fixed Training view.
+      const centers = checkpoint.patternData.CENTERS.pieces;
+      const held = ALL_ORIENTATIONS.find((candidate) => kpuzzle.defaultPattern()
+        .applyAlg(new Alg(candidate.tokens.join(" "))).patternData.CENTERS.pieces
+        .every((piece, index) => piece === centers[index]));
+      if (!held) return null;
+      const guideMove = trainingGuideMove(token, invert(held.orientation));
+      if (!guideMove) return null;
+      guideMoves.push(guideMove);
+      checkpoint = checkpoint.applyMove(token);
+      checkpointKeys.push(guidePatternKey(checkpoint));
+    }
+    return { moves, guideMoves, checkpointKeys, rotation };
+  } catch {
+    // An unavailable/unsupported reference must never prevent an attempt.
+    return null;
+  }
+}
+
+export function trainingGuideProgress(guide: TrainingGuide, confirmed = 0): TrainingGuideProgress {
+  return { moves: guide.moves, confirmed, currentMove: guide.guideMoves[confirmed] ?? null, finished: confirmed >= guide.moves.length };
+}
+
+/** Monotonic confirmation: deviations retain progress and later checkpoints rejoin. */
+export function advanceTrainingGuide(guide: TrainingGuide, pattern: KPattern, confirmed: number): TrainingGuideProgress {
+  const facing = reframe(pattern.kpuzzle, pattern, guide.rotation);
+  const key = guidePatternKey(facing);
+  let next = confirmed;
+  for (let index = confirmed + 1; index < guide.checkpointKeys.length; index++) {
+    // Keep an intermediate rotation as the next visible instruction. The next
+    // piece-changing checkpoint can confirm past it without a gyro event.
+    if (guide.guideMoves[index - 1].kind === "rotation" && index < guide.moves.length) continue;
+    if (guide.checkpointKeys[index] === key) next = index;
+  }
+  return trainingGuideProgress(guide, next);
+}
 
 /** The fixed solver frame shared by all 3x3 case-training families. */
 export function standardTrainingRotation(): Rotation {

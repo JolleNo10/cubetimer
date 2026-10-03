@@ -1,5 +1,29 @@
 # Mistakes
 
+## 2026-10-03 — Exact Training checkpoint construction
+
+- What happened: guide construction normalized the target before applying its reference, which could prevent an exact historical target with rotated centers from confirming the first move.
+- Root cause: normalization was used on the algorithm's starting state rather than only on its comparison checkpoints.
+- Prevention: start from the exact target in the reference-validation frame, normalize comparison states afterward, and cover a rotated-center target with a regression test.
+
+## 2026-10-03 — Training rotation assertion
+
+- What happened: an initial guide test expected `y R` to turn the fixed view's front layer; the existing execution signature maps it to the back layer.
+- Root cause: the test used an assumed camera-frame mapping instead of the repository's established orientation convention.
+- Prevention: check rotation expectations against the shared orientation and execution helpers before asserting a layer.
+
+## 2026-10-03 — Training setup test randomness
+
+- What happened: a new physical Training fixture failed during setup after fixing all `Math.random` calls to zero for catalogue selection.
+- Root cause: the same mock also affected cubing's setup search; the fixture did not follow the existing tests' order of calculating setup before mocking the catalogue draw.
+- Prevention: calculate a real setup first and stub that narrow solver seam before controlling target-selection randomness.
+
+## 2026-10-03 — Training alternatives test cardinality
+
+- What happened: a new shared-family presentation test required an alternatives button for a PLL target with only one validated reference.
+- Root cause: the assertion assumed catalogue cardinality instead of checking the selected target's references.
+- Prevention: assert alternatives presentation only when validated alternatives exist.
+
 ## 2026-10-03 — Statistics solve review completeness
 
 - What happened: Statistics hid solve activation in metric buttons, omitted Result comparison and skip details, enabled Tools without raw moves, and left F2L sources and trend points inaccessible.

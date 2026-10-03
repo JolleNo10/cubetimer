@@ -10,6 +10,7 @@ import type { AppState } from "../state/controller";
 import { ConnectionPanel } from "./ConnectionPanel";
 import { CubeView } from "./CubeView";
 import { F2lCaseThumbnail } from "./F2lCaseThumbnail";
+import { TrainingAlgorithmGuide } from "./TrainingAlgorithmGuide";
 
 export function F2LTraining({ state }: { state: AppState }) {
   const controller = useController();
@@ -104,6 +105,7 @@ export function F2LTraining({ state }: { state: AppState }) {
             displaySource={training.mode === "virtual" ? "virtual" : "physical"}
             orientationOverride={orientationOverride}
             physicalSyncAvailable={state.cubeStatus === "connected"}
+            guideMove={target && target.references.length > 0 && (training.phase === "ready" || training.phase === "solving") && !training.result ? training.guide?.currentMove : null}
           />
         </div>
       </div>
@@ -335,7 +337,7 @@ function TargetPanel({ state, elapsed }: { state: AppState; elapsed: number }) {
               ) : null}
             </div>
 
-            <ReferenceSection references={references} />
+            <ReferenceSection references={references} training={training} />
             <AttemptSection
               result={result}
               phase={training.phase}
@@ -360,7 +362,7 @@ function TargetPanel({ state, elapsed }: { state: AppState; elapsed: number }) {
   );
 }
 
-function ReferenceSection({ references }: { references: readonly F2lReference[] }) {
+function ReferenceSection({ references, training }: { references: readonly F2lReference[]; training: AppState["training"] }) {
   const [showAlternatives, setShowAlternatives] = useState(false);
   const reference = references[0];
 
@@ -373,7 +375,7 @@ function ReferenceSection({ references }: { references: readonly F2lReference[] 
             <strong>{reference.stm} STM</strong>
             <span className="phase-case">{reference.caseName}</span>
           </div>
-          <div className="mono f2l-reference-alg">{reference.alg}</div>
+          <TrainingAlgorithmGuide algorithm={reference.alg} guide={training.guide} active={(training.phase === "ready" || training.phase === "solving") && !training.result} />
           {references.length > 1 ? (
             <>
               <button

@@ -69,7 +69,7 @@ import {
   type LastLayerTrainingTarget,
   type LastLayerTrainingTargetInfo,
 } from "../cube/lastLayerTraining";
-import { handMove, handTimedMoves, trainingGrip } from "../cube/training";
+import { handMove, handTimedMoves, trainingGrip, buildTrainingGuide, trainingGuideProgress, advanceTrainingGuide, type TrainingGuide, type TrainingGuideProgress } from "../cube/training";
 import { algBetween, solveAlg } from "../cube/solver";
 import {
   SmartCube,
@@ -150,6 +150,7 @@ export type TrainingState = {
   recovery: Recovery | null;
   recoveryPending: boolean;
   liveMoves: string[];
+  guide: TrainingGuideProgress | null;
   result: TrainingResult | null;
   displayFacelets: string;
   displayRevision: number;
@@ -204,6 +205,7 @@ function emptyTrainingState(): TrainingState {
     recovery: null,
     recoveryPending: false,
     liveMoves: [],
+    guide: null,
     result: null,
     displayFacelets: "",
     displayRevision: 0,
@@ -288,6 +290,7 @@ export class Controller {
   #gripHeartbeatAt = 0;
   #f2lCase: F2lTrainingCase | null = null;
   #trainingTarget: TrainingTarget | null = null;
+  #trainingGuide: TrainingGuide | null = null;
   #trainingTracker: ScrambleTracker | null = null;
   #trainingRawMoves: GanCubeMove[] = [];
   #trainingVirtualPattern: KPattern | null = null;
@@ -919,6 +922,7 @@ export class Controller {
     this.#recoveryToken++;
     this.#f2lCase = null;
     this.#trainingTarget = null;
+    this.#trainingGuide = null;
     this.#trainingTracker = null;
     this.#trainingRawMoves = [];
     this.#trainingVirtualPattern = null;
@@ -967,6 +971,7 @@ export class Controller {
     const capturedFacelets = patternToFacelets(captured);
     const targetFacelets = patternToFacelets(target.pattern);
     this.#trainingTarget = target;
+    this.#trainingGuide = buildTrainingGuide(target.pattern, target.info);
     this.#trainingTracker = null;
     this.#trainingRawMoves = [];
     this.#f2lAgainTurns = [];
@@ -987,6 +992,7 @@ export class Controller {
         recovery: null,
         recoveryPending: false,
         liveMoves: [],
+        guide: this.#trainingGuide ? trainingGuideProgress(this.#trainingGuide) : null,
         result: preserveResult ? s.training.result : null,
         displayFacelets: mode === "virtual" || !this.hasCube ? targetFacelets : capturedFacelets,
         displayRevision: s.training.displayRevision + 1,
@@ -1062,6 +1068,7 @@ export class Controller {
     const capturedFacelets = patternToFacelets(model.pattern);
     const targetFacelets = patternToFacelets(target.pattern);
     this.#trainingTarget = target;
+    this.#trainingGuide = buildTrainingGuide(target.pattern, target.info);
     this.#trainingTracker = null;
     this.#trainingRawMoves = [];
     this.#trainingVirtualPattern = mode === "virtual" ? target.pattern : null;
@@ -1079,6 +1086,7 @@ export class Controller {
         recovery: null,
         recoveryPending: false,
         liveMoves: [],
+        guide: this.#trainingGuide ? trainingGuideProgress(this.#trainingGuide) : null,
         result: preserveResult ? s.training.result : null,
         displayFacelets: mode === "virtual" || !this.hasCube ? targetFacelets : capturedFacelets,
         displayRevision: s.training.displayRevision + 1,
@@ -1687,6 +1695,12 @@ export class Controller {
       }));
     }
 
+    const attemptPattern = training.mode === "virtual" ? this.#trainingVirtualPattern : this.#model?.pattern;
+    if (this.#trainingGuide && attemptPattern) {
+      const guide = advanceTrainingGuide(this.#trainingGuide, attemptPattern, training.guide?.confirmed ?? 0);
+      this.state.update((s) => ({ ...s, training: { ...s.training, guide } }));
+    }
+
     if (
       this.state.get().training.phase === "solving" &&
       (() => {
@@ -1932,7 +1946,8 @@ export class Controller {
       matchedReferenceRank: efficiency.matchedReferenceRank,
       delta: efficiency.delta,
     };
-    this.state.update((s) => ({ ...s, training: { ...s.training, phase: "result", result } }));
+    this.state.update((s) => ({ ...s, training: { ...s.training, phase: "result", result,
+      guide: s.training.guide ? { ...s.training.guide, currentMove: null } : null } }));
     if (this.state.get().training.mode === "virtual") {
       if (target && isLastLayerTarget(target)) void this.#reloadLastLayerTraining(true);
       else void this.#reloadF2lTraining(true);

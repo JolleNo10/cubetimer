@@ -16,6 +16,36 @@ function render(controller: Controller, element: React.ReactElement): string {
 }
 
 describe("Training area", () => {
+  it.each(["f2l", "oll", "pll"] as const)("shows shared %s guidance only for a ready/solving reference", async (family) => {
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.setArea("training");
+    controller.setTrainingFamily(family);
+    await controller.setTrainingMode("virtual");
+    if (family === "f2l") await controller.selectF2lCase("F2L 1");
+    else await controller.selectLastLayerCase(family, family === "oll" ? "27" : "T");
+    const ready = controller.state.get();
+    const draw = (state: typeof ready) => render(controller, <Training state={state} />);
+    const html = draw(ready);
+    expect(html).toContain('aria-current="step"');
+    expect(html).toContain('cube-move-guide');
+    expect(html).toContain(`Move 1 / ${ready.training.guide!.moves.length}`);
+    if (ready.training.target!.references.length > 1) expect(html).toContain("alternatives");
+    const preparing = { ...ready, training: { ...ready.training, phase: "preparing" as const } };
+    expect(draw(preparing)).not.toContain("cube-move-guide");
+    expect(draw(preparing)).not.toContain('aria-current="step"');
+    const solving = { ...ready, training: { ...ready.training, phase: "solving" as const,
+      guide: { ...ready.training.guide!, confirmed: 1, currentMove: null } } };
+    expect(draw(solving)).toContain('training-algorithm-token completed');
+    expect(draw(solving)).toContain('aria-current="step"');
+    expect(draw({ ...ready, settings: { ...ready.settings, visualization: "2D" } })).not.toContain("cube-move-guide");
+    expect(draw({ ...ready, settings: { ...ready.settings, visualization: "2D" } })).toContain('aria-current="step"');
+    const result = { moves: [], stm: 1, recommendedStm: 1, matchedReferenceRank: null, delta: 0, elapsedMs: 1 };
+    expect(draw({ ...ready, training: { ...ready.training, phase: "result", result } })).not.toContain("cube-move-guide");
+    // Virtual automatic reload preserves its previous result while ready.
+    expect(draw({ ...ready, training: { ...ready.training, result } })).not.toContain("cube-move-guide");
+    expect(draw({ ...ready, training: { ...ready.training, target: { ...ready.training.target!, references: [] } } })).not.toContain("cube-move-guide");
+  });
+
   it.each([
     ["oll", 10, "1: Edges", "2: Corners", ["Dot Shape", "I-Shape", "L-Shape", "Antisune", "H", "L", "Pi", "Sune", "T", "U"]],
     ["pll", 6, "1: Corners", "2: Edges", ["Diagonal", "Headlights", "H", "Ua", "Ub", "Z"]],

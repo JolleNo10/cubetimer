@@ -17,6 +17,8 @@ import type { Settings } from "../state/types";
 import { FaceletNet } from "./FaceletNet";
 import { faceletsToPattern, patternToFacelets } from "../cube/facelets";
 import { previewFacelets } from "../cube/preview";
+import type { TrainingGuideMove } from "../cube/training";
+import { CubeMoveGuide } from "./CubeMoveGuide";
 
 /** Rebuild the player's setup alg once the appended move list gets this long. */
 const COMPACT_AFTER_MOVES = 400;
@@ -50,6 +52,8 @@ type Props = {
   physicalSyncAvailable?: boolean;
   /** Explicit grip for training views; it overrides settings and gyro orientation. */
   orientationOverride?: Orientation;
+  /** Presentation only; the caller owns instructional progress and visibility. */
+  guideMove?: TrainingGuideMove | null;
 };
 
 export function CubeView({
@@ -63,6 +67,7 @@ export function CubeView({
   displaySource = "physical",
   physicalSyncAvailable,
   orientationOverride,
+  guideMove,
 }: Props) {
   const controller = useController();
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -72,6 +77,7 @@ export function CubeView({
   const resetGyroRef = useRef<() => void>(() => {});
 
   const use3D = settings.visualization === "3D";
+  const guiding = use3D && Boolean(guideMove);
 
   // A solver applies the scramble white on top, then turns the cube over to build the
   // cross. Showing the live cube the same way up means the screen matches their hands.
@@ -120,6 +126,7 @@ export function CubeView({
       experimentalSetupAnchor: "start",
       cameraLatitude: 27,
       cameraLongitude: 32,
+      experimentalDragInput: guiding ? "none" : "auto",
       tempoScale: 5,
       alg: "",
     });
@@ -233,6 +240,7 @@ export function CubeView({
     heldOverride,
     displayRevision,
     displaySource,
+    guiding,
   ]);
 
   // The gyroscope no longer turns the drawn cube directly — the grip it settles into
@@ -293,10 +301,11 @@ export function CubeView({
           </div>
         ) : null}
         {use3D ? (
-          <div ref={hostRef} style={{ width: "100%", height: "100%" }} />
+          <div ref={hostRef} className={guiding ? "cube-player-host guided" : "cube-player-host"} style={{ width: "100%", height: "100%" }} />
         ) : (
           <FaceletNet facelets={shownFacelets} size={22} />
         )}
+        {use3D && guideMove ? <CubeMoveGuide move={guideMove} /> : null}
       </div>
     </div>
   );
