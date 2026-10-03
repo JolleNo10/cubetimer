@@ -6,7 +6,7 @@ import { rotationForGrip, IDENTITY } from "./orientation";
 import { algorithmStm, calculateTrainingEfficiency, referenceExecutionSignature, advanceTrainingGuide, buildTrainingGuide, standardTrainingRotation, trainingGuideMove, trainingGuideProgress } from "./training";
 import { buildF2lCatalogueTarget } from "./f2lTraining";
 import { F2L_TRAINING_CATALOGUES } from "./f2lTrainingCases";
-import { buildLastLayerCatalogueTarget, lastLayerCaseIds } from "./lastLayerTraining";
+import { buildLastLayerCatalogueTarget, isLastLayerTrainingComplete, lastLayerCaseIds } from "./lastLayerTraining";
 import { F2L_POSITIONS } from "./f2lCases";
 
 import { TWO_LOOK_CASES } from "./lastLayerTwoLookCases";
@@ -177,6 +177,87 @@ const decompositions = [
   ["r", "x L"], ["l", "x' R"], ["u", "y D"], ["d", "y' U"],
   ["f", "z B"], ["b", "z' F"], ["M", "x' R L'"], ["E", "y' U D'"], ["S", "z F' B"],
 ] as const;
+
+describe("Training reference path matching", () => {
+  function classify(pattern: typeof start, algorithm: string, execution: string) {
+    return calculateTrainingEfficiency(
+      Array.from(new Alg(execution).expand().childAlgNodes()).map((node, t) => ({ move: node.toString(), t })),
+      [{ rank: 1, alg: algorithm, stm: algorithmStm(algorithm) }],
+      { pattern, trainingRotation: identityRotation },
+    );
+  }
+
+  it.each([
+    ["R U R'", "R U R'"],
+    ["r U r'", "L F L'"],
+    ["f U f'", "B L B'"],
+    ["Rw U Rw'", "L F L'"],
+    ["M U", "L' R B"],
+    ["E U", "D' U U"],
+    ["S U", "B F' L"],
+    ["y R U", "B U"],
+    ["R2 U", "R R U"],
+    ["R2 U", "R' R' U"],
+    ["R R U", "R2 U"],
+  ])("recognizes %s through equivalent physical execution %s", (algorithm, execution) => {
+    const expected = withCentresHome(kpuzzle, start.applyAlg(algorithm));
+    expect([start.applyAlg(execution).patternData.CORNERS, start.applyAlg(execution).patternData.EDGES])
+      .toEqual([expected.patternData.CORNERS, expected.patternData.EDGES]);
+    expect(classify(start, algorithm, execution).matchedReferenceRank).toBe(1);
+  });
+
+  it("recognizes a real 2-Look PLL H with reordered and interleaved reported slice turns", () => {
+    const target = buildLastLayerCatalogueTarget(kpuzzle, "pll", "H", 0, "2look");
+    const rotation = new Alg(target.info.trainingRotation.tokens.join(" "));
+    for (const slice of ["L2 R2", "L R L R", "R' L R' L"]) {
+      const execution = `${slice} D ${slice} U2 ${slice} D ${slice}`;
+      const after = reframe(kpuzzle, reframe(kpuzzle, target.pattern, rotation).applyAlg(execution), rotation.invert());
+      expect(isLastLayerTrainingComplete(target.info, after)).toBe(true);
+      const result = calculateTrainingEfficiency(
+        execution.split(" ").map((move, t) => ({ move, t })), target.info.references,
+        { pattern: target.pattern, trainingRotation: target.info.trainingRotation },
+      );
+      expect(result).toMatchObject({ matchedReferenceRank: 1, stm: 7, delta: 0 });
+    }
+  });
+
+  it("distinguishes a validated alternative from a custom solution that reaches the same goal", () => {
+    const target = buildLastLayerCatalogueTarget(kpuzzle, "oll", "27");
+    const alternative = target.info.references[1];
+    expect(alternative.rank).toBe(2);
+    const execution = referenceExecutionSignature(alternative.alg)!;
+    const context = { pattern: target.pattern, trainingRotation: target.info.trainingRotation };
+    const rotation = new Alg(context.trainingRotation.tokens.join(" "));
+    const after = reframe(kpuzzle, reframe(kpuzzle, target.pattern, rotation).applyAlg(execution.join(" ")), rotation.invert());
+    expect(isLastLayerTrainingComplete(target.info, after)).toBe(true);
+    expect(calculateTrainingEfficiency(execution.map((move, t) => ({ move, t })), target.info.references, context)
+      .matchedReferenceRank).toBe(2);
+    const custom = ["F", "F'", ...execution];
+    expect(calculateTrainingEfficiency(custom.map((move, t) => ({ move, t })), target.info.references, context)
+      .matchedReferenceRank).toBeNull();
+  });
+
+  it("rejects a deviation that rejoins and finishes the recommended checkpoints", () => {
+    const algorithm = "R U F";
+    const execution = "R B B' U F";
+    expect(start.applyAlg(execution).patternData).toEqual(start.applyAlg(algorithm).patternData);
+    expect(advanceTrainingGuide(guideFor(algorithm), start.applyAlg(execution), 0).finished).toBe(true);
+    expect(classify(start, algorithm, execution).matchedReferenceRank).toBeNull();
+  });
+
+  it("matches in the exact historical frame, including a rotated-center starting target", () => {
+    expect(classify(start.applyMove("y"), "R U F", "R U F").matchedReferenceRank).toBe(1);
+    const trainingRotation = rotationForGrip("R", "B")!;
+    const target = buildLastLayerCatalogueTarget(kpuzzle, "pll", "H", 0, "2look");
+    const result = calculateTrainingEfficiency(
+      "L2 R2 D L2 R2 U2 L2 R2 D L2 R2".split(" ").map((move, t) => ({ move, t })),
+      target.info.references,
+      { pattern: reframe(kpuzzle, reframe(kpuzzle, target.pattern, new Alg(target.info.trainingRotation.tokens.join(" "))),
+        new Alg(trainingRotation.tokens.join(" ")).invert()), trainingRotation },
+    );
+    expect(result.matchedReferenceRank).toBe(1);
+  });
+});
 
 describe("Training reference execution signatures", () => {
   it.each(decompositions)("reduces %s and its inverse/double forms with cubing.js conventions", (family, decomposition) => {

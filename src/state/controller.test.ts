@@ -95,6 +95,60 @@ function f2lTargetOf(controller: Controller): F2lTrainingTargetInfo | null {
 }
 
 describe("Controller shared algorithm guide", () => {
+  it.each([
+    ["oll", "Sune", "R"],
+    ["oll", "T", "r"],
+    ["oll", "L-Shape", "f"],
+    ["pll", "H", "M"],
+  ] as const)("classifies the recommended 2-Look %s %s execution containing %s", async (family, caseId, vocabulary) => {
+    stubTimerLoop();
+    const built = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 0, "2look");
+    const setup = await solver.algBetween(kpuzzle.defaultPattern(), built.pattern);
+    vi.spyOn(solver, "algBetween").mockResolvedValue(setup);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.state.update((state) => ({ ...state, virtualCube: true,
+      settings: { ...state.settings, ollTrainingSet: "2look", pllTrainingSet: "2look" } }));
+    controller.setTrainingFamily(family);
+    await controller.selectLastLayerCase(family, caseId);
+    const target = controller.state.get().training.target!;
+    for (const move of controller.state.get().training.setup.split(" ").filter(Boolean)) {
+      controller.injectMove(cubeMove(move, trainingGrip(target)));
+    }
+    expect(controller.state.get().training.phase).toBe("ready");
+    expect(target.references[0].alg).toContain(vocabulary);
+    // M2 is reported as opposing face turns; either face may arrive first.
+    const execution = caseId === "H" ? "L R L R D L R L R U2 L R L R D L R L R".split(" ")
+      : referenceExecutionSignature(target.references[0].alg)!;
+    for (const move of execution) controller.injectMove(cubeMove(move, trainingGrip(target)));
+    expect(controller.state.get().training.result).toMatchObject({
+      matchedReferenceRank: 1, stm: target.references[0].stm, delta: 0,
+    });
+    expect(controller.state.get().training.phase).toBe("result");
+    expect(controller.state.get().solves).toEqual([]);
+  });
+
+  it("classifies a validated F2L alternative while keeping a rejoining execution custom", async () => {
+    stubTimerLoop();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.setArea("training");
+    await controller.setTrainingMode("virtual");
+    await controller.selectF2lCase("F2L 1");
+    const target = controller.state.get().training.target!;
+    const alternative = target.references[1];
+    expect(alternative.rank).toBe(2);
+    const execution = referenceExecutionSignature(alternative.alg)!;
+    for (const move of execution) controller.injectMove(cubeMove(move, trainingGrip(target)));
+    expect(controller.state.get().training.result?.matchedReferenceRank).toBe(2);
+    controller.againTraining();
+    await Promise.resolve();
+    const recommendation = referenceExecutionSignature(controller.state.get().training.target!.references[0].alg)!;
+    const detour = [...recommendation.slice(0, 1), "B", "B'", ...recommendation.slice(1)];
+    for (const move of detour) controller.injectMove(cubeMove(move, trainingGrip(target)));
+    expect(controller.state.get().training.result?.matchedReferenceRank).toBeNull();
+  });
+
   async function select(family: "f2l" | "oll" | "pll", mode: "setup" | "virtual") {
     stubTimerLoop();
     if (mode === "setup" && family !== "f2l") {

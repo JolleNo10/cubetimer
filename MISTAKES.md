@@ -1,5 +1,11 @@
 # Mistakes
 
+## 2026-10-03 — Reference path zero-turn candidates
+
+- What happened: the first strict reference matcher rejected even ordinary outer-turn executions.
+- Root cause: constructing `new Move(face, 0)` produces a default quarter turn, so an unused opposing face was turned during candidate validation.
+- Prevention: skip zero amounts when applying candidate moves and verify a plain outer-turn reference alongside wide/slice regressions.
+
 ## 2026-10-03 — Exact Training checkpoint construction
 
 - What happened: guide construction normalized the target before applying its reference, which could prevent an exact historical target with rotated centers from confirming the first move.

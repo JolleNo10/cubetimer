@@ -77,6 +77,7 @@ export type TrainingGuideProgress = {
 export type TrainingGuide = {
   moves: readonly string[];
   guideMoves: readonly TrainingGuideMove[];
+  checkpoints: readonly KPattern[];
   checkpointKeys: readonly string[];
   rotation: Alg;
 };
@@ -101,6 +102,7 @@ export function buildTrainingGuide(
     const kpuzzle = pattern.kpuzzle;
     const rotation = new Alg(target.trainingRotation.tokens.join(" "));
     let checkpoint = reframe(kpuzzle, pattern, rotation);
+    const checkpoints = [withCentresHome(kpuzzle, checkpoint)];
     const checkpointKeys = [guidePatternKey(checkpoint)];
     const guideMoves: TrainingGuideMove[] = [];
     for (const token of moves) {
@@ -115,9 +117,10 @@ export function buildTrainingGuide(
       if (!guideMove) return null;
       guideMoves.push(guideMove);
       checkpoint = checkpoint.applyMove(token);
+      checkpoints.push(withCentresHome(kpuzzle, checkpoint));
       checkpointKeys.push(guidePatternKey(checkpoint));
     }
-    return { moves, guideMoves, checkpointKeys, rotation };
+    return { moves, guideMoves, checkpoints, checkpointKeys, rotation };
   } catch {
     // An unavailable/unsupported reference must never prevent an attempt.
     return null;
@@ -283,6 +286,96 @@ export function algorithmStm(algorithm: string): number {
 
 export type TrainingReferenceLike = { rank?: number; alg: string; stm: number };
 
+type TrainingReferenceContext = { pattern: KPattern; trainingRotation: Rotation };
+
+/** Legal quarter-turn paths between two shared, center-normalized checkpoints. */
+function referenceStepTransitions(guide: TrainingGuide, index: number): Map<string, Set<string>> {
+  const transitions = new Map<string, Set<string>>();
+  const instruction = guide.guideMoves[index];
+  const faces = OUTER_FACES.filter((face) => GUIDE_FACES[face].axis === instruction.axis);
+  const amounts = instruction.halfTurn ? [0, -2, 2] : [0, -1, 1];
+  const start = guide.checkpoints[index];
+  const endKey = guide.checkpointKeys[index + 1];
+  for (const first of amounts) {
+    for (const second of amounts) {
+      // A normalized outer/wide move changes one outer face; a slice changes
+      // both opposing faces. The checkpoint state determines their directions.
+      if (instruction.kind === "slice" ? !first || !second : Boolean(first) === Boolean(second)) continue;
+      let end = start;
+      if (first) end = end.applyMove(new Move(faces[0], first));
+      if (second) end = end.applyMove(new Move(faces[1], second));
+      if (guidePatternKey(end) !== endKey) continue;
+      const visit = (pattern: KPattern, remaining: readonly number[]) => {
+        const key = guidePatternKey(pattern);
+        for (let face = 0; face < faces.length; face++) {
+          if (!remaining[face]) continue;
+          const direction = Math.sign(remaining[face]);
+          const next = pattern.applyMove(new Move(faces[face], direction));
+          const successors = transitions.get(key) ?? new Set<string>();
+          successors.add(guidePatternKey(next));
+          transitions.set(key, successors);
+          const rest = [...remaining];
+          rest[face] -= direction;
+          visit(next, rest);
+        }
+      };
+      visit(start, [first, second]);
+    }
+  }
+  return transitions;
+}
+
+/** Strict execution matching; unlike the live guide, a deviation cannot rejoin. */
+function followsTrainingReference(
+  rawMoves: readonly TimedMove[], reference: TrainingReferenceLike, context: TrainingReferenceContext,
+): boolean {
+  const guide = buildTrainingGuide(context.pattern, { trainingRotation: context.trainingRotation, references: [reference] });
+  if (!guide) return false;
+  const skipRotations = (index: number) => {
+    while (guide.guideMoves[index]?.kind === "rotation") index++;
+    return index;
+  };
+  const transitions = new Map<number, Map<string, Set<string>>>();
+  const advance = (pattern: KPattern, token: Move, index: number): number | null => {
+    index = skipRotations(index);
+    if (index >= guide.moves.length) return null;
+    let step = transitions.get(index);
+    if (!step) {
+      step = referenceStepTransitions(guide, index);
+      transitions.set(index, step);
+    }
+    const nextKey = guidePatternKey(pattern.applyMove(token));
+    if (!step.get(guidePatternKey(pattern))?.has(nextKey)) return null;
+    return nextKey === guide.checkpointKeys[index + 1] ? skipRotations(index + 1) : index;
+  };
+  let pattern = reframe(context.pattern.kpuzzle, context.pattern, guide.rotation);
+  let positions = new Set([skipRotations(0)]);
+  for (const { move } of rawMoves) {
+    const parsed = parseMove(move);
+    if (!parsed || !OUTER_FACES.includes(parsed.family as Face)) return false;
+    const amount = ((parsed.amount % 4) + 4) % 4;
+    if (!amount) return false;
+    const directions = amount === 2 ? [1, -1] : [amount === 3 ? -1 : 1];
+    const nextPositions = new Set<number>();
+    for (const position of positions) {
+      for (const direction of directions) {
+        let candidate: number | null = position;
+        let intermediate = pattern;
+        const quarter = new Move(parsed.family, direction);
+        for (let turn = 0; turn < (amount === 2 ? 2 : 1) && candidate !== null; turn++) {
+          candidate = advance(intermediate, quarter, candidate);
+          intermediate = intermediate.applyMove(quarter);
+        }
+        if (candidate !== null) nextPositions.add(candidate);
+      }
+    }
+    if (!nextPositions.size) return false;
+    positions = nextPositions;
+    pattern = pattern.applyMove(move);
+  }
+  return positions.has(guide.moves.length);
+}
+
 export type TrainingEfficiency = {
   moves: TimedMove[];
   stm: number;
@@ -295,6 +388,7 @@ export type TrainingEfficiency = {
 export function calculateTrainingEfficiency(
   rawMoves: readonly TimedMove[],
   references?: readonly TrainingReferenceLike[] | TrainingReferenceLike | null,
+  context?: TrainingReferenceContext,
 ): TrainingEfficiency {
   const moves = mergeSameFaceTurns(rawMoves);
   const observedStm = countTurns(moves.map(({ move }) => metricToken(move))).sliceTurns;
@@ -306,6 +400,7 @@ export function calculateTrainingEfficiency(
   const recommendedStm = referenceList[0]?.stm ?? null;
   const execution = moves.map(({ move }) => move);
   const matchedReference = referenceList.find((reference) => {
+    if (context) return followsTrainingReference(rawMoves, reference, context);
     const signature = referenceExecutionSignature(reference.alg);
     return signature !== null && signature.length === execution.length && signature.every((move, index) => move === execution[index]);
   });

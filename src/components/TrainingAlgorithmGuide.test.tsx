@@ -20,6 +20,14 @@ describe("Training algorithm presentation", () => {
     expect(html).not.toContain("aria-current");
   });
 
+  it.each([false, true])("hides progress and completed styling for an inactive guide (finished=%s)", (finished) => {
+    const guide = { moves: ["R", "U", "R'"], confirmed: finished ? 3 : 1, currentMove: trainingGuideMove("U"), finished };
+    const html = renderToStaticMarkup(<TrainingAlgorithmGuide algorithm="R U R'" guide={guide} active={false} />);
+    expect(html.match(/training-algorithm-token upcoming/g)).toHaveLength(3);
+    expect(html).not.toContain("aria-current");
+    expect(html).not.toMatch(/Move \d+ \/|Guide complete/);
+  });
+
   it.each(["R", "r", "M", "x"])("renders distinct layer guidance for %s", (token) => {
     const move = trainingGuideMove(token)!;
     const html = renderToStaticMarkup(<CubeMoveGuide move={move} />);

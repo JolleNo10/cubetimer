@@ -69,14 +69,23 @@ describe("Training area", () => {
     const preparing = { ...ready, training: { ...ready.training, phase: "preparing" as const } };
     expect(draw(preparing)).not.toContain("cube-move-guide");
     expect(draw(preparing)).not.toContain('aria-current="step"');
+    expect(draw(preparing)).toContain('aria-label="Recommended algorithm"');
+    expect(draw(preparing)).not.toMatch(/Move \d+ \/|Guide complete/);
     const solving = { ...ready, training: { ...ready.training, phase: "solving" as const,
       guide: { ...ready.training.guide!, confirmed: 1, currentMove: null } } };
     expect(draw(solving)).toContain('training-algorithm-token completed');
     expect(draw(solving)).toContain('aria-current="step"');
+    expect(draw(solving)).toContain(`Move 2 / ${ready.training.guide!.moves.length}`);
     expect(draw({ ...ready, settings: { ...ready.settings, visualization: "2D" } })).not.toContain("cube-move-guide");
     expect(draw({ ...ready, settings: { ...ready.settings, visualization: "2D" } })).toContain('aria-current="step"');
     const result = { moves: [], stm: 1, recommendedStm: 1, recommendedAlg: ready.training.target!.references[0].alg, matchedReferenceRank: null, delta: 0, elapsedMs: 1 };
     expect(draw({ ...ready, training: { ...ready.training, phase: "result", result } })).not.toContain("cube-move-guide");
+    for (const phase of ["result", "ready"] as const) {
+      const reviewed = draw({ ...ready, training: { ...ready.training, phase, result } });
+      expect(reviewed).toContain('aria-label="Recommended algorithm"');
+      expect(reviewed).not.toContain('aria-current="step"');
+      expect(reviewed).not.toMatch(/Move \d+ \/|Guide complete/);
+    }
     // Virtual automatic reload preserves its previous result while ready.
     expect(draw({ ...ready, training: { ...ready.training, result } })).not.toContain("cube-move-guide");
     expect(draw({ ...ready, training: { ...ready.training, target: { ...ready.training.target!, references: [] } } })).not.toContain("cube-move-guide");

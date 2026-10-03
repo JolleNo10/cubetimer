@@ -1937,7 +1937,8 @@ export class Controller {
     }));
     const target = this.#trainingTarget;
     const handTimed = target ? handTimedMoves(timed, this.#trainingGrip(target)) : timed;
-    const efficiency = calculateTrainingEfficiency(handTimed, target?.info.references);
+    const efficiency = calculateTrainingEfficiency(handTimed, target?.info.references,
+      target ? { pattern: target.pattern, trainingRotation: target.info.trainingRotation } : undefined);
     this.elapsed.set(efficiency.elapsedMs);
     const result: TrainingResult = {
       moves: efficiency.moves.map(({ move }) => move),
