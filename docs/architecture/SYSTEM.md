@@ -26,7 +26,7 @@ There are currently no feature-specific architecture documents under `docs/archi
 | CFOP solve analysis or case recognition | `src/cube/analysis.ts`, `src/cube/recognise.ts`, related domain modules and tests |
 | Scramble tracking or generation | `src/cube/scramble.ts` and relevant controller integration |
 | Cross, XCross, or Slow Solve coaching | `src/cube/crossSolver.ts`, `src/cube/crossPlans.ts`, `src/cube/crossScramble.ts`, `src/components/CoachPanel.tsx` as applicable |
-| Training runtime and targets | `src/state/controller.ts`, `src/cube/training.ts`, `src/cube/f2lTraining.ts`, `src/cube/lastLayerTraining.ts`, `src/cube/lastLayerCases.ts`, `src/components/Training.tsx`, `src/components/F2LTraining.tsx` and relevant tests |
+| Training runtime and targets | `src/state/trainingRuntime.ts`, runtime integration in `src/state/controller.ts`, `src/cube/training.ts`, `src/cube/f2lTraining.ts`, `src/cube/lastLayerTraining.ts`, `src/cube/lastLayerCases.ts`, `src/components/Training.tsx`, `src/components/F2LTraining.tsx` and relevant tests |
 | Generated OLL/PLL catalogue authority | `scripts/speedcubedb.ts`, `scripts/fetchAlgs.ts`, `src/cube/algBank.generated.ts`, `src/cube/algBank.test.ts` and last-layer domain tests |
 | F2L catalogue thumbnails | `src/cube/f2lThumbnail.ts`, `src/components/F2lCaseThumbnail.tsx`, generation scripts/maps and their tests |
 | Advanced F2L source authority or generated case data | the relevant Advanced F2L authority/generation module, its generator script, and focused tests |
@@ -104,9 +104,15 @@ src/state/controller.ts
   live application orchestration
   Timer/Training/Statistics area coordination
   runtime application state and physical cube coordination
+  TrainingRuntime composition and shared elapsed RAF scheduling
   session-context runtime locking
   applying persisted context transitions
   Settings loading and persistence
+
+src/state/trainingRuntime.ts
+  single Training Store and ephemeral Training lifecycle
+  target preparation, setup tracking, virtual pattern, attempt and guide
+  Training recovery, result, retry and F2L Again gesture
 
 src/state/sessionService.ts
   Session lifecycle persistence
@@ -158,7 +164,7 @@ src/cube -X-> src/state
 - solve-analysis orchestration;
 - grip/orientation tracking;
 - Timer/Training/Statistics area transitions;
-- one shared F2L/OLL/PLL Training runtime;
+- composition of one long-lived F2L/OLL/PLL TrainingRuntime;
 - public Statistics snapshot facade and area input gating;
 - delegation to persisted application workflows;
 - application-facing runtime events.
@@ -183,6 +189,14 @@ The Controller exposes:
 - inspection time remaining;
 
 through narrow stores.
+
+`TrainingRuntime.state` is the only observable owner of Training state. `AppState`
+does not contain or mirror Training state. Training UI subscribes directly through
+`useTrainingState()`; ordinary Training turns update its Store rather than the
+application root. Controller owns the physical model and refreshes its global
+facelet snapshot at area boundaries. One Controller RAF loop reads
+`training.elapsedAt(now)`; TrainingRuntime owns the attempt timestamp and requests
+clock start/stop through injected callbacks.
 
 `src/hooks/useController.ts` connects stores to React through `useSyncExternalStore`.
 
@@ -393,9 +407,9 @@ GAN cube
 -> SmartCube
 -> Controller
 -> CubeModel
--> scramble / timer / training / analysis state
--> stores and narrow Controller events
--> React presentation
+-> Timer / analysis or, when Training is active, TrainingRuntime
+-> Training Store (TrainingRuntime.state) / other stores and narrow events
+-> React Training UI / other presentation
 ```
 
 `SmartCube` owns:
@@ -468,8 +482,14 @@ Training turns must not enter the normal timer lifecycle or ordinary solve histo
 
 ### Shared Training lifecycle
 
-The Controller owns one target, setup tracker, virtual pattern, attempt timer,
-move list, recovery lifecycle, and result shape. Family-specific cube modules own
+TrainingRuntime owns one target, setup tracker, virtual pattern, attempt timer,
+move list, guide, recovery lifecycle, and result shape. Controller owns application
+routing, physical CubeModel and common input routing; it delegates Training moves
+and lifecycle actions through narrow injected dependencies. The shared target
+preparation pipeline preserves the direct catalogue F2L setup optimization before
+falling back to `algBetween()`. Timer and Training own separate recovery cancellation
+tokens and use `src/state/recovery.ts` for the shared raw two-path calculation.
+Training recovery transforms complete algorithms into the target frame. Family-specific cube modules own
 target construction, references, and completion rules. F2L keeps its catalogue and
 slot semantics. Last-layer targets own their training set and explicit completion
 goal: orient edges, orient the last layer, permute corners, or solve the cube.
@@ -485,7 +505,7 @@ Full OLL/PLL catalogue data is generated from SpeedCubeDB, behaviourally validat
 ahead of time, and checked into `src/cube/algBank.generated.ts`. The 2-Look OLL/PLL
 catalogue is checked-in J Perm-derived source data in
 `src/cube/lastLayerTwoLookCases.ts`. Neither source is fetched at application
-runtime. Both sets use this same Controller-owned Training lifecycle.
+runtime. Both sets use this same TrainingRuntime-owned lifecycle.
 
 Settings independently select the catalogue for OLL and PLL catalogue Training
 and Random Case selection; both default to Full. Changing the active family's set
@@ -518,7 +538,7 @@ executable reference and its Training execution/STM result.
 
 The cube domain derives and validates variant pools and constructs concrete
 targets. Live catalogue attempts uniformly select a Full-case variant and
-independently randomize AUF through one Controller helper used by selection,
+independently randomize AUF through one TrainingRuntime helper used by selection,
 Again, and virtual automatic reload. Random Case continues to select among the
 10/6 visible 2-Look identities before choosing a variant. Library previews use a
 deterministic representative and mask irrelevant state.
@@ -527,7 +547,7 @@ deterministic representative and mask irrelevant state.
 
 The normal `CubeModel` continues to represent the physical or normal keyboard-driven cube.
 
-Virtual Training practice uses a separate ephemeral Controller-owned pattern.
+Virtual Training practice uses a separate ephemeral TrainingRuntime-owned pattern.
 
 A selected F2L, OLL, or PLL training target must not replace the normal `CubeModel`.
 
@@ -913,8 +933,16 @@ The following are current architectural rules.
     Rolling average windows always belong to one Session; All-Sessions views merge
     achieved Session-local windows.
 
-16. **Training owns one shared lifecycle for F2L, OLL, and PLL.**
-    Family modules supply target/reference/completion semantics; the physical CubeModel and virtual target remain distinct.
+16. **TrainingRuntime is the single owner of the ephemeral Training state machine and observable Training state.**
+    Controller owns application routing and the physical CubeModel and delegates
+    Training lifecycle/input operations to TrainingRuntime.
+    Every Training target carries an explicit `family` discriminator; runtime and
+    presentation must not infer family from unrelated field presence.
+    The lifecycle is generalized while F2L target/slot/protected-slot and last-layer
+    stage-completion semantics remain family-owned in the cube domain. Generic
+    Training frame/reference/guide mechanics remain in `src/cube/training.ts`.
+    Remembered F2L library/position live in `f2lSelection`; OLL/PLL training-set
+    preferences remain Settings-owned.
 
 17. **Last-layer catalogue authority is offline and explicit.**
     Full OLL/PLL catalogue data is generated and validated ahead of time from
@@ -931,6 +959,18 @@ The following are current architectural rules.
 ## Rejected alternatives
 
 These alternatives are recorded because the current architecture deliberately chose a different ownership model.
+
+### Mirror TrainingRuntime state into AppState
+
+Rejected because it creates two observable sources of truth and retains
+high-frequency application-root rerenders. Training state belongs only to
+TrainingRuntime; Controller owns routing and composition.
+
+### One generic case-training domain object
+
+Rejected because F2L pair/slot/protected-slot semantics and OLL/PLL stage-completion
+semantics differ materially. The lifecycle is shared; domain meaning remains in
+`f2lTraining.ts` and `lastLayerTraining.ts`.
 
 ### Merge/reconcile stale Session snapshots after concurrent writes
 

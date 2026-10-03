@@ -74,6 +74,7 @@ export type F2lReference = {
 };
 
 export type F2lTrainingTargetInfo = {
+  family: "f2l";
   origin: F2lTrainingOrigin;
   crossFace: Face;
   /** The single cube frame used for display, notation, and reference planning. */
@@ -341,6 +342,7 @@ export function buildF2lCatalogueTarget(
     pattern,
     goal,
     info: {
+      family: "f2l",
       origin: { kind: "catalog", library: f2lCase.library, caseName: f2lCase.name, group: f2lCase.group },
       crossFace,
       trainingRotation,
@@ -420,6 +422,7 @@ export function buildExactF2lTarget(
     pattern,
     goal,
     info: {
+      family: "f2l",
       origin: { kind: "solve-step", solveId: solve.id, stepName: step.name, slot: step.slot },
       crossFace,
       trainingRotation,

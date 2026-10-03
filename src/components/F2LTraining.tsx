@@ -1,12 +1,13 @@
 import { memo, useMemo, useState } from "react";
-import { useController, useStore } from "../hooks/useController";
-import { F2L_POSITIONS, f2lPositionLabel } from "../cube/f2lCases";
-import { F2L_TRAINING_CATALOGUES, f2lTrainingCatalogue, shortF2lCaseLabel, type F2lTrainingCase, type F2lTrainingLibrary } from "../cube/f2lTrainingCases";
 import { faceColour, slotColours } from "../cube/colours";
-import { f2lTrainingGrip, type F2lReference } from "../cube/f2lTraining";
+import { F2L_POSITIONS, f2lPositionLabel } from "../cube/f2lCases";
 import { getF2lThumbnailModel } from "../cube/f2lThumbnail";
-import { formatTime } from "../state/stats";
+import { f2lTrainingGrip, type F2lReference } from "../cube/f2lTraining";
+import { F2L_TRAINING_CATALOGUES, f2lTrainingCatalogue, shortF2lCaseLabel, type F2lTrainingCase, type F2lTrainingLibrary } from "../cube/f2lTrainingCases";
+import { useController, useStore, useTrainingState } from "../hooks/useController";
 import type { AppState } from "../state/controller";
+import { formatTime } from "../state/stats";
+import type { TrainingState } from "../state/trainingRuntime";
 import { ConnectionPanel } from "./ConnectionPanel";
 import { CubeView } from "./CubeView";
 import { F2lCaseThumbnail } from "./F2lCaseThumbnail";
@@ -15,9 +16,9 @@ import { TrainingAlgorithmGuide } from "./TrainingAlgorithmGuide";
 export function F2LTraining({ state }: { state: AppState }) {
   const controller = useController();
   const elapsed = useStore(controller.elapsed);
-  const training = state.training;
-  const catalogue = f2lTrainingCatalogue(training.selectedLibrary);
-  const target = training.family === "f2l" && training.target && !("family" in training.target)
+  const training = useTrainingState();
+  const catalogue = f2lTrainingCatalogue(training.f2lSelection.library);
+  const target = training.family === "f2l" && training.target && training.target.family === "f2l"
     ? training.target
     : null;
   const physicalLive = state.cubeStatus === "connected" || state.virtualCube;
@@ -40,8 +41,8 @@ export function F2LTraining({ state }: { state: AppState }) {
                   <button
                     type="button"
                     key={option.library}
-                    className={training.selectedLibrary === option.library ? "active" : ""}
-                    aria-pressed={training.selectedLibrary === option.library}
+                    className={training.f2lSelection.library === option.library ? "active" : ""}
+                    aria-pressed={training.f2lSelection.library === option.library}
                     onClick={() => controller.setF2lLibrary(option.library)}
                   >
                     {option.label}
@@ -56,7 +57,7 @@ export function F2LTraining({ state }: { state: AppState }) {
             <nav className="f2l-position-switch" aria-label="F2L position">
               {F2L_POSITIONS.map((position) => {
                 const fixed = target?.origin.kind === "solve-step";
-                const selected = training.selectedPosition === position;
+                const selected = training.f2lSelection.position === position;
                 return (
                   <button
                     type="button"
@@ -72,10 +73,10 @@ export function F2LTraining({ state }: { state: AppState }) {
               })}
             </nav>
             <F2lCaseLibrary
-              library={training.selectedLibrary}
+              library={training.f2lSelection.library}
               cases={catalogue.cases}
-              selectedPosition={training.selectedPosition}
-              selectedCaseName={target?.origin.kind === "catalog" && target.origin.library === training.selectedLibrary
+              selectedPosition={training.f2lSelection.position}
+              selectedCaseName={target?.origin.kind === "catalog" && target.origin.library === training.f2lSelection.library
                 ? target.origin.caseName
                 : null}
             />
@@ -92,7 +93,7 @@ export function F2LTraining({ state }: { state: AppState }) {
             </button>
           </div>
         ) : null}
-        <SetupPanel state={state} />
+        <SetupPanel />
         <div className="stage f2l-stage">
           <CubeView
             settings={state.settings}
@@ -111,7 +112,7 @@ export function F2LTraining({ state }: { state: AppState }) {
       </div>
 
       <div className="column right">
-        <TargetPanel state={state} elapsed={elapsed} />
+        <TargetPanel elapsed={elapsed} />
       </div>
     </div>
   );
@@ -167,9 +168,9 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
   );
 });
 
-function SetupPanel({ state }: { state: AppState }) {
+function SetupPanel() {
   const controller = useController();
-  const training = state.training;
+  const training = useTrainingState();
   const progress = training.setupProgress;
   const moves = training.setup.split(/\s+/).filter(Boolean);
   const preparing = training.phase === "preparing";
@@ -295,10 +296,10 @@ function SetupPanel({ state }: { state: AppState }) {
   );
 }
 
-function TargetPanel({ state, elapsed }: { state: AppState; elapsed: number }) {
+function TargetPanel({ elapsed }: { elapsed: number }) {
   const controller = useController();
-  const training = state.training;
-  const target = training.family === "f2l" && training.target && !("family" in training.target)
+  const training = useTrainingState();
+  const target = training.family === "f2l" && training.target && training.target.family === "f2l"
     ? training.target
     : null;
   const result = training.result;
@@ -314,7 +315,7 @@ function TargetPanel({ state, elapsed }: { state: AppState; elapsed: number }) {
       </div>
       <div className="panel-body">
         {!target ? (
-          <div className="empty">Select one of the {f2lTrainingCatalogue(training.selectedLibrary).cases.length} {f2lTrainingCatalogue(training.selectedLibrary).label} cases, or use Train from a solve review.</div>
+          <div className="empty">Select one of the {f2lTrainingCatalogue(training.f2lSelection.library).cases.length} {f2lTrainingCatalogue(training.f2lSelection.library).label} cases, or use Train from a solve review.</div>
         ) : (
           <>
             <div className="f2l-target-title">
@@ -362,7 +363,7 @@ function TargetPanel({ state, elapsed }: { state: AppState; elapsed: number }) {
   );
 }
 
-function ReferenceSection({ references, training }: { references: readonly F2lReference[]; training: AppState["training"] }) {
+function ReferenceSection({ references, training }: { references: readonly F2lReference[]; training: TrainingState }) {
   const [showAlternatives, setShowAlternatives] = useState(false);
   const reference = references[0];
 
@@ -413,8 +414,8 @@ function AttemptSection({
   liveMoveCount,
   elapsed,
 }: {
-  result: AppState["training"]["result"];
-  phase: AppState["training"]["phase"];
+  result: TrainingState["result"];
+  phase: TrainingState["phase"];
   liveMoveCount: number;
   elapsed: number;
 }) {

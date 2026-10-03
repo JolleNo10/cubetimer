@@ -297,3 +297,17 @@ not independently invented states. The original entry is retained as history.
 - What happened: the first rename eligibility test expected keyboard start during inspection to preserve inspection and also invoked it during solving, triggering asynchronous solve recording.
 - Root cause: the test ignored that the keyboard action starts from inspection and stops an existing solve.
 - Prevention: test rename availability during solving without invoking stop, and assert existing keyboard transition semantics when checking rename does not lock Timer start.
+
+## 2026-10-03
+
+- What happened: last-layer Training recovery could display an untransformed multi-move algorithm.
+- Root cause: the recovery path passed an entire algorithm string to `handMove()`, which transforms only one move.
+- Prevention: use algorithm-level frame conversion for recovery, with a multi-move regression test for both Training families.
+
+- What happened: migrated runtime tests initially shadowed their move-feeding helper with a loop variable and retained old observable-state expectations.
+- Root cause: mechanical test migration changed the owner without fully adapting fixtures and assertions to the new API.
+- Prevention: use an unambiguous fixture helper, pass Settings as inputs, and run typecheck plus the moved suite before treating coverage as preserved.
+
+- What happened: the first Header migration put the Training subscription hook inside a short-circuit expression.
+- Root cause: replacing a state read inline made hook invocation depend on the Timer phase.
+- Prevention: call subscription hooks unconditionally at component entry and use the returned state in eligibility expressions.

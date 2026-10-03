@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { DEFAULT_EVENT_ID, EVENTS, eventInfo, type EventId } from "../cube/scramble";
-import { useController } from "../hooks/useController";
+import { useController, useTrainingState } from "../hooks/useController";
 import type { AppArea, AppState } from "../state/controller";
 import { Icon } from "./Icon";
 
@@ -14,10 +14,11 @@ export function Header({
   onSelectArea: (area: AppArea) => void;
 }) {
   const controller = useController();
+  const training = useTrainingState();
   const [renaming, setRenaming] = useState(false);
   const session = state.sessions.find((s) => s.id === state.sessionId);
   const smartEvent = session ? eventInfo(session.event).smart : false;
-  const liveTiming = state.phase === "inspection" || state.phase === "solving" || state.training.phase === "solving";
+  const liveTiming = state.phase === "inspection" || state.phase === "solving" || training.phase === "solving";
   const sessionContextLocked = state.phase === "inspection" || state.phase === "solving";
 
   return (

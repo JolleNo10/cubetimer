@@ -55,10 +55,10 @@ describe("F2L training library presentation", () => {
     await controller.selectF2lCase("AF2L 3");
     expect(render(controller).match(/class="f2l-case-button selected"/g)).toHaveLength(1);
     expect(render(controller)).toContain("Advanced F2L");
-    controller.state.update((state) => ({ ...state, training: {
-      ...state.training,
-      target: { ...(state.training.target as F2lTrainingTargetInfo), origin: { kind: "solve-step", solveId: "exact", stepName: "F2L Slot 1", slot: "FL" } },
-    } }));
+    controller.training.state.update((state) => ({
+      ...state,
+      target: { ...(state.target as F2lTrainingTargetInfo), origin: { kind: "solve-step", solveId: "exact", stepName: "F2L Slot 1", slot: "FL" } },
+    }));
     expect(render(controller)).not.toContain('class="f2l-case-button selected"');
     controller.setF2lLibrary("basic");
     expect(render(controller)).not.toContain('class="f2l-case-button selected"');

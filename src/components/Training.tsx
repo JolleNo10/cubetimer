@@ -1,20 +1,20 @@
 import { useEffect, useMemo, useState } from "react";
-import { useController, useStore } from "../hooks/useController";
+import type { LastLayerThumbnailModel } from "../cube/lastLayerThumbnail";
+import { getLastLayerThumbnailModel } from "../cube/lastLayerThumbnail";
+import { buildLastLayerCatalogueTarget, lastLayerCaseCatalogue, lastLayerCaseName, type LastLayerFamily } from "../cube/lastLayerTraining";
+import { get3x3x3 } from "../cube/puzzle";
+import { useController, useStore, useTrainingState } from "../hooks/useController";
 import type { AppState } from "../state/controller";
+import { formatTime } from "../state/stats";
 import { ConnectionPanel } from "./ConnectionPanel";
 import { CubeView } from "./CubeView";
 import { F2LTraining } from "./F2LTraining";
 import { LastLayerCaseThumbnail } from "./LastLayerCaseThumbnail";
-import { getLastLayerThumbnailModel } from "../cube/lastLayerThumbnail";
-import { get3x3x3 } from "../cube/puzzle";
-import { buildLastLayerCatalogueTarget, lastLayerCaseCatalogue, lastLayerCaseName, type LastLayerFamily } from "../cube/lastLayerTraining";
-import { formatTime } from "../state/stats";
-import type { LastLayerThumbnailModel } from "../cube/lastLayerThumbnail";
 import { TrainingAlgorithmGuide } from "./TrainingAlgorithmGuide";
 
 export function Training({ state }: { state: AppState }) {
   const controller = useController();
-  const family = state.training.family;
+  const family = useTrainingState().family;
   return (
     <div className="training-screen">
       <nav className="training-family-switch area-switch" aria-label="Training family">
@@ -38,9 +38,9 @@ export function Training({ state }: { state: AppState }) {
 function LastLayerTraining({ state, family }: { state: AppState; family: LastLayerFamily }) {
   const controller = useController();
   const elapsed = useStore(controller.elapsed);
-  const training = state.training;
+  const training = useTrainingState();
   const trainingSet = family === "oll" ? state.settings.ollTrainingSet : state.settings.pllTrainingSet;
-  const target = training.target && "family" in training.target && training.target.family === family
+  const target = training.target && training.target.family === family
     ? training.target
     : null;
   const physicalLive = state.cubeStatus === "connected" || state.virtualCube;
@@ -103,7 +103,7 @@ function LastLayerTraining({ state, family }: { state: AppState; family: LastLay
 
       <div className="column">
         {state.error ? <div className="notice error"><span className="grow">{state.error}</span><button className="ghost" onClick={() => controller.dismissError()}>Dismiss</button></div> : null}
-        <LastLayerSetupPanel state={state} />
+        <LastLayerSetupPanel />
         <div className="stage training-stage">
           <CubeView
             settings={state.settings}
@@ -121,14 +121,14 @@ function LastLayerTraining({ state, family }: { state: AppState; family: LastLay
         </div>
       </div>
 
-      <div className="column right"><LastLayerTargetPanel state={state} elapsed={elapsed} family={family} /></div>
+      <div className="column right"><LastLayerTargetPanel elapsed={elapsed} family={family} /></div>
     </div>
   );
 }
 
-function LastLayerSetupPanel({ state }: { state: AppState }) {
+function LastLayerSetupPanel() {
   const controller = useController();
-  const training = state.training;
+  const training = useTrainingState();
   const progress = training.setupProgress;
   const moves = training.setup.split(/\s+/).filter(Boolean);
   const done = progress?.onTrack ? progress.index : 0;
@@ -148,11 +148,11 @@ function LastLayerSetupPanel({ state }: { state: AppState }) {
   );
 }
 
-function LastLayerTargetPanel({ state, elapsed, family }: { state: AppState; elapsed: number; family: LastLayerFamily }) {
+function LastLayerTargetPanel({ elapsed, family }: { elapsed: number; family: LastLayerFamily }) {
   const controller = useController();
-  const training = state.training;
+  const training = useTrainingState();
   const [showAlternatives, setShowAlternatives] = useState(false);
-  const target = training.target && "family" in training.target && training.target.family === family
+  const target = training.target && training.target.family === family
     ? training.target
     : null;
   const result = training.result;

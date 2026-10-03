@@ -17,3 +17,7 @@ export function useStore<T>(store: Store<T>): T {
 export function useAppState() {
   return useStore(useController().state);
 }
+
+export function useTrainingState() {
+  return useStore(useController().training.state);
+}

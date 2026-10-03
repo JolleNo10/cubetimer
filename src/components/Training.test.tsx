@@ -31,13 +31,16 @@ describe("Training area", () => {
     await controller.setTrainingMode("virtual");
     vi.spyOn(Math, "random").mockReturnValueOnce((nextIndex + 0.5) / variants.length).mockReturnValueOnce(0);
     await controller.selectLastLayerCase("pll", "Headlights");
-    const ready = controller.state.get();
+    const ready = { ...controller.state.get(), training: controller.training.state.get() };
     const next = ready.training.target;
-    if (!next || !("family" in next)) throw new Error("Last-layer target missing");
+    if (!next || next.family === "f2l") throw new Error("Last-layer target missing");
     // Give the next target an alternative to exercise the preserved-result guard.
     const target = { ...next, references: [...next.references, { ...next.references[0], rank: 2, alg: "R U2 R'" }] };
     const result = { moves: [], stm: first.stm, recommendedAlg: first.alg, recommendedStm: first.stm, matchedReferenceRank: 1, delta: 0, elapsedMs: 1000 };
-    const draw = (preserved: typeof result | null) => render(controller, <Training state={{ ...ready, training: { ...ready.training, target, result: preserved } }} />);
+    const draw = (preserved: typeof result | null) => {
+      controller.training.state.set({ ...ready.training, target, result: preserved });
+      return render(controller, <Training state={ready} />);
+    };
     const html = draw(result);
     const recommendation = html.split('class="f2l-reference"')[1].split('class="f2l-result-card"')[0];
     const tokens = [...recommendation.matchAll(/<span class="training-algorithm-token[^\"]*"[^>]*>(.*?)<\/span>/g)].map((match) => match[1].replaceAll("&#x27;", "'"));
@@ -59,8 +62,11 @@ describe("Training area", () => {
     await controller.setTrainingMode("virtual");
     if (family === "f2l") await controller.selectF2lCase("F2L 1");
     else await controller.selectLastLayerCase(family, family === "oll" ? "27" : "T");
-    const ready = controller.state.get();
-    const draw = (state: typeof ready) => render(controller, <Training state={state} />);
+    const ready = { ...controller.state.get(), training: controller.training.state.get() };
+    const draw = (state: typeof ready) => {
+      controller.training.state.set(state.training);
+      return render(controller, <Training state={state} />);
+    };
     const html = draw(ready);
     expect(html).toContain('aria-current="step"');
     expect(html).toContain('cube-move-guide');

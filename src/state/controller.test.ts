@@ -1,26 +1,19 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { Alg } from "cubing/alg";
-import { invert, reorientMove } from "../cube/orientation";
-import { F2L_TRAINING_CATALOGUES, findF2lTrainingCase } from "../cube/f2lTrainingCases";
-import { F2L_POSITIONS } from "../cube/f2lCases";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  buildF2lCatalogueTarget,
-  f2lCubeAlgorithm,
-  f2lTrainingGrip,
-  isStandardF2lBase,
-  referenceExecutionSignature,
+buildF2lCatalogueTarget,
+f2lTrainingGrip
 } from "../cube/f2lTraining";
+import { F2L_TRAINING_CATALOGUES } from "../cube/f2lTrainingCases";
+import { buildLastLayerCatalogueTarget, isLastLayerTrainingComplete } from "../cube/lastLayerTraining";
 import { CubeModel, patternToFacelets } from "../cube/model";
+import { invert, reorientMove } from "../cube/orientation";
 import { get3x3x3 } from "../cube/puzzle";
-import { Controller } from "./controller";
-import type { F2lTrainingTargetInfo } from "../cube/f2lTraining";
-import { cubeMove, handAlgorithm, trainingGrip } from "../cube/training";
-import { buildLastLayerCatalogueTarget, isLastLayerTrainingComplete, lastLayerCaseIds, lastLayerTrainingVariants } from "../cube/lastLayerTraining";
-import * as solver from "../cube/solver";
-import type { SolveStep } from "../cube/analysis";
-import { lastLayerCornersPermuted, lastLayerEdges, reframe, withCentresHome } from "../cube/recognise";
-import * as db from "./db";
 import { DEFAULT_EVENT_ID } from "../cube/scramble";
+import * as solver from "../cube/solver";
+import { cubeMove, trainingGrip } from "../cube/training";
+import { Controller } from "./controller";
+import * as db from "./db";
 import { formatSolveCsv } from "./solveCsv";
 import type { Session, Solve } from "./types";
 
@@ -90,382 +83,8 @@ function stubPersistence() {
   vi.spyOn(db, "deleteSession").mockResolvedValue();
 }
 
-function f2lTargetOf(controller: Controller): F2lTrainingTargetInfo | null {
-  return controller.state.get().training.target as F2lTrainingTargetInfo | null;
-}
-
-describe("Controller shared algorithm guide", () => {
-  it.each([
-    ["oll", "Sune", "R"],
-    ["oll", "T", "r"],
-    ["oll", "L-Shape", "f"],
-    ["pll", "H", "M"],
-  ] as const)("classifies the recommended 2-Look %s %s execution containing %s", async (family, caseId, vocabulary) => {
-    stubTimerLoop();
-    const built = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 0, "2look");
-    const setup = await solver.algBetween(kpuzzle.defaultPattern(), built.pattern);
-    vi.spyOn(solver, "algBetween").mockResolvedValue(setup);
-    vi.spyOn(Math, "random").mockReturnValue(0);
-    const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, virtualCube: true,
-      settings: { ...state.settings, ollTrainingSet: "2look", pllTrainingSet: "2look" } }));
-    controller.setTrainingFamily(family);
-    await controller.selectLastLayerCase(family, caseId);
-    const target = controller.state.get().training.target!;
-    for (const move of controller.state.get().training.setup.split(" ").filter(Boolean)) {
-      controller.injectMove(cubeMove(move, trainingGrip(target)));
-    }
-    expect(controller.state.get().training.phase).toBe("ready");
-    expect(target.references[0].alg).toContain(vocabulary);
-    // M2 is reported as opposing face turns; either face may arrive first.
-    const execution = caseId === "H" ? "L R L R D L R L R U2 L R L R D L R L R".split(" ")
-      : referenceExecutionSignature(target.references[0].alg)!;
-    for (const move of execution) controller.injectMove(cubeMove(move, trainingGrip(target)));
-    expect(controller.state.get().training.result).toMatchObject({
-      matchedReferenceRank: 1, stm: target.references[0].stm, delta: 0,
-    });
-    expect(controller.state.get().training.phase).toBe("result");
-    expect(controller.state.get().solves).toEqual([]);
-  });
-
-  it("classifies a validated F2L alternative while keeping a rejoining execution custom", async () => {
-    stubTimerLoop();
-    vi.spyOn(Math, "random").mockReturnValue(0);
-    const controller = new Controller(new CubeModel(kpuzzle));
-    controller.setArea("training");
-    await controller.setTrainingMode("virtual");
-    await controller.selectF2lCase("F2L 1");
-    const target = controller.state.get().training.target!;
-    const alternative = target.references[1];
-    expect(alternative.rank).toBe(2);
-    const execution = referenceExecutionSignature(alternative.alg)!;
-    for (const move of execution) controller.injectMove(cubeMove(move, trainingGrip(target)));
-    expect(controller.state.get().training.result?.matchedReferenceRank).toBe(2);
-    controller.againTraining();
-    await Promise.resolve();
-    const recommendation = referenceExecutionSignature(controller.state.get().training.target!.references[0].alg)!;
-    const detour = [...recommendation.slice(0, 1), "B", "B'", ...recommendation.slice(1)];
-    for (const move of detour) controller.injectMove(cubeMove(move, trainingGrip(target)));
-    expect(controller.state.get().training.result?.matchedReferenceRank).toBeNull();
-  });
-
-  async function select(family: "f2l" | "oll" | "pll", mode: "setup" | "virtual") {
-    stubTimerLoop();
-    if (mode === "setup" && family !== "f2l") {
-      // Search uses randomness too; calculate a real setup before fixing the
-      // catalogue AUF draw, as in the existing physical Training fixtures.
-      const built = buildLastLayerCatalogueTarget(kpuzzle, family, family === "oll" ? "27" : "T");
-      const setup = await solver.algBetween(kpuzzle.defaultPattern(), built.pattern);
-      vi.spyOn(solver, "algBetween").mockResolvedValue(setup);
-    }
-    vi.spyOn(Math, "random").mockReturnValue(0);
-    const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
-    controller.setArea("training");
-    controller.setTrainingFamily(family);
-    await controller.setTrainingMode(mode);
-    if (family === "f2l") await controller.selectF2lCase("F2L 1");
-    else await controller.selectLastLayerCase(family, family === "oll" ? "27" : "T");
-    expect(controller.state.get().error).toBeNull();
-    const target = controller.state.get().training.target!;
-    if (mode === "setup") {
-      for (const move of controller.state.get().training.setup.split(" ").filter(Boolean)) {
-        controller.injectMove(cubeMove(move, trainingGrip(target)));
-      }
-    }
-    expect(controller.state.get().training.phase).toBe("ready");
-    return controller;
-  }
-
-  it.each(["f2l", "oll", "pll"] as const)("uses actual %s patterns in both modes, allows deviations, and completes custom solutions", async (family) => {
-    for (const mode of ["setup", "virtual"] as const) {
-      const controller = await select(family, mode);
-      const ready = controller.state.get().training;
-      const target = ready.target!;
-      const grip = trainingGrip(target);
-      expect(ready.guide).toMatchObject({ confirmed: 0, currentMove: { token: ready.guide!.moves[0] } });
-      const physicalStart = controller.pattern!;
-      const reference = referenceExecutionSignature(target.references[0].alg)!;
-      // Six repetitions are a state identity but a different execution. The
-      // reference guide must remain advisory during this deliberate detour.
-      const detour = Array.from(new Alg("(F U F' U')6").expand().childAlgNodes()).map((node) => node.toString());
-      controller.injectMove(cubeMove(detour[0], grip));
-      expect(controller.state.get().training.phase).toBe("solving");
-      expect(controller.state.get().training.target).toBe(target);
-      expect(controller.state.get().training.result).toBeNull();
-      expect(controller.state.get().training.guide?.confirmed).toBe(0);
-      for (const move of detour.slice(1)) controller.injectMove(cubeMove(move, grip));
-      expect(controller.state.get().training.result).toBeNull();
-      controller.injectMove(cubeMove(reference[0], grip));
-      expect(controller.state.get().training.guide?.confirmed).toBe(1);
-      for (const move of reference.slice(1)) controller.injectMove(cubeMove(move, grip));
-      const result = controller.state.get().training.result;
-      expect(result).not.toBeNull();
-      expect(result?.matchedReferenceRank).toBeNull();
-      expect(controller.state.get().solves).toEqual([]);
-      if (mode === "setup") {
-        expect(controller.state.get().training.phase).toBe("result");
-        expect(controller.state.get().training.guide?.currentMove).toBeNull();
-      } else {
-        // Existing virtual automatic reload preserves the result for review.
-        expect(controller.state.get().training.phase).toBe("ready");
-        expect(controller.state.get().training.guide?.confirmed).toBe(0);
-        expect(patternToFacelets(controller.pattern!)).toBe(patternToFacelets(physicalStart.applyAlg(
-          [...detour, ...reference].map((move) => cubeMove(move, grip)).join(" "))));
-      }
-      controller.againTraining();
-      await Promise.resolve();
-      expect(controller.state.get().training.guide?.confirmed).toBe(0);
-      expect(controller.state.get().training.guide?.currentMove?.token).toBe(controller.state.get().training.guide?.moves[0]);
-      expect(controller.state.get().training.result).toBeNull();
-    }
-  });
-
-  it("resets progression on another target, family, mode, and Training reset", async () => {
-    const controller = await select("f2l", "virtual");
-    const target = controller.state.get().training.target!;
-    controller.injectMove(cubeMove(controller.state.get().training.guide!.moves[0], trainingGrip(target)));
-    expect(controller.state.get().training.guide?.confirmed).toBe(1);
-    await controller.selectF2lCase("F2L 4");
-    expect(controller.state.get().training.guide?.confirmed).toBe(0);
-    controller.injectMove(cubeMove(controller.state.get().training.guide!.moves[0], trainingGrip(controller.state.get().training.target!)));
-    await controller.setTrainingMode("setup");
-    expect(controller.state.get().training.guide?.confirmed).toBe(0);
-    controller.setTrainingFamily("oll");
-    expect(controller.state.get().training.guide).toBeNull();
-    await controller.setTrainingMode("virtual");
-    await controller.selectLastLayerCase("oll", "27");
-    expect(controller.state.get().training.guide?.confirmed).toBe(0);
-    controller.resetTraining();
-    expect(controller.state.get().training.guide).toBeNull();
-  });
-
-  it("omits guidance for an exact F2L target without a validated reference", async () => {
-    const controller = new Controller(new CubeModel(kpuzzle));
-    controller.setArea("training");
-    await controller.setTrainingMode("virtual");
-    const slot = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0]).info.slot;
-    await controller.practiceF2lStep({ id: "no-reference", scramble: "R", moves: [{ move: "R'", t: 1 }],
-      analysis: { crossFace: "U" } } as Solve,
-    { name: "F2L Slot 1", slot, fromMove: 0, toMove: 1, skipped: false } as SolveStep);
-    expect(controller.state.get().training.target?.references).toEqual([]);
-    expect(controller.state.get().training.guide).toBeNull();
-  });
-});
-
-describe("Controller independent last-layer Training sets", () => {
-  it("preserves the completed Headlights recommendation when virtual reload selects a different variant", async () => {
-    stubTimerLoop();
-    const saveSolve = vi.spyOn(db, "saveSolve").mockResolvedValue();
-    const variants = lastLayerTrainingVariants(kpuzzle, "pll", "Headlights", "2look");
-    const targets = variants.map((variant) => buildLastLayerCatalogueTarget(kpuzzle, "pll", "Headlights", 0, "2look", variant.id));
-    const first = targets[0];
-    const nextIndex = targets.findIndex((target) => target.info.references[0].alg !== first.info.references[0].alg);
-    expect(nextIndex).toBeGreaterThan(0);
-    const next = targets[nextIndex];
-    const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, virtualCube: true, settings: { ...state.settings, pllTrainingSet: "2look" } }));
-    controller.setTrainingFamily("pll");
-    await controller.setTrainingMode("virtual");
-    const random = vi.spyOn(Math, "random")
-      .mockReturnValueOnce(0.5 / variants.length).mockReturnValueOnce(0)
-      .mockReturnValueOnce((nextIndex + 0.5) / variants.length).mockReturnValueOnce(0);
-    await controller.selectLastLayerCase("pll", "Headlights");
-    expect(controller.state.get().training.target?.references[0]).toEqual(first.info.references[0]);
-    const execution = referenceExecutionSignature(first.info.references[0].alg)!;
-    for (const move of execution) controller.injectMove(cubeMove(move, trainingGrip(first.info)));
-    const training = controller.state.get().training;
-    expect(training.phase).toBe("ready");
-    expect(training.result).toMatchObject({
-      recommendedAlg: first.info.references[0].alg, recommendedStm: first.info.references[0].stm,
-      matchedReferenceRank: 1, delta: 0,
-    });
-    expect(training.target?.references[0]).toEqual(next.info.references[0]);
-    expect(training.target).toMatchObject({ family: "pll", caseId: "Headlights", trainingSet: "2look" });
-    expect(training.displayFacelets).toBe(patternToFacelets(next.pattern));
-    expect(training.displayFacelets).not.toBe(patternToFacelets(first.pattern));
-    expect(random).toHaveBeenCalledTimes(4);
-    expect(controller.state.get().solves).toEqual([]);
-    expect(saveSolve).not.toHaveBeenCalled();
-    const nextMove = referenceExecutionSignature(next.info.references[0].alg)![0];
-    controller.injectMove(cubeMove(nextMove, trainingGrip(next.info)));
-    expect(controller.state.get().training.result).toBeNull();
-    expect(controller.state.get().training.target?.references[0]).toEqual(next.info.references[0]);
-  });
-
-  it.each([
-    ["oll", "Dot Shape", "orient-edges"],
-    ["oll", "I-Shape", "orient-edges"],
-    ["oll", "L-Shape", "orient-edges"],
-    ["pll", "Diagonal", "permute-corners"],
-    ["pll", "Headlights", "permute-corners"],
-  ] as const)("randomizes %s %s on selection, Again, and virtual completion", async (family, caseId, completionGoal) => {
-    stubTimerLoop();
-    const saveSolve = vi.spyOn(db, "saveSolve").mockResolvedValue();
-    const model = new CubeModel(kpuzzle);
-    const physicalFacelets = patternToFacelets(model.pattern);
-    const controller = new Controller(model);
-    controller.state.update((state) => ({ ...state, virtualCube: true, settings: { ...state.settings, ollTrainingSet: "2look", pllTrainingSet: "2look" } }));
-    controller.setTrainingFamily(family);
-    await controller.setTrainingMode("virtual");
-    const variants = lastLayerTrainingVariants(kpuzzle, family, caseId, "2look");
-    const random = vi.spyOn(Math, "random");
-    // A separate fixed AUF draw proves facelet variation comes from Full cases.
-    for (let index = 0; index < variants.length; index++) {
-      random.mockReturnValueOnce((index + 0.5) / variants.length).mockReturnValueOnce(0.25);
-      await controller.selectLastLayerCase(family, caseId);
-      const expected = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 1, "2look", variants[index].id);
-      expect(controller.state.get().training.displayFacelets).toBe(patternToFacelets(expected.pattern));
-      expect(controller.state.get().training.target).toMatchObject({ family, caseId, trainingSet: "2look", completionGoal, auf: 1 });
-    }
-    expect(random).toHaveBeenCalledTimes(variants.length * 2);
-    expect(patternToFacelets(model.pattern)).toBe(physicalFacelets);
-    const previous = controller.state.get().training.displayFacelets;
-    random.mockReturnValueOnce(0).mockReturnValueOnce(0.25);
-    controller.againTraining();
-    const ready = controller.state.get().training;
-    expect(ready.displayFacelets).not.toBe(previous);
-    expect(ready.target).toMatchObject({ caseId, trainingSet: "2look", completionGoal, auf: 1 });
-    const target = ready.target;
-    if (!target || !("family" in target)) throw new Error("Last-layer target missing");
-    random.mockReturnValueOnce(0.999).mockReturnValueOnce(0.25);
-    const execution = referenceExecutionSignature(target.references[0].alg)!;
-    const rawMoves = execution.map((move) => cubeMove(move, trainingGrip(target)));
-    for (const move of rawMoves) controller.injectMove(move);
-    expect(controller.state.get().training.phase).toBe("ready");
-    expect(controller.state.get().training.result).not.toBeNull();
-    expect(controller.state.get().training.displayFacelets).toBe(previous);
-    expect(controller.state.get().training.target).toMatchObject({ caseId, trainingSet: "2look", completionGoal, auf: 1 });
-    expect(random).toHaveBeenCalledTimes(variants.length * 2 + 4);
-    expect(patternToFacelets(model.pattern)).toBe(patternToFacelets(kpuzzle.defaultPattern().applyAlg(new Alg(rawMoves.join(" ")))));
-    expect(controller.state.get().solves).toEqual([]);
-    expect(saveSolve).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["oll", "27", "full"], ["pll", "T", "full"],
-    ["oll", "Sune", "2look"], ["pll", "Ua", "2look"],
-  ] as const)("keeps %s %s in %s deterministic apart from AUF", async (family, caseId, trainingSet) => {
-    const controller = new Controller(new CubeModel(kpuzzle));
-    controller.setTrainingFamily(family);
-    await controller.setTrainingMode("virtual");
-    const random = vi.spyOn(Math, "random").mockReturnValueOnce(0.25).mockReturnValueOnce(0.75);
-    await controller.selectLastLayerCase(family, caseId, trainingSet);
-    expect(controller.state.get().training.displayFacelets).toBe(patternToFacelets(buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 1, trainingSet).pattern));
-    controller.againTraining();
-    expect(controller.state.get().training.displayFacelets).toBe(patternToFacelets(buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 3, trainingSet).pattern));
-    expect(random).toHaveBeenCalledTimes(2);
-  });
-
-  it.each([["oll", "I-Shape"], ["pll", "Headlights"]] as const)("uses the same randomized %s %s target in physical and virtual modes", async (family, caseId) => {
-    const variants = lastLayerTrainingVariants(kpuzzle, family, caseId, "2look");
-    const index = variants.length - 1;
-    const variant = variants[index];
-    const expected = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 2, "2look", variant.id);
-    const setup = (await solver.algBetween(kpuzzle.defaultPattern(), expected.pattern)).toString();
-    const between = vi.spyOn(solver, "algBetween").mockResolvedValue(new Alg(setup));
-    const model = new CubeModel(kpuzzle);
-    const controller = new Controller(model);
-    controller.state.update((state) => ({ ...state, settings: { ...state.settings, ollTrainingSet: "2look", pllTrainingSet: "2look" } }));
-    const random = vi.spyOn(Math, "random").mockReturnValueOnce((index + 0.5) / variants.length).mockReturnValueOnce(0.5);
-    await controller.selectLastLayerCase(family, caseId);
-    expect(patternToFacelets(between.mock.calls[0][1])).toBe(patternToFacelets(expected.pattern));
-    expect(patternToFacelets(model.pattern.applyAlg(new Alg(setup)))).toBe(patternToFacelets(expected.pattern));
-    expect(controller.state.get().training.setup).toBe(handAlgorithm(setup, trainingGrip(expected.info)));
-    await controller.setTrainingMode("virtual");
-    expect(controller.state.get().training.displayFacelets).toBe(patternToFacelets(expected.pattern));
-    expect(controller.state.get().training.target).toMatchObject({ caseId, trainingSet: "2look", auf: 2 });
-    expect(random).toHaveBeenCalledTimes(2);
-    expect(patternToFacelets(model.pattern)).toBe(patternToFacelets(kpuzzle.defaultPattern()));
-  });
-
-  it("loads Full historical case catalogue navigation without changing saved 2-Look preferences", async () => {
-    const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, settings: { ...state.settings, ollTrainingSet: "2look", pllTrainingSet: "2look" } }));
-    controller.setArea("statistics");
-    await controller.setTrainingMode("virtual");
-    await controller.selectLastLayerCase("oll", "27", "full");
-    expect(controller.state.get().training.target).toMatchObject({ family: "oll", trainingSet: "full", caseId: "27", origin: { kind: "catalog" } });
-    expect(controller.state.get().settings.ollTrainingSet).toBe("2look");
-    controller.againTraining();
-    expect(controller.state.get().training.target).toMatchObject({ trainingSet: "full", caseId: "27" });
-    expect(controller.state.get().solves).toEqual([]);
-  });
-
-  it.each([
-    ["oll", "I-Shape", "orient-edges", "virtual"],
-    ["oll", "I-Shape", "orient-edges", "setup"],
-    ["oll", "Sune", "orient-last-layer", "virtual"],
-    ["pll", "Headlights", "permute-corners", "virtual"],
-    ["pll", "Headlights", "permute-corners", "setup"],
-    ["pll", "Ua", "solve-cube", "virtual"],
-  ] as const)("completes 2-Look %s %s at %s in %s mode without Solve history", async (family, caseId, goal, mode) => {
-    stubTimerLoop();
-    vi.spyOn(Math, "random").mockReturnValue(0);
-    vi.spyOn(db, "saveSettings").mockResolvedValue();
-    const saveSolve = vi.spyOn(db, "saveSolve").mockResolvedValue();
-    const built = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 0, "2look");
-    const rawSetup = mode === "setup" ? (await solver.algBetween(kpuzzle.defaultPattern(), built.pattern)).toString() : "";
-    if (mode === "setup") vi.spyOn(solver, "algBetween").mockResolvedValue(new Alg(rawSetup));
-    const model = new CubeModel(kpuzzle);
-    const controller = new Controller(model);
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
-    controller.setTrainingFamily(family);
-    await controller.updateSettings(family === "oll" ? { ollTrainingSet: "2look" } : { pllTrainingSet: "2look" });
-    await controller.setTrainingMode(mode);
-    await controller.selectLastLayerCase(family, caseId);
-    if (mode === "setup") {
-      expect(controller.state.get().training.phase).toBe("preparing");
-      for (const move of rawSetup.split(/\s+/)) controller.injectMove(move);
-      expect(patternToFacelets(model.pattern)).toBe(patternToFacelets(built.pattern));
-    }
-    const target = controller.state.get().training.target;
-    if (!target || !("family" in target)) throw new Error("Last-layer target missing");
-    expect(target).toMatchObject({ family, trainingSet: "2look", caseId, completionGoal: goal });
-    expect(controller.state.get().training.phase).toBe("ready");
-    const rawMoves = Array.from(new Alg(target.references[0].alg).expand().childAlgNodes()).map((node) => cubeMove(node.toString(), trainingGrip(target)));
-    for (const move of rawMoves) controller.injectMove(move);
-    expect(controller.state.get().training.result).toMatchObject({ recommendedStm: target.references[0].stm, delta: 0, matchedReferenceRank: 1 });
-    expect(controller.state.get().training.phase).toBe(mode === "virtual" ? "ready" : "result");
-    expect(controller.state.get().solves).toEqual([]);
-    expect(saveSolve).not.toHaveBeenCalled();
-    const after = withCentresHome(kpuzzle, reframe(kpuzzle, built.pattern.applyAlg(new Alg(rawMoves.join(" "))), new Alg(target.trainingRotation.tokens.join(" "))));
-    if (goal === "orient-edges") {
-      expect(lastLayerEdges(after)).toBe("cross");
-    } else if (goal === "permute-corners") {
-      expect(lastLayerCornersPermuted(after)).toBe(true);
-    }
-    if (mode === "virtual") {
-      controller.againTraining();
-      expect(controller.state.get().training.target).toMatchObject({ trainingSet: "2look", caseId, completionGoal: goal });
-    }
-  });
-
-  it.each(["oll", "pll"] as const)("random %s enumerates only the selected catalogue", (family) => {
-    const controller = new Controller(new CubeModel(kpuzzle));
-    const select = vi.spyOn(controller, "selectLastLayerCase").mockResolvedValue();
-    const random = vi.spyOn(Math, "random");
-    for (const trainingSet of ["full", "2look"] as const) {
-      controller.state.update((state) => ({ ...state, settings: { ...state.settings, [family === "oll" ? "ollTrainingSet" : "pllTrainingSet"]: trainingSet } }));
-      const cases = lastLayerCaseIds(family, trainingSet);
-      expect(cases).toHaveLength(trainingSet === "full" ? family === "oll" ? 57 : 21 : family === "oll" ? 10 : 6);
-      select.mockClear();
-      for (let index = 0; index < cases.length; index++) {
-        random.mockReturnValue((index + 0.5) / cases.length);
-        controller.randomTrainingCase(family);
-      }
-      expect(select.mock.calls).toEqual(cases.map((caseId) => [family, caseId]));
-    }
-  });
-
-  it.each(["oll", "pll"] as const)("rejects Full-only case selection in the 2-Look %s catalogue", async (family) => {
-    const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, settings: { ...state.settings, ollTrainingSet: "2look", pllTrainingSet: "2look" } }));
-    await controller.selectLastLayerCase(family, family === "oll" ? "1" : "T");
-    expect(controller.state.get().training.target).toBeNull();
-  });
-
-  it.each(["oll", "pll"] as const)("cancels a running %s target only when its own setting changes", async (family) => {
+describe("Controller Training settings integration", () => {
+it.each(["oll", "pll"] as const)("cancels a running %s target only when its own setting changes", async (family) => {
     stubTimerLoop();
     vi.spyOn(Math, "random").mockReturnValue(0);
     vi.spyOn(db, "saveSettings").mockResolvedValue();
@@ -475,57 +94,38 @@ describe("Controller independent last-layer Training sets", () => {
     await controller.setTrainingMode("virtual");
     await controller.selectLastLayerCase(family, family === "oll" ? "27" : "H");
     controller.injectMove("R");
-    expect(controller.state.get().training.phase).toBe("solving");
-    const before = controller.state.get().training;
+    expect(controller.training.state.get().phase).toBe("solving");
+    const before = controller.training.state.get();
     await controller.updateSettings(family === "oll" ? { pllTrainingSet: "2look" } : { ollTrainingSet: "2look" });
-    expect(controller.state.get().training).toBe(before);
+    expect(controller.training.state.get()).toBe(before);
     await controller.updateSettings(family === "oll" ? { ollTrainingSet: "2look" } : { pllTrainingSet: "2look" });
-    expect(controller.state.get().training).toMatchObject({ family, mode: "virtual", phase: "selecting", target: null, liveMoves: [], result: null });
+    expect(controller.training.state.get()).toMatchObject({ family, mode: "virtual", phase: "selecting", target: null, liveMoves: [], result: null });
     expect(controller.elapsed.get()).toBe(0);
     controller.injectMove("U");
-    expect(controller.state.get().training.phase).toBe("selecting");
+    expect(controller.training.state.get().phase).toBe("selecting");
     expect(controller.state.get().solves).toEqual([]);
   });
-
-  it("cancels physical setup in progress without changing mode or resurrecting its target", async () => {
+it("cancels physical setup in progress without changing mode or resurrecting its target", async () => {
     vi.spyOn(db, "saveSettings").mockResolvedValue();
     const pending = deferred<Alg>();
     vi.spyOn(solver, "algBetween").mockReturnValue(pending.promise);
     const controller = new Controller(new CubeModel(kpuzzle));
     const selecting = controller.selectLastLayerCase("oll", "1");
-    expect(controller.state.get().training.phase).toBe("preparing");
+    expect(controller.training.state.get().phase).toBe("preparing");
     await controller.updateSettings({ ollTrainingSet: "2look" });
     pending.resolve(new Alg("R U"));
     await selecting;
-    expect(controller.state.get().training).toMatchObject({ family: "oll", mode: "setup", phase: "selecting", target: null, setup: "" });
+    expect(controller.training.state.get()).toMatchObject({ family: "oll", mode: "setup", phase: "selecting", target: null, setup: "" });
   });
-
-  it("leaves F2L Training unchanged when either last-layer setting changes", async () => {
+it("leaves F2L Training unchanged when either last-layer setting changes", async () => {
     vi.spyOn(db, "saveSettings").mockResolvedValue();
     const controller = new Controller(new CubeModel(kpuzzle));
     controller.setArea("training");
     await controller.setTrainingMode("virtual");
     await controller.selectF2lCase("F2L 1");
-    const before = controller.state.get().training;
+    const before = controller.training.state.get();
     await controller.updateSettings({ ollTrainingSet: "2look", pllTrainingSet: "2look" });
-    expect(controller.state.get().training).toBe(before);
-  });
-
-  it.each([["oll", "27", "OLL"], ["pll", "H", "PLL"]] as const)("retains exact historical Full %s semantics with 2-Look selected", async (family, caseId, name) => {
-    vi.spyOn(db, "saveSettings").mockResolvedValue();
-    const controller = new Controller(new CubeModel(kpuzzle));
-    controller.setTrainingFamily(family);
-    await controller.setTrainingMode("virtual");
-    await controller.updateSettings({ ollTrainingSet: "2look", pllTrainingSet: "2look" });
-    const source = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 2);
-    const solve = { ...solveFor("1"), scrambledFacelets: patternToFacelets(source.pattern), analysis: { crossFace: "U" } } as Solve;
-    const step = { name, case: caseId, skipped: false, fromMove: 0, toMove: 1 } as SolveStep;
-    await controller.practiceSolveStep(solve, step);
-    expect(controller.state.get().training.target).toMatchObject({ trainingSet: "full", caseId, auf: 2, completionGoal: family === "oll" ? "orient-last-layer" : "solve-cube", origin: { kind: "solve-step", solveId: solve.id } });
-    expect(controller.state.get().training.displayFacelets).toBe(patternToFacelets(source.pattern));
-    controller.againTraining();
-    expect(controller.state.get().training.target).toMatchObject({ trainingSet: "full", auf: 2 });
-    expect(controller.state.get().training.displayFacelets).toBe(patternToFacelets(source.pattern));
+    expect(controller.training.state.get()).toBe(before);
   });
 });
 
@@ -547,7 +147,7 @@ describe("Controller application-area ownership", () => {
 
     expect(controller.state.get().area).toBe("training");
     expect(controller.state.get().phase).toBe("scrambling");
-    expect(controller.state.get().training.phase).toBe("selecting");
+    expect(controller.training.state.get().phase).toBe("selecting");
     expect(controller.state.get().solves).toEqual([solve]);
     expect(controller.state.get().lastSolve).toBe(solve);
   });
@@ -566,11 +166,11 @@ describe("Controller application-area ownership", () => {
 
   it("refuses Statistics while a Training attempt is solving", () => {
     const controller = readyController([session("1")], "1");
+    controller.training.state.update((state) => ({ ...state, phase: "solving" }));
     controller.state.update((state) => ({
-      ...state,
-      area: "training",
-      training: { ...state.training, phase: "solving" },
-    }));
+    ...state,
+    area: "training"
+}));
 
     controller.setArea("statistics");
 
@@ -638,15 +238,15 @@ describe("Controller application-area ownership", () => {
     controller.setArea("training");
     await controller.setF2lMode("virtual");
     await controller.selectF2lCase("F2L 1");
-    const target = controller.state.get().training.target;
-    const display = controller.state.get().training.displayFacelets;
+    const target = controller.training.state.get().target;
+    const display = controller.training.state.get().displayFacelets;
 
     controller.setArea("statistics");
     expect(controller.state.get().area).toBe("statistics");
     controller.setArea("training");
 
-    expect(controller.state.get().training.target).toBe(target);
-    expect(controller.state.get().training.displayFacelets).toBe(display);
+    expect(controller.training.state.get().target).toBe(target);
+    expect(controller.training.state.get().displayFacelets).toBe(display);
   });
 
   it("loads a statistics snapshot without changing active Timer state", async () => {
@@ -678,18 +278,18 @@ describe("Controller application-area ownership", () => {
     await controller.setTrainingMode("virtual");
     await controller.selectLastLayerCase("oll", "1");
 
-    const target = controller.state.get().training.target;
-    if (!target || !("family" in target) || target.family !== "oll") throw new Error("OLL target was not loaded");
+    const target = controller.training.state.get().target;
+    if (!target || target.family === "f2l" || target.family !== "oll") throw new Error("OLL target was not loaded");
     const grip = trainingGrip(target);
     const rawMoves = Array.from(new Alg(target.references[0].alg).expand().childAlgNodes())
       .map((node) => cubeMove(node.toString(), grip));
     const expectedTarget = buildLastLayerCatalogueTarget(kpuzzle, "oll", "1", target.auf);
     expect(isLastLayerTrainingComplete(expectedTarget.info, expectedTarget.pattern.applyAlg(new Alg(rawMoves.join(" "))))).toBe(true);
-    expect(controller.state.get().training.phase).toBe("ready");
+    expect(controller.training.state.get().phase).toBe("ready");
     for (const move of rawMoves) controller.injectMove(move);
 
-    expect(controller.state.get().training.phase).toBe("ready");
-    expect(controller.state.get().training.result?.stm).toBeGreaterThan(0);
+    expect(controller.training.state.get().phase).toBe("ready");
+    expect(controller.training.state.get().result?.stm).toBeGreaterThan(0);
     expect(controller.state.get().solves).toEqual([]);
   });
 
@@ -713,8 +313,8 @@ describe("Controller application-area ownership", () => {
     expect(controller.state.get().phase).not.toBe("ready");
     expect(controller.state.get().phase).not.toBe("inspection");
     expect(controller.state.get().phase).not.toBe("solving");
-    expect(controller.state.get().training.phase).toBe("selecting");
-    expect(controller.state.get().training.target).toBeNull();
+    expect(controller.training.state.get().phase).toBe("selecting");
+    expect(controller.training.state.get().target).toBeNull();
     expect(controller.state.get().solves).toEqual([]);
     expect(patternToFacelets(controller.pattern!)).toBe(trainingPosition);
     expect(controller.state.get().scramble).toBe("");
@@ -735,13 +335,13 @@ describe("Controller application-area ownership", () => {
     const generate = vi.spyOn(controller, "newScramble").mockResolvedValue();
 
     expect(controller.returnToTimerReview()).toBe(true);
+    expect(controller.training.state.get()).toMatchObject({ phase: "selecting", target: null });
 
     expect(controller.state.get()).toMatchObject({
       area: "timer",
       phase: "finished",
       sessionId: "1",
       scramble: "",
-      training: { phase: "selecting", target: null },
     });
     expect(controller.state.get().solves).toBe(before.solves);
     expect(controller.state.get().lastSolve).toBe(historicalSolve);
@@ -781,9 +381,9 @@ describe("Controller application-area ownership", () => {
     await controller.selectF2lCase("F2L 1");
 
     const target = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0]);
-    expect(controller.state.get().training.phase).toBe("ready");
-    expect(controller.state.get().training.setup).toBe("");
-    expect(controller.state.get().training.displayFacelets).toBe(
+    expect(controller.training.state.get().phase).toBe("ready");
+    expect(controller.training.state.get().setup).toBe("");
+    expect(controller.training.state.get().displayFacelets).toBe(
       patternToFacelets(target.pattern),
     );
 
@@ -794,302 +394,46 @@ describe("Controller application-area ownership", () => {
     const physicalAfter = physicalStart.applyAlg(new Alg(cubeMoves.join(" ")));
     for (const move of cubeMoves) controller.injectMove(move);
 
-    const completedResult = controller.state.get().training.result;
-    expect(controller.state.get().training.phase).toBe("ready");
+    const completedResult = controller.training.state.get().result;
+    expect(controller.training.state.get().phase).toBe("ready");
     expect(controller.state.get().solves).toEqual([]);
     expect(patternToFacelets(controller.pattern!)).toBe(patternToFacelets(physicalAfter));
-    expect(controller.state.get().training.displayFacelets).toBe(
+    expect(controller.training.state.get().displayFacelets).toBe(
       patternToFacelets(target.pattern),
     );
     expect(completedResult?.moves).toEqual(
       Array.from(new Alg(BASIC_CASES[0].algorithms.FR[0]).expand().childAlgNodes()).map((node) => node.toString()),
     );
-    expect(controller.state.get().training.result).toEqual(completedResult);
-    expect(controller.state.get().training.liveMoves).toEqual([]);
+    expect(controller.training.state.get().result).toEqual(completedResult);
+    expect(controller.training.state.get().liveMoves).toEqual([]);
 
     controller.injectMove(cubeMoves[0]);
-    expect(controller.state.get().training.phase).toBe("solving");
-    expect(controller.state.get().training.result).toBeNull();
-    expect(controller.state.get().training.liveMoves).toEqual(["U"]);
+    expect(controller.training.state.get().phase).toBe("solving");
+    expect(controller.training.state.get().result).toBeNull();
+    expect(controller.training.state.get().liveMoves).toEqual(["U"]);
 
     const physicalResult = patternToFacelets(controller.pattern!);
     controller.againF2lTraining();
-    expect(controller.state.get().training.phase).toBe("ready");
+    expect(controller.training.state.get().phase).toBe("ready");
     expect(patternToFacelets(controller.pattern!)).toBe(physicalResult);
-    expect(controller.state.get().training.displayFacelets).toBe(
+    expect(controller.training.state.get().displayFacelets).toBe(
       patternToFacelets(target.pattern),
     );
-    expect(controller.state.get().training.result).toBeNull();
+    expect(controller.training.state.get().result).toBeNull();
 
     await controller.setF2lMode("setup");
-    expect(controller.state.get().training.mode).toBe("setup");
-    expect(controller.state.get().training.setup.length).toBeGreaterThan(0);
-    expect(controller.state.get().training.displayFacelets).toBe(physicalResult);
+    expect(controller.training.state.get().mode).toBe("setup");
+    expect(controller.training.state.get().setup.length).toBeGreaterThan(0);
+    expect(controller.training.state.get().displayFacelets).toBe(physicalResult);
   });
 
-  it("keeps solve-step practice exact across mode changes and retries", async () => {
-    globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame;
-    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
 
-    const exact = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0]);
-    const solve = {
-      id: "solve-step-controller",
-      scramble: "",
-      scrambledFacelets: patternToFacelets(exact.pattern),
-      moves: [{ move: "U", t: 10 }],
-      analysis: { crossFace: exact.info.crossFace },
-    } as unknown as Solve;
-    const step = {
-      name: "F2L Slot 1",
-      slot: exact.info.slot,
-      skipped: false,
-      fromMove: 0,
-      toMove: 1,
-    } as never;
-    const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
 
-    controller.setArea("training");
-    controller.setF2lLibrary("advanced");
-    await controller.practiceF2lStep(solve, step);
-    const setupTarget = controller.state.get().training.target;
-    expect(controller.state.get().area).toBe("training");
-    expect(setupTarget?.origin).toMatchObject({
-      kind: "solve-step",
-      solveId: solve.id,
-      slot: exact.info.slot,
-    });
-    await controller.setF2lMode("virtual");
-    expect(controller.state.get().training.target?.origin.kind).toBe("solve-step");
-    expect(controller.state.get().training.phase).toBe("ready");
-    expect(controller.state.get().training.displayFacelets).toBe(
-      patternToFacelets(exact.pattern),
-    );
-    expect(controller.state.get().training.selectedLibrary).toBe("advanced");
-    controller.againF2lTraining();
-    await Promise.resolve();
-    expect(controller.state.get().training.target?.origin.kind).toBe("solve-step");
-    expect(controller.state.get().training.displayFacelets).toBe(
-      patternToFacelets(exact.pattern),
-    );
-  });
 
-  it("rebuilds standard setup from the current F2L-complete base", async () => {
-    globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame;
-    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
-    const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
-    controller.setArea("training");
-    await controller.selectF2lCase("F2L 4");
 
-    expect(controller.state.get().training.setup).toBe("R U' R'");
-    const firstTarget = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[3]);
-    const firstGrip = f2lTrainingGrip(firstTarget.info);
-    for (const move of f2lCubeAlgorithm(BASIC_CASES[3].setup, firstGrip).split(" ")) {
-      controller.injectMove(move);
-    }
-    expect(controller.state.get().training.phase).toBe("ready");
 
-    for (const move of f2lCubeAlgorithm(BASIC_CASES[3].algorithms.FR[0], firstGrip).split(" ")) {
-      controller.injectMove(move);
-    }
-    expect(controller.state.get().training.phase).toBe("result");
-    expect(isStandardF2lBase(controller.pattern!)).toBe(true);
 
-    const completedResult = controller.state.get().training.result;
-    controller.injectMove("D");
-    controller.injectMove("D");
-    controller.injectMove("D");
-    expect(controller.state.get().training.phase).toBe("result");
-    expect(controller.state.get().training.result).toEqual(completedResult);
-    controller.injectMove("D");
-    expect(controller.state.get().training.phase).toBe("preparing");
-    expect(controller.state.get().training.result).toBeNull();
-    expect(controller.state.get().training.liveMoves).toEqual([]);
 
-    const baseAfterAttempt = controller.pattern!;
-    const expectedNextTarget = buildF2lCatalogueTarget(
-      kpuzzle,
-      BASIC_CASES[3],
-      baseAfterAttempt,
-    );
-    controller.againF2lTraining();
-    expect(controller.state.get().training.setup).toBe("R U' R'");
-    for (const move of f2lCubeAlgorithm(BASIC_CASES[3].setup, firstGrip).split(" ")) {
-      controller.injectMove(move);
-    }
-    expect(patternToFacelets(controller.pattern!)).toBe(
-      patternToFacelets(expectedNextTarget.pattern),
-    );
-
-    for (const move of f2lCubeAlgorithm(BASIC_CASES[3].algorithms.FR[0], firstGrip).split(" ")) {
-      controller.injectMove(move);
-    }
-    await controller.selectF2lCase("F2L 3");
-    expect(controller.state.get().training.setup).toBe("F' U F");
-  });
-
-  it("keeps the selected standard position through mode changes and retry", async () => {
-    const controller = new Controller(new CubeModel(kpuzzle));
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
-    controller.setArea("training");
-    await controller.selectF2lCase("F2L 10");
-    await controller.selectF2lPosition("BL");
-
-    expect(controller.state.get().training.selectedPosition).toBe("BL");
-    expect(f2lTargetOf(controller)?.position).toBe("BL");
-    expect(controller.state.get().training.target?.origin.kind).toBe("catalog");
-    const firstSetup = controller.state.get().training.setup;
-    expect(firstSetup).toBeTruthy();
-
-    await controller.setF2lMode("virtual");
-    expect(f2lTargetOf(controller)?.position).toBe("BL");
-    controller.againF2lTraining();
-    await Promise.resolve();
-    expect(f2lTargetOf(controller)?.position).toBe("BL");
-    await controller.setF2lMode("setup");
-    expect(f2lTargetOf(controller)?.position).toBe("BL");
-    expect(controller.state.get().training.setup).toBe(firstSetup);
-  });
-
-  it("keeps the generic setup fallback for a non-F2L-complete start", async () => {
-    const physicalStart = kpuzzle.defaultPattern().applyAlg(new Alg("R U F"));
-    const controller = new Controller(new CubeModel(kpuzzle, physicalStart));
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
-    controller.setArea("training");
-    await controller.selectF2lCase("F2L 4");
-
-    const setup = controller.state.get().training.setup;
-    expect(setup.length).toBeGreaterThan(0);
-    expect(controller.state.get().training.phase).toBe("preparing");
-  });
-});
-
-describe("Controller Advanced F2L catalogue", () => {
-  function controllerAtBase(base = kpuzzle.defaultPattern()) {
-    globalThis.requestAnimationFrame = (() => 1) as typeof requestAnimationFrame;
-    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
-    const controller = new Controller(new CubeModel(kpuzzle, base));
-    controller.state.update((state) => ({ ...state, virtualCube: true }));
-    controller.setArea("training");
-    return controller;
-  }
-
-  it("defaults to Basic and clears catalogue selection without changing mode, slot or physical state", async () => {
-    const controller = controllerAtBase();
-    expect(controller.state.get().training.selectedLibrary).toBe("basic");
-    await controller.setF2lMode("virtual");
-    await controller.selectF2lPosition("BL");
-    await controller.selectF2lCase("F2L 3");
-    controller.injectMove("L");
-    expect(controller.state.get().training.liveMoves.length).toBeGreaterThan(0);
-    const physical = patternToFacelets(controller.pattern!);
-    controller.setF2lLibrary("advanced");
-    expect(controller.state.get().training).toMatchObject({ selectedLibrary: "advanced",
-      selectedPosition: "BL", mode: "virtual", phase: "selecting", target: null,
-      result: null, setup: "", setupProgress: null, recovery: null, recoveryPending: false, liveMoves: [] });
-    expect(controller.state.get().area).toBe("training");
-    expect(patternToFacelets(controller.pattern!)).toBe(physical);
-    await controller.selectF2lCase("F2L 3");
-    expect(controller.state.get().training.target).toBeNull();
-    await controller.selectF2lCase("AF2L 3");
-    expect(controller.state.get().training.target?.origin).toMatchObject({ kind: "catalog", library: "advanced", caseName: "AF2L 3" });
-    controller.setF2lLibrary("basic");
-    expect(controller.state.get().training).toMatchObject({ selectedLibrary: "basic", selectedPosition: "BL", mode: "virtual", target: null, phase: "selecting" });
-    await controller.selectF2lCase("AF2L 3");
-    expect(controller.state.get().training.target).toBeNull();
-    expect(patternToFacelets(controller.pattern!)).toBe(physical);
-  });
-
-  it("repositions the authoritative Advanced case and keeps it through retry/mode changes", async () => {
-    const controller = controllerAtBase();
-    controller.setF2lLibrary("advanced");
-    await controller.setF2lMode("virtual");
-    await controller.selectF2lCase("AF2L 3");
-    for (const position of F2L_POSITIONS) {
-      await controller.selectF2lPosition(position);
-      const expected = buildF2lCatalogueTarget(kpuzzle, findF2lTrainingCase("advanced", "AF2L 3")!, position);
-      expect(f2lTargetOf(controller)?.position).toBe(position);
-      expect(controller.state.get().training.displayFacelets).toBe(patternToFacelets(expected.pattern));
-    }
-    controller.againF2lTraining();
-    await Promise.resolve();
-    expect(controller.state.get().training.target?.origin).toMatchObject({ library: "advanced", caseName: "AF2L 3" });
-    await controller.setF2lMode("setup");
-    expect(controller.state.get().training).toMatchObject({ selectedLibrary: "advanced", selectedPosition: "BR", mode: "setup", phase: "preparing" });
-    await controller.setF2lMode("virtual");
-    expect(controller.state.get().training).toMatchObject({ selectedLibrary: "advanced", selectedPosition: "BR", phase: "ready" });
-  });
-
-  it("runs Advanced direct Setup, completion and Again on the ordinary path with a physical LL base", async () => {
-    const base = kpuzzle.defaultPattern().applyAlg(new Alg("D2"));
-    const controller = controllerAtBase(base);
-    controller.setF2lLibrary("advanced");
-    await controller.selectF2lPosition("FL");
-    await controller.selectF2lCase("AF2L 3");
-    const entry = findF2lTrainingCase("advanced", "AF2L 3")!;
-    const expected = buildF2lCatalogueTarget(kpuzzle, entry, "FL", base);
-    const training = controller.state.get().training;
-    expect(training.setup).toBe(referenceExecutionSignature(entry.setup)!.join(" "));
-    for (const move of f2lCubeAlgorithm(training.setup, f2lTrainingGrip(expected.info)).split(" ")) controller.injectMove(move);
-    expect(controller.state.get().training.phase).toBe("ready");
-    expect(patternToFacelets(controller.pattern!)).toBe(patternToFacelets(expected.pattern));
-    const reference = expected.info.references.find((candidate) => referenceExecutionSignature(candidate.alg) !== null)!;
-    const execution = referenceExecutionSignature(reference.alg)!;
-    for (const move of f2lCubeAlgorithm(execution.join(" "), f2lTrainingGrip(expected.info)).split(" ")) controller.injectMove(move);
-    expect(controller.state.get().training.phase).toBe("result");
-    expect(controller.state.get().training.result?.matchedReferenceRank).toBe(reference.rank);
-    controller.againF2lTraining();
-    await Promise.resolve();
-    expect(controller.state.get().training.target?.origin).toMatchObject({ library: "advanced", caseName: "AF2L 3" });
-    expect(controller.state.get().training.selectedPosition).toBe("FL");
-    expect(controller.state.get().training.result).toBeNull();
-    controller.setF2lLibrary("basic");
-    expect(controller.state.get().training).toMatchObject({ mode: "setup", selectedPosition: "FL", setup: "", target: null, setupProgress: null });
-  });
-
-  it("uses the existing generic Setup fallback for the exact authoritative slice case", async () => {
-    const controller = controllerAtBase(kpuzzle.defaultPattern().applyAlg(new Alg("R U F")));
-    controller.setF2lLibrary("advanced");
-    await controller.selectF2lPosition("BR");
-    await controller.selectF2lCase("AF2L 1");
-    const expected = buildF2lCatalogueTarget(kpuzzle, findF2lTrainingCase("advanced", "AF2L 1")!, "BR");
-    const training = controller.state.get().training;
-    expect(training.phase).toBe("preparing");
-    expect(training.setup).toMatch(/^[URFDLB2' ]+$/);
-    for (const move of f2lCubeAlgorithm(training.setup, f2lTrainingGrip(expected.info)).split(" ")) controller.injectMove(move);
-    expect(controller.state.get().training.phase).toBe("ready");
-    expect(patternToFacelets(controller.pattern!)).toBe(patternToFacelets(expected.pattern));
-  });
-
-  it("automatically repeats Advanced virtual attempts and clears results on library changes", async () => {
-    const controller = controllerAtBase();
-    controller.setF2lLibrary("advanced");
-    await controller.setF2lMode("virtual");
-    await controller.selectF2lPosition("FL");
-    await controller.selectF2lCase("AF2L 3");
-    const target = controller.state.get().training.target!;
-    const reference = target.references.find((candidate) => referenceExecutionSignature(candidate.alg) !== null)!;
-    const execution = referenceExecutionSignature(reference.alg)!;
-    for (const move of f2lCubeAlgorithm(execution.join(" "), f2lTrainingGrip(target)).split(" ")) controller.injectMove(move);
-    expect(controller.state.get().training.phase).toBe("ready");
-    expect(controller.state.get().training.result?.matchedReferenceRank).toBe(reference.rank);
-    controller.setF2lLibrary("basic");
-    expect(controller.state.get().training).toMatchObject({ phase: "selecting", mode: "virtual", selectedPosition: "FL", result: null, target: null, liveMoves: [] });
-  });
-
-  it("cancels an in-flight Advanced setup when the library changes", async () => {
-    const controller = controllerAtBase(kpuzzle.defaultPattern().applyAlg(new Alg("R U F")));
-    controller.setF2lLibrary("advanced");
-    await controller.selectF2lPosition("BR");
-    const selecting = controller.selectF2lCase("AF2L 25");
-    expect(controller.state.get().training.phase).toBe("preparing");
-    const physical = patternToFacelets(controller.pattern!);
-    controller.setF2lLibrary("basic");
-    await selecting;
-    expect(controller.state.get().training).toMatchObject({ selectedLibrary: "basic", selectedPosition: "BR", mode: "setup", target: null, phase: "selecting", setup: "", setupProgress: null, recovery: null, recoveryPending: false });
-    expect(patternToFacelets(controller.pattern!)).toBe(physical);
-  });
 });
 
 describe("Controller Session event ownership", () => {
@@ -1162,9 +506,10 @@ describe("Controller Session event ownership", () => {
   it("rejects Session context changes and imports during a Training solving attempt", async () => {
     const sessions = [session("1"), session("2", "222")];
     const controller = readyController(sessions, "1");
+    controller.training.state.update((state) => ({ ...state, phase: "solving" }));
     controller.state.update((state) => ({
-      ...state, area: "training", training: { ...state.training, phase: "solving" },
-    }));
+    ...state, area: "training"
+}));
     const before = controller.state.get();
     await controller.selectSession("2");
     await controller.createSession("Third");
@@ -1281,9 +626,10 @@ describe("Controller Session-context synchronization", () => {
   it("allows rename during a Training attempt", async () => {
     vi.spyOn(db, "saveSession").mockResolvedValue();
     const controller = readyController([session("1")], "1");
-    controller.state.update((state) => ({ ...state, area: "training", training: { ...state.training, phase: "solving" } }));
+    controller.training.state.update((state) => ({ ...state, phase: "solving" }));
+    controller.state.update((state) => ({ ...state, area: "training" }));
     await controller.renameSession("1", "Renamed");
-    expect(controller.state.get().training.phase).toBe("solving");
+    expect(controller.training.state.get().phase).toBe("solving");
     expect(controller.state.get().sessions[0].name).toBe("Renamed");
   });
 
@@ -1587,4 +933,44 @@ describe("Controller import runtime integration", () => {
     },
   );
 
+});
+
+describe("Controller Training composition", () => {
+  it("publishes Training turns without application-root state notifications", async () => {
+    stubTimerLoop();
+    const controller = readyController([session("1")], "1");
+    controller.setArea("training");
+    await controller.setTrainingMode("virtual");
+    await controller.selectF2lCase("F2L 1");
+    const rootChanged = vi.fn();
+    const trainingChanged = vi.fn();
+    controller.state.subscribe(rootChanged);
+    controller.training.state.subscribe(trainingChanged);
+    const physical = controller.pattern!;
+    controller.injectMove("R");
+    expect(trainingChanged).toHaveBeenCalled();
+    expect(rootChanged).not.toHaveBeenCalled();
+    expect(controller.pattern!.isIdentical(physical.applyMove("R"))).toBe(true);
+    expect(controller.training.state.get().phase).toBe("solving");
+    expect(controller.state.get().solves).toEqual([]);
+  });
+
+  it("uses the shared RAF to publish elapsed from the Training timestamp", async () => {
+    let tick: FrameRequestCallback | undefined;
+    globalThis.requestAnimationFrame = (callback) => { tick = callback; return 1; };
+    globalThis.cancelAnimationFrame = vi.fn();
+    const controller = readyController([session("1")], "1");
+    controller.setArea("training");
+    await controller.setTrainingMode("virtual");
+    await controller.selectF2lCase("F2L 1");
+    const now = vi.spyOn(performance, "now").mockReturnValue(1000);
+    controller.injectMove("R");
+    expect(tick).toBeDefined();
+    now.mockReturnValue(1250);
+    tick!(1250);
+    expect(controller.elapsed.get()).toBe(250);
+    controller.resetTraining();
+    expect(globalThis.cancelAnimationFrame).toHaveBeenCalled();
+    expect(controller.training.elapsedAt(1250)).toBeNull();
+  });
 });
