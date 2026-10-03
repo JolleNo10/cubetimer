@@ -2,10 +2,11 @@ import { formatTime } from "../../../shared/time";
 import { useEffect, useState, type ReactNode } from "react";
 import { useController, useSettings, useStore, useStoreValue, useTrainingState } from "../../../app/useController";
 import type { TrainingState } from "../TrainingRuntime";
+import type { TrainingGuideMove } from "../../../cube/training";
 
 import { ConnectionPanel } from "../../../shared/ui/ConnectionPanel";
 import { CubeView } from "../../../shared/ui/CubeView";
-import { TrainingAlgorithmGuide } from "./TrainingAlgorithmGuide";
+import { TrainingAlgorithmGuide, type TrainingGuideNavigation } from "./TrainingAlgorithmGuide";
 
 export function TrainingWorkspace({ library, details, emptyMessage }: {
   library: ReactNode; details: ReactNode; emptyMessage: ReactNode;
@@ -13,6 +14,16 @@ export function TrainingWorkspace({ library, details, emptyMessage }: {
   const controller = useController();
   const family = useStoreValue(controller.training.state, state => state.family);
   const error = useStoreValue(controller.state, state => state.error);
+  const target = useStoreValue(controller.training.state, state => state.target);
+  const guideMoves = useStoreValue(controller.training.state, state => state.guide?.guideMoves);
+  const confirmed = useStoreValue(controller.training.state, state => state.guide?.confirmed);
+  const [preview, setPreview] = useState<{
+    index: number; target: TrainingState["target"]; guideMoves: readonly TrainingGuideMove[]; confirmed: number | undefined;
+  } | null>(null);
+  // Scope the selection to this guide/progress even before the reset effect runs.
+  const previewIndex = preview && preview.target === target && preview.guideMoves === guideMoves && preview.confirmed === confirmed ? preview.index : null;
+  useEffect(() => { setPreview(null); }, [target, guideMoves, confirmed]);
+  const onPreviewStep = (index: number | null) => setPreview(index === null || !guideMoves ? null : { index, target, guideMoves, confirmed });
   const f2l = family === "f2l";
   return (
     <div className={`app-body ${f2l ? "f2l-training" : "training"}-layout`}>
@@ -20,16 +31,16 @@ export function TrainingWorkspace({ library, details, emptyMessage }: {
       <div className="column">
         {error ? <div className="notice error"><span className="grow">{error}</span><button className="ghost" onClick={() => controller.dismissError()}>Dismiss</button></div> : null}
         <TrainingSetupPanel />
-        <TrainingCubeStage />
+        <TrainingCubeStage previewMove={previewIndex === null ? undefined : guideMoves?.[previewIndex]} />
       </div>
       <div className="column right">
-        <TrainingTargetPanel details={details} emptyMessage={emptyMessage} />
+        <TrainingTargetPanel details={details} emptyMessage={emptyMessage} previewIndex={previewIndex} onPreviewStep={onPreviewStep} />
       </div>
     </div>
   );
 }
 
-function TrainingTargetPanel({ details, emptyMessage }: { details: ReactNode; emptyMessage: ReactNode }) {
+function TrainingTargetPanel({ details, emptyMessage, previewIndex, onPreviewStep }: { details: ReactNode; emptyMessage: ReactNode } & TrainingGuideNavigation) {
   const controller = useController();
   const family = useStoreValue(controller.training.state, state => state.family);
   const target = useStoreValue(controller.training.state, state => state.target);
@@ -41,7 +52,7 @@ function TrainingTargetPanel({ details, emptyMessage }: { details: ReactNode; em
       <div className="panel-body">
         {!target ? <div className="empty">{emptyMessage}</div> : <>
           {details}
-          <TrainingReferences />
+          <TrainingReferences previewIndex={previewIndex} onPreviewStep={onPreviewStep} />
           <TrainingAttempt />
           <TrainingActions />
         </>}
@@ -57,7 +68,7 @@ function TrainingAttempt() {
   return <TrainingAttemptResult result={training.result} phase={training.phase} liveMoveCount={training.liveMoves.length} elapsed={elapsed} />;
 }
 
-export function TrainingCubeStage() {
+export function TrainingCubeStage({ previewMove }: { previewMove?: TrainingGuideMove } = {}) {
   const controller = useController();
   const settings = useSettings();
   const cubeFacelets = useStoreValue(controller.physical.state, state => state.cubeFacelets);
@@ -73,7 +84,7 @@ export function TrainingCubeStage() {
       displayFacelets={training.displayFacelets || cubeFacelets} displayRevision={training.displayRevision}
       displaySource={training.mode === "virtual" ? "virtual" : "physical"} orientationOverride={target?.trainingRotation.orientation}
       physicalSyncAvailable={cubeStatus === "connected"}
-      guideMove={target && target.references.length > 0 && (training.phase === "ready" || training.phase === "solving") && !training.result ? training.guide?.currentMove : null} />
+      guideMove={target && target.references.length > 0 && (training.phase === "ready" || training.phase === "solving") && !training.result ? previewMove ?? training.guide?.currentMove : null} />
   </div>;
 }
 
@@ -216,7 +227,7 @@ export function TrainingSetupPanel() {
   );
 }
 
-export function TrainingReferences() {
+export function TrainingReferences({ previewIndex, onPreviewStep }: TrainingGuideNavigation = {}) {
   const training = useTrainingState();
   const target = training.target;
   const references = target?.references ?? [];
@@ -236,7 +247,7 @@ export function TrainingReferences() {
             <strong>{reference.stm} STM</strong>
             {!result && target?.family === "f2l" ? <span className="phase-case">{target.references[0]?.caseName}</span> : null}
           </div>
-          <TrainingAlgorithmGuide algorithm={reference.alg} guide={result ? null : training.guide} active={(training.phase === "ready" || training.phase === "solving") && !training.result} />
+          <TrainingAlgorithmGuide algorithm={reference.alg} guide={result ? null : training.guide} active={(training.phase === "ready" || training.phase === "solving") && !training.result} previewIndex={previewIndex} onPreviewStep={onPreviewStep} />
           {!result && references.length > 1 ? (
             <>
               <button

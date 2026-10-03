@@ -375,3 +375,7 @@ not independently invented states. The original entry is retained as history.
 - What happened: the first explicit-outcome fallback could still supersede a scramble requested between adoption failure and Controller's continuation.
 - Root cause: an outcome describes ownership when the operation settles, not when a later asynchronous caller resumes.
 - Prevention: recheck the existing scramble request revision when applying fallback policy, with a regression covering that microtask gap.
+
+- What happened: middle-slice Training guidance showed a large internal slab instead of the affected cubies' visible surfaces.
+- Root cause: the overlay rendered the faces of an affected-layer prism, including its internal cut face.
+- Prevention: highlight only exterior surface bands using the domain-provided axis and layer interval, with slice surface regressions.

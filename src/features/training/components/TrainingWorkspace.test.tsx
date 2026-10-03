@@ -5,10 +5,12 @@ import { get3x3x3 } from "../../../cube/puzzle";
 import { ControllerContext } from "../../../app/useController";
 import { Controller } from "../../../app/Controller";
 import type { TrainingResult, TrainingState } from "../TrainingRuntime";
+import { trainingGuideMove, type TrainingGuideMove } from "../../../cube/training";
 import { TrainingActions, TrainingAttemptResult, TrainingCubeStage, TrainingReferences, TrainingSetupPanel } from "./TrainingWorkspace";
 
-vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { displaySource: string; live: boolean; displayFacelets: string; physicalSyncAvailable: boolean }) =>
-  <div data-source={props.displaySource} data-live={props.live} data-facelets={props.displayFacelets} data-sync={props.physicalSyncAvailable} /> }));
+vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { displaySource: string; live: boolean; displayFacelets: string; physicalSyncAvailable: boolean; guideMove?: TrainingGuideMove | null }) =>
+  <div data-source={props.displaySource} data-live={props.live} data-facelets={props.displayFacelets} data-sync={props.physicalSyncAvailable}
+    data-guide-token={props.guideMove?.token} data-guide-axis={props.guideMove?.axis} /> }));
 const kpuzzle = await get3x3x3();
 function render(controller: Controller, element: React.ReactElement) {
   return renderToStaticMarkup(<ControllerContext.Provider value={controller}>{element}</ControllerContext.Provider>);
@@ -24,6 +26,24 @@ const result: TrainingResult = { moves: ["R", "U", "R'"], stm: 3, elapsedMs: 125
   recommendedAlg: "R U R'", matchedReferenceRank: 1, delta: 0 };
 
 describe("shared Training presentation", () => {
+  it("uses the current instruction by default and an explicit preview when supplied", async () => {
+    const controller = await selected();
+    const current = controller.training.state.get().guide!.currentMove!;
+    const html = render(controller, <TrainingCubeStage />);
+    expect(html).toContain(`data-guide-token="${current.token.replaceAll("'", "&#x27;")}"`);
+    expect(html).toContain(`data-guide-axis="${current.axis}"`);
+    const preview = trainingGuideMove("M")!;
+    const previewed = render(controller, <TrainingCubeStage previewMove={preview} />);
+    expect(previewed).toContain('data-guide-token="M"');
+    expect(previewed).toContain('data-guide-axis="x"');
+  });
+
+  it.each(["preparing", "result", "ready"] as const)("cannot revive an inactive guide with a preview (%s)", async phase => {
+    const controller = await selected();
+    controller.training.state.update(state => ({ ...state, phase, result: phase === "ready" ? result : null }));
+    expect(render(controller, <TrainingCubeStage previewMove={trainingGuideMove("M")!} />)).not.toContain("data-guide-token");
+  });
+
   it.each([
     ["setup", "ready", "Ready"], ["virtual", "ready", "Ready"],
     ["setup", "solving", "Solving"], ["virtual", "solving", "Solving"],

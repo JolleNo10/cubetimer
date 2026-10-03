@@ -68,6 +68,10 @@ describe("shared Training checkpoints", () => {
   it("maps post-rotation arrows to the fixed solver-facing display", () => {
     const guide = guideFor("y R U");
     expect(guide.guideMoves[1]).toMatchObject({ axis: "z", layers: [-1, -1 / 3], token: "R" });
+    const progress = trainingGuideProgress(guide);
+    expect(progress.moves).toBe(guide.moves);
+    expect(progress.guideMoves).toBe(guide.guideMoves);
+    expect(progress.guideMoves[1]).not.toEqual(trainingGuideMove("R"));
   });
 
   it.each([
@@ -81,6 +85,7 @@ describe("shared Training checkpoints", () => {
     expect([normalized.patternData.CORNERS, normalized.patternData.EDGES])
       .toEqual([reported.patternData.CORNERS, reported.patternData.EDGES]);
     expect(guide.guideMoves[1]).toMatchObject({ token: "U", axis, layers });
+    expect(trainingGuideProgress(guide).guideMoves).toBe(guide.guideMoves);
     expect(advanceTrainingGuide(guide, reported, 0).confirmed).toBe(2);
   });
 

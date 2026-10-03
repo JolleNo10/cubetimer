@@ -70,6 +70,8 @@ export function trainingGuideMove(token: string, orientation: Orientation = IDEN
 
 export type TrainingGuideProgress = {
   moves: readonly string[];
+  /** Exact display instructions built against each reference checkpoint's frame. */
+  guideMoves: readonly TrainingGuideMove[];
   confirmed: number;
   currentMove: TrainingGuideMove | null;
   finished: boolean;
@@ -129,7 +131,7 @@ export function buildTrainingGuide(
 }
 
 export function trainingGuideProgress(guide: TrainingGuide, confirmed = 0): TrainingGuideProgress {
-  return { moves: guide.moves, confirmed, currentMove: guide.guideMoves[confirmed] ?? null, finished: confirmed >= guide.moves.length };
+  return { moves: guide.moves, guideMoves: guide.guideMoves, confirmed, currentMove: guide.guideMoves[confirmed] ?? null, finished: confirmed >= guide.moves.length };
 }
 
 /** Monotonic confirmation: deviations retain progress and later checkpoints rejoin. */

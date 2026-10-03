@@ -590,19 +590,27 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .cube-move-guide { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 .cube-guide-layer { fill: var(--accent); fill-opacity: 0.13; stroke: var(--accent); stroke-opacity: 0.55; stroke-width: 1.3; stroke-linejoin: round; }
 .cube-move-guide.wide .cube-guide-layer { fill-opacity: 0.17; }
-.cube-move-guide.slice .cube-guide-layer { fill-opacity: 0.22; stroke-dasharray: 5 3; }
+.cube-move-guide.slice .cube-guide-layer { fill-opacity: 0.2; stroke-opacity: 0.65; }
 .cube-move-guide.rotation .cube-guide-layer { fill-opacity: 0.05; stroke-dasharray: 3 5; }
-.cube-guide-arc-shadow { fill: none; stroke: var(--bg); stroke-opacity: 0.6; stroke-width: 13; stroke-linecap: round; }
-.cube-guide-arc { fill: none; stroke-width: 8; stroke-linecap: round; stroke-linejoin: round; }
+.cube-guide-arc-shadow { fill: none; stroke: var(--bg); stroke-opacity: 0.65; stroke-width: 7; stroke-linecap: round; }
+.cube-guide-arc { fill: none; stroke: var(--accent); stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.cube-move-guide.rotation .cube-guide-arc { stroke-opacity: 0.75; stroke-width: 3; }
+.cube-move-guide.rotation .cube-guide-arrowhead { fill-opacity: 0.75; }
 .cube-guide-arrowhead { fill: var(--accent); stroke: var(--accent-dim); stroke-width: 1; stroke-linejoin: round; }
 .cube-guide-label rect { fill: var(--panel); fill-opacity: 0.94; stroke: var(--accent); stroke-opacity: 0.7; }
-.cube-guide-label text { fill: var(--text); font-family: var(--mono); font-size: 15px; font-weight: 700; }
+.cube-guide-label text { fill: var(--text); font-family: var(--mono); font-size: 13px; font-weight: 700; }
 .training-algorithm-guide { margin: 10px 0; }
 .training-algorithm-tokens { display: flex; flex-wrap: wrap; gap: 5px; font-size: 17px; line-height: 1.6; }
 .training-algorithm-token { padding: 1px 6px; border-radius: 5px; border: 1px solid transparent; }
+button.training-algorithm-token { background: transparent; font: inherit; box-shadow: none; cursor: pointer; }
+button.training-algorithm-token:hover { border-color: var(--accent-dim); }
+button.training-algorithm-token:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; }
 .training-algorithm-token.completed { color: var(--text-faint); opacity: 0.6; }
 .training-algorithm-token.upcoming { color: var(--text); }
 .training-algorithm-token.current { color: var(--accent-contrast); background: var(--accent); border-color: var(--accent-dim); font-weight: 800; box-shadow: 0 2px 8px color-mix(in oklab, var(--accent) 25%, transparent); }
+.training-algorithm-token.previewed { outline: 2px solid var(--accent); outline-offset: 1px; opacity: 1; }
+.training-algorithm-navigation { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.training-algorithm-navigation button { padding: 3px 8px; }
 .training-algorithm-progress { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; }
 .cube-flash {
   position: absolute;
