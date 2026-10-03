@@ -21,6 +21,7 @@ import { Store } from "../../shared/store";
 import type { Settings, Solve } from "../../app/types";
 
 export type TimerPhase = "scrambling" | "ready" | "inspection" | "solving" | "finished";
+export type ScrambleAdoptionResult = "applied" | "superseded" | "failed" | "unavailable";
 export type ScrambleGeneration = { kind: "cross" } | { kind: "xcross"; attempts: number };
 export type TimerState = {
   phase: TimerPhase; scramble: string; scrambleGeneration: ScrambleGeneration | null; scrambleProgress: ScrambleProgress | null;
@@ -84,6 +85,8 @@ export class TimerRuntime {
   readonly #dependencies: TimerDependencies;
   get #model() { return this.#dependencies.physical.model; }
   get hasCube(): boolean { return this.#dependencies.physical.hasCube; }
+  /** Read-only request ownership for conditional cross-runtime follow-up actions. */
+  get scrambleRequestRevision(): number { return this.#scrambleGenerationToken; }
   elapsedAt(now: number): number | null { return this.state.get().phase === "solving" ? now - this.#startedAt : null; }
   invalidateScrambleContext(): void {
     this.#scrambleGenerationToken++;
@@ -91,6 +94,7 @@ export class TimerRuntime {
     this.#tracker = null;
     this.#scrambleBeforeSpecialGeneration = null;
     this.#scrambleProvider = undefined;
+    this.state.update(s => ({ ...s, scrambleGeneration: null, scrambleProgress: null }));
   }
   tick(now: number): boolean {
     const { phase } = this.state.get();
@@ -116,6 +120,19 @@ export class TimerRuntime {
     this.#dependencies.inspectionLeft.set(null);
     this.#dependencies.physical.resetGrip();
     this.state.update((s) => ({ ...s, phase: "scrambling", scrambleGeneration: null, scrambleProgress: null, recovery: null, recoveryPending: false, liveMoves: [], solveSource: null, inspectionPenalty: "none" }));
+  }
+
+  /** Clear the old scramble before converting the Training position for Timer use. */
+  prepareForPhysicalScrambleAdoption(): void {
+    this.#invalidateRecovery();
+    this.#tracker = null;
+    this.state.update(s => ({ ...s, scramble: "", scrambleProgress: null, liveMoves: [] }));
+  }
+
+  /** Park timing for historical review without adopting or generating a scramble. */
+  parkForReview(): void {
+    this.cancelForArea();
+    this.state.update(s => ({ ...s, phase: "finished", scramble: "" }));
   }
 
   async newScramble(): Promise<void> {
@@ -297,19 +314,22 @@ export class TimerRuntime {
    * Adopt whatever the cube currently looks like as the scramble.
    * Handy when the user prefers to scramble by hand, or picks the cube up mid-session.
    */
-  async useCubeStateAsScramble(): Promise<void> {
+  async useCubeStateAsScramble(): Promise<ScrambleAdoptionResult> {
     const pattern = this.#model?.pattern;
-    if (!pattern) return;
+    if (!pattern) return "unavailable";
     const token = ++this.#scrambleGenerationToken;
     this.#invalidateRecovery();
     this.#tracker = null;
     this.state.update((s) => ({ ...s, scrambleProgress: null, recoveryPending: true }));
     try {
       const scramble = (await solveAlg(pattern)).invert().toString();
-      if (token !== this.#scrambleGenerationToken) return;
+      if (token !== this.#scrambleGenerationToken) return "superseded";
       this.setScramble(scramble);
+      return "applied";
     } catch (error) {
-      if (token === this.#scrambleGenerationToken) this.#dependencies.reportError(String(error));
+      if (token !== this.#scrambleGenerationToken) return "superseded";
+      this.#dependencies.reportError(String(error));
+      return "failed";
     } finally {
       if (token === this.#scrambleGenerationToken) this.state.update((s) => ({ ...s, recoveryPending: false }));
     }

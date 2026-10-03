@@ -363,3 +363,15 @@ not independently invented states. The original entry is retained as history.
 - What happened: a handoff commit included an extra EOF blank line flagged by the staged whitespace check.
 - Root cause: the commit was sequenced after the check without inspecting its exit result.
 - Prevention: inspect verification results before starting dependent Git mutations, and remove extraction artifacts before staging moved tests.
+
+- What happened: Controller retained direct TimerRuntime state patches after TimerRuntime became the Timer state owner.
+- Root cause: cross-area consequences were mechanically preserved from the monolithic Controller instead of expressed through intent-level runtime operations.
+- Prevention: observe runtime stores externally, but keep production mutations in the owning runtime; Controller coordinates semantic operations.
+
+- What happened: normal Training exit used Promise.catch for a fallback scramble, but physical-state adoption handled solver errors internally and resolved.
+- Root cause: the caller assumed rejection while Promise<void> represented both success and handled failure.
+- Prevention: return an explicit asynchronous outcome when the caller has follow-up policy; distinguish failure from supersession so stale work cannot trigger a fallback over newer state.
+
+- What happened: the first explicit-outcome fallback could still supersede a scramble requested between adoption failure and Controller's continuation.
+- Root cause: an outcome describes ownership when the operation settles, not when a later asynchronous caller resumes.
+- Prevention: recheck the existing scramble request revision when applying fallback policy, with a regression covering that microtask gap.

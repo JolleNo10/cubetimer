@@ -125,6 +125,50 @@ describe("Controller Training settings integration", () => {
 });
 
 describe("Controller application-area ownership", () => {
+  it("clears the old Training-exit scramble immediately and generates a fallback after adoption fails", async () => {
+    const controller = readyController([session("1")], "1");
+    controller.setScramble("R U"); controller.setArea("training");
+    const pending = deferred<Alg>();
+    vi.spyOn(solver, "solveAlg").mockImplementationOnce(async () => { await pending.promise; throw new Error("adoption failed"); });
+    const generate = vi.spyOn(controller.timer, "newScramble").mockResolvedValue();
+    controller.setArea("timer");
+    expect(controller.snapshot()).toMatchObject({ area: "timer", scramble: "", scrambleProgress: null, recovery: null, liveMoves: [] });
+    expect(generate).not.toHaveBeenCalled();
+    pending.resolve(new Alg());
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce());
+    expect(controller.state.get().error).toContain("adoption failed");
+  });
+
+  it.each(["applied", "superseded"] as const)("does not generate a fallback for %s Training-exit adoption", async result => {
+    const controller = readyController([session("1")], "1");
+    controller.setArea("training");
+    const adoption = vi.spyOn(controller.timer, "useCubeStateAsScramble").mockResolvedValue(result);
+    const generate = vi.spyOn(controller.timer, "newScramble").mockResolvedValue();
+    controller.setArea("timer"); await Promise.resolve();
+    expect(adoption).toHaveBeenCalledOnce();
+    expect(generate).not.toHaveBeenCalled();
+  });
+
+  it("generates a fallback when the Training-exit physical pattern is unavailable", async () => {
+    const controller = new Controller(); controller.setArea("training");
+    const generate = vi.spyOn(controller.timer, "newScramble").mockResolvedValue();
+    controller.setArea("timer");
+    await vi.waitFor(() => expect(generate).toHaveBeenCalledOnce());
+  });
+
+  it("preserves a newer scramble requested after adoption fails but before fallback resumes", async () => {
+    const controller = readyController([session("1")], "1");
+    controller.setArea("training");
+    let reject!: (error: Error) => void;
+    vi.spyOn(solver, "solveAlg").mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail; }));
+    const generate = vi.spyOn(controller.timer, "newScramble").mockResolvedValue();
+    controller.setArea("timer");
+    reject(new Error("adoption failed"));
+    queueMicrotask(() => controller.setScramble("F"));
+    await vi.waitFor(() => expect(controller.timer.state.get().scramble).toBe("F"));
+    expect(generate).not.toHaveBeenCalled();
+  });
+
   it("cancels timer work without creating or changing a normal solve", () => {
     const controller = new Controller();
     const solve = { id: "existing" } as Solve;
@@ -219,7 +263,7 @@ describe("Controller application-area ownership", () => {
     const controller = new Controller(new CubeModel(kpuzzle));
     controller.physical.state.update((state) => ({ ...state, virtualCube: true }));
     controller.setArea("training");
-    await controller.setF2lMode("virtual");
+    await controller.setTrainingMode("virtual");
     await controller.selectF2lCase("F2L 1");
     const target = controller.training.state.get().target;
     const display = controller.training.state.get().displayFacelets;
@@ -285,7 +329,7 @@ describe("Controller application-area ownership", () => {
     );
     controller.physical.state.update((state) => ({ ...state, virtualCube: true }));
     controller.setArea("training");
-    await controller.setF2lMode("virtual");
+    await controller.setTrainingMode("virtual");
     await controller.selectF2lCase("F2L 1");
     controller.injectMove("L");
     const trainingPosition = patternToFacelets(controller.pattern!);
@@ -316,8 +360,8 @@ describe("Controller application-area ownership", () => {
     controller.injectMove("L");
     const before = controller.snapshot();
     const physicalPosition = patternToFacelets(controller.pattern!);
-    const adopt = vi.spyOn(controller, "useCubeStateAsScramble").mockResolvedValue();
-    const generate = vi.spyOn(controller, "newScramble").mockResolvedValue();
+    const adopt = vi.spyOn(controller.timer, "useCubeStateAsScramble").mockResolvedValue("applied");
+    const generate = vi.spyOn(controller.timer, "newScramble").mockResolvedValue();
 
     expect(controller.returnToTimerReview()).toBe(true);
     expect(controller.training.state.get()).toMatchObject({ phase: "selecting", target: null });
@@ -362,7 +406,7 @@ describe("Controller application-area ownership", () => {
     const controller = new Controller(new CubeModel(kpuzzle, physicalStart));
     controller.physical.state.update((state) => ({ ...state, virtualCube: true }));
     controller.setArea("training");
-    await controller.setF2lMode("virtual");
+    await controller.setTrainingMode("virtual");
     await controller.selectF2lCase("F2L 1");
 
     const target = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0]);
@@ -398,7 +442,7 @@ describe("Controller application-area ownership", () => {
     expect(controller.training.state.get().liveMoves).toEqual(["U"]);
 
     const physicalResult = patternToFacelets(controller.pattern!);
-    controller.againF2lTraining();
+    controller.againTraining();
     expect(controller.training.state.get().phase).toBe("ready");
     expect(patternToFacelets(controller.pattern!)).toBe(physicalResult);
     expect(controller.training.state.get().displayFacelets).toBe(
@@ -406,7 +450,7 @@ describe("Controller application-area ownership", () => {
     );
     expect(controller.training.state.get().result).toBeNull();
 
-    await controller.setF2lMode("setup");
+    await controller.setTrainingMode("setup");
     expect(controller.training.state.get().mode).toBe("setup");
     expect(controller.training.state.get().setup.length).toBeGreaterThan(0);
     expect(controller.training.state.get().displayFacelets).toBe(physicalResult);

@@ -205,7 +205,7 @@ describe("TrainingRuntime shared algorithm guide", () => {
     const runtime = createRuntime(new CubeModel(kpuzzle));
     await runtime.setTrainingMode("virtual");
     const slot = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0]).info.slot;
-    await runtime.practiceF2lStep({
+    await runtime.practiceSolveStep({
       id: "no-reference", scramble: "R", moves: [{ move: "R'", t: 1 }],
       analysis: { crossFace: "U" }
     } as Solve,
@@ -456,7 +456,7 @@ describe("TrainingRuntime F2L setup and retry", () => {
     configureInputs(runtime, (state) => ({ ...state, virtualCube: true }));
 
     runtime.setF2lLibrary("advanced");
-    await runtime.practiceF2lStep(solve, step);
+    await runtime.practiceSolveStep(solve, step);
     const setupTarget = runtime.state.get().target;
 
     expect(setupTarget?.origin).toMatchObject({
@@ -464,14 +464,14 @@ describe("TrainingRuntime F2L setup and retry", () => {
       solveId: solve.id,
       slot: exact.info.slot,
     });
-    await runtime.setF2lMode("virtual");
+    await runtime.setTrainingMode("virtual");
     expect(runtime.state.get().target?.origin.kind).toBe("solve-step");
     expect(runtime.state.get().phase).toBe("ready");
     expect(runtime.state.get().displayFacelets).toBe(
       patternToFacelets(exact.pattern),
     );
     expect(runtime.state.get().f2lSelection.library).toBe("advanced");
-    runtime.againF2lTraining();
+    runtime.againTraining();
     await Promise.resolve();
     expect(runtime.state.get().target?.origin.kind).toBe("solve-step");
     expect(runtime.state.get().displayFacelets).toBe(
@@ -516,7 +516,7 @@ describe("TrainingRuntime F2L setup and retry", () => {
       BASIC_CASES[3],
       baseAfterAttempt,
     );
-    runtime.againF2lTraining();
+    runtime.againTraining();
     expect(runtime.state.get().setup).toBe("R U' R'");
     for (const move of f2lCubeAlgorithm(BASIC_CASES[3].setup, firstGrip).split(" ")) {
       feedMove(runtime, move);
@@ -543,12 +543,12 @@ describe("TrainingRuntime F2L setup and retry", () => {
     const firstSetup = runtime.state.get().setup;
     expect(firstSetup).toBeTruthy();
 
-    await runtime.setF2lMode("virtual");
+    await runtime.setTrainingMode("virtual");
     expect(f2lTargetOf(runtime)?.position).toBe("BL");
-    runtime.againF2lTraining();
+    runtime.againTraining();
     await Promise.resolve();
     expect(f2lTargetOf(runtime)?.position).toBe("BL");
-    await runtime.setF2lMode("setup");
+    await runtime.setTrainingMode("setup");
     expect(f2lTargetOf(runtime)?.position).toBe("BL");
     expect(runtime.state.get().setup).toBe(firstSetup);
   });
@@ -575,7 +575,7 @@ describe("TrainingRuntime Advanced F2L catalogue", () => {
   it("defaults to Basic and clears catalogue selection without changing mode, slot or physical state", async () => {
     const runtime = runtimeAtBase();
     expect(runtime.state.get().f2lSelection.library).toBe("basic");
-    await runtime.setF2lMode("virtual");
+    await runtime.setTrainingMode("virtual");
     await runtime.selectF2lPosition("BL");
     await runtime.selectF2lCase("F2L 3");
     feedMove(runtime, "L");
@@ -602,7 +602,7 @@ describe("TrainingRuntime Advanced F2L catalogue", () => {
   it("repositions the authoritative Advanced case and keeps it through retry/mode changes", async () => {
     const runtime = runtimeAtBase();
     runtime.setF2lLibrary("advanced");
-    await runtime.setF2lMode("virtual");
+    await runtime.setTrainingMode("virtual");
     await runtime.selectF2lCase("AF2L 3");
     for (const position of F2L_POSITIONS) {
       await runtime.selectF2lPosition(position);
@@ -610,12 +610,12 @@ describe("TrainingRuntime Advanced F2L catalogue", () => {
       expect(f2lTargetOf(runtime)?.position).toBe(position);
       expect(runtime.state.get().displayFacelets).toBe(patternToFacelets(expected.pattern));
     }
-    runtime.againF2lTraining();
+    runtime.againTraining();
     await Promise.resolve();
     expect(runtime.state.get().target?.origin).toMatchObject({ library: "advanced", caseName: "AF2L 3" });
-    await runtime.setF2lMode("setup");
+    await runtime.setTrainingMode("setup");
     expect(runtime.state.get()).toMatchObject({ f2lSelection: { library: "advanced", position: "BR" }, mode: "setup", phase: "preparing" });
-    await runtime.setF2lMode("virtual");
+    await runtime.setTrainingMode("virtual");
     expect(runtime.state.get()).toMatchObject({ f2lSelection: { library: "advanced", position: "BR" }, phase: "ready" });
   });
 
@@ -637,7 +637,7 @@ describe("TrainingRuntime Advanced F2L catalogue", () => {
     for (const move of f2lCubeAlgorithm(execution.join(" "), f2lTrainingGrip(expected.info)).split(" ")) feedMove(runtime, move);
     expect(runtime.state.get().phase).toBe("result");
     expect(runtime.state.get().result?.matchedReferenceRank).toBe(reference.rank);
-    runtime.againF2lTraining();
+    runtime.againTraining();
     await Promise.resolve();
     expect(runtime.state.get().target?.origin).toMatchObject({ library: "advanced", caseName: "AF2L 3" });
     expect(runtime.state.get().f2lSelection.position).toBe("FL");
@@ -663,7 +663,7 @@ describe("TrainingRuntime Advanced F2L catalogue", () => {
   it("automatically repeats Advanced virtual attempts and clears results on library changes", async () => {
     const runtime = runtimeAtBase();
     runtime.setF2lLibrary("advanced");
-    await runtime.setF2lMode("virtual");
+    await runtime.setTrainingMode("virtual");
     await runtime.selectF2lPosition("FL");
     await runtime.selectF2lCase("AF2L 3");
     const target = runtime.state.get().target!;

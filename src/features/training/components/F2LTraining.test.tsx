@@ -51,7 +51,7 @@ describe("F2L training library presentation", () => {
     const controller = new Controller(new CubeModel(kpuzzle));
     controller.setArea("training");
     controller.setF2lLibrary("advanced");
-    await controller.setF2lMode("virtual");
+    await controller.setTrainingMode("virtual");
     await controller.selectF2lCase("AF2L 3");
     expect(render(controller).match(/class="f2l-case-button selected"/g)).toHaveLength(1);
     expect(render(controller)).toContain("Advanced F2L");

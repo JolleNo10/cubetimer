@@ -23,6 +23,10 @@ function imports(file: string) {
 }
 
 describe("architecture dependency boundaries", () => {
+  it("coordinates Timer changes through owner operations instead of Controller store writes", () => {
+    const controller = readFileSync(resolve(sourceRoot, "app/Controller.ts"), "utf8");
+    expect(controller).not.toMatch(/\.timer\s*\.state\s*\.(?:set|update)\s*\(/);
+  });
   it("keeps behavioral cube modules independent of application, feature, infrastructure and React code", () => {
     const violations = sources(resolve(sourceRoot, "cube")).flatMap(file => imports(file)
       .filter(({ location }) => /^(?:app|features|infrastructure|react)(?:\/|$)/.test(location))

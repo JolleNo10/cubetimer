@@ -36,7 +36,7 @@ import {
 export type AppArea = "timer" | "training" | "statistics";
 export type AppState = { ready: boolean; area: AppArea; error: string | null };
 export type SessionState = { sessions: Session[]; sessionId: string; solves: Solve[]; lastSolve: Solve | null };
-export type AppSnapshot = AppState & CubeState & TimerState & SessionState & { settings: Settings };
+type ControllerSnapshot = AppState & CubeState & TimerState & SessionState & { settings: Settings };
 
 /** Composes runtimes and coordinates application routing and persisted context. */
 export class Controller {
@@ -88,7 +88,7 @@ export class Controller {
   }
 
   /** Read-only composition for synchronous actions; it is not an observable state mirror. */
-  snapshot(): AppSnapshot {
+  snapshot(): ControllerSnapshot {
     return { ...this.state.get(), ...this.physical.state.get(), ...this.timer.state.get(), ...this.sessions.get(), settings: this.settings.get() };
   }
   get cube() { return this.physical.cube; }
@@ -188,16 +188,24 @@ export class Controller {
       this.timer.cancelForArea();
       this.training.reset("setup");
       this.state.update((s) => ({ ...s, area }));
-      this.timer.state.update((s) => ({ ...s, scrambleProgress: null, recovery: null }));
       return;
     }
 
     this.training.leave();
     this.state.update((s) => ({ ...s, area }));
-    this.timer.state.update((s) => ({ ...s, scramble: "", scrambleProgress: null, recovery: null, liveMoves: [] }));
+    this.timer.prepareForPhysicalScrambleAdoption();
     // Training may leave the physical cube anywhere. Make that current position the
     // next timer scramble so an old timer scramble can never look usable.
-    void this.useCubeStateAsScramble().catch(() => void this.newScramble());
+    void this.#adoptTrainingPositionAsScramble();
+  }
+
+  async #adoptTrainingPositionAsScramble(): Promise<void> {
+    const adoption = this.timer.useCubeStateAsScramble();
+    const revision = this.timer.scrambleRequestRevision;
+    const result = await adoption;
+    if ((result === "failed" || result === "unavailable") && revision === this.timer.scrambleRequestRevision) {
+      await this.timer.newScramble();
+    }
   }
 
   /** Leave Training, including its Statistics detour, without adopting its cube position. */
@@ -205,10 +213,9 @@ export class Controller {
     const area = this.state.get().area;
     if (area !== "training" && !(area === "statistics" && this.#areaBeforeStatistics === "training")) return false;
     this.#areaBeforeStatistics = null;
-    this.timer.cancelForArea();
     this.training.leave();
+    this.timer.parkForReview();
     this.state.update((s) => ({ ...s, area: "timer" }));
-    this.timer.state.update((s) => ({ ...s, phase: "finished", scramble: "", scrambleProgress: null, recovery: null, liveMoves: [], solveSource: null, inspectionPenalty: "none" }));
     return true;
   }
 
@@ -242,24 +249,20 @@ export class Controller {
     this.setArea("training");
     this.training.setF2lLibrary(library);
   }
-  practiceF2lStep(solve: Solve, step: SolveStep): Promise<void> { return this.practiceSolveStep(solve, step); }
   practiceSolveStep(solve: Solve, step: SolveStep): Promise<void> {
     this.setArea("training");
     return this.training.practiceSolveStep(solve, step);
   }
   setTrainingMode(mode: TrainingMode): Promise<void> { return this.training.setTrainingMode(mode); }
-  setF2lMode(mode: TrainingMode): Promise<void> { return this.training.setF2lMode(mode); }
   againTraining(): void { this.training.againTraining(); }
-  againF2lTraining(): void { this.training.againF2lTraining(); }
   resetTraining(): void { this.training.resetTraining(); }
-  resetF2lTraining(): void { this.training.resetF2lTraining(); }
 
   newScramble(): Promise<void> { return this.timer.newScramble(); }
   setScramble(scramble: string, provider?: string): void { this.timer.setScramble(scramble, provider); }
   replayScramble(scramble: string, provider?: string): void { this.timer.replayScramble(scramble, provider); }
   findXCrossScramble(): Promise<void> { return this.timer.findXCrossScramble(); }
   findWhiteCrossScramble(): Promise<void> { return this.timer.findWhiteCrossScramble(); }
-  useCubeStateAsScramble(): Promise<void> { return this.timer.useCubeStateAsScramble(); }
+  async useCubeStateAsScramble(): Promise<void> { await this.timer.useCubeStateAsScramble(); }
   startFromKeyboard(): void { this.timer.startFromKeyboard(); }
   cancel(): void {
     if (this.state.get().area === "training") this.training.resetTraining();
@@ -333,7 +336,6 @@ export class Controller {
     const { sessions, sessionId, solves, eventChanged } = transition;
     if (eventChanged) {
       this.timer.invalidateScrambleContext();
-      this.timer.state.update((s) => ({ ...s, scrambleGeneration: null, scrambleProgress: null, recovery: null }));
     }
     this.sessions.update((s) => ({ ...s, sessions, sessionId, solves, lastSolve: solves[solves.length - 1] ?? null }));
     if (eventChanged) await this.newScramble();

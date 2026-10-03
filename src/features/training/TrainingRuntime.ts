@@ -39,11 +39,6 @@ export type TrainingResult = {
   delta: number | null;
 };
 
-/** Source-compatible names for callers that still refer to the original F2L runtime. */
-export type F2lTrainingPhase = TrainingPhase;
-export type F2lTrainingMode = TrainingMode;
-export type F2lTrainingResult = TrainingResult;
-
 export type TrainingTargetInfo = F2lTrainingTargetInfo | LastLayerTrainingTargetInfo;
 
 export type TrainingTarget = F2lTrainingTarget | LastLayerTrainingTarget;
@@ -70,8 +65,6 @@ export type TrainingState = {
   displayFacelets: string;
   displayRevision: number;
 };
-
-export type F2lTrainingState = TrainingState;
 
 function emptyTrainingState(): TrainingState {
   return {
@@ -230,10 +223,6 @@ export class TrainingRuntime {
     this.state.update((s) => ({ ...s, family: "f2l", f2lSelection: { ...s.f2lSelection, library: selectedLibrary } }));
   }
 
-  async practiceF2lStep(solve: Solve, step: SolveStep): Promise<void> {
-    await this.practiceSolveStep(solve, step);
-  }
-
   async practiceSolveStep(solve: Solve, step: SolveStep): Promise<void> {
     if (!this.#model) return;
     this.#f2lCase = null;
@@ -254,7 +243,7 @@ export class TrainingRuntime {
     const training = this.state.get();
     if (training.mode === mode) return;
     if (training.family === "f2l") {
-      await this.setF2lMode(mode);
+      await this.#setF2lMode(mode);
       return;
     }
     const target = this.#lastLayerTarget();
@@ -270,7 +259,7 @@ export class TrainingRuntime {
   }
 
   againTraining(): void {
-    if (this.state.get().family === "f2l") this.againF2lTraining();
+    if (this.state.get().family === "f2l") void this.#reloadF2lTraining();
     else void this.#reloadLastLayerTraining();
   }
 
@@ -279,7 +268,7 @@ export class TrainingRuntime {
     this.#trainingTarget = null;
   }
 
-  async setF2lMode(mode: TrainingMode): Promise<void> {
+  async #setF2lMode(mode: TrainingMode): Promise<void> {
     const training = this.state.get();
     if (training.mode === mode) return;
     const target = this.#f2lTarget();
@@ -302,15 +291,6 @@ export class TrainingRuntime {
         : target;
       await this.#prepareTarget(nextTarget);
     }
-  }
-
-  /** Route the current cube position back to the selected target for another attempt. */
-  againF2lTraining(): void {
-    void this.#reloadF2lTraining();
-  }
-
-  resetF2lTraining(): void {
-    this.reset();
   }
 
   reset(mode: TrainingMode = this.state.get().mode): void {
