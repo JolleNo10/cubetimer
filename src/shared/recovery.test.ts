@@ -8,6 +8,21 @@ import { calculateRecovery } from "./recovery";
 const kpuzzle = await get3x3x3();
 afterEach(() => vi.restoreAllMocks());
 describe("raw scramble recovery", () => {
+  it("keeps the resume index paired with the captured tracker pattern while solvers await", async () => {
+    const tracker = new ScrambleTracker(kpuzzle, "R U F");
+    tracker.update(kpuzzle.defaultPattern().applyAlg("R"));
+    const captured = tracker.lastKnownPattern;
+    let resolve!: (alg: Alg) => void;
+    const between = vi.spyOn(solver, "algBetween")
+      .mockReturnValueOnce(new Promise<Alg>(fulfil => { resolve = fulfil; }))
+      .mockResolvedValueOnce(new Alg("U F"));
+    const pending = calculateRecovery(kpuzzle.defaultPattern().applyAlg("R B"), tracker);
+    tracker.update(kpuzzle.defaultPattern().applyAlg("R U"));
+    resolve(new Alg("B'"));
+    expect(await pending).toEqual({ alg: "B'", resumeAt: 1 });
+    expect(between.mock.calls[0][1]).toBe(captured);
+    expect(tracker.lastKnownMove).toBe(2);
+  });
   it.each([
     ["R'", "U F", 1],
     ["R U", "F'", 3],

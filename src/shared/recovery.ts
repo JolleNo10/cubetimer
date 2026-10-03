@@ -8,14 +8,17 @@ export async function calculateRecovery(
   current: KPattern,
   tracker: ScrambleTracker,
 ): Promise<Recovery> {
+  const lastKnownPattern = tracker.lastKnownPattern;
+  const targetPattern = tracker.targetPattern;
+  const lastKnownMove = tracker.lastKnownMove;
+  const targetMove = tracker.moves.length;
   const [backToLast, straightToEnd] = await Promise.all([
-    algBetween(current, tracker.lastKnownPattern),
-    algBetween(current, tracker.targetPattern),
+    algBetween(current, lastKnownPattern),
+    algBetween(current, targetPattern),
   ]);
   const backLength = backToLast.experimentalNumChildAlgNodes();
   const endLength = straightToEnd.experimentalNumChildAlgNodes();
   return backLength <= endLength
-    ? { alg: backToLast.toString(), resumeAt: tracker.lastKnownMove }
-    : { alg: straightToEnd.toString(), resumeAt: tracker.moves.length };
+    ? { alg: backToLast.toString(), resumeAt: lastKnownMove }
+    : { alg: straightToEnd.toString(), resumeAt: targetMove };
 }
-

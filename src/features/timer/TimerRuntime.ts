@@ -65,6 +65,8 @@ export class TimerRuntime {
   #solveReadings: (Quaternion | null)[] = [];
   #scrambledPattern: KPattern | null = null;
   #recoveryToken = 0;
+  #recoveryRunning = false;
+  #recoveryNeedsRefresh = false;
   #beeped = new Set<number>();
 
   constructor(dependencies: TimerDependencies) { this.#dependencies = dependencies; }
@@ -74,7 +76,7 @@ export class TimerRuntime {
   elapsedAt(now: number): number | null { return this.state.get().phase === "solving" ? now - this.#startedAt : null; }
   invalidateScrambleContext(): void {
     this.#scrambleGenerationToken++;
-    this.#recoveryToken++;
+    this.#invalidateRecovery();
     this.#tracker = null;
     this.#scrambleBeforeSpecialGeneration = null;
     this.#scrambleProvider = undefined;
@@ -91,7 +93,7 @@ export class TimerRuntime {
     return true;
   }
   cancelForArea(): void {
-    this.#recoveryToken++;
+    this.#invalidateRecovery();
     this.#scrambleGenerationToken++;
     this.#dependencies.stopClock();
     this.#tracker = null;
@@ -106,7 +108,8 @@ export class TimerRuntime {
   }
 
   async newScramble(): Promise<void> {
-    this.#recoveryToken++;
+    this.#invalidateRecovery();
+    this.#tracker = null;
     this.#isReplay = false;
     this.#scrambleProvider = undefined;
     this.#scrambleBeforeSpecialGeneration = null;
@@ -134,7 +137,7 @@ export class TimerRuntime {
   }
 
   setScramble(scramble: string, scrambleProvider?: string): void {
-    this.#recoveryToken++;
+    this.#invalidateRecovery();
     this.#scrambleGenerationToken++;
     this.#scrambleBeforeSpecialGeneration = null;
     this.#scrambleProvider = scrambleProvider;
@@ -150,7 +153,7 @@ export class TimerRuntime {
   }
 
   #beginSpecialScrambleGeneration(generation: ScrambleGeneration): void {
-    this.#recoveryToken++;
+    this.#invalidateRecovery();
     this.#scrambleBeforeSpecialGeneration = {
       scramble: this.state.get().scramble,
       provider: this.#scrambleProvider,
@@ -166,6 +169,7 @@ export class TimerRuntime {
     if (this.state.get().scrambleGeneration === null) return null;
 
     this.#scrambleGenerationToken++;
+    this.#invalidateRecovery();
     this.#tracker = null;
     const previousScramble = this.#scrambleBeforeSpecialGeneration;
     this.#scrambleBeforeSpecialGeneration = null;
@@ -285,14 +289,18 @@ export class TimerRuntime {
   async useCubeStateAsScramble(): Promise<void> {
     const pattern = this.#model?.pattern;
     if (!pattern) return;
-    this.state.update((s) => ({ ...s, recoveryPending: true }));
+    const token = ++this.#scrambleGenerationToken;
+    this.#invalidateRecovery();
+    this.#tracker = null;
+    this.state.update((s) => ({ ...s, scrambleProgress: null, recoveryPending: true }));
     try {
       const scramble = (await solveAlg(pattern)).invert().toString();
+      if (token !== this.#scrambleGenerationToken) return;
       this.setScramble(scramble);
     } catch (error) {
-      this.#dependencies.reportError(String(error));
+      if (token === this.#scrambleGenerationToken) this.#dependencies.reportError(String(error));
     } finally {
-      this.state.update((s) => ({ ...s, recoveryPending: false }));
+      if (token === this.#scrambleGenerationToken) this.state.update((s) => ({ ...s, recoveryPending: false }));
     }
   }
 
@@ -322,6 +330,7 @@ export class TimerRuntime {
   /** Discard the running solve without recording it. */
   cancel(): void {
     if (!this.#dependencies.isActive()) return;
+    this.#invalidateRecovery();
     this.#isReplay = false;
     const specialCancellation =
       this.cancelSpecialScrambleGeneration();
@@ -341,6 +350,7 @@ export class TimerRuntime {
   #startInspection(): void {
     if (!this.#dependencies.isActive()) return;
     if (this.#dependencies.contextBusy()) return;
+    this.#invalidateRecovery();
     this.#inspectionStartedAt = performance.now();
     this.#beeped.clear();
     this.state.update((s) => ({ ...s, phase: "inspection", inspectionPenalty: "none" }));
@@ -355,6 +365,7 @@ export class TimerRuntime {
     source: "smartcube" | "keyboard",
   ): void {
     if (this.#dependencies.contextBusy()) return;
+    this.#invalidateRecovery();
     this.#scrambledPattern = from;
     this.#startedAt = atMs;
     this.#solveMoves = [];
@@ -430,6 +441,7 @@ export class TimerRuntime {
     const { phase } = this.state.get();
     const settings = this.#dependencies.getSettings();
     if (!model || !tracker || !this.hasCube) {
+      if (tracker && !this.hasCube) this.#invalidateRecovery();
       if (this.state.get().scrambleProgress !== null) {
         this.state.update((s) => ({ ...s, scrambleProgress: null, recovery: null }));
       }
@@ -444,7 +456,7 @@ export class TimerRuntime {
     this.state.update((s) => ({ ...s, scrambleProgress: progress }));
 
     if (progress.done || !settings.requireScramble) {
-      this.#recoveryToken++;
+      this.#invalidateRecovery();
       // The scramble is on the cube, so it is being held white on top and green in
       // front. This is the one moment in a solve when the pose is known outright, and
       // everything afterwards is measured from it. Deliberately keyed off the scramble
@@ -463,11 +475,24 @@ export class TimerRuntime {
     if (phase === "ready") this.state.update((s) => ({ ...s, phase: "scrambling" }));
 
     if (progress.onTrack) {
-      this.#recoveryToken++;
+      this.#invalidateRecovery();
       this.state.update((s) => ({ ...s, recovery: null, recoveryPending: false }));
     } else {
-      void this.#computeRecovery();
+      this.#requestRecovery();
     }
+  }
+
+  #invalidateRecovery(): void {
+    this.#recoveryToken++;
+    this.#recoveryNeedsRefresh = false;
+    this.state.update(s => ({ ...s, recovery: null, recoveryPending: false }));
+  }
+
+  #requestRecovery(): void {
+    this.#recoveryToken++;
+    this.#recoveryNeedsRefresh = true;
+    this.state.update(s => ({ ...s, recovery: null, recoveryPending: true }));
+    if (!this.#recoveryRunning) void this.#computeRecovery();
   }
 
   /**
@@ -482,19 +507,23 @@ export class TimerRuntime {
   async #computeRecovery(): Promise<void> {
     const model = this.#model;
     const tracker = this.#tracker;
-    if (!model || !tracker || this.state.get().recoveryPending) return;
-    const token = ++this.#recoveryToken;
-    this.state.update((s) => ({ ...s, recoveryPending: true }));
+    if (!model || !tracker) return;
+    const token = this.#recoveryToken;
+    const pattern = model.pattern;
+    this.#recoveryRunning = true;
+    this.#recoveryNeedsRefresh = false;
     try {
-      const recovery = await calculateRecovery(model.pattern, tracker);
-      if (token !== this.#recoveryToken) return;
+      const recovery = await calculateRecovery(pattern, tracker);
+      if (token !== this.#recoveryToken || pattern !== this.#model?.pattern) return;
       this.state.update((s) => ({ ...s, recovery }));
     } catch {
       if (token === this.#recoveryToken) {
         this.state.update((s) => ({ ...s, recovery: null }));
       }
     } finally {
-      if (token === this.#recoveryToken) this.state.update((s) => ({ ...s, recoveryPending: false }));
+      this.#recoveryRunning = false;
+      if (this.#recoveryNeedsRefresh) void this.#computeRecovery();
+      else if (token === this.#recoveryToken) this.state.update((s) => ({ ...s, recoveryPending: false }));
     }
   }
 

@@ -337,3 +337,17 @@ not independently invented states. The original entry is retained as history.
 - What happened: the first display-frame test compared complete KPattern identity after a facelet round trip and failed despite matching visible cube facts.
 - Root cause: facelet strings retain centre colours/positions but do not retain cubing.js centre orientation data.
 - Prevention: compare visible facelets at the display boundary, and assert centre positions separately when distinguishing physical display rotation from case reframing.
+
+## 2026-10-04
+
+- What happened: Timer recovery could publish an algorithm for a physical position that had changed during its calculation.
+- Root cause: the pending guard skipped subsequent requests without invalidating the running calculation or remembering a refresh.
+- Prevention: keep one recovery calculation running, invalidate results on physical/context changes, and coalesce subsequent requests into a calculation for the latest position.
+
+- What happened: shared recovery could return an algorithm and resume index from different tracker positions.
+- Root cause: tracker patterns were read before asynchronous searches while mutable progress indices were read afterward.
+- Prevention: snapshot both patterns and both resume indices before starting either search.
+
+- What happened: asynchronous physical-state scramble adoption could overwrite a newer scramble and clear newer pending state.
+- Root cause: adoption did not participate in scramble-generation ownership or guard its completion cleanup.
+- Prevention: reuse the scramble-generation token and check ownership before applying results, reporting failures, or clearing pending state.

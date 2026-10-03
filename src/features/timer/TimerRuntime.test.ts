@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { CubeModel } from "../../cube/model";
 import { get3x3x3 } from "../../cube/puzzle";
 import * as scramble from "../../cube/scramble";
+import * as solver from "../../cube/solver";
 import * as recovery from "../../shared/recovery";
 import { PhysicalCubeRuntime } from "../../app/PhysicalCubeRuntime";
 import { Store } from "../../shared/store";
@@ -38,6 +39,28 @@ function fixture(changes: Partial<Settings> = {}) {
 }
 
 describe("TimerRuntime", () => {
+  it("coalesces moves during recovery and publishes only the latest physical position", async () => {
+    const f = fixture();
+    let resolveA!: (value: recovery.Recovery) => void;
+    let resolveB!: (value: recovery.Recovery) => void;
+    const calculate = vi.spyOn(recovery, "calculateRecovery")
+      .mockReturnValueOnce(new Promise(fulfil => { resolveA = fulfil; }))
+      .mockReturnValueOnce(new Promise(fulfil => { resolveB = fulfil; }));
+    f.physical.setVirtualCube(true); f.timer.setScramble("R U");
+    const published: (recovery.Recovery | null)[] = [];
+    f.timer.state.subscribe(() => published.push(f.timer.state.get().recovery));
+    f.physical.injectMove("F");
+    f.physical.injectMove("B"); f.physical.injectMove("L");
+    const latest = f.model.pattern;
+    expect(calculate).toHaveBeenCalledOnce();
+    resolveA({ alg: "old", resumeAt: 0 });
+    await vi.waitFor(() => expect(calculate).toHaveBeenCalledTimes(2));
+    expect(published).not.toContainEqual({ alg: "old", resumeAt: 0 });
+    expect(calculate.mock.calls[1][0]).toBe(latest);
+    expect(f.timer.state.get().recoveryPending).toBe(true);
+    resolveB({ alg: "latest", resumeAt: 0 });
+    await vi.waitFor(() => expect(f.timer.state.get()).toMatchObject({ recovery: { alg: "latest", resumeAt: 0 }, recoveryPending: false }));
+  });
   it("tracks physical scramble progress and starts on the first solve turn", () => {
     const f = fixture(); f.physical.setVirtualCube(true); f.timer.setScramble("R U");
     f.physical.injectMove("R"); expect(f.timer.state.get().scrambleProgress?.index).toBe(1);
@@ -113,10 +136,64 @@ describe("TimerRuntime", () => {
     f.timer.setScramble("F"); resolve({ alg: "F'", resumeAt: 0 }); await Promise.resolve();
     expect(f.timer.state.get()).toMatchObject({ scramble: "F", recovery: null, recoveryPending: false });
   });
+  it("does not restore stale recovery after returning on-track", async () => {
+    const f = fixture(); let resolve!: (value: recovery.Recovery) => void;
+    const calculate = vi.spyOn(recovery, "calculateRecovery").mockReturnValueOnce(new Promise(r => { resolve = r; }));
+    f.physical.setVirtualCube(true); f.timer.setScramble("R U");
+    f.physical.injectMove("F"); f.physical.injectMove("F'");
+    expect(f.timer.state.get()).toMatchObject({ recovery: null, recoveryPending: false });
+    resolve({ alg: "old", resumeAt: 0 }); await Promise.resolve();
+    expect(f.timer.state.get()).toMatchObject({ recovery: null, recoveryPending: false });
+    expect(calculate).toHaveBeenCalledOnce();
+  });
+  it("keeps replacement tracker recovery pending while the old calculation exits", async () => {
+    const f = fixture(); let resolveA!: (value: recovery.Recovery) => void, resolveB!: (value: recovery.Recovery) => void;
+    const calculate = vi.spyOn(recovery, "calculateRecovery")
+      .mockReturnValueOnce(new Promise(r => { resolveA = r; }))
+      .mockReturnValueOnce(new Promise(r => { resolveB = r; }));
+    f.physical.setVirtualCube(true); f.timer.setScramble("R U"); f.physical.injectMove("F");
+    f.timer.setScramble("B");
+    resolveA({ alg: "old", resumeAt: 0 });
+    await vi.waitFor(() => expect(calculate).toHaveBeenCalledTimes(2));
+    expect(f.timer.state.get()).toMatchObject({ scramble: "B", recovery: null, recoveryPending: true });
+    resolveB({ alg: "current", resumeAt: 1 });
+    await vi.waitFor(() => expect(f.timer.state.get()).toMatchObject({ recovery: { alg: "current", resumeAt: 1 }, recoveryPending: false }));
+  });
+  it("does not let physical-state adoption overwrite a newer explicit scramble", async () => {
+    const f = fixture(); let resolve!: (alg: Alg) => void;
+    vi.spyOn(solver, "solveAlg").mockReturnValueOnce(new Promise(r => { resolve = r; }));
+    const pending = f.timer.useCubeStateAsScramble(); f.timer.setScramble("F");
+    resolve(new Alg("R'")); await pending;
+    expect(f.timer.state.get()).toMatchObject({ scramble: "F", recoveryPending: false });
+  });
   it("adopts the physical pattern through the solver without replacing the model", async () => {
     const f = fixture(); f.model.applyAlg(new Alg("R U")); const pattern = f.model.pattern;
     await f.timer.useCubeStateAsScramble();
     expect(kpuzzle.defaultPattern().applyAlg(f.timer.state.get().scramble).isIdentical(pattern)).toBe(true);
     expect(f.model.pattern).toBe(pattern); expect(f.timer.state.get().recoveryPending).toBe(false);
+  });
+  it("lets a newer generation keep ownership after physical-state adoption resolves", async () => {
+    const f = fixture(); let resolveAdoption!: (alg: Alg) => void, resolveGeneration!: (alg: string) => void;
+    vi.spyOn(solver, "solveAlg").mockReturnValueOnce(new Promise(r => { resolveAdoption = r; }));
+    vi.mocked(scramble.generateScramble).mockReturnValueOnce(new Promise(r => { resolveGeneration = r; }));
+    const adoption = f.timer.useCubeStateAsScramble();
+    const generation = f.timer.newScramble();
+    resolveAdoption(new Alg("R'")); await adoption;
+    expect(f.timer.state.get().scramble).toBe("");
+    resolveGeneration("F"); await generation;
+    expect(f.timer.state.get().scramble).toBe("F");
+  });
+  it.each([false, true])("does not clear newer adoption pending state when an old operation fails: %s", async fails => {
+    const f = fixture(); let resolveA!: (alg: Alg) => void, rejectA!: (error: Error) => void, resolveB!: (alg: Alg) => void;
+    vi.spyOn(solver, "solveAlg")
+      .mockReturnValueOnce(new Promise((resolve, reject) => { resolveA = resolve; rejectA = reject; }))
+      .mockReturnValueOnce(new Promise(resolve => { resolveB = resolve; }));
+    const a = f.timer.useCubeStateAsScramble(), b = f.timer.useCubeStateAsScramble();
+    if (fails) rejectA(new Error("stale failure")); else resolveA(new Alg("R'"));
+    await a;
+    expect(f.timer.state.get().recoveryPending).toBe(true);
+    expect(f.reportError).not.toHaveBeenCalled();
+    resolveB(new Alg("F'")); await b;
+    expect(f.timer.state.get()).toMatchObject({ scramble: "F", recoveryPending: false });
   });
 });
