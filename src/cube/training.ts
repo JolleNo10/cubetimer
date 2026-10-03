@@ -15,6 +15,7 @@ import {
   type Rotation,
 } from "./orientation";
 import { reframe, withCentresHome } from "./recognise";
+import { expandedAlgorithmMoves } from "./frames";
 
 export type TrainingGuideMove = {
   token: string;
@@ -154,38 +155,6 @@ export function standardTrainingRotation(): Rotation {
 
 export function trainingGrip(target: { trainingRotation: Rotation }): Orientation {
   return target.trainingRotation.orientation;
-}
-
-export function handMove(move: string, grip: Orientation): string {
-  return reorientMove(move, grip);
-}
-
-export function cubeMove(move: string, grip: Orientation): string {
-  return reorientMove(move, invert(grip));
-}
-
-export function handTimedMoves(moves: readonly TimedMove[], grip: Orientation): TimedMove[] {
-  return moves.map(({ move, t }) => ({ move: handMove(move, grip), t }));
-}
-
-export function expandedAlgorithmMoves(algorithm: string): string[] {
-  return Array.from(new Alg(algorithm).expand().childAlgNodes()).map((node) => node.toString());
-}
-
-export function handAlgorithm(algorithm: string, grip: Orientation): string {
-  return expandedAlgorithmMoves(algorithm).map((move) => handMove(move, grip)).join(" ");
-}
-
-export function cubeAlgorithm(algorithm: string, grip: Orientation): string {
-  return expandedAlgorithmMoves(algorithm).map((move) => cubeMove(move, grip)).join(" ");
-}
-
-export function handMoves(moves: readonly string[], grip: Orientation): string[] {
-  return moves.map((move) => handMove(move, grip));
-}
-
-export function cubeMoves(moves: readonly string[], grip: Orientation): string[] {
-  return moves.map((move) => cubeMove(move, grip));
 }
 
 /** Structural historical-solve facts shared by every case-training family. */

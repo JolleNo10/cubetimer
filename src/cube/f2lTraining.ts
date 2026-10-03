@@ -35,21 +35,8 @@ import {
 } from "./orientation";
 import { parseFaceMove } from "./moves";
 import { reframe, withCentresHome } from "./recognise";
-import {
-  algorithmStm,
-  calculateTrainingEfficiency,
-  cubeAlgorithm,
-  cubeMove,
-  cubeMoves,
-  handAlgorithm,
-  handMove,
-  handMoves,
-  handTimedMoves,
-  referenceExecutionSignature,
-  reconstructTrainingStepStart,
-  type TrainingSolveInput,
-  type TrainingEfficiency,
-} from "./training";
+import { cubeAlgorithm, cubeMove, cubeMoves, handAlgorithm, handMove, handMoves, handTimedMoves } from "./frames";
+import { algorithmStm, calculateTrainingEfficiency, referenceExecutionSignature, reconstructTrainingStepStart, type TrainingSolveInput, type TrainingEfficiency } from "./training";
 
 export {
   algorithmStm,

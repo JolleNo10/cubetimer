@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { Alg } from "cubing/alg";
 import { analyseSolve } from "../src/cube/analysis";
 import { get3x3x3 } from "../src/cube/puzzle";
-import { parseSolveCsv } from "../src/state/solveCsv";
+import { parseSolveCsv } from "../src/features/data-transfer/solveCsv";
 
 const file = process.argv[2] ?? `${process.env.HOME}/Downloads/solves.csv`;
 const limit = Number(process.argv[3] ?? 2000);

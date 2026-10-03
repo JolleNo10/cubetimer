@@ -331,3 +331,9 @@ not independently invented states. The original entry is retained as history.
 - What happened: the new physical-runtime gesture fixture confused F2L's four D-turn retry with the Timer's three U-turn recentre gesture.
 - Root cause: the fixture inferred behavior from the Training gesture rather than loading the shared gesture contract.
 - Prevention: inspect the family/area-specific gesture definitions before asserting runtime observations.
+
+## 2026-10-03
+
+- What happened: the first display-frame test compared complete KPattern identity after a facelet round trip and failed despite matching visible cube facts.
+- Root cause: facelet strings retain centre colours/positions but do not retain cubing.js centre orientation data.
+- Prevention: compare visible facelets at the display boundary, and assert centre positions separately when distinguishing physical display rotation from case reframing.

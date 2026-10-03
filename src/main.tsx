@@ -2,9 +2,9 @@
 import "./cube/searchConfig";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { App } from "./App";
-import { ControllerContext } from "./hooks/useController";
-import { Controller } from "./state/controller";
+import { App } from "./app/App";
+import { ControllerContext } from "./app/useController";
+import { Controller } from "./app/Controller";
 import { installDebugConsole } from "./util/debug";
 import "./styles/global.css";
 

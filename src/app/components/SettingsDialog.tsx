@@ -1,0 +1,347 @@
+import { useState } from "react";
+import { forgetStoredMacs } from "../../infrastructure/bluetooth/smartCube";
+import { FACE_COLOURS, FACES, faceOfColour } from "../../cube/colours";
+import { frontsFor } from "../../cube/orientation";
+import { useController } from "../useController";
+import type { Settings } from "../types";
+
+export function SettingsDialog({
+  settings,
+  onClose,
+}: {
+  settings: Settings;
+  onClose: () => void;
+}) {
+  const controller = useController();
+  const [progress, setProgress] = useState<string | null>(null);
+  const bottomFace = faceOfColour(settings.crossColour);
+  const fronts = bottomFace ? frontsFor(bottomFace) : [];
+  const set = (changes: Partial<Settings>) => void controller.updateSettings(changes);
+
+  return (
+    <div className="backdrop" onClick={onClose}>
+      <div
+        className="dialog"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings"
+      >
+        <div className="dialog-head">
+          <h3>Settings</h3>
+          <button className="ghost" onClick={onClose} aria-label="Close">
+            ×
+          </button>
+        </div>
+        <div className="dialog-body">
+          <Section title="Timing">
+            <Toggle
+              title="Slow solve"
+              help="Takes the clock away. Solves are still recorded and broken down, but never timed or counted in the statistics."
+              checked={settings.slowSolve}
+              onChange={(slowSolve) => set({ slowSolve })}
+            />
+            <Toggle
+              title="WCA inspection"
+              help="15 seconds, with +2 and DNF penalties."
+              checked={settings.inspection}
+              disabled={settings.slowSolve}
+              onChange={(inspection) => set({ inspection })}
+            />
+            <Toggle
+              title="Start inspection automatically"
+              help="Begins as soon as the cube reaches the scrambled state."
+              checked={settings.autoInspection}
+              disabled={!settings.inspection}
+              onChange={(autoInspection) => set({ autoInspection })}
+            />
+            <Toggle
+              title="Require the scramble to be applied"
+              help="The timer only arms once the cube matches the scramble."
+              checked={settings.requireScramble}
+              onChange={(requireScramble) => set({ requireScramble })}
+            />
+            <Toggle
+              title="Hold space before starting"
+              help="Keyboard timing only."
+              checked={settings.holdToStart}
+              onChange={(holdToStart) => set({ holdToStart })}
+            />
+            <Toggle
+              title="Hide the time while solving"
+              help="Removes the pressure of a running clock."
+              checked={settings.hideTimeWhileSolving}
+              onChange={(hideTimeWhileSolving) => set({ hideTimeWhileSolving })}
+            />
+            <Toggle
+              title="Sound"
+              help="Inspection warnings at 8 and 12 seconds, and a tone on finishing."
+              checked={settings.sound}
+              onChange={(sound) => set({ sound })}
+            />
+          </Section>
+
+          <Section title="Training">
+            <div className="field">
+              <label htmlFor="ollTrainingSet">OLL training set</label>
+              <select id="ollTrainingSet" value={settings.ollTrainingSet} onChange={(e) => set({ ollTrainingSet: e.target.value as Settings["ollTrainingSet"] })}>
+                <option value="full">Full OLL (57 cases)</option>
+                <option value="2look">2-Look OLL (10 cases)</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="pllTrainingSet">PLL training set</label>
+              <select id="pllTrainingSet" value={settings.pllTrainingSet} onChange={(e) => set({ pllTrainingSet: e.target.value as Settings["pllTrainingSet"] })}>
+                <option value="full">Full PLL (21 cases)</option>
+                <option value="2look">2-Look PLL (6 cases)</option>
+              </select>
+            </div>
+            <span className="help">These settings control the Training case libraries only. Solve analysis is unchanged.</span>
+          </Section>
+
+          <Section title="Cube view">
+            <div className="field">
+              <label htmlFor="visualization">Visualisation</label>
+              <select
+                id="visualization"
+                value={settings.visualization}
+                onChange={(e) =>
+                  set({ visualization: e.target.value as Settings["visualization"] })
+                }
+              >
+                <option value="3D">3D</option>
+                <option value="2D">Flat net</option>
+                <option value="off">Off</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="crossColour">Cross colour</label>
+              <select
+                id="crossColour"
+                value={settings.crossColour}
+                onChange={(e) => set({ crossColour: e.target.value })}
+              >
+                <option value="">Show as scrambled</option>
+                {FACES.map((face) => (
+                  <option key={face} value={FACE_COLOURS[face].name}>
+                    {FACE_COLOURS[face].name} on the bottom
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="frontColour">Front colour</label>
+              <select
+                id="frontColour"
+                value={settings.frontColour}
+                onChange={(e) => set({ frontColour: e.target.value })}
+                disabled={!bottomFace}
+              >
+                {fronts.map((face) => (
+                  <option key={face} value={FACE_COLOURS[face].name}>
+                    {FACE_COLOURS[face].name} facing you
+                  </option>
+                ))}
+              </select>
+              <span className="help">
+                Scrambles are applied white on top and green in front. During a solve
+                the cube is turned to the grip set here, so the screen matches the cube
+                in your hands. A cube with a working gyroscope overrides this.
+              </span>
+            </div>
+            <Toggle
+              title="Back view"
+              help="Shows the three hidden faces alongside the cube."
+              checked={settings.showBackView}
+              disabled={settings.visualization !== "3D"}
+              onChange={(showBackView) => set({ showBackView })}
+            />
+            <Toggle
+              title="Follow the cube's gyroscope"
+              help="Turns the 3D cube as you turn the real one. Needs a cube with a gyroscope. Turn the top face three times, while nothing is being timed, to line the view up with how you are holding it."
+              checked={settings.useGyroscope}
+              disabled={settings.visualization !== "3D"}
+              onChange={(useGyroscope) => set({ useGyroscope })}
+            />
+            <Toggle
+              title="Light theme"
+              checked={settings.theme === "light"}
+              onChange={(light) => set({ theme: light ? "light" : "dark" })}
+            />
+          </Section>
+
+          <Section title="Your data">
+            <div className="small faint" style={{ margin: "6px 0 10px" }}>
+              Solves are stored in this browser only. Everything here merges by solve
+              id, so importing the same file twice will not duplicate anything.
+            </div>
+            <div className="row wrap">
+              <button onClick={() => void exportSolves(controller)}>Export JSON</button>
+              <label className="row" style={{ cursor: "pointer" }}>
+                <span className="chip">Import JSON…</span>
+                <input
+                  type="file"
+                  accept="application/json,.json"
+                  className="sr-only"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) void importSolves(controller, file);
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className="row wrap" style={{ marginTop: 10 }}>
+              <button onClick={() => void exportCsv(controller, "session")}>
+                Export session CSV
+              </button>
+              <button onClick={() => void exportCsv(controller, "all")}>
+                Export all CSV
+              </button>
+              <label className="row" style={{ cursor: "pointer" }}>
+                <span className="chip">Import CSV…</span>
+                <input
+                  type="file"
+                  accept="text/csv,.csv"
+                  className="sr-only"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (file) void importCsv(controller, file, setProgress);
+                  }}
+                />
+              </label>
+            </div>
+            <div className="small faint" style={{ marginTop: 6 }}>
+              CSV uses the full solve analysis format — every step, case, turn count and
+              timestamp — so solves move between the two without losing anything.
+            </div>
+            {progress ? (
+              <div className="small" style={{ marginTop: 8 }}>
+                {progress}
+              </div>
+            ) : null}
+          </Section>
+
+          <Section title="Bluetooth">
+            <div className="row">
+              <div className="grow small faint">
+                Cube MAC addresses are remembered so you are not asked again.
+              </div>
+              <button onClick={() => forgetStoredMacs()}>Forget saved cubes</button>
+            </div>
+          </Section>
+        </div>
+        <div className="dialog-foot">
+          <button className="primary" onClick={onClose}>
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+async function exportSolves(controller: ReturnType<typeof useController>) {
+  download(
+    `cubetimer-${new Date().toISOString().slice(0, 10)}.json`,
+    await controller.exportData(),
+    "application/json",
+  );
+}
+
+function download(name: string, text: string, type: string) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+async function exportCsv(
+  controller: ReturnType<typeof useController>,
+  scope: "session" | "all",
+) {
+  const csv = await controller.exportSolveCsv(scope);
+  download(`solves-${new Date().toISOString().slice(0, 10)}.csv`, csv, "text/csv");
+}
+
+async function importCsv(
+  controller: ReturnType<typeof useController>,
+  file: File,
+  setProgress: (value: string | null) => void,
+) {
+  setProgress("Reading file…");
+  try {
+    const result = await controller.importSolveCsv(
+      await file.text(),
+      (done, total) => setProgress(`Imported ${done} of ${total} solves…`),
+    );
+    setProgress(
+      `Imported ${result.solves} solves across ${result.sessions} sessions.`,
+    );
+  } catch (error) {
+    setProgress(`Could not import that file: ${String(error)}`);
+  }
+}
+
+async function importSolves(
+  controller: ReturnType<typeof useController>,
+  file: File,
+) {
+  try {
+    const result = await controller.importData(await file.text());
+    alert(`Imported ${result.solves} solves across ${result.sessions} sessions.`);
+  } catch (error) {
+    alert(`Could not import that file: ${String(error)}`);
+  }
+}
+
+function Section({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="panel-title" style={{ marginBottom: 4 }}>
+        {title}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Toggle({
+  title,
+  help,
+  checked,
+  disabled,
+  onChange,
+}: {
+  title: string;
+  help?: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  return (
+    <label className="switch-row" style={{ opacity: disabled ? 0.5 : 1 }}>
+      <span>
+        <span className="title">{title}</span>
+        {help ? <span className="help" style={{ display: "block" }}>{help}</span> : null}
+      </span>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+        style={{ width: 18, height: 18, accentColor: "var(--accent)" }}
+      />
+    </label>
+  );
+}

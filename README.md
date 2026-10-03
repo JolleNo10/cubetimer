@@ -286,6 +286,7 @@ src/
     scramble   Scramble generation, and tracking the cube along a scramble
     notation   Move parsing, turn metrics, timestamped move streams
     orientation Rewriting a solve into the frame the solver held the cube in
+    frames     Explicit move/algorithm conversion, case reframing and display rotation
     analysis   CFOP step detection and per-step metrics
     crossSolver Exact shortest cross, by breadth-first search over all 331,776 states
     crossPlans Every cross within a few moves of the shortest, and the XCrosses in them
@@ -295,10 +296,18 @@ src/
     optimise   Searching for a shorter way to have done a step
     recognise  Naming the OLL and PLL case a solver faced
     solver     Shortest sequence between two states
-  bluetooth/   The GAN connection, and move timestamp fitting
-  state/       Controller (timer state machine), IndexedDB storage, statistics
-    solveCsv   The solve analysis CSV format, read and written
-  components/  React UI
+  app/         Controller composition, PhysicalCubeRuntime, App, hooks and shared records
+  features/
+    timer/     TimerRuntime, scramble providers and Timer UI
+    training/  TrainingRuntime and shared/family-specific Training presentation
+    sessions/  Session persistence transitions
+    history/   Solve history/analysis repair and result/replay UI
+    data-transfer/ JSON backup and solve-analysis CSV workflows
+    statistics/ Statistics projections and presentation
+  infrastructure/
+    bluetooth/ The GAN transport connection and move timestamp fitting
+    persistence/ Low-level IndexedDB adapter
+  shared/      Observable Store, raw recovery calculation and shared UI
 scripts/
   cubingSearchWorkerPlugin.ts   Emits cubing.js's solver worker for production builds
   e2e.mjs                       End-to-end browser check
@@ -306,16 +315,16 @@ scripts/
   compareAnalysis.ts            Checks this analyser against an export's own, solve by solve
 ```
 
-The controller owns all the logic and lives outside React. Move events arrive up to
-about twenty times a second and the clock updates every frame, so those are published
-through narrow stores that only the affected components subscribe to — turning the cube
-never re-renders the page. The controller also owns the top-level Timer/F2L Training
-area, so training turns cannot enter the normal timer state machine or solve history.
-The normal `CubeModel` always represents the real physical or keyboard cube. Virtual
-F2L practice keeps a separate ephemeral controller-owned pattern; smart-cube turns may
-advance both, but the selected target never replaces the physical model. Replacing it
-would desynchronise hardware state and break mode switching, facelet sync and returning
-to Timer.
+Controller composes PhysicalCubeRuntime, TimerRuntime and TrainingRuntime outside
+React. Each runtime publishes through its own Store; live cube/Timer/Training updates
+reach the relevant subscribers below application navigation. Controller owns area
+routing, Session integration and the one shared elapsed RAF scheduler.
+PhysicalCubeRuntime owns the single physical or normal keyboard-driven `CubeModel`.
+Virtual Training keeps a separate ephemeral TrainingRuntime-owned pattern;
+smart-cube turns may advance both, but target selection never replaces physical state.
+Session persistence is serialized separately from the Timer/Training context lock.
+See [the architecture entry point](docs/architecture/SYSTEM.md) for focused source
+routing and the current ownership rules.
 F2L recognition is shared and slot-independent; training references belong to a case
 and positional slot, so training does not manufacture a rotation to move every pair to
 Front Right.
