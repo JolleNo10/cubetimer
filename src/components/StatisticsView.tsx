@@ -13,8 +13,8 @@ import {
 import { effectiveMs, type Solve } from "../state/types";
 import { formatTime, type LongAverage } from "../state/stats";
 import { AverageProgressionChart, RecognitionExecutionTrendChart, CfopPhaseTrendChart, DistributionChart, SolveTimeTrendChart } from "./StatisticsCharts";
-import { StatisticsRecords } from "./StatisticsRecords";
-import { StatisticsAnalysisTables } from "./StatisticsAnalysisTables";
+import { StatisticsRecords, StatisticsCfopRecords, StatisticsBestSplits } from "./StatisticsRecords";
+import { StatisticsAnalysisTables, StatisticsConsistency, StatisticsPauses } from "./StatisticsAnalysisTables";
 import { StatisticsSolveDetail } from "./StatisticsSolveDetail";
 import { RECOGNITION_NOTE } from "../state/statistics";
 import type { LastLayerFamily } from "../cube/lastLayerTraining";
@@ -23,7 +23,7 @@ function value(value: number | null | undefined): string {
   return formatTime(value);
 }
 
-function LongAverageCard({ average, finishedCount }: { average: LongAverage; finishedCount: number }) {
+function LongAverageCard({ average, finishedCount, best }: { average: LongAverage; finishedCount: number; best?: number }) {
   const label = average.status === "projected" ? `Projected Ao${average.size}` : `Ao${average.size}`;
   const detail = average.status === "projected"
     ? `Recent-median projection · ${average.count} / ${average.size} · ${average.size - average.count} remaining`
@@ -36,7 +36,7 @@ function LongAverageCard({ average, finishedCount }: { average: LongAverage; fin
     <div className={`stat-card average-${average.status}`} title={average.status === "projected" ? "Remaining solves are assumed at the median of the latest up-to-20 finished counted solves." : undefined}>
       <span className="stat-label">{label}</span>
       <strong>{value(average.value)}</strong>
-      <small>{detail}</small>
+      <small>{detail} · Best {value(best)}</small>
     </div>
   );
 }
@@ -61,7 +61,7 @@ function AnalysisSection({ model }: { model: StatisticsViewModel }) {
       <div className="analysis-metrics">
         <StatCard label="Mean moves" value={analysis.meanMoves.toFixed(1)} />
         <StatCard label="Aggregate TPS" value={analysis.aggregateTps.toFixed(2)} />
-        <StatCard label="Mean recognition" value={formatTime(analysis.meanRecognitionMs)} />
+        <StatCard label="Mean measured recognition" value={formatTime(analysis.meanRecognitionMs)} />
         <StatCard label="Analysis coverage" value={`${Math.round(model.analysisCoverage * 100)}%`} detail={`${model.analysisCount} / ${model.stats.solved} finished`} />
         <StatCard label="Median measured recognition" value={formatTime(analysis.medianRecognitionMs)} />
         <StatCard label="Median measured execution" value={formatTime(analysis.medianExecutionMs)} />
@@ -71,15 +71,17 @@ function AnalysisSection({ model }: { model: StatisticsViewModel }) {
         <StatCard label="Median recognition share per solve" value={`${(analysis.medianRecognitionShare * 100).toFixed(1)}%`} />
         <StatCard label="Median measured execution share per solve" value={`${(analysis.medianExecutionShare * 100).toFixed(1)}%`} />
       </div>
-      <div className="recognition-split" aria-label="Recognition versus execution time">
-        <p className="small faint">Aggregate execution is solving time minus measured recognition.</p>
+      <div className="recognition-split" aria-label="Measured recognition, measured execution and unclassified time">
+        <p className="small faint">Measured segments and unclassified/opening time sum to analysed solving time.</p>
         <div className="split-bar">
           <span className="recognition" style={{ width: `${analysis.recognitionShare * 100}%` }} />
           <span className="execution" style={{ width: `${analysis.executionShare * 100}%` }} />
+          <span className="unclassified" style={{ width: `${analysis.unclassifiedShare * 100}%` }} />
         </div>
         <div className="split-legend">
-          <span><i className="swatch recognition" />Recognition {formatTime(analysis.recognitionMs)} ({Math.round(analysis.recognitionShare * 100)}%)</span>
-          <span><i className="swatch execution" />Execution {formatTime(analysis.executionMs)} ({Math.round(analysis.executionShare * 100)}%)</span>
+          <span><i className="swatch recognition" />Measured recognition {formatTime(analysis.recognitionMs)} ({Math.round(analysis.recognitionShare * 100)}%)</span>
+          <span><i className="swatch execution" />Measured execution {formatTime(analysis.executionMs)} ({Math.round(analysis.executionShare * 100)}%)</span>
+          <span><i className="swatch unclassified" />Unclassified/opening time {formatTime(analysis.unclassifiedMs)} ({Math.round(analysis.unclassifiedShare * 100)}%)</span>
         </div>
       </div>
     </div>
@@ -132,6 +134,33 @@ function SessionTable({ model, onSelect }: { model: StatisticsViewModel; onSelec
   );
 }
 
+export const STATISTICS_VIEWS = ["Overview", "Solves", "CFOP", "Cases"] as const;
+export type StatisticsSubview = typeof STATISTICS_VIEWS[number];
+
+export function StatisticsNavigation({ view, onSelect }: { view: StatisticsSubview; onSelect: (view: StatisticsSubview) => void }) {
+  return <nav className="statistics-navigation" aria-label="Statistics views">{STATISTICS_VIEWS.map((item) => <button key={item} className="ghost" aria-pressed={view === item} onClick={() => onSelect(item)}>{item}</button>)}</nav>;
+}
+
+export function StatisticsOverviewSummary({ model }: { model: StatisticsViewModel }) {
+  const allSessions = model.sessionId === null;
+  return <div className="stat-grid overview-grid">
+    <StatCard label="Counted solves" value={String(model.stats.count)} detail={`${model.stats.solved} finished · ${model.dnfCount} DNF`} />
+    <StatCard label="Best Single" value={value(model.stats.best)} />
+    <StatCard label="Median" value={value(model.medianMs)} />
+    {([5, 12, 50, 100] as const).map((size) => {
+      const metric = `ao${size}` as const;
+      const best = model.records[metric][0]?.value;
+      if (!allSessions && (size === 50 || size === 100)) return <LongAverageCard key={size} average={model.stats[`ao${size}`]} finishedCount={model.stats.solved} best={best} />;
+      const latest = model.latestAverages[metric];
+      const source = latest ? model.eventSessions.find((session) => session.id === latest.sessionId)?.name : undefined;
+      const current = size === 5 ? model.stats.ao5 : size === 12 ? model.stats.ao12 : latest?.window.value;
+      return <StatCard key={size} label={`${allSessions ? "Latest " : ""}Ao${size}`} value={value(current)} detail={`${allSessions ? source ? `${source} · ` : "No achieved window · " : ""}Best ${value(best)}`} />;
+    })}
+    <StatCard label="TPS" value={model.recognitionExecution?.aggregateTps.toFixed(2) ?? "—"} detail="Whole solve · analysed solves" />
+    <StatCard label="DNF rate" value={`${Math.round(model.dnfRate * 100)}%`} detail={`${model.dnfCount} of ${model.stats.count}`} />
+  </div>;
+}
+
 export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTools, onTrainCase, onScopeChange }: {
   currentEvent: EventId; activeSessionId: string | null;
   onReplay: (solve: Solve) => void; onTools: (solve: Solve) => void;
@@ -147,6 +176,7 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTool
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detailSolve, setDetailSolve] = useState<Solve | null>(null);
+  const [view, setView] = useState<StatisticsSubview>("Overview");
 
   useEffect(() => {
     let active = true;
@@ -213,12 +243,11 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTool
             <option value="all">All sessions</option>
             {model?.eventSessions.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
           </select></label>
-          <label className="field">Chart window<select value={chartWindow} onChange={(e) => setChartWindow(e.target.value === "all" ? "all" : Number(e.target.value) as ChartWindow)}>
-            <option value={50}>Last 50</option><option value={100}>Last 100</option><option value={250}>Last 250</option><option value="all">All</option>
-          </select></label>
           <button className="ghost" onClick={refresh} disabled={loading}>↻ Refresh</button>
         </div>
       </div>
+
+      <StatisticsNavigation view={view} onSelect={setView} />
 
       {loading ? <div className="empty stats-loading">Loading statistics…</div> : null}
       {error ? <div className="notice error"><span className="grow">Could not load statistics: {error}</span><button className="ghost" onClick={refresh}>Retry</button></div> : null}
@@ -226,25 +255,16 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTool
         <>
           {model.ignoredSolveCount ? <div className="notice">{model.ignoredSolveCount} solve{model.ignoredSolveCount === 1 ? "" : "s"} could not be assigned to a known Session and {model.ignoredSolveCount === 1 ? "was" : "were"} omitted.</div> : null}
           {!model.eventSessions.length ? <div className="empty">No Sessions exist for this event.</div> : null}
+          {view === "Overview" || view === "CFOP" ? <div className="statistics-controls chart-window-controls">
+          <label className="field">Chart window<select value={chartWindow} onChange={(e) => setChartWindow(e.target.value === "all" ? "all" : Number(e.target.value) as ChartWindow)}>
+            <option value={50}>Last 50</option><option value={100}>Last 100</option><option value={250}>Last 250</option><option value="all">All</option>
+          </select></label>
+          </div> : null}
+          {view === "Overview" ? <>
           <section className="stats-section">
             <div className="section-heading"><div><h2>Overview</h2><p>{scopeLabel} · summaries use the full selected scope</p></div></div>
-            <div className="stat-grid overview-grid">
-              <StatCard label="Counted solves" value={String(model.stats.count)} detail={`${model.stats.solved} finished · ${model.dnfCount} DNF`} />
-              <StatCard label="Best" value={value(model.stats.best)} />
-              <StatCard label="Median" value={value(model.medianMs)} />
-              <StatCard label="Mean finished" value={value(model.meanFinishedMs)} />
-              <StatCard label="Ao5" value={value(model.stats.ao5)} detail={model.stats.bestAo5 === undefined ? undefined : `Best ${value(model.stats.bestAo5)}`} />
-              <StatCard label="Ao12" value={value(model.stats.ao12)} detail={model.stats.bestAo12 === undefined ? undefined : `Best ${value(model.stats.bestAo12)}`} />
-              <LongAverageCard average={model.stats.ao50} finishedCount={model.stats.solved} />
-              <LongAverageCard average={model.stats.ao100} finishedCount={model.stats.solved} />
-              <StatCard label="DNF rate" value={`${Math.round(model.dnfRate * 100)}%`} detail={`${model.dnfCount} of ${model.stats.count}`} />
-              <StatCard label="P25 / P75" value={`${value(model.p25Ms)} / ${value(model.p75Ms)}`} />
-              <StatCard label="P90" value={value(model.p90Ms)} />
-              <StatCard label="Best Ao50 / Ao100" value={`${value(model.bestAo50)} / ${value(model.bestAo100)}`} />
-            </div>
+            <StatisticsOverviewSummary model={model} />
           </section>
-
-          <StatisticsRecords key={`records:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} />
 
           <section className="stats-section trend-section">
             <div className="section-heading"><div><h2>Solve time trend</h2><p>{scopeLabel} · showing {chartWindow === "all" ? "all" : `the last ${chartWindow}`} counted solves · select a point to review its solve</p></div></div>
@@ -254,16 +274,23 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTool
 
           <div className="stats-two-column">
             <section className="stats-section"><div className="section-heading"><div><h2>Distribution</h2><p>Finished solves only · {model.distribution.dnfCount} DNFs excluded from bins</p></div></div><DistributionChart distribution={model.distribution} /></section>
-            <section className="stats-section"><div className="section-heading"><div><h2>CFOP phase summary</h2><p>Median phase times</p></div></div><PhaseSummary model={model} /></section>
+            <StatisticsConsistency model={model} />
           </div>
 
+          {model.sessionId === null || model.eventSessions.length > 1 ? <section className="stats-section"><div className="section-heading"><div><h2>Session comparison</h2><p>Click a row to filter Statistics only; the Timer Session stays unchanged.</p></div></div><SessionTable model={model} onSelect={setSessionId} /></section> : null}
+          </> : null}
+          {view === "Solves" ? <StatisticsRecords key={`records:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} /> : null}
+          {view === "CFOP" ? <>
+          <section className="stats-section"><div className="section-heading"><div><h2>CFOP phase summary</h2><p>Median phase times</p></div></div><PhaseSummary model={model} /></section>
           <section className="stats-section"><div className="section-heading"><div><h2>Analysis</h2><p>Canonical analysed normal solves · {RECOGNITION_NOTE}</p></div></div><AnalysisSection model={model} /></section>
-          <section className="stats-section"><div className="section-heading"><div><h2>Recognition vs execution trend</h2><p>Rolling median over up to the latest 10 analysed solves · {RECOGNITION_NOTE}</p></div></div><RecognitionExecutionTrendChart points={visibleRecognition} scopeLabel={scopeLabel} /></section>
+          <section className="stats-section"><div className="section-heading"><div><h2>Measured recognition / execution trend</h2><p>Rolling median over up to the latest 10 analysed solves · {RECOGNITION_NOTE}</p></div></div><RecognitionExecutionTrendChart points={visibleRecognition} scopeLabel={scopeLabel} /></section>
           {model.phaseTrend.length ? <section className="stats-section"><div className="section-heading"><div><h2>CFOP phase trend</h2><p>Rolling median over up to the latest 10 analysed solves</p></div></div><CfopPhaseTrendChart points={visiblePhases} scopeLabel={scopeLabel} emptyMessage="No analysed solves in this chart window." /></section> : null}
 
-          <StatisticsAnalysisTables key={`analysis:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} onTrainCase={onTrainCase} />
-
-          <section className="stats-section"><div className="section-heading"><div><h2>Session comparison</h2><p>Click a row to filter Statistics only; the Timer Session stays unchanged.</p></div></div><SessionTable model={model} onSelect={setSessionId} /></section>
+          <StatisticsCfopRecords key={`cfop:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} />
+          <StatisticsPauses model={model} onOpenSolve={setDetailSolve} />
+          <StatisticsBestSplits model={model} onOpenSolve={setDetailSolve} />
+          </> : null}
+          {view === "Cases" ? <StatisticsAnalysisTables key={`analysis:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} onTrainCase={onTrainCase} /> : null}
         </>
       ) : null}
       {detailSolve && model?.scopeSolves.some((solve) => solve.id === detailSolve.id) ? <StatisticsSolveDetail solve={detailSolve} solves={model.scopeSolves} session={model.eventSessions.find((session) => session.id === detailSolve.sessionId)} onClose={() => setDetailSolve(null)} onReplay={onReplay} onTools={onTools} /> : null}

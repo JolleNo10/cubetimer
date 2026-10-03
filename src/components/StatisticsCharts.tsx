@@ -6,12 +6,30 @@ const WIDTH = 1000;
 const HEIGHT = 300;
 const PAD = { top: 20, right: 24, bottom: 34, left: 64 };
 
+type TimeDomain = { min: number; max: number };
+
+/** Visible finite values determine a padded domain; constant/empty series remain drawable. */
+export function timeSeriesDomain(values: readonly (number | null | undefined)[]): TimeDomain {
+  const finite = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (!finite.length) return { min: 0, max: 1000 };
+  const low = Math.min(...finite), high = Math.max(...finite);
+  const padding = high === low ? Math.max(Math.abs(low) * 0.05, 100) : Math.max((high - low) * 0.08, 1);
+  return { min: Math.max(0, low - padding), max: high + padding };
+}
+
+function TimeAxis({ domain }: { domain: TimeDomain }) {
+  return <>{[0, 0.5, 1].map((ratio) => {
+    const value = domain.min + ratio * (domain.max - domain.min);
+    return <g className="chart-axis" key={ratio}><line x1={PAD.left} x2={WIDTH - PAD.right} y1={yFor(value, domain)} y2={yFor(value, domain)} /><text x={PAD.left - 10} y={yFor(value, domain) + 4} textAnchor="end">{formatTime(value)}</text></g>;
+  })}</>;
+}
+
 function TimeSeriesChart({ label, series, ids }: { label: string; series: { label: string; className: string; values: (number | null | undefined)[] }[]; ids: string[] }) {
-  const max = Math.max(1000, ...series.flatMap((item) => item.values.filter((value): value is number => typeof value === "number" && Number.isFinite(value)))) * 1.1;
-  return <div className="chart-shell"><svg className="stats-chart" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={label}>
+  const domain = timeSeriesDomain(series.flatMap((item) => item.values));
+  return <div className="chart-shell"><svg className="stats-chart" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={label} data-y-min={domain.min} data-y-max={domain.max}>
     <title>{label}</title>
-    {[0, 0.5, 1].map((ratio) => <g className="chart-axis" key={ratio}><line x1={PAD.left} x2={WIDTH - PAD.right} y1={yFor(ratio * max, max)} y2={yFor(ratio * max, max)} /><text x={PAD.left - 10} y={yFor(ratio * max, max) + 4} textAnchor="end">{formatTime(ratio * max)}</text></g>)}
-    {series.map((item, index) => <g key={item.label}><path className={`chart-line ${item.className}`} d={linePath(item.values, max)} /><text className={`chart-legend-label ${item.className}`} x={WIDTH - PAD.right} y={PAD.top + index * 16 + 4} textAnchor="end">{item.label}</text>{item.values.map((value, point) => typeof value === "number" && Number.isFinite(value) ? <circle key={ids[point]} className={`chart-series-point ${item.className}`} cx={chartX(point, item.values.length)} cy={yFor(value, max)} r="2"><title>{`${ids[point]} · ${item.label}: ${formatTime(value)}`}</title></circle> : null)}</g>)}
+    <TimeAxis domain={domain} />
+    {series.map((item, index) => <g key={item.label}><path className={`chart-line ${item.className}`} d={linePath(item.values, domain)} /><text className={`chart-legend-label ${item.className}`} x={WIDTH - PAD.right} y={PAD.top + index * 16 + 4} textAnchor="end">{item.label}</text>{item.values.map((value, point) => typeof value === "number" && Number.isFinite(value) ? <circle key={ids[point]} className={`chart-series-point ${item.className}`} cx={chartX(point, item.values.length)} cy={yFor(value, domain)} r="2"><title>{`${ids[point]} · ${item.label}: ${formatTime(value)}`}</title></circle> : null)}</g>)}
     <text className="chart-x-label" x={PAD.left} y={HEIGHT - 8}>older</text><text className="chart-x-label" x={WIDTH - PAD.right} y={HEIGHT - 8} textAnchor="end">newer</text>
   </svg></div>;
 }
@@ -23,9 +41,10 @@ export function AverageProgressionChart({ points, scopeLabel }: { points: Averag
 
 export function RecognitionExecutionTrendChart({ points, scopeLabel }: { points: RecognitionTrendPoint[]; scopeLabel: string }) {
   if (!points.length) return <div className="chart-empty">No analysed solves in this chart window.</div>;
-  return <TimeSeriesChart label={`Recognition vs execution trend for ${scopeLabel}`} ids={points.map((point) => point.solveId)} series={[
+  return <TimeSeriesChart label={`Measured recognition / execution trend for ${scopeLabel}`} ids={points.map((point) => point.solveId)} series={[
     { label: "Measured recognition", className: "recognition", values: points.map((point) => point.recognitionMs) },
-    { label: "Execution", className: "execution", values: points.map((point) => point.executionMs) },
+    { label: "Measured execution", className: "execution", values: points.map((point) => point.executionMs) },
+    { label: "Unclassified/opening time", className: "unclassified", values: points.map((point) => point.unclassifiedMs) },
   ]} />;
 }
 
@@ -33,7 +52,7 @@ function chartX(index: number, length: number): number {
   return PAD.left + (length <= 1 ? 0 : (WIDTH - PAD.left - PAD.right) * index / (length - 1));
 }
 
-function linePath(values: (number | null | undefined)[], max: number): string {
+function linePath(values: (number | null | undefined)[], domain: TimeDomain): string {
   let path = "";
   let active = false;
   values.forEach((value, index) => {
@@ -42,7 +61,7 @@ function linePath(values: (number | null | undefined)[], max: number): string {
       return;
     }
     const x = chartX(index, values.length);
-    const y = HEIGHT - PAD.bottom - (value / max) * (HEIGHT - PAD.top - PAD.bottom);
+    const y = yFor(value, domain);
     path += `${active ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)} `;
     active = true;
   });
@@ -60,8 +79,8 @@ function percentile(values: number[], fraction: number): number | undefined {
     : sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
 }
 
-function yFor(value: number, max: number): number {
-  return HEIGHT - PAD.bottom - (value / max) * (HEIGHT - PAD.top - PAD.bottom);
+function yFor(value: number, domain: TimeDomain): number {
+  return HEIGHT - PAD.bottom - ((value - domain.min) / (domain.max - domain.min)) * (HEIGHT - PAD.top - PAD.bottom);
 }
 
 export function SolveTimeTrendChart({
@@ -74,14 +93,14 @@ export function SolveTimeTrendChart({
   onOpenSolve?: (solveId: string) => void;
 }) {
   if (!points.length) return <div className="chart-empty">No counted solves in this scope yet.</div>;
-  const finished = points.flatMap((point) => point.time === null ? [] : [point.time]);
+  const finished = points.flatMap((point) => typeof point.time === "number" && Number.isFinite(point.time) ? [point.time] : []);
   const rollingValues = points.flatMap((point) => [
-    ...(typeof point.ao5 === "number" ? [point.ao5] : []),
-    ...(typeof point.ao12 === "number" ? [point.ao12] : []),
+    ...(typeof point.ao5 === "number" && Number.isFinite(point.ao5) ? [point.ao5] : []),
+    ...(typeof point.ao12 === "number" && Number.isFinite(point.ao12) ? [point.ao12] : []),
   ]);
   const p95 = percentile(finished, 0.95) ?? 1;
-  const maxValue = Math.max(p95 * 1.15, ...rollingValues, 1000);
-  const ticks = [0, 0.5, 1].map((ratio) => maxValue * ratio);
+  const clipHigh = Math.max(p95 * 1.15, ...rollingValues, 1000);
+  const domain = timeSeriesDomain([...finished.map((time) => Math.min(time, clipHigh)), ...rollingValues]);
   return (
     <div className="chart-shell">
       <svg
@@ -89,16 +108,10 @@ export function SolveTimeTrendChart({
         viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
         role={onOpenSolve ? "group" : "img"}
         aria-label={`Solve time trend for ${scopeLabel}`}
+        data-y-min={domain.min} data-y-max={domain.max}
       >
         <title>{`Solve time, rolling averages, and personal bests — ${scopeLabel}`}</title>
-        {ticks.map((value) => (
-          <g key={value} className="chart-axis">
-            <line x1={PAD.left} x2={WIDTH - PAD.right} y1={yFor(value, maxValue)} y2={yFor(value, maxValue)} />
-            <text x={PAD.left - 10} y={yFor(value, maxValue) + 4} textAnchor="end">
-              {formatTime(value)}
-            </text>
-          </g>
-        ))}
+        <TimeAxis domain={domain} />
         {points.map((point, index) => index > 0 && point.sessionId !== points[index - 1].sessionId ? (
           <line
             key={`boundary-${point.id}`}
@@ -109,9 +122,10 @@ export function SolveTimeTrendChart({
             y2={HEIGHT - PAD.bottom}
           />
         ) : null)}
-        <path className="chart-line ao5" d={linePath(points.map((point) => point.ao5), maxValue)} />
-        <path className="chart-line ao12" d={linePath(points.map((point) => point.ao12), maxValue)} />
+        <path className="chart-line ao5" d={linePath(points.map((point) => point.ao5), domain)} />
+        <path className="chart-line ao12" d={linePath(points.map((point) => point.ao12), domain)} />
         {points.map((point, index) => {
+          if (point.time !== null && !Number.isFinite(point.time)) return null;
           const x = chartX(index, points.length);
           const activation = statisticsActivationProps<SVGGElement>(onOpenSolve ? () => onOpenSolve(point.id) : undefined, `View solve ${formatTime(point.time)}${point.isPb ? " · personal best" : ""} · ${new Date(point.createdAt).toLocaleString()}`);
           if (point.time === null) {
@@ -122,8 +136,8 @@ export function SolveTimeTrendChart({
               </g>
             );
           }
-          const outlier = point.time > maxValue;
-          const y = outlier ? PAD.top + 4 : yFor(point.time, maxValue);
+          const outlier = point.time > domain.max;
+          const y = outlier ? PAD.top + 4 : yFor(point.time, domain);
           return (
             <g key={point.id} className={`chart-point${outlier ? " outlier" : point.isPb ? " pb" : ""}`} {...activation} role={onOpenSolve ? "button" : undefined}>
               <title>{`${point.id}: ${formatTime(point.time)}${point.isPb ? " — personal best" : ""}`}</title>
@@ -198,29 +212,7 @@ export function CfopPhaseTrendChart({
   emptyMessage?: string;
 }) {
   if (!points.length) return <div className="chart-empty">{emptyMessage}</div>;
-  const values = points.flatMap((point) => [point.crossMs, point.f2lMs, point.ollMs, point.pllMs]);
-  const maxValue = Math.max(...values, 1000) * 1.1;
-  const series = [
-    ["Cross", "crossMs", "cross"] as const,
-    ["F2L", "f2lMs", "f2l"] as const,
-    ["OLL", "ollMs", "oll"] as const,
-    ["PLL", "pllMs", "pll"] as const,
-  ];
-  return (
-    <div className="chart-shell">
-      <svg className="stats-chart" viewBox={`0 0 ${WIDTH} ${HEIGHT}`} role="img" aria-label={`CFOP phase trend for ${scopeLabel}`}>
-        <title>{`Smoothed CFOP phase times — ${scopeLabel}`}</title>
-        {series.map(([, key, className]) => (
-          <path key={key} className={`chart-line phase-${className}`} d={linePath(points.map((point) => point[key]), maxValue)} />
-        ))}
-        {series.map(([label, , className], index) => (
-          <text key={label} className={`chart-legend-label phase-${className}`} x={WIDTH - PAD.right} y={PAD.top + 16 * index + 4} textAnchor="end">{label}</text>
-        ))}
-        <text className="chart-axis" x={PAD.left - 10} y={PAD.top + 4} textAnchor="end">{formatTime(maxValue)}</text>
-        <text className="chart-axis" x={PAD.left - 10} y={HEIGHT - PAD.bottom + 4} textAnchor="end">0.00</text>
-        <text className="chart-x-label" x={PAD.left} y={HEIGHT - 8}>older</text>
-        <text className="chart-x-label" x={WIDTH - PAD.right} y={HEIGHT - 8} textAnchor="end">newer</text>
-      </svg>
-    </div>
-  );
+  return <TimeSeriesChart label={`CFOP phase trend for ${scopeLabel}`} ids={points.map((point) => point.solveId)} series={([
+    ["Cross", "crossMs", "cross"], ["F2L", "f2lMs", "f2l"], ["OLL", "ollMs", "oll"], ["PLL", "pllMs", "pll"],
+  ] as const).map(([label, key, className]) => ({ label, className: `phase-${className}`, values: points.map((point) => point[key]) }))} />;
 }

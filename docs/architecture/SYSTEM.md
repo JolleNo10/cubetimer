@@ -672,7 +672,19 @@ view filter and does not change the active Timer Session or event.
 
 Slow/practice/replay solves are excluded from ordinary counted statistics.
 
-Rolling averages, projected long averages, bests, means, CFOP summaries, and related calculations live under `src/state/stats.ts`.
+`src/state/stats.ts` owns the low-level WCA average trimming/DNF rules,
+selected-Session long-average projections, and independent solve/CFOP summaries.
+
+`src/state/statistics.ts` combines these low-level rules with Statistics scope.
+Cross-Session Statistics may aggregate Singles and other independent solve facts for
+Sessions of the same Event, but rolling averages are Session-local. An
+Ao5/Ao12/Ao50/Ao100 window must never span Session boundaries. All-Sessions average
+rankings/history merge achieved Session-local windows rather than flattening Sessions
+into one average sequence. Overview shows the latest achieved window and its source
+Session; long-average projections remain limited to a selected Session.
+
+Overview, Solves, CFOP, and Cases navigation is local React presentation state.
+Chart windows affect visible charts only, not rankings or summaries.
 
 Solve-result comparison uses prior compatible solves from the same `sessionId`, rather than attempting to recover event compatibility from a duplicated field on each Solve.
 
@@ -780,6 +792,8 @@ The following are current architectural rules.
 
 15. **Statistics are event-safe and read-only with respect to Timer context.**
     Cross-session analytics resolve EventId through Session identity and never mutate the selected Timer Session.
+    Rolling average windows always belong to one Session; All-Sessions views merge
+    achieved Session-local windows.
 
 16. **Training owns one shared lifecycle for F2L, OLL, and PLL.**
     Family modules supply target/reference/completion semantics; the physical CubeModel and virtual target remain distinct.
@@ -790,6 +804,13 @@ The following are current architectural rules.
 ## Rejected alternatives
 
 These alternatives are recorded because the current architecture deliberately chose a different ownership model.
+
+### Flattening Sessions into rolling averages
+
+Flattening all same-Event solves into one rolling-average sequence was rejected
+because it creates averages that were never achieved within any actual Session and
+makes PB/current-average semantics misleading. Statistics instead merges achieved
+Session-local windows for average rankings and history.
 
 ### Event duplication
 

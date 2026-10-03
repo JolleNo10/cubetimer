@@ -277,6 +277,7 @@ export function validatedSolveFacts(solve: Solve): AnalysedSolveFacts | null {
     || !nonnegative(analysis.totalRecognitionMs)
     || analysis.totalRecognitionMs > analysis.solvingMs
     || !nonnegative(analysis.totalExecutionMs) || analysis.totalExecutionMs > analysis.solvingMs
+    || analysis.totalRecognitionMs + analysis.totalExecutionMs - analysis.solvingMs > 1e-6
     || !analysis.steps.every((step, index) =>
       nonnegative(step.timeMs) && nonnegative(step.recognitionMs) && nonnegative(step.executionMs)
       && nonnegative(step.sliceTurns) && typeof step.skipped === "boolean"

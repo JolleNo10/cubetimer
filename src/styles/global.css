@@ -908,6 +908,14 @@ button.phase-row.selectable.active {
 .statistics-controls { display: flex; align-items: flex-end; gap: 8px; flex-wrap: wrap; }
 .statistics-controls .field { min-width: 142px; }
 .statistics-controls select { max-width: 240px; }
+.statistics-navigation, .statistics-mode { display: flex; flex-wrap: wrap; gap: 6px; }
+.statistics-navigation { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.statistics-navigation button { padding: 8px 18px; }
+.statistics-navigation button[aria-pressed="true"], .statistics-mode button[aria-pressed="true"] {
+  color: var(--accent); border-color: var(--accent); background: color-mix(in oklab, var(--accent) 12%, transparent);
+}
+.statistics-mode { margin-bottom: 12px; }
+.chart-window-controls { justify-content: flex-end; }
 .stats-section {
   min-width: 0;
   padding: 14px;
@@ -919,7 +927,7 @@ button.phase-row.selectable.active {
 .section-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 12px; }
 .section-heading h2 { margin: 0; font-size: 13px; }
 .section-heading p { margin: 3px 0 0; color: var(--text-faint); font-size: 11.5px; }
-.overview-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.overview-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .stat-card { min-width: 0; padding: 10px 11px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--panel-2); }
 .stat-card .stat-label { display: block; color: var(--text-faint); font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; }
 .stat-card > strong { display: block; margin-top: 3px; font: 600 18px var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -943,6 +951,8 @@ button.phase-row.selectable.active {
 .chart-line.ao100 { stroke: var(--blue); stroke-dasharray: 7 3; }
 .chart-line.recognition { stroke: var(--amber); }
 .chart-line.execution { stroke: var(--accent); }
+.chart-line.unclassified { stroke: var(--text-faint); stroke-dasharray: 3 3; }
+.chart-series-point.unclassified, .chart-legend-label.unclassified { fill: var(--text-faint); }
 .chart-series-point { fill: var(--accent); }
 .chart-series-point.ao12 { fill: var(--violet); }
 .chart-series-point.ao50, .chart-series-point.recognition { fill: var(--amber); }
@@ -976,6 +986,7 @@ button.phase-row.selectable.active {
 .split-bar { height: 18px; display: flex; overflow: hidden; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--border); }
 .split-bar .recognition { background: var(--blue); }
 .split-bar .execution { background: var(--accent); }
+.split-bar .unclassified, .split-legend .swatch.unclassified { background: var(--text-faint); }
 .split-legend { display: grid; gap: 5px; margin-top: 8px; color: var(--text-dim); font-size: 11px; }
 .split-legend span { display: flex; align-items: center; gap: 6px; }
 .split-legend .swatch { width: 9px; height: 9px; border-radius: 3px; background: var(--text-faint); }
@@ -988,6 +999,11 @@ button.phase-row.selectable.active {
 .table-scroll { overflow-x: auto; }
 .stats-table { width: 100%; border-collapse: collapse; white-space: nowrap; font-size: 12px; }
 .stats-table th { padding: 7px 9px; color: var(--text-faint); font-size: 10px; font-weight: 600; letter-spacing: .06em; text-align: left; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+.stats-table .stats-sort { padding: 3px 0; border: 0; border-radius: 0; background: transparent; color: inherit; font: inherit; text-transform: inherit; letter-spacing: inherit; }
+.stats-table th[aria-sort="ascending"], .stats-table th[aria-sort="descending"] { color: var(--accent); }
+.stats-badge { display: inline-block; margin-left: 6px; padding: 2px 5px; border-radius: 4px; background: var(--panel-2); color: var(--text-dim); font: 10px var(--sans); }
+.stats-badge.small-sample { color: var(--amber); border: 1px solid color-mix(in oklab, var(--amber) 30%, var(--border)); }
+.stats-samples { font-weight: 600; }
 .stats-table td { padding: 8px 9px; border-bottom: 1px solid color-mix(in oklab, var(--border) 55%, transparent); }
 .stats-table tbody tr[tabindex="0"] { cursor: pointer; }
 .stats-table tbody tr[tabindex="0"]:hover { background: var(--panel-2); }

@@ -335,6 +335,7 @@ describe("analysed session statistics", () => {
       { ...valid, analysis: { ...valid.analysis!, solvingMs: 0 } },
       { ...valid, analysis: { ...valid.analysis!, sliceTurns: NaN } },
       { ...valid, analysis: { ...valid.analysis!, totalRecognitionMs: -1 } },
+      { ...valid, analysis: { ...valid.analysis!, totalRecognitionMs: 2500, totalExecutionMs: 8000 } },
       { ...valid, analysis: { ...valid.analysis!, steps: valid.analysis!.steps.map((step) => ({ ...step, timeMs: Infinity })) } },
     ];
     expect(sessionStats([valid, ...invalid]).solving).toEqual(sessionStats([valid]).solving);

@@ -214,6 +214,20 @@ not independently invented states. The original entry is retained as history.
 - Root cause: the patch bundled dependent selector changes with stale context instead of applying the file-local transformations in smaller hunks.
 - Prevention: apply related selector renames and responsive overrides in separate, verifiable patches.
 
+## 2026-10-03
+
+- What happened: new Statistics UI copy briefly contained question marks in place of Unicode separators and missing-value dashes.
+- Root cause: piping a Python edit script through Windows PowerShell used a legacy output encoding for literal Unicode text.
+- Prevention: use `apply_patch` for Unicode edits or ASCII Unicode escapes in piped scripts; inspect the resulting UI copy before verification.
+
+- What happened: an average-detail guard initially landed in the ranking table instead of the solve table and failed focused tests/typechecking.
+- Root cause: the patch matched a pagination block repeated in both components.
+- Prevention: anchor patches with function-specific context when nearby code patterns repeat.
+
+- What happened: the initial adaptive chart domain excluded nonfinite values, but Single point rendering still allowed NaN coordinates.
+- Root cause: finite-value filtering covered domain and line-series calculations but not the separate point renderer.
+- Prevention: guard the point renderer too and cover malformed nonfinite chart input with a rendering regression test.
+
 ## 2026-09-27
 
 - What happened: the handoff check ran `git rev-parse --abbrev-ref --symbolic-full-name @{upstream}` through PowerShell and failed before Git executed.

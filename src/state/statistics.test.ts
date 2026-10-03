@@ -9,6 +9,7 @@ import {
   sliceChartWindow,
   sortRankingRows,
   sortCasePerformance,
+  sortSolveRows,
   type StatisticsSnapshot,
 } from "./statistics";
 import type { Penalty, Session, Solve } from "./types";
@@ -91,7 +92,7 @@ describe("deriveStatistics", () => {
     expect(result.sessionComparison.every((row) => !row.current)).toBe(true);
   });
 
-  it("orders an interleaved trend chronologically and uses WCA rolling averages", () => {
+  it("merges Singles chronologically without inventing interleaved averages", () => {
     const solves = [
       solve("a", "A", 10_000, { createdAt: 2 }),
       solve("b", "B", 12_000, { createdAt: 1 }),
@@ -101,8 +102,8 @@ describe("deriveStatistics", () => {
     ];
     const result = deriveStatistics({ sessions: [session("A"), session("B")], solves }, { event: "333", sessionId: null }, null);
     expect(result.trend.map((point) => point.id)).toEqual(["b", "a", "c", "d", "e"]);
-    expect(result.trend.at(-1)?.ao5).toBe(14_000);
-    expect(result.trend.at(-1)?.ao5).toBe(averageOf(solves.sort((a, b) => a.createdAt - b.createdAt), 5));
+    expect(result.trend.every((point) => point.ao5 === undefined)).toBe(true);
+    expect(result.stats.ao5).toBeUndefined();
     expect(result.trend.filter((point) => point.isPb).map((point) => point.id)).toEqual(["b", "a"]);
   });
 
@@ -236,6 +237,58 @@ function skipStep(solve: Solve, index: number) {
 }
 
 describe("historical records and performance", () => {
+  it("sorts solve columns with real DNFs and missing facts last in either direction", () => {
+    const a = analysed("analysed", "A", 2);
+    const model = modelFor([solve("dnf", "A", 1, { penalty: "DNF", createdAt: 3 }), solve("missing", "B", 9000, { createdAt: 1 }), a]);
+    expect(sortSolveRows(model.solveRows, "time", "asc").map((row) => row.solve.id)).toEqual(["missing", "analysed", "dnf"]);
+    expect(sortSolveRows(model.solveRows, "time", "desc").map((row) => row.solve.id)).toEqual(["dnf", "analysed", "missing"]);
+    for (const direction of ["asc", "desc"] as const) {
+      expect(sortSolveRows(model.solveRows, "tps", direction).map((row) => row.solve.id)).toEqual(["analysed", "missing", "dnf"]);
+    }
+    expect(sortSolveRows(model.solveRows, "date", "desc").map((row) => row.solve.id)).toEqual(["dnf", "analysed", "missing"]);
+    const ties = modelFor([solve("z", "A", 1000, { createdAt: 1 }), solve("a", "A", 1000, { createdAt: 1 })]);
+    expect(sortSolveRows(ties.solveRows, "time", "desc").map((row) => row.solve.id)).toEqual(["a", "z"]);
+  });
+
+  it("distinguishes DNF average cells from unavailable windows while sorting", () => {
+    const solves = Array.from({ length: 7 }, (_, index) => solve(`s${index}`, "A", 10000, { createdAt: index, penalty: index >= 5 ? "DNF" : "none" }));
+    const model = modelFor(solves);
+    expect(model.solveRows[3].averages.ao5).toBeUndefined();
+    expect(model.solveRows[5].averages.ao5?.value).toBe(10000);
+    expect(model.solveRows[6].averages.ao5?.value).toBeNull();
+    expect(sortSolveRows(model.solveRows, "ao5", "asc").map((row) => row.solve.id)).toEqual(["s4", "s5", "s6", "s0", "s1", "s2", "s3"]);
+    expect(sortSolveRows(model.solveRows, "ao5", "desc").map((row) => row.solve.id)).toEqual(["s6", "s4", "s5", "s0", "s1", "s2", "s3"]);
+  });
+
+  it("uses actual F2L slots without guessing missing slots, preserving order and skips", () => {
+    const a = analysed("a", "A", 1), b = analysed("b", "A", 2), c = analysed("c", "A", 3);
+    for (const item of [a, b, c]) for (const [index, slot] of (["BL", "FR", "BR", "FL"] as const).entries()) item.analysis!.steps[index + 1].slot = slot;
+    b.analysis!.steps[1].slot = "FR";
+    b.analysis!.steps[2].slot = "BL";
+    b.analysis!.steps[2].timeMs = 1500;
+    skipStep(c, 1);
+    c.analysis!.steps[2].slot = null;
+    c.analysis!.steps[3].slot = "unknown" as "FR";
+    const model = modelFor([a, b, c]);
+    expect(model.f2lSlots.map((row) => row.label)).toEqual(["FR", "FL", "BR", "BL"]);
+    expect(model.f2lSlots[0]).toMatchObject({ count: 2, medianMs: 500, solveIds: ["a", "b"] });
+    expect(model.f2lSlots[3]).toMatchObject({ count: 2, skipCount: 1, medianMs: 1000 });
+    expect(model.f2lUnassignedCount).toBe(2);
+    expect(model.f2lPositions[0]).toMatchObject({ label: "1st pair", count: 2, skipCount: 1, medianMs: 500 });
+  });
+
+  it("never sums an XCross-reduced F2L into Best Splits", () => {
+    const normal = analysed("normal", "A", 1), xcross = analysed("xcross", "A", 2);
+    skipStep(xcross, 1);
+    const model = modelFor([normal, xcross]);
+    expect(model.records.f2l[0].id).toBe("xcross");
+    expect(model.bestSplits.sources[1].record?.id).toBe("normal");
+    expect(model.bestSplits.totalMs).toBe(5500);
+    const only = modelFor([xcross]);
+    expect(only.bestSplits.sources[1].record).toBeUndefined();
+    expect(only.bestSplits.totalMs).toBeUndefined();
+  });
+
   it("ranks effective Singles deterministically and reverses values without reversing ties", () => {
     const model = modelFor([
       solve("z", "A", 9_000, { createdAt: 1, penalty: "+2" }),
@@ -250,27 +303,37 @@ describe("historical records and performance", () => {
   });
 
   it.each([5, 12, 50, 100] as const)("retains real rolling Ao%i membership across interleaved Sessions", (size) => {
-    const solves = Array.from({ length: 110 }, (_, index) => solve(`s${index}`, index % 2 ? "A" : "B", 30_000 - index * 100, { createdAt: index }));
+    const solves = Array.from({ length: 220 }, (_, index) => solve(`s${index}`, index % 2 ? "A" : "B", 30_000 - index * 100, { createdAt: index }));
     const model = modelFor([...solves].reverse());
     const metric = `ao${size}` as const;
-    expect(model.records[metric]).toHaveLength(111 - size);
+    expect(model.records[metric]).toHaveLength(2 * (111 - size));
     for (const row of model.records[metric]) {
       if (row.kind !== "average") throw new Error("Average expected");
       const end = solves.findIndex((solve) => solve.id === row.endSolveId) + 1;
-      expect(row.solveIds).toEqual(solves.slice(end - size, end).map((solve) => solve.id));
-      expect(row.value).toBe(averageOf(solves.slice(0, end), size));
+      const source = solves.slice(0, end).filter((solve) => solve.sessionId === row.sessionId);
+      expect(row.solveIds).toEqual(source.slice(-size).map((solve) => solve.id));
+      expect(row.value).toBe(averageOf(source, size));
       expect(row.window.entries.filter((entry) => entry.trim !== "kept")).toHaveLength(2);
+      expect(model.solveRows.find((item) => item.solve.id === row.endSolveId)?.averages[metric]).toBe(row.window);
+      expect(model.averageProgression.find((point) => point.solveId === row.endSolveId)?.[metric]).toBe(row.value);
     }
     expect(model.averageProgression[0].ao5).toBeDefined();
-    expect(model.averageProgression.find((point) => point.index === size)?.[metric]).toBeDefined();
-    expect(model.averageProgression.find((point) => point.index === size - 1)?.[metric]).toBeUndefined();
-    expect(modelFor(solves.slice(0, size - 1)).records[metric]).toEqual([]);
+    expect(model.averageProgression.find((point) => point.index === size * 2 - 1)?.[metric]).toBeDefined();
+    expect(modelFor(solves.slice(0, size * 2 - 2)).records[metric]).toEqual([]);
+    expect(model.latestAverages[metric]?.solveId).toBe("s219");
+    expect(model.latestAverages[metric]?.sessionId).toBe("A");
+    for (const row of model.pbHistory[metric]) {
+      if (row.kind !== "average") throw new Error("Average expected");
+      expect(new Set(row.solveIds.map((id) => solves.find((solve) => solve.id === id)!.sessionId)).size).toBe(1);
+    }
   });
 
   it("never treats projected long averages or DNF windows as records", () => {
     const solves = Array.from({ length: 12 }, (_, index) => solve(`s${index}`, "A", 10_000, { createdAt: index }));
     const model = modelFor(solves);
-    expect(model.stats.ao50.status).toBe("projected");
+    expect(model.stats.ao50.status).toBe("unavailable");
+    const selected = deriveStatistics({ sessions: [session("A")], solves }, { event: "333", sessionId: "A" }, null);
+    expect(selected.stats.ao50.status).toBe("projected");
     expect(model.records.ao50).toEqual([]);
     expect(model.averageProgression.every((point) => point.ao50 === undefined)).toBe(true);
     solves[10].penalty = "DNF";
@@ -279,6 +342,36 @@ describe("historical records and performance", () => {
     const dnf = modelFor(solves);
     expect(dnf.averageProgression.at(-1)?.ao5).toBeNull();
     expect(dnf.records.ao5.some((row) => row.kind === "average" && row.endSolveId === "s11")).toBe(false);
+  });
+
+  it("never uses combined history for achieved or projected long averages", () => {
+    const solves = Array.from({ length: 60 }, (_, index) => solve(`s${index}`, index % 2 ? "A" : "B", 10000, { createdAt: index }));
+    const model = modelFor(solves);
+    expect(model.stats.count).toBe(60);
+    expect(model.stats.ao50).toMatchObject({ status: "unavailable", value: undefined });
+    expect(model.stats.ao100).toMatchObject({ status: "unavailable", value: undefined });
+    expect(model.records.ao50).toEqual([]); expect(model.latestAverages.ao50).toBeUndefined();
+    expect(deriveStatistics({ sessions: [session("A"), session("B")], solves }, { event: "333", sessionId: "A" }, null).stats.ao50.status).toBe("projected");
+  });
+
+  it("uses the latest completed average even when the newest solve has no window", () => {
+    const solves = [
+      ...Array.from({ length: 5 }, (_, index) => solve(`a${index}`, "A", 10000 + index * 1000, { createdAt: index })),
+      ...Array.from({ length: 4 }, (_, index) => solve(`b${index}`, "B", 1000, { createdAt: index + 10 })),
+    ];
+    const model = modelFor(solves);
+    expect(model.trend.at(-1)?.ao5).toBeUndefined();
+    expect(model.latestAverages.ao5).toMatchObject({ solveId: "a4", sessionId: "A", window: { value: 12000 } });
+    expect(model.stats.ao5).toBe(12000);
+  });
+
+  it.each([5, 12, 50, 100] as const)("preserves selected Session current Ao%i and exact source windows", (size) => {
+    const solves = Array.from({ length: 110 }, (_, index) => solve(`a${index}`, "A", 10000 + index * 100, { createdAt: index }));
+    const model = deriveStatistics({ sessions: [session("A")], solves }, { event: "333", sessionId: "A" }, null);
+    const metric = `ao${size}` as const;
+    const expected = averageOf(solves, size);
+    expect(size === 50 || size === 100 ? model.stats[`ao${size}`].value : size === 5 ? model.stats.ao5 : model.stats.ao12).toBe(expected);
+    expect(model.latestAverages[metric]?.window).toBe(model.solveRows.at(-1)?.averages[metric]);
   });
 
   it("scopes all records, cases, PBs, and sources by Event and Session", () => {
@@ -410,13 +503,16 @@ describe("historical records and performance", () => {
     expect(model.recognitionExecution).toMatchObject({ medianRecognitionMs: 550, medianExecutionMs: 9450, medianF2lRecognitionMs: 800, medianOllRecognitionMs: 200, medianPllRecognitionMs: 200, medianRecognitionShare: 0.055 });
   });
 
-  it("preserves the aggregate split while measured execution excludes the opening interval", () => {
+  it("accounts for measured execution and opening time without conflating them", () => {
     const item = analysed("opening", "A", 1);
     item.analysis!.totalExecutionMs = 7500;
     const model = modelFor([item]);
-    expect(model.recognitionExecution).toMatchObject({ executionMs: 8000, executionShare: 0.8, medianExecutionMs: 7500, medianExecutionShare: 0.75 });
+    expect(model.recognitionExecution).toMatchObject({ solvingMs: 10000, recognitionMs: 2000, executionMs: 7500, unclassifiedMs: 500, executionShare: 0.75, unclassifiedShare: 0.05, medianExecutionMs: 7500, medianExecutionShare: 0.75 });
+    const split = model.recognitionExecution!;
+    expect(split.recognitionMs + split.executionMs + split.unclassifiedMs).toBe(split.solvingMs);
     expect(model.records.execution[0].value).toBe(7500);
     expect(model.recognitionTrend[0].executionMs).toBe(7500);
+    expect(model.recognitionTrend[0].unclassifiedMs).toBe(500);
   });
 
   it("records strict Single and average PBs with exact source windows", () => {

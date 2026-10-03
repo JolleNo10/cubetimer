@@ -7,8 +7,9 @@ import { deriveStatistics } from "../state/statistics";
 import { averageWindow } from "../state/stats";
 import type { Solve } from "../state/types";
 import { StatisticsSolveDetail } from "./StatisticsSolveDetail";
-import { StatisticsAverageDetail, StatisticsRecords } from "./StatisticsRecords";
-import { StatisticsAnalysisTables } from "./StatisticsAnalysisTables";
+import { StatisticsAverageDetail, StatisticsRecords, StatisticsCfopRecords, StatisticsBestSplits } from "./StatisticsRecords";
+import { StatisticsAnalysisTables, StatisticsConsistency, StatisticsPauses, StatisticsCaseTable } from "./StatisticsAnalysisTables";
+import { StatisticsNavigation, StatisticsOverviewSummary } from "./StatisticsView";
 import { SolveResult } from "./SolveResult";
 import { ControllerContext } from "../hooks/useController";
 import { Controller } from "../state/controller";
@@ -88,20 +89,61 @@ describe("Statistics presentation", () => {
     expect(html).toContain("1.00"); expect(html).toContain("DNF(4.00)");
   });
 
-  it("renders all grouped record metrics, direction controls, PB history and Best splits", () => {
+  it("renders sortable solve columns and PB history instead of the general Records selector", () => {
     const model = deriveStatistics({ sessions, solves: [solve] }, { event: "333", sessionId: null }, null);
     const html = renderToStaticMarkup(<StatisticsRecords model={model} onOpenSolve={() => {}} />);
-    expect(html.match(/<option value=/g)).toHaveLength(27);
-    for (const group of ["Solve", "Averages", "Phases", "Efficiency"]) expect(html).toContain(`label="${group}"`);
-    expect(html).toContain("Fastest → slowest"); expect(html).toContain("Slowest → fastest");
-    expect(html).toContain("PB history"); expect(html).toContain("Best splits"); expect(html).not.toContain("theoretical PB");
-    expect(html).not.toContain("historical ·");
-    expect(html).toContain("4.10+ · History Session");
+    expect(html.match(/<option value=/g)).toHaveLength(5);
+    expect(html).not.toContain("Record metric");
+    for (const column of ["Time", "Ao5", "Ao12", "Ao50", "Ao100", "TPS", "STM", "Cross", "F2L", "OLL", "PLL", "Session", "Date"]) expect(html).toContain(`>${column}${column === "Time" ? " ↑" : ""}</button>`);
+    expect(html).toContain('aria-sort="ascending"'); expect(html).toContain("PB history");
+    expect(html).not.toContain("Best splits");
+    const selected = deriveStatistics({ sessions, solves: [solve] }, { event: "333", sessionId: "history" }, null);
+    expect(renderToStaticMarkup(<StatisticsRecords model={selected} onOpenSolve={() => {}} />)).not.toContain(">Session</button>");
+  });
+
+  it("retains unanalysed solves with unavailable analysis cells", () => {
+    const model = deriveStatistics({ sessions, solves: [{ ...solve, analysis: null, moves: [], penalty: "none" }] }, { event: "333", sessionId: null }, null);
+    const html = renderToStaticMarkup(<StatisticsRecords model={model} onOpenSolve={() => {}} />);
+    const row = html.match(/<tr tabindex="0"[^>]*>[\s\S]*?<\/tr>/)![0];
+    expect(row).toContain("2.10");
+    expect(row.match(/>—<\/td>/g)).toHaveLength(10);
+    expect(html).not.toContain("NaN");
+  });
+
+  it("presents four views and real latest All-Sessions averages with their source", () => {
+    const nav = renderToStaticMarkup(<StatisticsNavigation view="Overview" onSelect={() => {}} />);
+    for (const name of ["Overview", "Solves", "CFOP", "Cases"]) expect(nav).toContain(`>${name}</button>`);
+    const model = deriveStatistics({ sessions, solves: Array.from({ length: 12 }, (_, index) => ({ ...solve, id: `s${index}`, createdAt: index, penalty: "none" })) }, { event: "333", sessionId: null }, null);
+    const html = renderToStaticMarkup(<StatisticsOverviewSummary model={model} />);
+    expect(html.match(/class="stat-card"/g)).toHaveLength(9);
+    for (const size of [5, 12, 50, 100]) expect(html).toContain(`Latest Ao${size}`);
+    expect(html).toContain("History Session · Best 2.10");
+    expect(html).toContain("No achieved window · Best —");
+    expect(html).not.toContain("Projected");
+  });
+
+  it("keeps specialized CFOP records and Best Splits with visible XCross context", () => {
+    const model = deriveStatistics({ sessions, solves: [solve] }, { event: "333", sessionId: null }, null);
+    model.records.cross = [{ id: solve.id, kind: "solve", solveId: solve.id, value: 1000, totalTime: 4100, sessionId: "history", createdAt: 1, context: "1 pair at Cross" }];
+    const html = renderToStaticMarkup(<><StatisticsCfopRecords model={model} onOpenSolve={() => {}} /><StatisticsBestSplits model={model} onOpenSolve={() => {}} /></>);
+    expect(html).toContain("CFOP records"); expect(html).toContain("XCross");
+    expect(html).toContain("1 pair at Cross · XCross");
+    expect(html).toContain("Measured execution"); expect(html).toContain("Best splits");
+    expect(html).toContain("F2L requires zero pairs completed at Cross");
+    expect(html).not.toContain('<option value="single"'); expect(html).not.toContain('<option value="ao5"');
+  });
+
+  it.each(["oll", "pll"] as const)("marks tiny %s case samples without hiding their medians", (family) => {
+    const model = deriveStatistics({ sessions, solves: [solve] }, { event: "333", sessionId: null }, null);
+    const rows = [{ label: "27", caseId: "27", count: 1, skipCount: 0, solveIds: [solve.id], samples: [], medianMs: 1000 }];
+    const html = renderToStaticMarkup(<StatisticsCaseTable family={family} rows={rows} skipCount={0} model={model} onOpenSolve={() => {}} onTrainCase={() => {}} />);
+    expect(html).toContain("Samples"); expect(html).toContain("small sample"); expect(html).toContain("1.00");
+    expect(html).toContain("Fewer than 3 observations");
   });
 
   it("renders sensible empty analysis and consistency sections", () => {
     const model = deriveStatistics({ sessions, solves: [] }, { event: "333", sessionId: null }, null);
-    const html = renderToStaticMarkup(<StatisticsAnalysisTables model={model} onOpenSolve={() => {}} onTrainCase={() => {}} />);
+    const html = renderToStaticMarkup(<><StatisticsAnalysisTables model={model} onOpenSolve={() => {}} onTrainCase={() => {}} /><StatisticsPauses model={model} onOpenSolve={() => {}} /><StatisticsConsistency model={model} /></>);
     expect(html).toContain("No recognised non-skipped OLL cases"); expect(html).toContain("No recognised non-skipped PLL cases");
     expect(html).toContain("Pause analytics need usable CFOP analysis"); expect(html).toContain("P10 → P90");
     expect(html).not.toContain("NaN"); expect(html).not.toContain("Infinity");

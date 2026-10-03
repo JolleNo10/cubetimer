@@ -4,7 +4,7 @@ import { App } from "../App";
 import { Controller } from "../state/controller";
 import { deriveStatistics, type StatisticsSnapshot } from "../state/statistics";
 import type { Solve } from "../state/types";
-import { StatisticsView } from "./StatisticsView";
+import { StatisticsView, StatisticsNavigation } from "./StatisticsView";
 import { StatisticsRecords, StatisticsRankingTable, StatisticsAverageDetail } from "./StatisticsRecords";
 import { StatisticsCaseTable, StatisticsF2lPerformance, PerformanceTable } from "./StatisticsAnalysisTables";
 import { StatisticsSolveDetail } from "./StatisticsSolveDetail";
@@ -53,24 +53,21 @@ const keyEvent = (key: string) => { const target = {}; return { key, target, cur
 beforeEach(() => { hooks.values = []; hooks.cursor = 0; hooks.effectCursor = 0; hooks.dependencies = []; hooks.effects = []; vi.restoreAllMocks(); });
 
 describe("Statistics user interactions", () => {
-  it("opens the same solve from a ranking metric, solve-time button, row, and keyboard", () => {
+  it("opens the exact solve from its time button, whole row and keyboard", () => {
     const onOpenSolve = vi.fn();
-    const records = renderRoot(() => StatisticsRecords({ model, onOpenSolve }));
-    const table = find(records, (element) => element.type === StatisticsRankingTable);
-    const ranking = StatisticsRankingTable(table.props as Parameters<typeof StatisticsRankingTable>[0]);
-    const row = find(ranking, (element) => element.type === "tr" && element.props.tabIndex === 0);
-    const buttons = elements(row).filter((element) => element.type === "button");
-    buttons[0].props.onClick(); buttons[1].props.onClick(); row.props.onClick(clickEvent());
+    const tree = renderRoot(() => StatisticsRecords({ model, onOpenSolve }));
+    const row = find(tree, (element) => element.type === "tr" && element.props.tabIndex === 0);
+    const button = find(row, (element) => element.type === "button");
+    button.props.onClick(); row.props.onClick(clickEvent());
     const enter = keyEvent("Enter"), space = keyEvent(" ");
     row.props.onKeyDown(enter); row.props.onKeyDown(space);
     expect(enter.preventDefault).toHaveBeenCalled(); expect(space.preventDefault).toHaveBeenCalled();
-    expect(onOpenSolve).toHaveBeenCalledTimes(5);
+    expect(onOpenSolve).toHaveBeenCalledTimes(4);
     expect(onOpenSolve.mock.calls.every(([solve]) => solve === snapshot.solves[5])).toBe(true);
-    // A button's click/keypress bubbles through the row without a second open.
-    buttons[1].props.onClick();
+    button.props.onClick();
     row.props.onClick({ target: { closest: () => ({ tagName: "BUTTON" }) } });
     row.props.onKeyDown({ ...keyEvent("Enter"), target: {} });
-    expect(onOpenSolve).toHaveBeenCalledTimes(6);
+    expect(onOpenSolve).toHaveBeenCalledTimes(5);
   });
 
   it("opens a phase record from its distinct phase value or complete solve time", () => {
@@ -85,43 +82,89 @@ describe("Statistics user interactions", () => {
     expect(onOpen).toHaveBeenCalledTimes(3);
   });
 
-  it("reverses rankings, resets default metric direction, and opens exact averages", () => {
+  it("sorts solve columns both ways and opens exact average cells without opening the solve", () => {
+    const local = deriveStatistics({ ...snapshot, solves: snapshot.solves.map((solve) => ({ ...solve, sessionId: "A" })) }, { event: "333", sessionId: null }, "A");
     const onOpenSolve = vi.fn();
-    const render = () => renderRoot(() => StatisticsRecords({ model, onOpenSolve }));
+    const render = () => renderRoot(() => StatisticsRecords({ model: local, onOpenSolve }));
     let tree = render();
-    let table = find(tree, (element) => element.type === StatisticsRankingTable);
-    expect(table.props.rows.map((row: { value: number }) => row.value)).toEqual([15000, 16000, 17000, 18000, 19000, 20000]);
-    const selects = elements(tree).filter((element) => element.type === "select");
-    selects[1].props.onChange({ target: { value: "desc" } });
-    tree = render(); table = find(tree, (element) => element.type === StatisticsRankingTable);
-    expect(table.props.rows[0].value).toBe(20000);
-    find(tree, (element) => element.type === "select" && element.props.value === "single").props.onChange({ target: { value: "ao5" } });
-    tree = render(); table = find(tree, (element) => element.type === StatisticsRankingTable);
-    expect(table.props.metric).toBe("ao5");
-    expect(table.props.rows[0].value).toBe(17000);
-    const ranking = StatisticsRankingTable(table.props as Parameters<typeof StatisticsRankingTable>[0]);
-    const row = find(ranking, (element) => element.type === "tr" && element.props.tabIndex === 0);
-    row.props.onClick(clickEvent());
+    const firstRow = () => find(tree, (element) => element.type === "tr" && element.props.tabIndex === 0);
+    expect(firstRow().props["aria-label"]).toContain("15.00");
+    const sort = (name: string) => find(tree, (element) => element.type === "th" && elements(element).some((child) => child.type === "button" && child.props.children[0] === name));
+    find(sort("Time"), (element) => element.type === "button").props.onClick();
+    tree = render(); expect(firstRow().props["aria-label"]).toContain("20.00");
+    find(sort("Ao5"), (element) => element.type === "button").props.onClick();
+    tree = render(); expect(firstRow().props["aria-label"]).toContain("15.00");
+    const row = firstRow();
+    const cell = find(row, (element) => element.type === "button" && element.props["aria-label"] === "View Ao5 window ending at s5");
+    const event = { stopPropagation: vi.fn() };
+    cell.props.onClick(event);
+    expect(event.stopPropagation).toHaveBeenCalledOnce();
+    row.props.onClick({ target: { closest: () => ({ tagName: "BUTTON" }) } });
+    row.props.onKeyDown({ ...keyEvent("Enter"), target: {} });
     expect(onOpenSolve).not.toHaveBeenCalled();
     tree = render();
     const average = find(tree, (element) => element.type === StatisticsAverageDetail);
     expect(average.props.window.entries.map((entry: { solveId: string }) => entry.solveId)).toEqual(["s1", "s2", "s3", "s4", "s5"]);
+    expect(average.props.window).toBe(local.solveRows[5].averages.ao5);
     const detail = StatisticsAverageDetail(average.props as Parameters<typeof StatisticsAverageDetail>[0]);
     find(detail, (element) => element.type === "button" && element.props.children === "19.00").props.onClick();
-    expect(onOpenSolve).toHaveBeenCalledWith(snapshot.solves[1]);
+    expect(onOpenSolve).toHaveBeenCalledWith(local.scopeSolves[1]);
     find(detail, (element) => element.type === "tr" && element.props.tabIndex === 0).props.onKeyDown(keyEvent(" "));
     expect(onOpenSolve).toHaveBeenCalledTimes(2);
   });
 
-  it("opens a case's source solves and delegates Train case", () => {
+  it.each(["Time", "Ao5", "Ao12", "Ao50", "Ao100", "TPS", "STM", "Cross", "F2L", "OLL", "PLL", "Session", "Date"])("toggles sorting for %s", (name) => {
+    const render = () => renderRoot(() => StatisticsRecords({ model, onOpenSolve: vi.fn() }));
+    let tree = render();
+    const header = () => find(tree, (element) => element.type === "th" && elements(element).some((child) => child.type === "button" && child.props.children[0] === name));
+    find(header(), (element) => element.type === "button").props.onClick(); tree = render();
+    expect(header().props["aria-sort"]).toBe(name === "Time" ? "descending" : "ascending");
+    find(header(), (element) => element.type === "button").props.onClick(); tree = render();
+    expect(header().props["aria-sort"]).toBe(name === "Time" ? "ascending" : "descending");
+  });
+
+  it("opens PB average windows and clears an average detail when scope excludes its members", () => {
+    const local = deriveStatistics({ ...snapshot, solves: snapshot.solves.map((solve) => ({ ...solve, sessionId: "A" })) }, { event: "333", sessionId: null }, "A");
+    const onOpenSolve = vi.fn();
+    let currentModel = local;
+    const render = () => renderRoot(() => StatisticsRecords({ model: currentModel, onOpenSolve }));
+    let tree = render();
+    find(tree, (element) => element.type === "select").props.onChange({ target: { value: "ao5" } });
+    tree = render();
+    const pb = elements(tree).filter((element) => element.type === "section")[1];
+    const row = find(pb, (element) => element.type === "tr" && element.props.tabIndex === 0);
+    row.props.onKeyDown(keyEvent("Enter"));
+    tree = render();
+    expect(find(tree, (element) => element.type === StatisticsAverageDetail).props.window).toBe(local.pbHistory.ao5[0].kind === "average" ? local.pbHistory.ao5[0].window : undefined);
+    expect(onOpenSolve).not.toHaveBeenCalled();
+    currentModel = model;
+    expect(elements(render()).some((element) => element.type === StatisticsAverageDetail)).toBe(false);
+    currentModel = deriveStatistics(snapshot, { event: "333", sessionId: "B" }, "A");
+    expect(elements(render()).some((element) => element.type === StatisticsAverageDetail)).toBe(false);
+  });
+
+  it("bounds solve-table rendering and resets pagination when sorting", () => {
+    const large = deriveStatistics({ ...snapshot, solves: Array.from({ length: 110 }, (_, index) => item(`s${index}`, "A", 10000 + index * 100, index)) }, { event: "333", sessionId: null }, "A");
+    const render = () => renderRoot(() => StatisticsRecords({ model: large, onOpenSolve: vi.fn() }));
+    let tree = render();
+    const section = () => find(tree, (element) => element.type === "section");
+    const rows = () => elements(section()).filter((element) => element.type === "tr" && element.props.tabIndex === 0);
+    expect(rows()).toHaveLength(50);
+    find(tree, (element) => element.type === "button" && element.props.children === "Next").props.onClick();
+    tree = render(); expect(rows()[0].props["aria-label"]).toContain("15.00");
+    find(tree, (element) => element.type === "button" && element.props.className === "stats-sort").props.onClick();
+    tree = render(); expect(rows()[0].props["aria-label"]).toContain("20.90");
+  });
+
+  it.each(["oll", "pll"] as const)("opens %s source solves and delegates Train case", (family) => {
     const rows = [{ caseId: "27", label: "27", count: 1, skipCount: 0, solveIds: ["s0"], samples: [], medianMs: 500 }, { caseId: "2", label: "2", count: 2, skipCount: 0, solveIds: ["s1"], samples: [], medianMs: 1000 }];
     const onOpenSolve = vi.fn(), onTrainCase = vi.fn();
-    const render = () => renderRoot(() => StatisticsCaseTable({ family: "oll", rows, skipCount: 1, model, onOpenSolve, onTrainCase }));
+    const render = () => renderRoot(() => StatisticsCaseTable({ family, rows, skipCount: 1, model, onOpenSolve, onTrainCase }));
     let tree = render();
     find(tree, (element) => element.type === PerformanceTable).props.onSelect(rows[0]);
     tree = render();
     find(tree, (element) => element.type === "button" && element.props.children === "Train case").props.onClick();
-    expect(onTrainCase).toHaveBeenCalledWith("oll", "27");
+    expect(onTrainCase).toHaveBeenCalledWith(family, "27");
     find(tree, (element) => element.type === "button" && element.props.children === "20.00").props.onClick();
     expect(onOpenSolve).toHaveBeenCalledWith(snapshot.solves[0]);
     find(tree, (element) => element.type === "tr" && element.props.tabIndex === 0).props.onKeyDown(keyEvent("Enter"));
@@ -132,7 +175,7 @@ describe("Statistics user interactions", () => {
 
   it("expands an F2L position and opens its contributing solve from a row or solve time", () => {
     const onOpenSolve = vi.fn();
-    const f2lModel = { ...model, analysisCount: 1, f2lPositions: model.f2lPositions.map((row, index) => index === 3 ? { ...row, count: 1, solveIds: ["s0"], samples: [{ solveId: "s0", timeMs: 1500, recognitionMs: 500, executionMs: 1000, moves: 6, tps: 6 }] } : row) };
+    const f2lModel = { ...model, analysisCount: 1, f2lSlots: model.f2lSlots.map((row, index) => index === 3 ? { ...row, count: 1, solveIds: ["s0"], samples: [{ solveId: "s0", timeMs: 1500, recognitionMs: 500, executionMs: 1000, moves: 6, tps: 6 }] } : row) };
     const render = () => renderRoot(() => StatisticsF2lPerformance({ model: f2lModel, onOpenSolve }));
     let tree = render();
     const performance = find(tree, (element) => element.type === PerformanceTable);
@@ -141,13 +184,20 @@ describe("Statistics user interactions", () => {
     fourth.props.onKeyDown(keyEvent("Enter"));
     tree = render();
     expect(find(tree, (element) => element.props["aria-label"] === "F2L position solves")).toBeDefined();
-    expect(elements(tree).filter((element) => element.type === "th").map((element) => element.props.children)).toEqual(["Pair time", "Recognition", "Execution", "STM", "Execution TPS", "Solve time", "Session", "Date"]);
+    expect(elements(tree).filter((element) => element.type === "th").map((element) => element.props.children)).toEqual(["Pair time", "Measured recognition", "Measured execution", "STM", "Execution TPS", "Solve time", "Session", "Date"]);
     const source = find(tree, (element) => element.type === "tr" && element.props.tabIndex === 0);
     expect(elements(source).filter((element) => element.type === "td").slice(0, 5).map((element) => element.props.children)).toEqual(["1.50", "0.50", "1.00", 6, "6.00"]);
     find(source, (element) => element.type === "button").props.onClick();
     source.props.onClick(clickEvent()); source.props.onKeyDown(keyEvent(" "));
     expect(onOpenSolve).toHaveBeenCalledTimes(3);
     expect(onOpenSolve).toHaveBeenLastCalledWith(snapshot.solves[0]);
+    expect(find(tree, (element) => element.type === "h3").props.children[0]).toBe("BL");
+    find(tree, (element) => element.type === "button" && element.props.children === "By solve order").props.onClick();
+    tree = render();
+    expect(find(tree, (element) => element.type === PerformanceTable).props.rows.map((row: { label: string }) => row.label)).toEqual(["1st pair", "2nd pair", "3rd pair", "4th pair"]);
+    expect(elements(tree).some((element) => element.props["aria-label"] === "F2L position solves")).toBe(false);
+    find(tree, (element) => element.type === "button" && element.props.children === "By slot").props.onClick();
+    expect(find(render(), (element) => element.type === PerformanceTable).props.rows.map((row: { label: string }) => row.label)).toEqual(["FR", "FL", "BR", "BL"]);
   });
 
   it("opens singles, PBs, outliers, and DNFs from accessible chart points", () => {
@@ -169,9 +219,9 @@ describe("Statistics user interactions", () => {
 
   it("loads through the Controller, keeps records beyond Chart window, and clears out-of-scope solve detail", async () => {
     const controller = new Controller(); hooks.controller = controller;
-    controller.state.update((state) => ({ ...state, sessionId: "A" }));
+    controller.state.update((state) => ({ ...state, area: "statistics", sessionId: "A" }));
     const select = vi.spyOn(controller, "selectSession");
-    const history = { ...snapshot, solves: [...snapshot.solves, ...Array.from({ length: 104 }, (_, index) => item(`extra${index}`, "A", 15000, index + 6))] };
+    const history: StatisticsSnapshot = { sessions: [...snapshot.sessions, { id: "C", name: "2x2", event: "222", createdAt: 3 }], solves: [...snapshot.solves, ...Array.from({ length: 104 }, (_, index) => item(`extra${index}`, "A", 15000, index + 6)), item("other-event", "C", 1000, 120)] };
     const load = vi.spyOn(controller, "loadStatisticsSnapshot").mockResolvedValue(history);
     const onScopeChange = vi.fn();
     const props = { currentEvent: "333" as const, activeSessionId: "A", onReplay: vi.fn(), onTools: vi.fn(), onTrainCase: vi.fn(), onScopeChange };
@@ -180,16 +230,25 @@ describe("Statistics user interactions", () => {
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
     let tree = render(); for (const effect of hooks.effects) effect();
     expect(load).toHaveBeenCalledOnce();
-    const records = find(tree, (element) => element.type === StatisticsRecords);
-    expect(records.props.model.records.single).toHaveLength(110);
+    expect(elements(tree).some((element) => element.type === StatisticsRecords)).toBe(false);
     elements(tree).filter((element) => element.type === "select")[2].props.onChange({ target: { value: "50" } });
     tree = render();
     expect(find(tree, (element) => element.type === SolveTimeTrendChart).props.points).toHaveLength(50);
-    expect(find(tree, (element) => element.type === StatisticsRecords).props.model.records.single).toHaveLength(110);
     find(tree, (element) => element.type === SolveTimeTrendChart).props.onOpenSolve("s0");
     tree = render();
     expect(find(tree, (element) => element.type === StatisticsSolveDetail).props.solve).toBe(snapshot.solves[0]);
-    expect(find(tree, (element) => element.type === StatisticsSolveDetail).props.solves).toEqual(history.solves);
+    expect(find(tree, (element) => element.type === StatisticsSolveDetail).props.solves).toEqual(history.solves.filter((solve) => solve.sessionId !== "C"));
+    find(tree, (element) => element.type === StatisticsNavigation).props.onSelect("Solves");
+    tree = render();
+    const records = find(tree, (element) => element.type === StatisticsRecords);
+    expect(records.props.model.solveRows).toHaveLength(110);
+    expect(elements(tree).filter((element) => element.type === "select")).toHaveLength(2);
+    for (const view of ["CFOP", "Cases", "Overview", "Solves"]) {
+      find(tree, (element) => element.type === StatisticsNavigation).props.onSelect(view);
+      tree = render();
+    }
+    expect(load).toHaveBeenCalledOnce();
+    expect(controller.state.get().area).toBe("statistics");
     records.props.onOpenSolve(snapshot.solves[0]);
     tree = render(); expect(find(tree, (element) => element.type === StatisticsSolveDetail).props.solve.sessionId).toBe("B");
     const session = elements(tree).filter((element) => element.type === "select")[1];
@@ -199,6 +258,13 @@ describe("Statistics user interactions", () => {
     expect(onScopeChange).toHaveBeenLastCalledWith(history.solves.filter((solve) => solve.sessionId === "A").map((solve) => solve.id));
     expect(controller.state.get().sessionId).toBe("A");
     expect(select).not.toHaveBeenCalled();
+    find(tree, (element) => element.type === StatisticsRecords).props.onOpenSolve(snapshot.solves[1]);
+    tree = render(); expect(find(tree, (element) => element.type === StatisticsSolveDetail).props.solve.id).toBe("s1");
+    elements(tree).filter((element) => element.type === "select")[0].props.onChange({ target: { value: "222" } });
+    tree = render(); for (const effect of hooks.effects) effect();
+    expect(elements(tree).some((element) => element.type === StatisticsSolveDetail)).toBe(false);
+    expect(onScopeChange).toHaveBeenLastCalledWith(["other-event"]);
+    expect(controller.state.get().sessionId).toBe("A"); expect(load).toHaveBeenCalledOnce();
   });
 
   it("passes cross-Session Solve objects to global Replay/Tools and disables Replay training", () => {
