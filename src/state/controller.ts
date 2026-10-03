@@ -63,6 +63,7 @@ import {
   buildLastLayerCatalogueTarget,
   isLastLayerTrainingComplete,
   lastLayerCaseIds,
+  lastLayerTrainingVariants,
   type LastLayerFamily,
   type LastLayerTrainingSet,
   type LastLayerTrainingTarget,
@@ -749,7 +750,7 @@ export class Controller {
     if (!this.#model) return;
     try {
       await this.#selectLastLayerTarget(
-        buildLastLayerCatalogueTarget(this.#model.kpuzzle, family, caseId, this.#randomAuf(), trainingSet),
+        this.#buildRandomLastLayerCatalogueTarget(family, caseId, trainingSet),
       );
     } catch (error) {
       this.state.update((s) => ({ ...s, error: String(error) }));
@@ -765,6 +766,17 @@ export class Controller {
 
   #randomAuf(): 0 | 1 | 2 | 3 {
     return Math.floor(Math.random() * 4) as 0 | 1 | 2 | 3;
+  }
+
+  #buildRandomLastLayerCatalogueTarget(
+    family: LastLayerFamily,
+    caseId: string,
+    trainingSet: LastLayerTrainingSet,
+  ): LastLayerTrainingTarget {
+    const kpuzzle = this.#model!.kpuzzle;
+    const variants = lastLayerTrainingVariants(kpuzzle, family, caseId, trainingSet);
+    const variant = variants.length > 1 ? variants[Math.floor(Math.random() * variants.length)] : variants[0];
+    return buildLastLayerCatalogueTarget(kpuzzle, family, caseId, this.#randomAuf(), trainingSet, variant.id);
   }
 
   async selectF2lPosition(position: F2lPosition): Promise<void> {
@@ -1113,7 +1125,7 @@ export class Controller {
     if (this.#model && caseId) {
       try {
         const next = target.info.origin.kind === "catalog"
-          ? buildLastLayerCatalogueTarget(this.#model.kpuzzle, family, caseId, this.#randomAuf(), target.info.trainingSet)
+          ? this.#buildRandomLastLayerCatalogueTarget(family, caseId, target.info.trainingSet)
           : target;
         await this.#selectLastLayerTarget(next, preserveResult);
       } catch (error) {

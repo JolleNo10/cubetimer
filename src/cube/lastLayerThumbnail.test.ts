@@ -1,7 +1,7 @@
 import { Alg } from "cubing/alg";
 import { describe, expect, it } from "vitest";
 import { patternToFacelets } from "./facelets";
-import { buildLastLayerCatalogueTarget, lastLayerCaseCatalogue, type LastLayerTrainingSet } from "./lastLayerTraining";
+import { buildLastLayerCatalogueTarget, lastLayerCaseCatalogue, lastLayerTrainingVariants, type LastLayerTrainingSet, type LastLayerTrainingTarget } from "./lastLayerTraining";
 import { reframe } from "./recognise";
 import { getLastLayerThumbnailModel, type LastLayerThumbnailModel } from "./lastLayerThumbnail";
 import { get3x3x3 } from "./puzzle";
@@ -15,6 +15,23 @@ function catalogueModel(family: "oll" | "pll", caseId: string, trainingSet: Last
 
 function allStickers(model: LastLayerThumbnailModel) {
   return [...model.top, ...model.back, ...model.right, ...model.front, ...model.left];
+}
+
+function normalizedRecognition(target: LastLayerTrainingTarget): string {
+  const rotation = new Alg(target.info.trainingRotation.tokens.join(" "));
+  const hand = reframe(kpuzzle, target.pattern, rotation);
+  return ["", "U", "U2", "U'"].map((auf) => {
+    const pattern = reframe(kpuzzle, hand.applyAlg(new Alg(auf)), rotation.invert());
+    const model = getLastLayerThumbnailModel(target.info.family, pattern, target.info.trainingRotation, target.info.completionGoal);
+    // PLL recognition concerns matching corner colours. Normalize the side
+    // colour names as well as AUF so equivalent display frames compare equally.
+    const colours = new Map<string, number>();
+    return allStickers(model).map((colour) => {
+      if (colour === "D" || colour === "grey") return colour;
+      if (!colours.has(colour)) colours.set(colour, colours.size);
+      return colours.get(colour);
+    }).join(",");
+  }).sort()[0];
 }
 
 describe("last-layer thumbnail display frame", () => {
@@ -89,9 +106,25 @@ describe("last-layer thumbnail teaching semantics", () => {
       const target = buildLastLayerCatalogueTarget(kpuzzle, family, item.caseId, 0, "2look");
       const rotation = new Alg(target.info.trainingRotation.tokens.join(" "));
       const withoutDownstream = reframe(kpuzzle, kpuzzle.defaultPattern().applyAlg(new Alg(item.algorithms[0]).invert()), rotation.invert());
-      const model = getLastLayerThumbnailModel(family, withoutDownstream, target.info.trainingRotation, target.info.completionGoal);
-      expect(allStickers(model)).toEqual(allStickers(catalogueModel(family, item.caseId, "2look")));
+      expect(normalizedRecognition({ ...target, pattern: withoutDownstream })).toEqual(normalizedRecognition(target));
     }
+  });
+
+  it.each([["oll", "Dot Shape"], ["pll", "Headlights"]] as const)("keeps %s %s recognition stable across Full variants", (family, caseId) => {
+    const representative = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 0, "2look");
+    const expected = normalizedRecognition(representative);
+    const variants = lastLayerTrainingVariants(kpuzzle, family, caseId, "2look");
+    expect(variants.length).toBeGreaterThan(1);
+    const facelets = new Set<string>();
+    for (const variant of variants) {
+      for (const auf of [0, 1, 2, 3] as const) {
+        const target = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, auf, "2look", variant.id);
+        facelets.add(patternToFacelets(target.pattern));
+        expect(normalizedRecognition(target), `${variant.id} AUF ${auf}`).toBe(expected);
+      }
+    }
+    expect(facelets.size).toBeGreaterThan(4);
+    expect(catalogueModel(family, caseId, "2look")).toEqual(getLastLayerThumbnailModel(family, representative.pattern, representative.info.trainingRotation, representative.info.completionGoal));
   });
 
   it.each([["oll", "Sune"], ["pll", "Ua"]] as const)("keeps the existing %s semantics for second-look %s", (family, caseId) => {

@@ -14,12 +14,11 @@ import { CubeModel, patternToFacelets } from "../cube/model";
 import { get3x3x3 } from "../cube/puzzle";
 import { Controller } from "./controller";
 import type { F2lTrainingTargetInfo } from "../cube/f2lTraining";
-import { cubeAlgorithm, cubeMove, trainingGrip } from "../cube/training";
-import { buildLastLayerCatalogueTarget, isLastLayerTrainingComplete, lastLayerCaseIds, lastLayerCaseCatalogue } from "../cube/lastLayerTraining";
+import { cubeMove, handAlgorithm, trainingGrip } from "../cube/training";
+import { buildLastLayerCatalogueTarget, isLastLayerTrainingComplete, lastLayerCaseIds, lastLayerTrainingVariants } from "../cube/lastLayerTraining";
 import * as solver from "../cube/solver";
 import type { SolveStep } from "../cube/analysis";
-import { isSolvedPattern } from "../cube/analysis";
-import { lastLayerCornersOriented, lastLayerCornersPermuted, lastLayerEdges, reframe, withCentresHome } from "../cube/recognise";
+import { lastLayerCornersPermuted, lastLayerEdges, reframe, withCentresHome } from "../cube/recognise";
 import * as db from "./db";
 import { DEFAULT_EVENT_ID } from "../cube/scramble";
 import { formatSolveCsv } from "./solveCsv";
@@ -96,6 +95,94 @@ function f2lTargetOf(controller: Controller): F2lTrainingTargetInfo | null {
 }
 
 describe("Controller independent last-layer Training sets", () => {
+  it.each([
+    ["oll", "Dot Shape", "orient-edges"],
+    ["oll", "I-Shape", "orient-edges"],
+    ["oll", "L-Shape", "orient-edges"],
+    ["pll", "Diagonal", "permute-corners"],
+    ["pll", "Headlights", "permute-corners"],
+  ] as const)("randomizes %s %s on selection, Again, and virtual completion", async (family, caseId, completionGoal) => {
+    stubTimerLoop();
+    const saveSolve = vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const model = new CubeModel(kpuzzle);
+    const physicalFacelets = patternToFacelets(model.pattern);
+    const controller = new Controller(model);
+    controller.state.update((state) => ({ ...state, virtualCube: true, settings: { ...state.settings, ollTrainingSet: "2look", pllTrainingSet: "2look" } }));
+    controller.setTrainingFamily(family);
+    await controller.setTrainingMode("virtual");
+    const variants = lastLayerTrainingVariants(kpuzzle, family, caseId, "2look");
+    const random = vi.spyOn(Math, "random");
+    // A separate fixed AUF draw proves facelet variation comes from Full cases.
+    for (let index = 0; index < variants.length; index++) {
+      random.mockReturnValueOnce((index + 0.5) / variants.length).mockReturnValueOnce(0.25);
+      await controller.selectLastLayerCase(family, caseId);
+      const expected = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 1, "2look", variants[index].id);
+      expect(controller.state.get().training.displayFacelets).toBe(patternToFacelets(expected.pattern));
+      expect(controller.state.get().training.target).toMatchObject({ family, caseId, trainingSet: "2look", completionGoal, auf: 1 });
+    }
+    expect(random).toHaveBeenCalledTimes(variants.length * 2);
+    expect(patternToFacelets(model.pattern)).toBe(physicalFacelets);
+    const previous = controller.state.get().training.displayFacelets;
+    random.mockReturnValueOnce(0).mockReturnValueOnce(0.25);
+    controller.againTraining();
+    const ready = controller.state.get().training;
+    expect(ready.displayFacelets).not.toBe(previous);
+    expect(ready.target).toMatchObject({ caseId, trainingSet: "2look", completionGoal, auf: 1 });
+    const target = ready.target;
+    if (!target || !("family" in target)) throw new Error("Last-layer target missing");
+    random.mockReturnValueOnce(0.999).mockReturnValueOnce(0.25);
+    // A wide front turn is z B. Remove those rotations through the existing
+    // execution-signature seam to supply turns the smart cube can report.
+    const execution = referenceExecutionSignature(target.references[0].alg.replaceAll("f'", "B' z'").replaceAll("f", "z B"))!;
+    const rawMoves = execution.map((move) => cubeMove(move, trainingGrip(target)));
+    for (const move of rawMoves) controller.injectMove(move);
+    expect(controller.state.get().training.phase).toBe("ready");
+    expect(controller.state.get().training.result).not.toBeNull();
+    expect(controller.state.get().training.displayFacelets).toBe(previous);
+    expect(controller.state.get().training.target).toMatchObject({ caseId, trainingSet: "2look", completionGoal, auf: 1 });
+    expect(random).toHaveBeenCalledTimes(variants.length * 2 + 4);
+    expect(patternToFacelets(model.pattern)).toBe(patternToFacelets(kpuzzle.defaultPattern().applyAlg(new Alg(rawMoves.join(" ")))));
+    expect(controller.state.get().solves).toEqual([]);
+    expect(saveSolve).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["oll", "27", "full"], ["pll", "T", "full"],
+    ["oll", "Sune", "2look"], ["pll", "Ua", "2look"],
+  ] as const)("keeps %s %s in %s deterministic apart from AUF", async (family, caseId, trainingSet) => {
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.setTrainingFamily(family);
+    await controller.setTrainingMode("virtual");
+    const random = vi.spyOn(Math, "random").mockReturnValueOnce(0.25).mockReturnValueOnce(0.75);
+    await controller.selectLastLayerCase(family, caseId, trainingSet);
+    expect(controller.state.get().training.displayFacelets).toBe(patternToFacelets(buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 1, trainingSet).pattern));
+    controller.againTraining();
+    expect(controller.state.get().training.displayFacelets).toBe(patternToFacelets(buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 3, trainingSet).pattern));
+    expect(random).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([["oll", "I-Shape"], ["pll", "Headlights"]] as const)("uses the same randomized %s %s target in physical and virtual modes", async (family, caseId) => {
+    const variants = lastLayerTrainingVariants(kpuzzle, family, caseId, "2look");
+    const index = variants.length - 1;
+    const variant = variants[index];
+    const expected = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 2, "2look", variant.id);
+    const setup = (await solver.algBetween(kpuzzle.defaultPattern(), expected.pattern)).toString();
+    const between = vi.spyOn(solver, "algBetween").mockResolvedValue(new Alg(setup));
+    const model = new CubeModel(kpuzzle);
+    const controller = new Controller(model);
+    controller.state.update((state) => ({ ...state, settings: { ...state.settings, ollTrainingSet: "2look", pllTrainingSet: "2look" } }));
+    const random = vi.spyOn(Math, "random").mockReturnValueOnce((index + 0.5) / variants.length).mockReturnValueOnce(0.5);
+    await controller.selectLastLayerCase(family, caseId);
+    expect(patternToFacelets(between.mock.calls[0][1])).toBe(patternToFacelets(expected.pattern));
+    expect(patternToFacelets(model.pattern.applyAlg(new Alg(setup)))).toBe(patternToFacelets(expected.pattern));
+    expect(controller.state.get().training.setup).toBe(handAlgorithm(setup, trainingGrip(expected.info)));
+    await controller.setTrainingMode("virtual");
+    expect(controller.state.get().training.displayFacelets).toBe(patternToFacelets(expected.pattern));
+    expect(controller.state.get().training.target).toMatchObject({ caseId, trainingSet: "2look", auf: 2 });
+    expect(random).toHaveBeenCalledTimes(2);
+    expect(patternToFacelets(model.pattern)).toBe(patternToFacelets(kpuzzle.defaultPattern()));
+  });
+
   it("loads Full historical case catalogue navigation without changing saved 2-Look preferences", async () => {
     const controller = new Controller(new CubeModel(kpuzzle));
     controller.state.update((state) => ({ ...state, settings: { ...state.settings, ollTrainingSet: "2look", pllTrainingSet: "2look" } }));
@@ -122,8 +209,7 @@ describe("Controller independent last-layer Training sets", () => {
     vi.spyOn(db, "saveSettings").mockResolvedValue();
     const saveSolve = vi.spyOn(db, "saveSolve").mockResolvedValue();
     const built = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 0, "2look");
-    const source = lastLayerCaseCatalogue(family, "2look").find((item) => item.caseId === caseId)!;
-    const rawSetup = cubeAlgorithm(source.setup, trainingGrip(built.info));
+    const rawSetup = mode === "setup" ? (await solver.algBetween(kpuzzle.defaultPattern(), built.pattern)).toString() : "";
     if (mode === "setup") vi.spyOn(solver, "algBetween").mockResolvedValue(new Alg(rawSetup));
     const model = new CubeModel(kpuzzle);
     const controller = new Controller(model);
@@ -150,10 +236,8 @@ describe("Controller independent last-layer Training sets", () => {
     const after = withCentresHome(kpuzzle, reframe(kpuzzle, built.pattern.applyAlg(new Alg(rawMoves.join(" "))), new Alg(target.trainingRotation.tokens.join(" "))));
     if (goal === "orient-edges") {
       expect(lastLayerEdges(after)).toBe("cross");
-      expect(lastLayerCornersOriented(after)).toBe(false);
     } else if (goal === "permute-corners") {
       expect(lastLayerCornersPermuted(after)).toBe(true);
-      expect(isSolvedPattern(after)).toBe(false);
     }
     if (mode === "virtual") {
       controller.againTraining();

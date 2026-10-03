@@ -216,6 +216,10 @@ not independently invented states. The original entry is retained as history.
 
 ## 2026-10-03
 
+- What happened: new Controller tests initially injected wide `f` turns through the outer-face-only input seam and expected the physical model to ignore practice input.
+- Root cause: domain algorithm execution was confused with smart-cube move input; the physical model tracks all reported turns even during virtual Training.
+- Prevention: inspect the input seam before writing lifecycle assertions; convert wide turns into fixed-frame outer turns and assert that virtual target selection, rather than move input, leaves the physical model unchanged.
+
 - What happened: new Statistics UI copy briefly contained question marks in place of Unicode separators and missing-value dashes.
 - Root cause: piping a Python edit script through Windows PowerShell used a legacy output encoding for literal Unicode text.
 - Prevention: use `apply_patch` for Unicode edits or ASCII Unicode escapes in piped scripts; inspect the resulting UI copy before verification.

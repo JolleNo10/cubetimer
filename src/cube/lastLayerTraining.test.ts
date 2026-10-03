@@ -12,6 +12,7 @@ import {
   buildExactLastLayerTarget,
   isLastLayerTrainingComplete,
   lastLayerCaseCatalogue,
+  lastLayerTrainingVariants,
 } from "./lastLayerTraining";
 
 const kpuzzle = await get3x3x3();
@@ -112,6 +113,82 @@ describe("generated last-layer catalogue", () => {
 });
 
 describe("J Perm 2-Look catalogue", () => {
+  it("projects all Full OLL edge-orientation states into complete, disjoint first-look pools", () => {
+    const firstLooks = [["Dot Shape", "dot"], ["I-Shape", "opposite"], ["L-Shape", "adjacent"]] as const;
+    const needingEdges = lastLayerCaseCatalogue("oll").filter((item) =>
+      lastLayerEdges(trainingFrame(buildLastLayerCatalogueTarget(kpuzzle, "oll", item.caseId))) !== "cross",
+    ).map((item) => item.caseId);
+    const covered: string[] = [];
+    for (const [caseId, arrangement] of firstLooks) {
+      const variants = lastLayerTrainingVariants(kpuzzle, "oll", caseId, "2look");
+      const expected = lastLayerCaseCatalogue("oll").filter((item) =>
+        lastLayerEdges(trainingFrame(buildLastLayerCatalogueTarget(kpuzzle, "oll", item.caseId))) === arrangement,
+      ).map((item) => item.caseId);
+      expect(variants.map((variant) => variant.underlyingFullCaseId)).toEqual(expected);
+      expect(variants.length).toBeGreaterThan(1);
+      expect(new Set(variants.map((variant) => variant.id)).size).toBe(variants.length);
+      covered.push(...expected);
+    }
+    expect(new Set(covered).size).toBe(covered.length);
+    expect(covered.sort()).toEqual(needingEdges.sort());
+  });
+
+  it("partitions every non-EPLL Full case by the J Perm corner algorithm that succeeds", () => {
+    const firstLooks = lastLayerCaseCatalogue("pll", "2look").filter((item) => item.completionGoal === "permute-corners");
+    const pools = firstLooks.map((item) => ({
+      ...item,
+      variants: lastLayerTrainingVariants(kpuzzle, "pll", item.caseId, "2look"),
+    }));
+    for (const pool of pools) {
+      expect(pool.variants.length).toBeGreaterThan(1);
+      expect(new Set(pool.variants.map((item) => item.id)).size).toBe(pool.variants.length);
+    }
+    const covered = pools.flatMap((pool) => pool.variants.map((item) => item.underlyingFullCaseId));
+    expect(new Set(covered).size).toBe(covered.length);
+    const excluded: string[] = [];
+    for (const item of lastLayerCaseCatalogue("pll")) {
+      const full = buildLastLayerCatalogueTarget(kpuzzle, "pll", item.caseId);
+      const goal = { ...full.info, completionGoal: "permute-corners" as const };
+      const aufs = ["", "U", "U2", "U'"];
+      const cornersAlreadyPermuted = aufs.some((auf) => isLastLayerTrainingComplete(goal, applyReference(full, auf)));
+      const membership = pools.filter((pool) => pool.variants.some((variant) => variant.underlyingFullCaseId === item.caseId));
+      if (cornersAlreadyPermuted) {
+        excluded.push(item.caseId);
+        expect(membership, item.caseId).toHaveLength(0);
+        continue;
+      }
+      expect(membership, item.caseId).toHaveLength(1);
+      const successful = firstLooks.filter((firstLook) => aufs.some((before) => aufs.some((after) =>
+        isLastLayerTrainingComplete(goal, applyReference(full, `${before} ${firstLook.algorithms[0]} ${after}`)),
+      ))).map((firstLook) => firstLook.caseId);
+      expect(successful, item.caseId).toEqual([membership[0].caseId]);
+    }
+    expect(excluded.sort()).toEqual(["H", "Ua", "Ub", "Z"]);
+    expect(covered.slice().sort()).toEqual(lastLayerCaseCatalogue("pll").map((item) => item.caseId).filter((caseId) => !excluded.includes(caseId)).sort());
+  });
+
+  it("excludes generated Z's AUF-offset corners without weakening exact completion", () => {
+    const z = buildLastLayerCatalogueTarget(kpuzzle, "pll", "Z");
+    const goal = { ...z.info, completionGoal: "permute-corners" as const };
+    expect(lastLayerCornersPermuted(trainingFrame(z))).toBe(false);
+    expect(isLastLayerTrainingComplete(goal, z.pattern)).toBe(false);
+    expect(["U", "U2", "U'"].some((auf) => isLastLayerTrainingComplete(goal, applyReference(z, auf)))).toBe(true);
+    for (const caseId of ["Diagonal", "Headlights"]) {
+      expect(lastLayerTrainingVariants(kpuzzle, "pll", caseId, "2look").map((item) => item.underlyingFullCaseId)).not.toContain("Z");
+    }
+  });
+
+  it("includes required final PLL AUF in the executable reference and STM", () => {
+    const target = buildLastLayerCatalogueTarget(kpuzzle, "pll", "Headlights", 0, "2look", "Aa");
+    const reference = target.info.references[0];
+    const core = lastLayerCaseCatalogue("pll", "2look").find((item) => item.caseId === "Headlights")!.algorithms[0];
+    expect(reference.alg).toBe(`U' ${core} U2`);
+    expect(reference.auf).toBe(1);
+    expect(reference.stm).toBe(16);
+    expect(isLastLayerTrainingComplete(target.info, applyReference(target, `U' ${core}`))).toBe(false);
+    expect(isLastLayerTrainingComplete(target.info, applyReference(target, reference.alg))).toBe(true);
+  });
+
   it.each([
     ["oll", { "1: Edges": ["Dot Shape", "I-Shape", "L-Shape"], "2: Corners": ["Antisune", "H", "L", "Pi", "Sune", "T", "U"] }],
     ["pll", { "1: Corners": ["Diagonal", "Headlights"], "2: Edges": ["H", "Ua", "Ub", "Z"] }],
@@ -139,15 +216,52 @@ describe("J Perm 2-Look catalogue", () => {
         expect(isF2lSolved(checked)).toBe(true);
         if (target.info.completionGoal === "orient-edges") {
           expect(lastLayerEdges(checked)).toBe("cross");
-          expect(lastLayerCornersOriented(checked)).toBe(false);
           expect(lastLayerEdges(trainingFrame(target))).toBe(item.caseId === "Dot Shape" ? "dot" : item.caseId === "I-Shape" ? "opposite" : "adjacent");
         } else if (target.info.completionGoal === "permute-corners") {
           expect(lastLayerCornersOriented(checked)).toBe(true);
           expect(lastLayerEdges(checked)).toBe("cross");
           expect(lastLayerCornersPermuted(checked)).toBe(true);
-          expect(isSolvedPattern(checked)).toBe(false);
           expect(isLastLayerTrainingComplete(target.info, after.applyAlg(new Alg("D")))).toBe(false);
         }
+      }
+    }
+  });
+
+  it.each(["Dot Shape", "I-Shape", "L-Shape"])("validates every %s Full variant at every physical AUF", (caseId) => {
+    const variants = lastLayerTrainingVariants(kpuzzle, "oll", caseId, "2look");
+    const fallback = buildLastLayerCatalogueTarget(kpuzzle, "oll", caseId, 0, "2look");
+    expect(patternToFacelets(fallback.pattern)).toBe(patternToFacelets(buildLastLayerCatalogueTarget(kpuzzle, "oll", caseId, 0, "2look", variants[0].id).pattern));
+    for (const variant of variants) {
+      for (const auf of [0, 1, 2, 3] as const) {
+        const target = buildLastLayerCatalogueTarget(kpuzzle, "oll", caseId, auf, "2look", variant.id);
+        const full = buildLastLayerCatalogueTarget(kpuzzle, "oll", variant.underlyingFullCaseId!, auf);
+        expect(patternToFacelets(target.pattern)).toBe(patternToFacelets(full.pattern));
+        expect(target.info).toMatchObject({ caseId, trainingSet: "2look", completionGoal: "orient-edges", auf });
+        expect(isF2lSolved(trainingFrame(target)), variant.id).toBe(true);
+        expect(isLastLayerTrainingComplete(target.info, target.pattern), variant.id).toBe(false);
+        expect(target.info.references).toHaveLength(1);
+        const after = applyReference(target, target.info.references[0].alg);
+        expect(isLastLayerTrainingComplete(target.info, after), `${variant.id} AUF ${auf}`).toBe(true);
+      }
+    }
+  });
+
+  it.each(["Diagonal", "Headlights"])("validates every %s Full variant and exact corner completion at every AUF", (caseId) => {
+    for (const variant of lastLayerTrainingVariants(kpuzzle, "pll", caseId, "2look")) {
+      for (const auf of [0, 1, 2, 3] as const) {
+        const target = buildLastLayerCatalogueTarget(kpuzzle, "pll", caseId, auf, "2look", variant.id);
+        const full = buildLastLayerCatalogueTarget(kpuzzle, "pll", variant.underlyingFullCaseId!, auf);
+        expect(patternToFacelets(target.pattern)).toBe(patternToFacelets(full.pattern));
+        const checked = trainingFrame(target);
+        expect(isF2lSolved(checked), variant.id).toBe(true);
+        expect(lastLayerEdges(checked), variant.id).toBe("cross");
+        expect(lastLayerCornersOriented(checked), variant.id).toBe(true);
+        expect(lastLayerCornersPermuted(checked), variant.id).toBe(false);
+        expect(isLastLayerTrainingComplete(target.info, target.pattern), variant.id).toBe(false);
+        expect(target.info.references).toHaveLength(1);
+        const reference = target.info.references[0];
+        expect(reference.alg).toContain(lastLayerCaseCatalogue("pll", "2look").find((item) => item.caseId === caseId)!.algorithms[0]);
+        expect(isLastLayerTrainingComplete(target.info, applyReference(target, reference.alg)), `${variant.id} AUF ${auf}`).toBe(true);
       }
     }
   });

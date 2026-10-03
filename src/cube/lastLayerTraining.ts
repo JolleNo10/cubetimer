@@ -52,10 +52,16 @@ const UNDO_AUF = ["", "U'", "U2", "U"] as const;
 
 type GeneratedCase = { id: string; group: string; setup: string; algorithms: readonly string[] };
 
-export type LastLayerCatalogueCase = GeneratedCase & {
+export type LastLayerCatalogueCase = Omit<GeneratedCase, "setup"> & {
   caseId: string;
   name: string;
   completionGoal: LastLayerCompletionGoal;
+};
+
+export type LastLayerTrainingVariant = {
+  readonly id: string;
+  readonly setup: string;
+  readonly underlyingFullCaseId?: string;
 };
 
 function catalogueCase(family: LastLayerFamily, caseId: string, trainingSet: LastLayerTrainingSet): LastLayerCatalogueCase {
@@ -65,17 +71,67 @@ function catalogueCase(family: LastLayerFamily, caseId: string, trainingSet: Las
   }
   const source = TWO_LOOK_CASES[family].find((item) => item.id === caseId);
   if (!source) throw new Error(`Unknown 2-Look ${family.toUpperCase()} case ${caseId}`);
-  // First looks deliberately leave a second look behind. Applying the reference
-  // reaches this Sune/Ua base rather than finishing the entire last layer.
-  const downstreamId = source.completionGoal === "orient-edges" ? "Sune"
-    : source.completionGoal === "permute-corners" ? "Ua" : null;
-  const downstream = downstreamId ? TWO_LOOK_CASES[family].find((item) => item.id === downstreamId)! : null;
-  const base = new Alg(downstream?.algorithm ?? "").invert();
   return {
     id: source.id, caseId, name: source.id, group: source.group,
-    setup: base.concat(new Alg(source.algorithm).invert()).toString(),
     algorithms: [source.algorithm], completionGoal: source.completionGoal,
   };
+}
+
+function isFirstLook(goal: LastLayerCompletionGoal): boolean {
+  return goal === "orient-edges" || goal === "permute-corners";
+}
+
+// Derivation and reference validation are puzzle-specific; cache the small pools
+// so live attempts and library previews do not reclassify the Full catalogue.
+const firstLookVariants = new WeakMap<KPuzzle, Map<LastLayerFamily, Map<string, readonly LastLayerTrainingVariant[]>>>();
+
+function deriveFirstLookVariants(kpuzzle: KPuzzle, family: LastLayerFamily): Map<string, readonly LastLayerTrainingVariant[]> {
+  const pools = new Map<string, LastLayerTrainingVariant[]>();
+  const firstLooks = lastLayerCaseCatalogue(family, "2look").filter((item) => isFirstLook(item.completionGoal));
+  for (const item of firstLooks) pools.set(item.caseId, []);
+  for (const caseId of lastLayerCaseIds(family)) {
+    const target = buildLastLayerCatalogueTarget(kpuzzle, family, caseId);
+    const checked = withCentresHome(kpuzzle, reframe(kpuzzle, target.pattern, new Alg(target.info.trainingRotation.tokens.join(" "))));
+    let matches: string[];
+    if (family === "oll") {
+      const arrangement = lastLayerEdges(checked);
+      if (arrangement === "cross") continue;
+      matches = [arrangement === "dot" ? "Dot Shape" : arrangement === "opposite" ? "I-Shape" : "L-Shape"];
+    } else {
+      // Classification recognizes the EPLL stage up to AUF; attempt completion
+      // still requires exactly aligned corners through the same goal validator.
+      if (AUF.some((alignment) => referenceSolvesTarget(
+        kpuzzle, target.pattern, "permute-corners", target.info.trainingRotation, alignment,
+      ))) continue;
+      matches = firstLooks.filter((item) => buildReferences(
+        kpuzzle, family, item.caseId, target.pattern, target.info.trainingRotation, undefined, "2look",
+      ).length > 0).map((item) => item.caseId);
+    }
+    if (matches.length !== 1) throw new Error(`Full ${family.toUpperCase()} ${caseId} belongs to ${matches.length} first-look pools.`);
+    pools.get(matches[0])!.push({ id: caseId, setup: generatedCase(family, caseId).setup, underlyingFullCaseId: caseId });
+  }
+  for (const [caseId, pool] of pools) {
+    if (!pool.length) throw new Error(`No Full variants for 2-Look ${family.toUpperCase()} ${caseId}.`);
+    Object.freeze(pool);
+  }
+  return pools;
+}
+
+/** Concrete states behind a recognition case; callers own random selection. */
+export function lastLayerTrainingVariants(
+  kpuzzle: KPuzzle,
+  family: LastLayerFamily,
+  caseId: string,
+  trainingSet: LastLayerTrainingSet = "full",
+): readonly LastLayerTrainingVariant[] {
+  const source = catalogueCase(family, caseId, trainingSet);
+  if (trainingSet === "full") return [{ id: caseId, setup: generatedCase(family, caseId).setup }];
+  if (!isFirstLook(source.completionGoal)) return [{ id: caseId, setup: new Alg(source.algorithms[0]).invert().toString() }];
+  let families = firstLookVariants.get(kpuzzle);
+  if (!families) firstLookVariants.set(kpuzzle, families = new Map());
+  let pools = families.get(family);
+  if (!pools) families.set(family, pools = deriveFirstLookVariants(kpuzzle, family));
+  return pools.get(caseId)!;
 }
 
 function generatedCase(family: LastLayerFamily, caseId: string): GeneratedCase {
@@ -117,8 +173,8 @@ export function isLastLayerTrainingComplete(
   return targetIsComplete(target.completionGoal, pattern, target.trainingRotation);
 }
 
-function alignedAlgorithm(algorithm: string, auf: LastLayerAuf): string {
-  return joinMoves([UNDO_AUF[auf], algorithm].filter(Boolean)).join(" ");
+function alignedAlgorithm(algorithm: string, auf: LastLayerAuf, finalAuf: LastLayerAuf = 0): string {
+  return joinMoves([UNDO_AUF[auf], algorithm, AUF[finalAuf]].filter(Boolean)).join(" ");
 }
 
 function referenceSolvesTarget(
@@ -150,8 +206,12 @@ function buildReferences(
     const candidates = preferredAuf === undefined
       ? ([0, 1, 2, 3] as LastLayerAuf[])
       : [preferredAuf];
-    const aligned = candidates
-      .map((auf) => ({ auf, alg: alignedAlgorithm(algorithm, auf) }))
+    // Corner permutation still completes at exact centre alignment. Arbitrary
+    // Full PLL states can require AUF after the unchanged J Perm algorithm too.
+    const finalAufs: readonly LastLayerAuf[] = trainingSet === "2look" && source.completionGoal === "permute-corners"
+      ? [0, 1, 2, 3] : [0];
+    const aligned = finalAufs
+      .flatMap((finalAuf) => candidates.map((auf) => ({ auf, alg: alignedAlgorithm(algorithm, auf, finalAuf) })))
       .find(({ alg }) => referenceSolvesTarget(kpuzzle, targetPattern, source.completionGoal, trainingRotation, alg));
     if (!aligned) continue;
     references.push({
@@ -185,17 +245,22 @@ export function buildLastLayerCatalogueTarget(
   caseId: string,
   auf: LastLayerAuf = 0,
   trainingSet: LastLayerTrainingSet = "full",
+  variantId?: string,
 ): LastLayerTrainingTarget {
   const source = catalogueCase(family, caseId, trainingSet);
+  const variants = lastLayerTrainingVariants(kpuzzle, family, caseId, trainingSet);
+  const variant = variantId === undefined ? variants[0] : variants.find((item) => item.id === variantId);
+  if (!variant) throw new Error(`Unknown ${family.toUpperCase()} ${caseId} variant ${variantId}`);
   const trainingRotation = standardTrainingRotation();
   const rotation = new Alg(trainingRotation.tokens.join(" "));
   const handTarget = reframe(
     kpuzzle,
-    reframe(kpuzzle, kpuzzle.defaultPattern(), rotation).applyAlg(new Alg(source.setup)).applyAlg(new Alg(AUF[auf])),
+    reframe(kpuzzle, kpuzzle.defaultPattern(), rotation).applyAlg(new Alg(variant.setup)).applyAlg(new Alg(AUF[auf])),
     rotation.invert(),
   );
   const pattern = handTarget;
-  const references = buildReferences(kpuzzle, family, caseId, pattern, trainingRotation, auf, trainingSet);
+  const preferredAuf = trainingSet === "2look" && isFirstLook(source.completionGoal) ? undefined : auf;
+  const references = buildReferences(kpuzzle, family, caseId, pattern, trainingRotation, preferredAuf, trainingSet);
   if (!references.length) throw new Error(`No reference solves the exact ${family.toUpperCase()} ${caseId} target.`);
   if (targetIsComplete(source.completionGoal, pattern, trainingRotation)) throw new Error(`The ${family.toUpperCase()} ${caseId} target is already complete.`);
   return {

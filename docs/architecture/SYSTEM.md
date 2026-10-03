@@ -436,9 +436,32 @@ semantics, independently of these settings; solve analysis is unchanged.
 Do not model 2-Look OLL/PLL as a subset or alias of Full cases. This rejected
 alternative cannot represent the stage-specific recognition cases and completion
 boundaries (orient edges, permute corners). Aliases would make targets,
-completion, thumbnails, and random training incorrect. First-look targets
-deliberately leave a Sune corner-orientation or Ua edge-permutation stage unsolved;
-their thumbnails mask the downstream pieces that are irrelevant to recognition.
+completion, thumbnails, and random training incorrect.
+
+2-Look first-look catalogue targets are projections over the existing Full
+OLL/PLL catalogue rather than one canonical complete cube state. OLL
+edge-orientation cases derive their variants from all Full OLL states with the
+corresponding dot/opposite/adjacent edge arrangement. PLL corner-permutation
+cases derive their variants from Full PLL states whose corner stage is solved by
+the corresponding J Perm Diagonal/Headlights algorithm. Classification excludes
+states whose corners are already permuted up to AUF, including generated EPLL
+setups with an AUF offset; Training completion still requires exact corner
+alignment to centers in the normalized Training frame.
+
+The selected 2-Look case owns the recognition identity, authoritative J Perm
+core algorithm, and completion goal. The Full-case variant supplies the
+downstream state that is irrelevant to that first look, which may include a
+second-look skip. References search leading U alignments independently of the
+target's physical AUF; PLL first-look references also include a final AUF when
+required to reach exact corner completion. Both alignment moves belong to the
+executable reference and its Training execution/STM result.
+
+The cube domain derives and validates variant pools and constructs concrete
+targets. Live catalogue attempts uniformly select a Full-case variant and
+independently randomize AUF through one Controller helper used by selection,
+Again, and virtual automatic reload. Random Case continues to select among the
+10/6 visible 2-Look identities before choosing a variant. Library previews use a
+deterministic representative and mask irrelevant state.
 
 ### Physical versus virtual Training state
 
@@ -932,6 +955,24 @@ Reason:
 
 ```text
 Setup tracking, virtual-pattern isolation, recovery, timing, result handling, and physical cube ownership are the same lifecycle. Parallel implementations would duplicate ownership and drift.
+```
+
+### One canonical downstream state for 2-Look first looks
+
+Rejected:
+
+```text
+Use one canonical downstream state, for example always Sune after OLL edge
+orientation or always Ua after PLL corner permutation.
+```
+
+Reason:
+
+```text
+Repeated training would expose the same irrelevant stickers and allow the user
+to learn one complete cube state instead of the recognition feature the 2-Look
+case represents. It also fails to model the variety encountered in real Full
+OLL/PLL states.
 ```
 
 ### Replacing CubeModel with an F2L target
