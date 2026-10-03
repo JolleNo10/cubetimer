@@ -36,8 +36,8 @@ function TimeSeriesChart({ label, series, ids }: { label: string; series: { labe
 
 export function AverageProgressionChart({ points, scopeLabel }: { points: AverageProgressionPoint[]; scopeLabel: string }) {
   if (!points.length) return <div className="chart-empty">An actual window of at least 5 counted solves is needed for average progression.</div>;
-  const sessionIds = points.map((point) => point.sessionId);
-  return <TimeSeriesChart label={`Actual rolling average progression for ${scopeLabel}`} ids={points.map((point) => point.solveId)} series={([5, 12, 50, 100] as const).map((size) => ({ label: `Ao${size}`, className: `ao${size}`, values: points.map((point) => point[`ao${size}`]), segmentKeys: sessionIds }))} />;
+  const segmentKeys = points.map((point) => point.segmentKey);
+  return <TimeSeriesChart label={`Actual rolling average progression for ${scopeLabel}`} ids={points.map((point) => point.solveId)} series={([5, 12, 50, 100] as const).map((size) => ({ label: `Ao${size}`, className: `ao${size}`, values: points.map((point) => point[`ao${size}`]), segmentKeys }))} />;
 }
 
 export function RecognitionExecutionTrendChart({ points, scopeLabel }: { points: RecognitionTrendPoint[]; scopeLabel: string }) {

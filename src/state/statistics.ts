@@ -149,7 +149,7 @@ export type RankingRow = {
   moves?: number; tps?: number; totalTime: number | null; context: string;
 } & ({ kind: "solve"; solveId: string } | { kind: "average"; endSolveId: string; window: AverageWindow; solveIds: string[]; startAt: number });
 export type AverageProgressionPoint = {
-  index: number; solveId: string; sessionId: string; createdAt: number;
+  index: number; solveId: string; sessionId: string; segmentKey: string; createdAt: number;
   ao5?: number | null; ao12?: number | null; ao50?: number | null; ao100?: number | null;
 };
 export type RecognitionTrendPoint = { index: number; solveId: string; recognitionMs: number; executionMs: number; unclassifiedMs: number };
@@ -233,7 +233,12 @@ function recordModels(solves: readonly Solve[], facts: readonly AnalysedSolveFac
   const records = Object.fromEntries(RANKING_METRICS.map((metric) => [metric.id, []])) as unknown as Record<RankingMetric, RankingRow[]>;
   const factsById = new Map(facts.map((fact) => [fact.id, fact]));
   const progression: AverageProgressionPoint[] = [];
+  let previousSessionId: string | undefined;
+  let segmentIndex = -1;
   solves.forEach((solve, index) => {
+    // Count every Session transition before filtering out unavailable averages.
+    if (solve.sessionId !== previousSessionId) segmentIndex++;
+    previousSessionId = solve.sessionId;
     const fact = factsById.get(solve.id);
     const base = { id: solve.id, kind: "solve" as const, solveId: solve.id, createdAt: solve.createdAt, sessionId: solve.sessionId, totalTime: effectiveMs(solve), moves: fact?.sliceTurns, tps: fact?.tps, context: "" };
     const add = (metric: RankingMetric, value: number | null | undefined, context = "", moves = base.moves, tps = base.tps) => {
@@ -265,7 +270,7 @@ function recordModels(solves: readonly Solve[], facts: readonly AnalysedSolveFac
       }
       add("last-layer", oll.timeMs + pll.timeMs, [skipped(oll) ? "OLL skip" : "", skipped(pll) ? "PLL skip" : ""].filter(Boolean).join(" · "), oll.sliceTurns + pll.sliceTurns, executionTps(oll.sliceTurns + pll.sliceTurns, oll.executionMs + pll.executionMs));
     }
-    const point: AverageProgressionPoint = { index: index + 1, solveId: solve.id, sessionId: solve.sessionId, createdAt: solve.createdAt };
+    const point: AverageProgressionPoint = { index: index + 1, solveId: solve.id, sessionId: solve.sessionId, segmentKey: String(segmentIndex), createdAt: solve.createdAt };
     for (const size of AVERAGE_SIZES) {
       const metric = `ao${size}` as const;
       const window = rolling.get(solve.id)?.[metric];

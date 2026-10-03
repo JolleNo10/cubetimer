@@ -1,9 +1,26 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { TrendPoint } from "../state/statistics";
+import { deriveStatistics } from "../state/statistics";
+import type { Solve } from "../state/types";
 import { AverageProgressionChart, RecognitionExecutionTrendChart, CfopPhaseTrendChart, DistributionChart, SolveTimeTrendChart } from "./StatisticsCharts";
 
 describe("Statistics charts", () => {
+  it("does not bridge a Session whose solves disappear from the derived average progression", () => {
+    const solves: Solve[] = ["A", "A", "A", "A", "A", "B", "B", "B", "B", "A"].map((sessionId, index) => ({
+      id: `s${index}`, sessionId, createdAt: index, rawMs: 10_000 + index * 100,
+      penalty: "none", scramble: "", source: "keyboard", moves: [],
+    }));
+    const model = deriveStatistics({
+      sessions: ["A", "B"].map((id) => ({ id, name: id, event: "333", createdAt: 0 })), solves,
+    }, { event: "333", sessionId: null }, null);
+    expect(model.averageProgression.map((point) => point.sessionId)).toEqual(["A", "A"]);
+    const html = renderToStaticMarkup(<AverageProgressionChart points={model.averageProgression} scopeLabel="All sessions" />);
+    const path = /class="chart-line ao5" d="([^"]*)"/.exec(html)![1];
+    expect(path.match(/M/g)).toHaveLength(2);
+    expect(path).not.toContain("L");
+  });
+
   it("breaks every average path at Session transitions, including a returning Session", () => {
     const points = ["A", "A", "B", "B", "A"].map((sessionId, index) => ({
       index, id: `s${index}`, sessionId, createdAt: index, time: 14000 + index * 100,
@@ -11,7 +28,7 @@ describe("Statistics charts", () => {
     }));
     const solveTime = renderToStaticMarkup(<SolveTimeTrendChart points={points} scopeLabel="All sessions" />);
     const progression = renderToStaticMarkup(<AverageProgressionChart scopeLabel="All sessions" points={points.map((point) => ({
-      ...point, solveId: point.id, ao50: point.ao5 + 2000, ao100: point.ao5 + 3000,
+      ...point, solveId: point.id, segmentKey: String(Math.floor(point.index / 2)), ao50: point.ao5 + 2000, ao100: point.ao5 + 3000,
     }))} />);
     for (const [html, metrics] of [[solveTime, [5, 12]], [progression, [5, 12, 50, 100]]] as const) {
       for (const size of metrics) {
@@ -49,7 +66,7 @@ describe("Statistics charts", () => {
     const points = values.map((time, index) => ({ index, id: `s${index}`, sessionId: "A", createdAt: index, time, ao5: time, ao12: undefined, isPb: false }));
     const charts = [
       <SolveTimeTrendChart points={points} scopeLabel="A" />,
-      <AverageProgressionChart scopeLabel="A" points={points.map((point) => ({ index: point.index, solveId: point.id, sessionId: point.sessionId, createdAt: point.createdAt, ao5: point.time }))} />,
+      <AverageProgressionChart scopeLabel="A" points={points.map((point) => ({ index: point.index, solveId: point.id, sessionId: point.sessionId, segmentKey: "0", createdAt: point.createdAt, ao5: point.time }))} />,
       <RecognitionExecutionTrendChart scopeLabel="A" points={points.map((point) => ({ index: point.index, solveId: point.id, recognitionMs: point.time, executionMs: point.time, unclassifiedMs: point.time }))} />,
       <CfopPhaseTrendChart scopeLabel="A" points={points.map((point) => ({ index: point.index, solveId: point.id, createdAt: point.createdAt, sessionId: "A", crossMs: point.time, f2lMs: point.time, ollMs: point.time, pllMs: point.time }))} />,
     ];
@@ -65,9 +82,9 @@ describe("Statistics charts", () => {
 
   it("charts actual rolling averages with unavailable or DNF windows left as gaps", () => {
     const html = renderToStaticMarkup(<AverageProgressionChart scopeLabel="All sessions" points={[
-      { index: 5, solveId: "s5", sessionId: "A", createdAt: 5, ao5: 10000 },
-      { index: 6, solveId: "s6", sessionId: "A", createdAt: 6, ao5: null },
-      { index: 50, solveId: "s50", sessionId: "A", createdAt: 50, ao5: 9000, ao12: 11000, ao50: 12000 },
+      { index: 5, solveId: "s5", sessionId: "A", segmentKey: "0", createdAt: 5, ao5: 10000 },
+      { index: 6, solveId: "s6", sessionId: "A", segmentKey: "0", createdAt: 6, ao5: null },
+      { index: 50, solveId: "s50", sessionId: "A", segmentKey: "0", createdAt: 50, ao5: 9000, ao12: 11000, ao50: 12000 },
     ]} />);
     expect(html).toContain("Actual rolling average progression");
     expect(html).toContain("s50 · Ao50: 12.00"); expect(html).not.toContain("Projected");

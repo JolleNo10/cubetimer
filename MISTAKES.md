@@ -158,6 +158,10 @@ not independently invented states. The original entry is retained as history.
 
 ## 2026-10-03
 
+- What happened: a Python one-line edit failed before changing any files because quoted TypeScript strings were mangled by PowerShell argument parsing.
+- Root cause: embedded quote escaping was written for a different shell boundary.
+- Prevention: use `apply_patch` for source edits containing nested quoted strings on Windows.
+
 - What happened: an F2L aggregate TPS regression assertion failed on the final
   floating-point digit despite equivalent durations and move counts.
 - Root cause: the test compared division by seconds with division by milliseconds

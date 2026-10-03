@@ -61,6 +61,17 @@ function analysed(id: string, sessionId: string, createdAt: number): Solve {
 }
 
 describe("deriveStatistics", () => {
+  it("keeps returning Session runs distinct when an intervening Session has no Ao5", () => {
+    const solves = ["A", "A", "A", "A", "A", "B", "B", "B", "B", "A"].map((sessionId, index) =>
+      solve(`s${index}`, sessionId, 10_000 + index * 100, { createdAt: index }));
+    const result = deriveStatistics({ sessions: [session("A"), session("B")], solves }, { event: "333", sessionId: null }, null);
+    expect(result.averageProgression.map((point) => point.solveId)).toEqual(["s4", "s9"]);
+    const [first, returning] = result.averageProgression;
+    expect(first.sessionId).toBe("A");
+    expect(returning.sessionId).toBe(first.sessionId);
+    expect(returning.segmentKey).not.toBe(first.segmentKey);
+  });
+
   const snapshot: StatisticsSnapshot = {
     sessions: [session("A", "333", 1), session("B", "333", 2), session("C", "222", 3)],
     solves: [
