@@ -391,3 +391,15 @@ not independently invented states. The original entry is retained as history.
 - What happened: manual Training algorithm browsing changed the instruction arrow but left the cube at its live state; selecting the actual current instruction could retain an invisible manual override.
 - Root cause: the preview seam carried only the move, omitted its guide checkpoint state, and tests asserted only the arrow. Current-step navigation stored an index instead of returning to live display.
 - Prevention: bind the exact move and normal-frame checkpoint facelets as one preview, use opaque revision keys for hypothetical 3D resets, suspend incremental display events while browsing, and test both cube and arrow. Normalize current-step selection to follow-current and retain guide identity until confirmation changes.
+
+- What happened: mobile inspection instructions advertised a tap-to-start even with hold-to-start enabled, and Settings described that shared control as keyboard-only.
+- Root cause: copy did not use the hold setting; mobile regressions checked the timer's layout but never exercised its pointer start/stop path.
+- Prevention: derive manual start instructions from the same setting used by Space and the timer surface, and test premature release, held release, inspection and stopping with browser-generated touch events.
+
+- What happened: Training visually placed the case library before connection controls on phones while keyboard and assistive-technology order remained connection-first.
+- Root cause: CSS child ordering reversed the DOM sequence, and geometry-only tests missed the discrepancy.
+- Prevention: render the primary case library first in the DOM at all widths and check both markup order and phone geometry.
+
+- What happened: a native touch stopped manual timing on pointer-down, then its release clicked the newly rendered Result's Delete button and removed the solve.
+- Root cause: the Timer card disappeared during the active gesture, allowing release/click to target an action at the same screen coordinates. Synthetic events and layout checks did not exercise browser retargeting.
+- Prevention: suppress only the stopping gesture's click on the stable stage container, clean up on release/cancellation, and verify native touch-down/up retains the recorded solve, including the inspection path.

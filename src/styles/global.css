@@ -1191,7 +1191,6 @@ button.icon { display: inline-grid; place-items: center; padding: 8px; }
   .training-layout .column.training-library-column, .f2l-training-layout .column.training-library-column { order: 1; }
   .training-workspace-column { order: 2; }
   .training-layout .column.training-target-column, .f2l-training-layout .column.training-target-column { order: 3; }
-  .training-library-column > .connection-panel { order: 2; }
   .training-family-switch { max-width: calc(100% - 20px); }
   .training-family-switch button { min-width: 64px; }
   .last-layer-case-button span { overflow-wrap: anywhere; }

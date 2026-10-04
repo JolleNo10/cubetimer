@@ -107,6 +107,9 @@ const checkControlsFit = async (name, selector) => {
 const checkMobileDialog = async name => {
   await checkHorizontalOverflow(`${name} keeps page and dialog width contained`, ["html", "body", ".app", ".dialog", ".dialog-body"]);
   await checkControlsFit(`${name} close action fits`, ".dialog-head button");
+  const box = await page.locator(".dialog").boundingBox(), viewport = page.viewportSize();
+  check(`${name} fills the phone viewport`, Math.abs(box.x) <= 1 && Math.abs(box.y) <= 1
+    && Math.abs(box.width - viewport.width) <= 1 && Math.abs(box.height - viewport.height) <= 1, JSON.stringify(box));
 };
 
 const checkMobileTimer = async (width, height = 844) => {
@@ -281,6 +284,21 @@ await page.screenshot({ path: "/tmp/e2e-replay.png" });
 
 await page.locator(".dialog").getByRole("button", { name: "Close" }).click();
 
+// Analytics shares the full-screen dialog and has its own phone row layout.
+await result.getByRole("button", { name: "Tools", exact: true }).click();
+await page.waitForSelector(".analytics-row", { timeout: 90000 });
+await checkMobileDialog("mobile Analytics");
+await checkControlsFit("mobile Analytics rows and verdicts stay contained", ".analytics-row, .analytics-verdict, .headline > .row");
+const analyticsLayout = await page.locator(".analytics-row").evaluateAll(rows => rows.map(row => {
+  const name = row.querySelector(".phase-name").getBoundingClientRect();
+  const verdict = row.querySelector(".analytics-verdict").getBoundingClientRect();
+  const box = row.getBoundingClientRect();
+  return { nameBottom: name.bottom, verdictTop: verdict.top, rowLeft: box.left, rowRight: box.right, verdictLeft: verdict.left, verdictRight: verdict.right };
+}));
+check("mobile Analytics verdicts use a contained second row", analyticsLayout.length > 0 && analyticsLayout.every(row =>
+  row.verdictTop >= row.nameBottom && row.verdictLeft >= row.rowLeft - 1 && row.verdictRight <= row.rowRight + 1), JSON.stringify(analyticsLayout));
+await page.getByRole("dialog", { name: "Analysis tools" }).getByRole("button", { name: "Close" }).click();
+
 await result.getByRole("button", { name: "Back to timer", exact: true }).click();
 check("Back to timer closes the Result", await result.count() === 0);
 check("Back to timer restores the ScramblePanel", await page.locator(".scramble-panel").count() === 1);
@@ -368,6 +386,78 @@ if (await keyboardResult.count() === 1) {
 
 // All feature areas use the same phone viewport, with their own scroll owner.
 if (await keyboardResult.count()) await keyboardResult.getByRole("button", { name: "Back to timer", exact: true }).click();
+await page.setViewportSize({ width: 390, height: 844 });
+
+// Browser-generated touch input reaches the same pointer/hold handlers as Space.
+// Virtual/smart-cube input remains disabled from the manual keyboard check above.
+const settingsDialog = page.getByRole("dialog", { name: "Settings", exact: true });
+const configureManualTiming = async inspection => {
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await settingsDialog.getByRole("checkbox", { name: /Hold the timer or Space before starting/ }).check();
+  await settingsDialog.getByRole("checkbox", { name: /WCA inspection/ }).setChecked(inspection);
+  await settingsDialog.getByRole("button", { name: "Done", exact: true }).click();
+};
+await configureManualTiming(false);
+const touchSession = await page.context().newCDPSession(page);
+await touchSession.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+const timerTouchDown = async () => {
+  await touchSession.send("Emulation.setTouchEmulationEnabled", { enabled: true });
+  await page.locator(".timer-card").scrollIntoViewIfNeeded();
+  const box = await page.locator(".timer-card").boundingBox();
+  await touchSession.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{
+    x: box.x + box.width / 2, y: box.y + box.height / 2, radiusX: 8, radiusY: 8, force: 1,
+  }] });
+};
+const timerTouchUp = () => touchSession.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+const holdTimer = async () => {
+  await timerTouchDown();
+  // HOLD_MS is 350 ms. Wait for the UI's armed state rather than guessing when
+  // the browser has processed the timeout; the solve starts only on release.
+  await page.waitForFunction(() => document.querySelector(".timer-hint")?.textContent === "Release to start");
+};
+await timerTouchDown();
+await page.waitForTimeout(80);
+await timerTouchUp();
+check("mobile premature touch release does not start", await page.locator(".timer-value.running, .timer-value.inspect").count() === 0 && await result.count() === 0);
+await holdTimer();
+check("mobile held timer waits for release", await page.locator(".timer-value.running").count() === 0);
+await timerTouchUp();
+await page.waitForSelector(".timer-value.running");
+check("mobile hold and release starts manual timing", await result.count() === 0);
+const rowsBeforeTouchStop = await page.locator(".solve-row").count();
+await timerTouchDown();
+await timerTouchUp();
+await page.waitForSelector(".solve-result");
+await page.waitForFunction(count => document.querySelectorAll(".solve-row").length === count + 1, rowsBeforeTouchStop);
+check("mobile stop release retains the recorded solve", await page.locator(".solve-row").count() === rowsBeforeTouchStop + 1);
+check("mobile touch stops manual timing", await page.locator(".timer-value.running").count() === 0 && await result.count() === 1);
+// Restore mouse input before Playwright clicks non-timer controls.
+await touchSession.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+await result.getByRole("button", { name: "Back to timer", exact: true }).click();
+
+await configureManualTiming(true);
+await holdTimer();
+await timerTouchUp();
+await page.waitForSelector(".timer-value.inspect");
+check("mobile hold and release starts inspection", await result.count() === 0);
+await holdTimer();
+check("mobile inspection remains active until release", await page.locator(".timer-value.inspect").count() === 1);
+await timerTouchUp();
+await page.waitForSelector(".timer-value.running");
+check("mobile hold and release transitions inspection to solving", await page.locator(".timer-value.inspect").count() === 0);
+const rowsBeforeInspectedStop = await page.locator(".solve-row").count();
+await timerTouchDown();
+await timerTouchUp();
+await page.waitForSelector(".solve-result");
+await page.waitForFunction(count => document.querySelectorAll(".solve-row").length === count + 1, rowsBeforeInspectedStop);
+check("mobile inspected stop release retains the recorded solve", await page.locator(".solve-row").count() === rowsBeforeInspectedStop + 1);
+check("mobile inspected solve stops through touch", await result.count() === 1);
+await touchSession.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+await result.getByRole("button", { name: "Back to timer", exact: true }).click();
+await configureManualTiming(false);
+await touchSession.send("Emulation.setTouchEmulationEnabled", { enabled: false });
+await touchSession.detach();
+
 await page.setViewportSize({ width: 360, height: 800 });
 await page.getByRole("navigation", { name: "Application area" }).getByRole("button", { name: "Training", exact: true }).click();
 await page.waitForSelector(".f2l-case-button");
@@ -381,8 +471,10 @@ const trainingLayout = await page.locator(".training-screen").evaluate(screen =>
   connection: screen.querySelector(".connection-panel").getBoundingClientRect().top,
   scrollOwner: getComputedStyle(screen).overflowY,
   nestedOverflow: getComputedStyle(screen.querySelector(".app-body")).overflowY,
+  libraryBeforeConnection: Boolean(screen.querySelector(".f2l-library").compareDocumentPosition(screen.querySelector(".connection-panel")) & Node.DOCUMENT_POSITION_FOLLOWING),
 }));
 check("mobile Training offers cases before workspace and target", trainingLayout.library < trainingLayout.workspace && trainingLayout.workspace < trainingLayout.target && trainingLayout.cases < trainingLayout.connection, JSON.stringify(trainingLayout));
+check("mobile Training DOM order matches library-first visual order", trainingLayout.libraryBeforeConnection);
 check("mobile Training has one page scroller", trainingLayout.scrollOwner === "auto" && trainingLayout.nestedOverflow === "visible", JSON.stringify(trainingLayout));
 const caseBoxes = await page.locator(".f2l-case-button").evaluateAll(buttons => buttons.slice(0, 4).map(button => {
   const box = button.getBoundingClientRect(); return { width: box.width, height: box.height, top: box.top };

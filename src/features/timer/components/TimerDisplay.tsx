@@ -70,14 +70,21 @@ export function TimerDisplay({
 
   const hint = slow
     ? slowHint(phase, smart)
-    : buildHint({ phase, smart, holding, offTrack });
+    : buildHint({ phase, smart, holding, holdReady, holdToStart: settings.holdToStart, offTrack });
 
   return (
     <div
       className="panel timer-card"
       // Tapping the timer is the only way to start one on a touch device.
       onPointerDown={(e) => {
-        if (e.button === 0) onPressStart();
+        if (e.button !== 0) return;
+        if (phase === "solving" && !smart) {
+          // Stopping replaces this card with Result before release. Prevent the
+          // same gesture's click from activating a newly rendered Result action.
+          const stage = e.currentTarget.closest<HTMLElement>(".stage");
+          if (stage) preventStopClickThrough(stage, e.pointerId);
+        }
+        onPressStart();
       }}
       onPointerUp={onPressEnd}
       onPointerCancel={onPressEnd}
@@ -112,6 +119,29 @@ export function TimerDisplay({
   );
 }
 
+/** Keep a stop gesture's browser-generated click out of the replacement Result. */
+function preventStopClickThrough(stage: HTMLElement, pointerId: number) {
+  const cleanup = () => {
+    stage.removeEventListener("click", suppressClick, true);
+    window.removeEventListener("pointerup", released, true);
+    window.removeEventListener("pointercancel", cancelled, true);
+  };
+  const suppressClick = (event: MouseEvent) => {
+    if ("pointerId" in event && event.pointerId !== pointerId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    cleanup();
+  };
+  const released = (event: PointerEvent) => {
+    // Click follows pointer-up in this dispatch; clear even if no click occurs.
+    if (event.pointerId === pointerId) setTimeout(cleanup, 0);
+  };
+  const cancelled = (event: PointerEvent) => { if (event.pointerId === pointerId) cleanup(); };
+  stage.addEventListener("click", suppressClick, true);
+  window.addEventListener("pointerup", released, true);
+  window.addEventListener("pointercancel", cancelled, true);
+}
+
 /** In slow solve mode nothing is being raced, so the prompts say so. */
 function slowHint(phase: TimerPhase, smart: boolean) {
   switch (phase) {
@@ -141,20 +171,25 @@ function buildHint({
   phase,
   smart,
   holding,
+  holdReady,
+  holdToStart,
   offTrack,
 }: {
   phase: TimerPhase;
   smart: boolean;
   holding: boolean;
+  holdReady: boolean;
+  holdToStart: boolean;
   offTrack: boolean;
 }) {
-  if (holding) return "Release to start";
+  if (holding) return holdReady ? "Release to start" : "Keep holding to start";
+  const manualStart = <>{holdToStart ? "Hold the timer or " : "Tap the timer or press "}<kbd>Space</kbd></>;
   switch (phase) {
     case "scrambling":
       if (!smart) {
         return (
           <>
-            Hold the timer or <kbd>Space</kbd> to start, or connect a smart cube
+            {manualStart} to start, or connect a smart cube
           </>
         );
       }
@@ -165,14 +200,14 @@ function buildHint({
     case "ready":
       return smart
         ? "Ready — the timer starts on your first turn"
-        : <>Hold the timer or <kbd>Space</kbd> to start</>;
+        : <>{manualStart} to start</>;
     case "inspection":
-      return smart ? "Inspecting — turn the cube to start" : <>Tap the timer or press <kbd>Space</kbd> to start</>;
+      return smart ? "Inspecting — turn the cube to start" : <>{manualStart} to start</>;
     case "solving":
       return smart ? "Solve the cube to stop the timer" : <>Tap the timer or press <kbd>Space</kbd> to stop</>;
     case "finished":
       return smart
         ? "Scramble again for the next solve"
-        : <>Hold the timer or <kbd>Space</kbd> for the next solve</>;
+        : <>{manualStart} for the next solve</>;
   }
 }

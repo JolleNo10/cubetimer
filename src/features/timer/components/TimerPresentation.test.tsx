@@ -8,24 +8,29 @@ import { TimerDisplay } from "./TimerDisplay";
 import { ScramblePanel } from "./ScramblePanel";
 
 const kpuzzle = await get3x3x3();
-function display(controller: Controller) {
+function display(controller: Controller, holding = false, holdReady = false) {
   return renderToStaticMarkup(<ControllerContext.Provider value={controller}>
-    <TimerDisplay holding={false} holdReady={false} onPressStart={() => {}} onPressEnd={() => {}} />
+    <TimerDisplay holding={holding} holdReady={holdReady} onPressStart={() => {}} onPressEnd={() => {}} />
   </ControllerContext.Provider>);
 }
 
 describe("Timer ownership-store presentation", () => {
-  it.each([
-    ["scrambling", "Hold the timer or"], ["ready", "Hold the timer or"],
-    ["inspection", "Tap the timer or press"], ["solving", "Tap the timer or press"],
-    ["finished", "Hold the timer or"],
-  ] as const)("offers touch and keyboard instructions during %s", (phase, hint) => {
+  it.each([true, false].flatMap(holdToStart =>
+    (["scrambling", "ready", "inspection", "solving", "finished"] as const).map(phase => ({ phase, holdToStart })),
+  ))("matches manual interaction during $phase (holdToStart=$holdToStart)", ({ phase, holdToStart }) => {
     const controller = new Controller(new CubeModel(kpuzzle));
+    controller.settings.update(settings => ({ ...settings, holdToStart }));
     controller.timer.state.update(state => ({ ...state, phase }));
     const html = display(controller);
-    expect(html).toContain(hint);
+    expect(html).toContain(phase === "solving" || !holdToStart ? "Tap the timer or press" : "Hold the timer or");
     expect(html).toContain("<kbd>Space</kbd>");
     expect(html).toContain('touch-action:manipulation');
+  });
+
+  it("only prompts release after the shared hold is ready", () => {
+    const controller = new Controller(new CubeModel(kpuzzle));
+    expect(display(controller, true, false)).toContain("Keep holding to start");
+    expect(display(controller, true, true)).toContain("Release to start");
   });
 
   it("renders inspection penalty, elapsed time and live move metrics from their owners", () => {

@@ -62,8 +62,8 @@ export function SettingsDialog({
               onChange={(requireScramble) => set({ requireScramble })}
             />
             <Toggle
-              title="Hold space before starting"
-              help="Keyboard timing only."
+              title="Hold the timer or Space before starting"
+              help="Applies to both Space and the on-screen timer. Release after holding to start."
               checked={settings.holdToStart}
               onChange={(holdToStart) => set({ holdToStart })}
             />

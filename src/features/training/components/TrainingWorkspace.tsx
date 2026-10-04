@@ -36,7 +36,7 @@ export function TrainingWorkspace({ library, details, emptyMessage }: {
   const f2l = family === "f2l";
   return (
     <div className={`app-body ${f2l ? "f2l-training" : "training"}-layout`}>
-      <div className="column left training-library-column"><ConnectionPanel />{library}</div>
+      <div className="column left training-library-column">{library}<ConnectionPanel /></div>
       <div className="column training-workspace-column">
         {error ? <div className="notice error"><span className="grow">{error}</span><button className="ghost" onClick={() => controller.dismissError()}>Dismiss</button></div> : null}
         <TrainingSetupPanel />

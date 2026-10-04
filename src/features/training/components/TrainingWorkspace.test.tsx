@@ -6,7 +6,7 @@ import { ControllerContext } from "../../../app/useController";
 import { Controller } from "../../../app/Controller";
 import type { TrainingResult, TrainingState } from "../TrainingRuntime";
 import { type TrainingGuideMove } from "../../../cube/training";
-import { TrainingActions, TrainingAttemptResult, TrainingCubeStage, TrainingReferences, TrainingSetupPanel } from "./TrainingWorkspace";
+import { TrainingActions, TrainingAttemptResult, TrainingCubeStage, TrainingReferences, TrainingSetupPanel, TrainingWorkspace } from "./TrainingWorkspace";
 
 vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { displaySource: string; live: boolean; displayFacelets: string; physicalSyncAvailable: boolean; displayRevision: string | number; staticDisplay: boolean; guideMove?: TrainingGuideMove | null }) =>
   <div data-source={props.displaySource} data-live={props.live} data-facelets={props.displayFacelets} data-sync={props.physicalSyncAvailable} data-revision={props.displayRevision} data-static={props.staticDisplay}
@@ -26,6 +26,13 @@ const result: TrainingResult = { moves: ["R", "U", "R'"], stm: 3, elapsedMs: 125
   recommendedAlg: "R U R'", matchedReferenceRank: 1, delta: 0 };
 
 describe("shared Training presentation", () => {
+  it("places the case library before connection controls in DOM and focus order", async () => {
+    const controller = await selected();
+    const html = render(controller, <TrainingWorkspace library={<button>Choose a Training case</button>} details={<div />} emptyMessage="Choose a case" />);
+    expect(html).toContain("Smart cube");
+    expect(html.indexOf("Choose a Training case")).toBeLessThan(html.indexOf('class="panel connection-panel"'));
+  });
+
   it("uses live state by default, and binds each preview move to its checkpoint and reset key", async () => {
     const controller = await selected();
     const training = controller.training.state.get(), guide = training.guide!;
