@@ -6,7 +6,7 @@ const f2l = (caseName = "F2L 1"): TrainingCatalogueCase => ({ family: "f2l", ori
 const a = f2l(), b = f2l("F2L 2"), c = f2l("F2L 3");
 let serial = 0;
 function attempt(target: TrainingCatalogueCase = a, values: Partial<TrainingAttempt> = {}): TrainingAttempt {
-  return { id: String(++serial), createdAt: serial, mode: "virtual",
+  return { id: String(++serial), createdAt: serial, mode: "virtual", activity: "single", caseTimeMs: null,
     target: target.family === "f2l" ? target : { ...target, auf: 0 },
     moves: ["R"], stm: 4, elapsedMs: 1000, recommendedStm: 4, matchedReferenceRank: 1, delta: 0, ...values };
 }
@@ -34,23 +34,32 @@ describe("Training catalogue identity", () => {
 });
 
 describe("Training per-case performance", () => {
+  it("derives Drill case-time PB/recent metrics, ignoring null/invalid values and preferring case-time status", () => {
+    const rows = [1000, 1000, 1000, 1400, 1400, 1400].map((caseTimeMs, i) =>
+      attempt(a, { createdAt: i, activity: "drill", caseTimeMs, elapsedMs: 100 }));
+    expect(stats(rows)).toMatchObject({ bestCaseTimeMs: 1000, recentMedianCaseTimeMs: 1400, status: "review" });
+    expect(stats([attempt(a, { activity: "drill", caseTimeMs: 0 }), attempt(a, { activity: "drill", caseTimeMs: NaN }),
+      attempt(a, { caseTimeMs: null })])).toMatchObject({ bestCaseTimeMs: null, recentMedianCaseTimeMs: null });
+    const stable = [100, 140, 140].map(elapsedMs => attempt(a, { activity: "drill", caseTimeMs: 1000, elapsedMs }));
+    expect(stats(stable).status).toBe("practiced");
+  });
   it("counts attempts, ignores invalid/nonpositive times, and keeps best STM and last practice", () => {
     const rows = [attempt(a, { elapsedMs: 0 }), attempt(a, { elapsedMs: NaN }), attempt(a, { elapsedMs: -10 }),
       attempt(a, { elapsedMs: 800, stm: 3, createdAt: 20 }), attempt(a, { elapsedMs: 1200, stm: 5, createdAt: 10 })];
-    expect(stats(rows)).toMatchObject({ attempts: 5, bestElapsedMs: 800, bestStm: 3, lastPracticedAt: 20, recentMedianElapsedMs: 1000 });
+    expect(stats(rows)).toMatchObject({ attempts: 5, bestMoveSpanMs: 800, bestStm: 3, lastPracticedAt: 20, recentMedianMoveSpanMs: 1000 });
   });
   it("uses only the most recent five with odd median and ignores null deltas", () => {
     const rows = [100, 200, 1000, 3000, 2000, 4000, 5000].map((elapsedMs, i) =>
       attempt(a, { elapsedMs, createdAt: i, delta: i < 2 ? -100 : i === 2 ? null : i - 3 }));
-    expect(stats(rows.reverse())).toMatchObject({ bestElapsedMs: 100, recentMedianElapsedMs: 3000, recentMedianDelta: 1.5,
-      recentElapsedMs: [1000, 3000, 2000, 4000, 5000] });
+    expect(stats(rows.reverse())).toMatchObject({ bestMoveSpanMs: 100, recentMedianMoveSpanMs: 3000, recentMedianDelta: 1.5,
+      recentMoveSpansMs: [1000, 3000, 2000, 4000, 5000] });
   });
   it("uses the mean of middle values for even medians, including half STM deltas", () => {
     expect(stats([attempt(a, { elapsedMs: 800, delta: 1 }), attempt(a, { elapsedMs: 1200, delta: 2 })]))
-      .toMatchObject({ recentMedianElapsedMs: 1000, recentMedianDelta: 1.5, status: "learning" });
+      .toMatchObject({ recentMedianMoveSpanMs: 1000, recentMedianDelta: 1.5, status: "learning" });
   });
   it("keeps unavailable metrics null and does not turn null delta into zero", () => {
-    expect(stats(practiced(a, { elapsedMs: 0, delta: null }))).toMatchObject({ bestElapsedMs: null, recentMedianElapsedMs: null, recentMedianDelta: null });
+    expect(stats(practiced(a, { elapsedMs: 0, delta: null }))).toMatchObject({ bestMoveSpanMs: null, recentMedianMoveSpanMs: null, recentMedianDelta: null });
   });
   it("labels New/Learning/Review/Practised with the exact transparent thresholds", () => {
     expect(stats([]).status).toBe("new");

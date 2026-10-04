@@ -22,13 +22,15 @@ export function trainingCaseKey(target: TrainingAttemptTarget | TrainingCatalogu
 
 export type TrainingCaseStats = {
   attempts: number;
-  bestElapsedMs: number | null;
-  recentMedianElapsedMs: number | null;
+  bestMoveSpanMs: number | null;
+  recentMedianMoveSpanMs: number | null;
+  bestCaseTimeMs: number | null;
+  recentMedianCaseTimeMs: number | null;
   bestStm: number | null;
   recentMedianDelta: number | null;
   lastPracticedAt: number | null;
   status: "new" | "learning" | "review" | "practiced";
-  recentElapsedMs: readonly number[];
+  recentMoveSpansMs: readonly number[];
 };
 
 function median(values: number[]): number | null {
@@ -43,17 +45,21 @@ function aggregate(attempts: readonly TrainingAttempt[]): TrainingCaseStats {
   const recent = sorted.slice(-5);
   const times = sorted.map(a => a.elapsedMs).filter(positive);
   const stms = sorted.map(a => a.stm).filter(n => Number.isFinite(n) && n >= 0);
-  const recentElapsedMs = recent.map(a => a.elapsedMs).filter(positive);
-  const bestElapsedMs = times.length ? times.reduce((best, time) => Math.min(best, time)) : null;
-  const recentMedianElapsedMs = median([...recentElapsedMs]);
+  const recentMoveSpansMs = recent.map(a => a.elapsedMs).filter(positive);
+  const bestMoveSpanMs = times.length ? times.reduce((best, time) => Math.min(best, time)) : null;
+  const recentMedianMoveSpanMs = median([...recentMoveSpansMs]);
   const recentMedianDelta = median(recent.map(a => a.delta).filter((n): n is number => n !== null && Number.isFinite(n)));
+  const caseTimes = sorted.filter(a => a.activity === "drill").map(a => a.caseTimeMs).filter((n): n is number => n !== null && positive(n));
+  const bestCaseTimeMs = caseTimes.length ? caseTimes.reduce((best, time) => Math.min(best, time)) : null;
+  const recentMedianCaseTimeMs = median(recent.filter(a => a.activity === "drill").map(a => a.caseTimeMs).filter((n): n is number => n !== null && positive(n)));
+  const timingRatio = trainingTimingRatio({ bestCaseTimeMs, recentMedianCaseTimeMs, bestMoveSpanMs, recentMedianMoveSpanMs });
   const needsReview = recentMedianDelta !== null && recentMedianDelta > 0 ||
-    bestElapsedMs !== null && recentMedianElapsedMs !== null && recentMedianElapsedMs > bestElapsedMs * 1.2;
-  return { attempts: sorted.length, bestElapsedMs, recentMedianElapsedMs,
+    timingRatio !== null && timingRatio > 1.2;
+  return { attempts: sorted.length, bestMoveSpanMs, recentMedianMoveSpanMs, bestCaseTimeMs, recentMedianCaseTimeMs,
     bestStm: stms.length ? stms.reduce((best, stm) => Math.min(best, stm)) : null, recentMedianDelta,
     lastPracticedAt: sorted.at(-1)?.createdAt ?? null,
     status: !sorted.length ? "new" : sorted.length < 3 ? "learning" : needsReview ? "review" : "practiced",
-    recentElapsedMs };
+    recentMoveSpansMs };
 }
 
 export const EMPTY_TRAINING_CASE_STATS: TrainingCaseStats = aggregate([]);
@@ -92,8 +98,7 @@ export function selectTrainingReview(
     return avoidCurrent(learning.filter(e => e.stats.attempts === count)).sort(oldest)[0].target;
   }
   const review = entries.filter(e => e.stats.status === "review");
-  const ratio = (s: TrainingCaseStats) => s.bestElapsedMs && s.recentMedianElapsedMs !== null
-    ? s.recentMedianElapsedMs / s.bestElapsedMs : null;
+  const ratio = trainingTimingRatio;
   // Null ranks after real metrics, including zero or negative deltas.
   const worseFirst = (a: number | null, b: number | null) =>
     a === null ? b === null ? 0 : 1 : b === null ? -1 : b - a;
@@ -101,4 +106,10 @@ export function selectTrainingReview(
     worseFirst(a.stats.recentMedianDelta, b.stats.recentMedianDelta) ||
     worseFirst(ratio(a.stats), ratio(b.stats)) || oldest(a, b)) : avoidCurrent(entries).sort(oldest);
   return pool[0]?.target ?? null;
+}
+
+/** Prefer complete Drill case timing when both metrics are available. */
+export function trainingTimingRatio(stats: Pick<TrainingCaseStats, "bestCaseTimeMs" | "recentMedianCaseTimeMs" | "bestMoveSpanMs" | "recentMedianMoveSpanMs">): number | null {
+  if (stats.bestCaseTimeMs !== null && stats.bestCaseTimeMs > 0 && stats.recentMedianCaseTimeMs !== null) return stats.recentMedianCaseTimeMs / stats.bestCaseTimeMs;
+  return stats.bestMoveSpanMs !== null && stats.bestMoveSpanMs > 0 && stats.recentMedianMoveSpanMs !== null ? stats.recentMedianMoveSpanMs / stats.bestMoveSpanMs : null;
 }

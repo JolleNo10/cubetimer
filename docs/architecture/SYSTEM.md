@@ -57,7 +57,7 @@ src/
     useController.ts, types.ts, settings.ts, scrambleProvider.ts, components/
   features/
     timer/           TimerRuntime.ts, components/
-    training/        TrainingRuntime.ts, trainingHistory.ts, trainingPerformance.ts, components/
+    training/        TrainingRuntime.ts, trainingHistory.ts, trainingPerformance.ts, trainingDrill.ts, components/
     sessions/        sessionService.ts
     history/         solveHistory.ts, repair.ts, components/
     data-transfer/   dataTransfer.ts, solveCsv.ts, csv.ts
@@ -137,6 +137,10 @@ The following are current architectural rules.
     frame conversions belong to `src/cube/frames.ts` as described in [CUBE.md](CUBE.md).
     Remembered F2L library/position live in `f2lSelection`; OLL/PLL training-set
     preferences remain Settings-owned.
+    Single and Drill activities share this one runtime and target/move/completion
+    engine. Single supports setup and virtual modes; catalogue-only Drill is virtual
+    only, with selected case pools and runtime-owned countdowns. Completed Drill
+    rounds are dedicated TrainingAttempt records, never Solves.
     Live attempt state is ephemeral; completed facts may be persisted as dedicated
     `TrainingAttempt` records. Controller coordinates the completion callback with
     TrainingHistory and publishes a separate Training-attempt Store. These records

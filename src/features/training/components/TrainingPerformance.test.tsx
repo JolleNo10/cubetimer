@@ -11,7 +11,7 @@ import { TrainingPersonalPerformance, TrainingCaseMarker } from "./TrainingPerfo
 import { TrainingActions } from "./TrainingWorkspace";
 
 const kpuzzle = await get3x3x3();
-const result: TrainingResult = { moves: ["R", "U"], stm: 4, elapsedMs: 1400,
+const result: TrainingResult = { moves: ["R", "U"], stm: 4, caseTimeMs: null, elapsedMs: 1400,
   recommendedStm: 3, recommendedAlg: "R U", matchedReferenceRank: null, delta: 1 };
 afterEach(() => vi.restoreAllMocks());
 async function fixture(family: TrainingFamily) {
@@ -21,8 +21,8 @@ async function fixture(family: TrainingFamily) {
   else await controller.selectLastLayerCase(family, family === "oll" ? "27" : "T");
   const target = controller.training.state.get().target!;
   controller.trainingAttempts.set(Array.from({ length: 4 }, (_, i) => ({
-    ...createTrainingAttempt({ target, mode: "virtual", result }), id: String(i), createdAt: i,
-    elapsedMs: i === 0 ? 1000 : 1400, stm: i === 0 ? 3 : 4,
+    ...createTrainingAttempt({ activity: "single", target, mode: "virtual", result }), id: String(i), createdAt: i,
+    caseTimeMs: null, elapsedMs: i === 0 ? 1000 : 1400, stm: i === 0 ? 3 : 4,
   })));
   const render = (element = <Training />) => renderToStaticMarkup(<ControllerContext.Provider value={controller}>{element}</ControllerContext.Provider>);
   return { controller, target, render };
@@ -37,15 +37,15 @@ describe("personal Training presentation", () => {
     expect(html).toContain('class="training-case-marker review"');
     expect(html).toContain("4 · Needs review");
     expect(html).toContain('aria-label="Personal Training performance"');
-    expect(html).toContain("Best time"); expect(html).toContain("Recent median time");
+    expect(html).toContain("Best move span"); expect(html).toContain("Recent move span");
     expect(html).toContain("Best STM"); expect(html).toContain("Recent median delta");
     expect(html).toContain("1.00"); expect(html).toContain("1.40"); expect(html).toContain("+1 STM");
-    expect(html).toContain("Recent attempts:");
+    expect(html).toContain("Recent move spans:");
   });
 
   it("shows learning and practised marker text without badges for untouched cases", () => {
-    const empty = { attempts: 0, bestElapsedMs: null, recentMedianElapsedMs: null, bestStm: null,
-      recentMedianDelta: null, lastPracticedAt: null, status: "new" as const, recentElapsedMs: [] };
+    const empty = { attempts: 0, bestCaseTimeMs: null, recentMedianCaseTimeMs: null, bestMoveSpanMs: null, recentMedianMoveSpanMs: null, bestStm: null,
+      recentMedianDelta: null, lastPracticedAt: null, status: "new" as const, recentMoveSpansMs: [] };
     expect(renderToStaticMarkup(<TrainingCaseMarker stats={empty} />)).toBe("");
     expect(renderToStaticMarkup(<TrainingCaseMarker stats={{ ...empty, attempts: 1, status: "learning" }} />)).toContain("1 · Learning");
     expect(renderToStaticMarkup(<TrainingCaseMarker stats={{ ...empty, attempts: 3, status: "practiced" }} />)).toContain("3 · Practised");

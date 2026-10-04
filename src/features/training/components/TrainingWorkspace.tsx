@@ -1,13 +1,14 @@
 import { formatTime } from "../../../shared/time";
 import { useEffect, useState, type ReactNode } from "react";
 import { useController, useSettings, useStore, useStoreValue, useTrainingState } from "../../../app/useController";
-import type { TrainingState } from "../TrainingRuntime";
+import { concealsTrainingAnswer, type TrainingState } from "../TrainingRuntime";
 import type { MoveGuide } from "../../../cube/moveGuide";
 import type { TrainingGuideProgress } from "../../../cube/training";
 
 import { ConnectionPanel } from "../../../shared/ui/ConnectionPanel";
 import { CubeView } from "../../../shared/ui/CubeView";
 import { TrainingAlgorithmGuide, type TrainingGuideNavigation } from "./TrainingAlgorithmGuide";
+import { DrillCountdown, TrainingDrillPanel } from "./TrainingDrill";
 import { TrainingPersonalPerformance } from "./TrainingPerformance";
 
 export type TrainingStepPreview = {
@@ -21,6 +22,7 @@ export function TrainingWorkspace({ library, details, emptyMessage }: {
 }) {
   const controller = useController();
   const family = useStoreValue(controller.training.state, state => state.family);
+  const activity = useStoreValue(controller.training.state, state => state.activity);
   const error = useStoreValue(controller.state, state => state.error);
   const target = useStoreValue(controller.training.state, state => state.target);
   const guide = useStoreValue(controller.training.state, state => state.guide);
@@ -41,7 +43,7 @@ export function TrainingWorkspace({ library, details, emptyMessage }: {
       <div className="column left training-library-column">{library}<ConnectionPanel /></div>
       <div className="column training-workspace-column">
         {error ? <div className="notice error"><span className="grow">{error}</span><button className="ghost" onClick={() => controller.dismissError()}>Dismiss</button></div> : null}
-        <TrainingSetupPanel />
+        {activity === "drill" ? <TrainingDrillPanel /> : <TrainingSetupPanel />}
         <TrainingCubeStage preview={stepPreview} />
       </div>
       <div className="column right training-target-column">
@@ -56,12 +58,17 @@ function TrainingTargetPanel({ details, emptyMessage, previewIndex, onPreviewSte
   const family = useStoreValue(controller.training.state, state => state.family);
   const target = useStoreValue(controller.training.state, state => state.target);
   const result = useStoreValue(controller.training.state, state => state.result);
+  const training = useTrainingState();
+  const concealed = concealsTrainingAnswer(training);
   const f2l = family === "f2l";
   return (
     <div className={`panel ${f2l ? "f2l" : "training"}-target-panel`}>
       <div className="panel-head"><span className="panel-title">Training target</span>{result ? <span className="chip live">result</span> : null}</div>
       <div className="panel-body">
-        {!target ? <div className="empty">{emptyMessage}</div> : <>
+        {!target ? <div className="empty">{training.activity === "drill" ? "Select cases and start a drill." : emptyMessage}</div> : concealed ? <>
+          <div className="small dim">Recognize and solve the cube case.</div><TrainingAttempt />
+        </> : <>
+          {training.drill.lastOutcome === "skipped" ? <div className="chip">Skipped</div> : null}
           {details}
           <TrainingPersonalPerformance />
           <TrainingReferences previewIndex={previewIndex} onPreviewStep={onPreviewStep} />
@@ -77,7 +84,7 @@ function TrainingAttempt() {
   const controller = useController();
   const training = useTrainingState();
   const elapsed = useStore(controller.elapsed);
-  return <TrainingAttemptResult result={training.result} phase={training.phase} liveMoveCount={training.liveMoves.length} elapsed={elapsed} />;
+  return <TrainingAttemptResult result={training.result} phase={training.phase} liveMoveCount={training.liveMoves.length} elapsed={elapsed} activity={training.activity} />;
 }
 
 export function TrainingCubeStage({ preview }: { preview?: TrainingStepPreview } = {}) {
@@ -90,8 +97,11 @@ export function TrainingCubeStage({ preview }: { preview?: TrainingStepPreview }
   const training = useTrainingState();
   const target = training.target;
   const physicalLive = cubeStatus === "connected" || virtualCube;
-  const guideActive = Boolean(target && target.references.length > 0 && (training.phase === "ready" || training.phase === "solving") && !training.result);
+  const guideActive = Boolean(training.activity === "single" && target && target.references.length > 0 && (training.phase === "ready" || training.phase === "solving") && !training.result);
   const viewed = guideActive ? preview : undefined;
+  if (training.activity === "drill" && !target) return <div className="stage training-stage drill-concealed-stage" aria-label="Drill cube area">
+    {training.drill.running ? <DrillCountdown initial /> : <div className="empty">Select cases to practise in a virtual drill.</div>}
+  </div>;
   return <div className={`stage ${training.family === "f2l" ? "f2l" : "training"}-stage`}>
     <CubeView settings={settings} facelets={cubeFacelets} gyroSupported={gyroSupported}
       live={training.mode === "virtual" ? Boolean(target) : physicalLive} scramble=""
@@ -106,6 +116,7 @@ export function TrainingCubeStage({ preview }: { preview?: TrainingStepPreview }
 export function TrainingActions() {
   const controller = useController();
   const training = useTrainingState();
+  if (training.activity === "drill") return null;
   const again = Boolean(training.result);
   return <div className="row wrap f2l-actions">
     {again ? <button className="primary" onClick={() => controller.againTraining()}>Again</button> : null}
@@ -247,12 +258,13 @@ export function TrainingReferences({ previewIndex, onPreviewStep }: TrainingGuid
   const training = useTrainingState();
   const target = training.target;
   const references = target?.references ?? [];
-  const result = training.family === "f2l" ? null : training.result;
+  const result = training.activity === "drill" || training.family === "f2l" ? null : training.result;
   const [showAlternatives, setShowAlternatives] = useState(false);
   const reference = result
     ? result.recommendedAlg === null ? null : { alg: result.recommendedAlg, stm: result.recommendedStm }
     : references[0];
   useEffect(() => { setShowAlternatives(false); }, [target]);
+  if (concealsTrainingAnswer(training)) return null;
 
   return (
     <div className="f2l-reference">
@@ -300,11 +312,13 @@ export function TrainingAttemptResult({
   phase,
   liveMoveCount,
   elapsed,
+  activity = "single",
 }: {
   result: TrainingState["result"];
   phase: TrainingState["phase"];
   liveMoveCount: number;
   elapsed: number;
+  activity?: TrainingState["activity"];
 }) {
   if (result) {
     const description = result.matchedReferenceRank === 1
@@ -316,6 +330,7 @@ export function TrainingAttemptResult({
     return (
       <div className="f2l-result-card">
         <div className="result-context-label">ATTEMPT</div>
+        {result.caseTimeMs != null ? <div className="drill-result-time mono">{formatTime(result.caseTimeMs)} <span className="small">case time</span></div> : null}
         <div className="f2l-result-stm mono">{result.stm} STM</div>
         <div className="small">{description}</div>
         {delta !== null && delta !== undefined ? (
@@ -328,14 +343,14 @@ export function TrainingAttemptResult({
           </div>
         ) : null}
         <div className="mono f2l-result-moves">{result.moves.join(" ") || "(no turns)"}</div>
-        <div className="small faint">elapsed {formatTime(result.elapsedMs || elapsed)}</div>
+        <div className="small faint">Move span {formatTime(result.elapsedMs)}</div>
       </div>
     );
   }
   return phase === "solving" ? (
     <div className="f2l-live-metric">
       <strong className="mono">{liveMoveCount} turns</strong>
-      <span className="small faint">elapsed {formatTime(elapsed)}</span>
+      <span className="small faint">{activity === "drill" ? "Case time" : "Move span"} {formatTime(elapsed)}</span>
     </div>
   ) : null;
 }

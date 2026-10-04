@@ -7,6 +7,7 @@ These documents describe current state. Start at [SYSTEM.md](SYSTEM.md); load on
 | Task | First sources |
 | --- | --- |
 | Training lifecycle, setup, virtual pattern, attempts, recovery, retry | `src/features/training/TrainingRuntime.ts` and its tests |
+| Single/Drill activities, selected pools and countdown | `src/features/training/TrainingRuntime.ts`, `trainingDrill.ts`, `components/TrainingDrill.tsx` |
 | Completed Training history, catalogue performance and Random/Review | `src/features/training/trainingHistory.ts`, `trainingPerformance.ts`; composition in `src/app/Controller.ts` |
 | Reference checkpoints/progress and frame handling | `src/cube/training.ts`; conversion boundary in `src/cube/frames.ts`; shared visual move semantics in `src/cube/moveGuide.ts` |
 | F2L targets, catalogue/exact history, slots/protected slots, completion | `src/cube/f2lTraining.ts`, `f2lTrainingCases.ts` |
@@ -164,10 +165,68 @@ Completed exact solve-step attempts retain their source Solve/step identity in
 Training history, independently of whether that Solve is still present. They
 remain outside ordinary Timer history/statistics and do not affect catalogue mastery.
 
+## Single and Drill activities
+
+```text
+Training
+├── Single
+│   ├── Setup cube
+│   └── Virtual case
+└── Drill
+    └── Virtual case only
+```
+
+Activity and case mode are separate concepts. Both activities use the same
+TrainingRuntime target construction, virtual pattern, move handling, completion,
+reference matching and completed-attempt callback. Exact solve-step practice always
+stops Drill and switches to Single. Single retains manual case selection,
+Random/Review, Again, guide previews and virtual auto-reload with result preservation.
+
+Drill configuration is ephemeral runtime state: one current catalogue family/context,
+selected case pool and Sequence/Random/Weighted worst strategy. F2L pools retain
+Basic/Advanced library and position; OLL/PLL pools retain Full/2-Look set. Cards toggle
+membership rather than loading targets. Select all/Clear operate on that catalogue.
+Sequence cycles in catalogue display order and starts over on each run. Random is
+uniform; Weighted worst uses only the selected pool and reads Controller's latest
+Training history at each round. Both random strategies exclude the previous case
+when alternatives exist. Pure selection lives in `trainingDrill.ts`, without target
+construction, UI clocks or persistence.
+
+Weights start at Practised 1, Learning 3, New 4, Needs review 6. Positive median STM
+delta adds at most 4. Timing regression adds at most 4 using `(ratio - 1) * 5`,
+preferentially from Drill case time, otherwise registered move span. The draw walks
+cumulative positive weights using an injected RNG.
+
+Start captures the catalogue context, forces virtual mode, clears Single state and
+begins a fixed 2-second countdown. No target is prepared or revealed early. Expiry
+constructs the next catalogue target through the shared preparation path, increments
+the round and records reveal time. Physical turns manipulate the separate virtual
+pattern; the physical CubeModel is never replaced. During ready/solving the cube is
+visible but its identity, group, metrics, algorithms, token guide and arrows are
+concealed. Library styling shows only pool membership, never the active answer.
+
+Completion publishes/persists one Drill fact and keeps the completed target, result
+and references visible during the next 2-second countdown. The next expiry replaces
+the virtual target and clears the result. Skip is available only before any turn;
+it reveals identity/references and begins the same countdown without persisting an
+attempt. Stop cancels every phase, abandons incomplete work, clears target/result and
+retains pool/strategy for configuration. Family changes stop and clear incompatible
+pools. F2L library changes clear pools; position changes preserve case names during
+configuration. Neither can change during a run. Changes to the active last-layer set
+stop/clear Drill, even during initial countdown. Leaving Training stops it; an active
+Drill cannot detour into Statistics.
+
+`TrainingResult.caseTimeMs` measures case reveal to detected completion, including
+recognition and registered turns. It is null for Single. Persisted attempts record
+`activity: single | drill` and this case time. The compatibility field `elapsedMs`
+means registered move span (first registered cube move to last), not full case time
+or pure recognition time; a one-move span is zero. Derived metrics and UI use
+Move span/Best move span/Recent move span. Drill result case time is primary.
+
 ## Completed history and catalogue review
 
 TrainingRuntime emits one `CompletedTrainingAttempt` callback containing the
-completed target, mode and result, before virtual auto-reload can replace or
+completed target, activity, mode and result, before virtual auto-reload can replace or
 randomize the target. Again, resets and abandoned attempts do not emit completion.
 Runtime does not write IndexedDB. Controller asks `trainingHistory.ts` to construct
 a UUID/timestamped `TrainingAttempt`, appends it immediately to its separate
@@ -182,13 +241,14 @@ position, or OLL/PLL family, Full/2-Look set and case ID. AUF/variant changes do
 split a last-layer identity. Exact solve-step targets have no catalogue key and
 never silently update catalogue mastery, even for recognizable Full OLL/PLL cases.
 
-Per-case performance uses all catalogue attempts for count and best positive time/
-best STM, and the latest five (timestamp then ID) for recent median time and delta.
-Invalid/nonpositive times and null deltas do not become zero-valued PBs/efficiency.
+Per-case performance uses all catalogue attempts for count and best positive move
+span/case time and best STM, and the latest five (timestamp then ID) for recent
+medians and delta. Invalid/nonpositive spans or case times and null deltas do not
+become zero-valued PBs/efficiency.
 New means no attempts; Learning means fewer than three. With at least three,
-Needs review means positive recent median delta or recent median time exceeding
-best time by more than 20%; otherwise the label is Practised. These are transparent
-practice guidance, not a formal mastery percentage.
+Needs review means positive recent median delta or recent median timing exceeding
+best by more than 20% (Drill case time when available, otherwise move span); otherwise
+the label is Practised. These are transparent practice guidance, not a formal mastery percentage.
 
 The pure Review selector chooses uniformly among unseen cases, then lowest-count
 under-practised cases (oldest first), then review cases ordered by larger median
@@ -225,6 +285,32 @@ The React renderer must not recreate Basic-versus-Advanced case logic that belon
 Generated thumbnail maps are data products, not general architecture discovery entrypoints.
 
 ## Rejected alternatives
+
+### Separate Drill runtime or physical setup Drill
+
+A second runtime would duplicate shared targets, patterns, turns, completion,
+references and persistence, allowing cube semantics to diverge. Physical setup
+between every round defeats the rapid cycle; Drill resets the ephemeral virtual
+case while the real smart cube only supplies turns.
+
+### React-owned countdown or answers while solving
+
+Countdown is lifecycle state and must cancel consistently with navigation. Runtime
+owns it through Controller's existing RAF, not a React timer or another RAF. Showing
+algorithms/arrows during a case would turn recognition practice into guided
+execution; answers appear only after solving or Skip.
+
+### Drill configuration in Settings or persisted DrillSession records
+
+Pools, strategy cursors and active rounds are ephemeral workflow state, not
+preferences. Presets have no persistence requirement yet. Completed rounds already
+produce TrainingAttempt records; a persistent DrillSession model adds no necessary
+source of truth for this flow.
+
+### Reveal-to-first-move as pure recognition time
+
+Smart cubes publish registered move events, not reliable physical motion onset.
+Only reveal-to-completion case time is claimed as a full observed Drill timing fact.
 
 ### Persist preferences, Timer solves or Session-scoped mastery for Training history
 

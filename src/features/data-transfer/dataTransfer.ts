@@ -20,7 +20,7 @@ export async function exportData(): Promise<string> {
     trainingHistory.loadTrainingAttempts(),
   ]);
   return JSON.stringify(
-    { format: "cubetimer", version: 3, exportedAt: Date.now(), sessions, solves, trainingAttempts },
+    { format: "cubetimer", version: 4, exportedAt: Date.now(), sessions, solves, trainingAttempts },
     null,
     2,
   );

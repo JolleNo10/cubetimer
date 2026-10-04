@@ -13,6 +13,7 @@ import { DEFAULT_EVENT_ID } from "../cube/scramble";
 import * as solver from "../cube/solver";
 import { cubeMove } from "../cube/frames";
 import { trainingGrip } from "../cube/training";
+import * as drillPolicy from "../features/training/trainingDrill";
 import { Controller } from "./Controller";
 import * as db from "../infrastructure/persistence/db";
 import { formatSolveCsv } from "../features/data-transfer/solveCsv";
@@ -1024,7 +1025,7 @@ describe("Controller store ownership", () => {
 });
 
 const persistedTrainingAttempt = (): TrainingAttempt => ({
-  id: "training-history", createdAt: 10, mode: "virtual",
+  id: "training-history", createdAt: 10, mode: "virtual", activity: "single", caseTimeMs: null,
   target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 4", position: "FR" },
   moves: ["R"], stm: 1, elapsedMs: 800, recommendedStm: 1, matchedReferenceRank: 1, delta: 0,
 });
@@ -1131,5 +1132,73 @@ describe("Controller Training history composition", () => {
     expect(result).toEqual({ sessions: 0, solves: 0, trainingAttempts: 1 });
     expect(controller.trainingAttempts.get()).toEqual([attempt]);
     expect(controller.sessions.get().sessionId).toBe("1");
+  });
+});
+
+describe("Controller Drill composition", () => {
+  function running() {
+    let now = 100;
+    let frame: FrameRequestCallback | undefined;
+    globalThis.requestAnimationFrame = callback => { frame = callback; return 1; };
+    globalThis.cancelAnimationFrame = vi.fn();
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const controller = readyController([session("1"), session("2")], "1");
+    controller.setArea("training"); controller.setTrainingActivity("drill");
+    controller.setDrillCases(["F2L 4", "F2L 5"]); controller.setDrillStrategy("weighted"); controller.startTrainingDrill();
+    const advance = (ms: number) => { now += ms; frame!(now); };
+    const solve = () => {
+      const target = controller.training.state.get().target!;
+      for (const token of referenceExecutionSignature(target.references[0].alg)!) {
+        now += 100; controller.injectMove(cubeMove(token, trainingGrip(target)));
+      }
+    };
+    return { controller, advance, solve };
+  }
+  it("uses the existing RAF for countdown and gives each weighted draw the latest immediately appended history", async () => {
+    const select = vi.spyOn(drillPolicy, "selectDrillCase");
+    const { controller, advance, solve } = running();
+    const countdown = vi.fn(), aggregate = vi.fn();
+    controller.training.drillCountdown.subscribe(countdown); controller.training.state.subscribe(aggregate);
+    advance(500); expect(controller.training.drillCountdown.get()).toBe(1500);
+    expect(countdown).toHaveBeenCalled(); expect(aggregate).not.toHaveBeenCalled();
+    advance(1500); expect(select).toHaveBeenCalledOnce(); expect(select.mock.calls[0][4]).toEqual([]);
+    advance(500); solve();
+    const history = controller.trainingAttempts.get();
+    expect(history).toHaveLength(1); expect(history[0]).toMatchObject({ activity: "drill", mode: "virtual" });
+    expect(history[0].caseTimeMs).toBeGreaterThan(500); expect(db.saveTrainingAttempt).toHaveBeenCalledOnce();
+    const saved = vi.spyOn(db, "saveSolve"); expect(saved).not.toHaveBeenCalled();
+    advance(2000); expect(select).toHaveBeenCalledTimes(2); expect(select.mock.calls[1][4]).toBe(history);
+    expect(controller.training.state.get().drill.lastCaseId).toBe("F2L 5");
+    controller.stopTrainingDrill(); expect(globalThis.cancelAnimationFrame).toHaveBeenCalled();
+  });
+  it.each(["initial", "ready", "solving", "result", "skipped"])("prevents Statistics during %s Drill and cancels it when leaving for Timer", stage => {
+    const { controller, advance, solve } = running();
+    if (stage !== "initial") advance(2000);
+    if (stage === "solving") controller.injectMove("B");
+    if (stage === "result") solve();
+    if (stage === "skipped") controller.skipTrainingDrillCase();
+    controller.setArea("statistics"); expect(controller.state.get().area).toBe("training");
+    const history = controller.trainingAttempts.get();
+    vi.spyOn(controller.timer, "useCubeStateAsScramble").mockResolvedValue("applied");
+    controller.setArea("timer");
+    expect(controller.training.state.get()).toMatchObject({ target: null, result: null, drill: { running: false } });
+    expect(controller.training.drillCountdown.get()).toBeNull(); expect(controller.trainingAttempts.get()).toBe(history);
+  });
+  it.each(["oll", "pll"] as const)("set changes cancel %s Drill during initial countdown and clear Full IDs", async family => {
+    const { controller } = running(); controller.setTrainingFamily(family);
+    controller.setDrillCases([family === "oll" ? "27" : "T"]); controller.startTrainingDrill();
+    vi.spyOn(db, "saveSettings").mockResolvedValue();
+    await controller.updateSettings(family === "oll" ? { ollTrainingSet: "2look" } : { pllTrainingSet: "2look" });
+    expect(controller.training.state.get()).toMatchObject({ activity: "drill", family, target: null, drill: { running: false, selectedCaseIds: [] } });
+  });
+  it("Session switching leaves Drill configuration and global history independent", async () => {
+    const { controller } = running(); controller.stopTrainingDrill();
+    const drill = controller.training.state.get().drill;
+    const history = [persistedTrainingAttempt()]; controller.trainingAttempts.set(history);
+    vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    await controller.selectSession("2");
+    expect(controller.training.state.get().drill).toBe(drill); expect(controller.trainingAttempts.get()).toBe(history);
+    expect(controller.sessions.get().sessionId).toBe("2");
   });
 });

@@ -16,7 +16,8 @@ import { handAlgorithm, handMove, handTimedMoves } from "../../cube/frames";
 import { advanceTrainingGuide, buildTrainingGuide, trainingGrip, trainingGuideProgress, type TrainingGuide, type TrainingGuideProgress } from "../../cube/training";
 import { calculateRecovery, type Recovery } from "../../shared/recovery";
 import { Store } from "../../shared/store";
-import type { Settings, Solve } from "../../app/types";
+import { drillCatalogue, drillCaseId, selectDrillCase, type TrainingDrillContext, type TrainingDrillState, type TrainingDrillStrategy } from "./trainingDrill";
+import type { Settings, Solve, TrainingAttempt } from "../../app/types";
 
 export type TrainingFamily = "f2l" | "oll" | "pll";
 
@@ -27,12 +28,23 @@ export type TrainingPhase =
   | "solving"
   | "result";
 
+export type TrainingActivity = "single" | "drill";
+export const DRILL_COUNTDOWN_MS = 2000;
+
+/** Answers are revealed only after a Drill round ends. */
+export function concealsTrainingAnswer(state: TrainingState): boolean {
+  return state.activity === "drill" && state.drill.running && (state.phase === "ready" || state.phase === "solving");
+}
+
 export type TrainingMode = "setup" | "virtual";
 
 export type TrainingResult = {
   moves: string[];
   stm: number;
+  /** Registered move span: first registered move to last registered move. */
   elapsedMs: number;
+  /** Drill case reveal to detected completion; null for Single. */
+  caseTimeMs: number | null;
   recommendedStm: number | null;
   recommendedAlg: string | null;
   matchedReferenceRank: number | null;
@@ -44,6 +56,7 @@ export type TrainingTargetInfo = F2lTrainingTargetInfo | LastLayerTrainingTarget
 export type TrainingTarget = F2lTrainingTarget | LastLayerTrainingTarget;
 
 export type CompletedTrainingAttempt = {
+  activity: TrainingActivity;
   mode: TrainingMode;
   target: TrainingTargetInfo;
   result: TrainingResult;
@@ -56,6 +69,8 @@ function isLastLayerTarget(target: TrainingTarget): target is LastLayerTrainingT
 export type F2lTrainingSelection = { library: F2lTrainingLibrary; position: F2lPosition };
 
 export type TrainingState = {
+  activity: TrainingActivity;
+  drill: TrainingDrillState;
   family: TrainingFamily;
   mode: TrainingMode;
   f2lSelection: F2lTrainingSelection;
@@ -74,6 +89,8 @@ export type TrainingState = {
 
 function emptyTrainingState(): TrainingState {
   return {
+    activity: "single",
+    drill: { strategy: "sequence", selectedCaseIds: [], running: false, round: 0, context: null, lastCaseId: null, lastOutcome: null },
     family: "f2l",
     mode: "setup",
     f2lSelection: { library: "basic", position: "FR" },
@@ -100,12 +117,18 @@ export type TrainingDependencies = {
   startClock: () => void;
   stopClock: () => void;
   reportError: (error: string) => void;
+  getTrainingAttempts?: () => readonly TrainingAttempt[];
+  rng?: () => number;
+  now?: () => number;
   onAttemptCompleted?: (attempt: CompletedTrainingAttempt) => void;
 };
 
 /** The single observable owner of the ephemeral Training lifecycle. */
 export class TrainingRuntime {
   readonly state = new Store<TrainingState>(emptyTrainingState());
+  readonly drillCountdown = new Store<number | null>(null);
+  #drillCountdownUntil: number | null = null;
+  #caseRevealedAt: number | null = null;
   #recoveryToken = 0;
   #f2lCase: F2lTrainingCase | null = null;
   #trainingTarget: TrainingTarget | null = null;
@@ -122,10 +145,117 @@ export class TrainingRuntime {
   }
   readonly #dependencies: TrainingDependencies;
   get #model(): CubeModel | null { return this.#dependencies.getModel(); }
+  #now(): number { return this.#dependencies.now?.() ?? performance.now(); }
   get hasCube(): boolean { return this.#dependencies.hasCube(); }
 
   elapsedAt(now: number): number | null {
     return this.state.get().phase === "solving" ? now - this.#trainingStartedAt : null;
+  }
+
+  /** The Controller's single RAF drives both attempt elapsed and Drill countdown. */
+  tick(now: number): boolean {
+    const training = this.state.get();
+    if (training.drill.running && this.#drillCountdownUntil !== null) {
+      const remaining = Math.max(0, this.#drillCountdownUntil - now);
+      this.drillCountdown.set(remaining);
+      if (remaining === 0) {
+        this.#drillCountdownUntil = null;
+        this.drillCountdown.set(null);
+        this.#revealDrillCase();
+      }
+    }
+    const current = this.state.get();
+    if (current.drill.running && this.#caseRevealedAt !== null && (current.phase === "ready" || current.phase === "solving")) {
+      this.#dependencies.elapsed.set(Math.max(0, now - this.#caseRevealedAt));
+    } else {
+      const elapsed = this.elapsedAt(now);
+      if (elapsed !== null) this.#dependencies.elapsed.set(elapsed);
+    }
+    return current.drill.running || current.phase === "solving";
+  }
+
+  setTrainingActivity(activity: TrainingActivity): void {
+    if (this.state.get().activity === activity) return;
+    this.reset();
+    this.state.update(s => ({ ...s, activity }));
+  }
+
+  #drillContext(): TrainingDrillContext {
+    const { family, f2lSelection } = this.state.get();
+    const settings = this.#dependencies.getSettings();
+    return family === "f2l" ? { family, ...f2lSelection } :
+      { family, trainingSet: family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet };
+  }
+
+  setDrillCases(caseIds: readonly string[]): void {
+    if (this.state.get().activity !== "drill" || this.state.get().drill.running) return;
+    const selectedCaseIds = drillCatalogue(this.#drillContext()).map(drillCaseId).filter(id => caseIds.includes(id));
+    this.state.update(s => ({ ...s, drill: { ...s.drill, selectedCaseIds } }));
+  }
+
+  toggleDrillCase(caseId: string): void {
+    const selected = this.state.get().drill.selectedCaseIds;
+    this.setDrillCases(selected.includes(caseId) ? selected.filter(id => id !== caseId) : [...selected, caseId]);
+  }
+
+  setDrillStrategy(strategy: TrainingDrillStrategy): void {
+    if (this.state.get().drill.running) return;
+    this.state.update(s => ({ ...s, drill: { ...s.drill, strategy } }));
+  }
+
+  startDrill(): void {
+    const state = this.state.get();
+    if (state.activity !== "drill" || state.drill.running || !state.drill.selectedCaseIds.length || !this.#model) return;
+    const context = this.#drillContext();
+    this.reset("virtual");
+    this.state.update(s => ({ ...s, drill: { ...s.drill, running: true, context } }));
+    this.#beginDrillCountdown();
+  }
+
+  #beginDrillCountdown(): void {
+    this.#drillCountdownUntil = this.#now() + DRILL_COUNTDOWN_MS;
+    this.drillCountdown.set(DRILL_COUNTDOWN_MS);
+    this.#dependencies.startClock();
+  }
+
+  #revealDrillCase(): void {
+    const { drill } = this.state.get();
+    if (!drill.running || !drill.context || !this.#model) return;
+    const cases = drillCatalogue(drill.context).filter(c => drill.selectedCaseIds.includes(drillCaseId(c)));
+    const selected = selectDrillCase(cases, drill.strategy, drill.round, drill.lastCaseId,
+      this.#dependencies.getTrainingAttempts?.() ?? [], this.#dependencies.rng ?? Math.random);
+    if (!selected) { this.stopDrill(); return; }
+    try {
+      let target: TrainingTarget;
+      if (selected.family === "f2l") {
+        this.#f2lCase = findF2lTrainingCase(selected.library, selected.caseName)!;
+        target = this.#buildF2lCatalogueTarget(this.#f2lCase, selected.position);
+      } else {
+        target = this.#buildRandomLastLayerCatalogueTarget(selected.family, selected.caseId, selected.trainingSet);
+      }
+      this.state.update(s => ({ ...s, drill: { ...s.drill, round: s.drill.round + 1, lastCaseId: drillCaseId(selected), lastOutcome: null } }));
+      // Virtual preparation publishes synchronously and never replaces the physical model.
+      void this.#prepareTarget(target);
+    } catch (error) {
+      this.stopDrill();
+      this.#dependencies.reportError(String(error));
+    }
+  }
+
+  skipDrillCase(): void {
+    const state = this.state.get();
+    if (!state.drill.running || state.phase !== "ready" || state.liveMoves.length) return;
+    this.#dependencies.stopClock();
+    this.state.update(s => ({ ...s, phase: "result", drill: { ...s.drill, lastOutcome: "skipped" },
+      guide: s.guide ? { ...s.guide, currentMove: null } : null }));
+    this.#beginDrillCountdown();
+  }
+
+  stopDrill(): void { if (this.state.get().activity === "drill") this.reset("virtual"); }
+
+  catalogueContextChanged(): void {
+    this.reset();
+    this.state.update(s => ({ ...s, drill: { ...s.drill, selectedCaseIds: [] } }));
   }
 
   physicalStateChanged(): void {
@@ -136,6 +266,7 @@ export class TrainingRuntime {
   }
 
   leave(): void {
+    if (this.state.get().activity === "drill") { this.stopDrill(); return; }
     const family = this.state.get().family;
     this.reset();
     this.state.set({ ...emptyTrainingState(), family });
@@ -160,6 +291,7 @@ export class TrainingRuntime {
   }
 
   async selectF2lCase(caseName: string): Promise<void> {
+    this.setTrainingActivity("single");
     this.setTrainingFamily("f2l");
     const f2lCase = findF2lTrainingCase(this.state.get().f2lSelection.library, caseName);
     if (!f2lCase || !this.#model) return;
@@ -174,7 +306,7 @@ export class TrainingRuntime {
     if (this.state.get().family === family) return;
     this.reset();
     this.#trainingTarget = null;
-    this.state.update((s) => ({ ...s, family, phase: "selecting", target: null, setup: "", setupProgress: null, recovery: null, liveMoves: [], result: null }));
+    this.state.update((s) => ({ ...s, family, drill: { ...s.drill, selectedCaseIds: [] }, phase: "selecting", target: null, setup: "", setupProgress: null, recovery: null, liveMoves: [], result: null }));
   }
 
   async selectLastLayerCase(family: LastLayerFamily, caseId: string, catalogue?: LastLayerTrainingSet): Promise<void> {
@@ -183,6 +315,7 @@ export class TrainingRuntime {
     // preference. Explicit catalogue navigation still uses the same lifecycle.
     const trainingSet = catalogue ?? (family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet);
     if (!lastLayerCaseIds(family, trainingSet).includes(caseId)) return;
+    this.setTrainingActivity("single");
     this.setTrainingFamily(family);
     if (!this.#model) return;
     try {
@@ -223,20 +356,23 @@ export class TrainingRuntime {
   }
 
   async selectF2lPosition(position: F2lPosition): Promise<void> {
+    if (this.state.get().drill.running) return;
     if (this.state.get().target?.origin.kind === "solve-step") return;
     this.state.update((s) => ({ ...s, family: "f2l", f2lSelection: { ...s.f2lSelection, position } }));
-    if (!this.#f2lCase || !this.#model) return;
+    if (this.state.get().activity === "drill" || !this.#f2lCase || !this.#model) return;
     await this.#prepareTarget(this.#buildF2lCatalogueTarget(this.#f2lCase, position));
   }
 
   setF2lLibrary(selectedLibrary: F2lTrainingLibrary): void {
+    if (this.state.get().drill.running) return;
     this.setTrainingFamily("f2l");
     if (this.state.get().f2lSelection.library === selectedLibrary) return;
-    this.reset();
+    this.catalogueContextChanged();
     this.state.update((s) => ({ ...s, family: "f2l", f2lSelection: { ...s.f2lSelection, library: selectedLibrary } }));
   }
 
   async practiceSolveStep(solve: Solve, step: SolveStep): Promise<void> {
+    this.setTrainingActivity("single");
     if (!this.#model) return;
     this.#f2lCase = null;
     try {
@@ -253,6 +389,7 @@ export class TrainingRuntime {
   }
 
   async setTrainingMode(mode: TrainingMode): Promise<void> {
+    if (this.state.get().activity === "drill") return;
     const training = this.state.get();
     if (training.mode === mode) return;
     if (training.family === "f2l") {
@@ -272,6 +409,7 @@ export class TrainingRuntime {
   }
 
   againTraining(): void {
+    if (this.state.get().activity === "drill") return;
     if (this.state.get().family === "f2l") void this.#reloadF2lTraining();
     else void this.#reloadLastLayerTraining();
   }
@@ -308,6 +446,9 @@ export class TrainingRuntime {
 
   reset(mode: TrainingMode = this.state.get().mode): void {
     const current = this.state.get();
+    this.#drillCountdownUntil = null;
+    this.#caseRevealedAt = null;
+    this.drillCountdown.set(null);
     const selectedPosition = current.f2lSelection.position;
     this.#trainingSelectionToken++;
     this.#recoveryToken++;
@@ -320,7 +461,7 @@ export class TrainingRuntime {
     this.#f2lAgainTurns = [];
     this.#dependencies.stopClock();
     this.#dependencies.elapsed.set(0);
-    this.state.update((s) => ({ ...emptyTrainingState(), family: s.family, mode, f2lSelection: { position: selectedPosition, library: s.f2lSelection.library } }));
+    this.state.update((s) => ({ ...emptyTrainingState(), activity: s.activity, drill: { ...s.drill, running: false, round: 0, context: null, lastCaseId: null, lastOutcome: null }, family: s.family, mode, f2lSelection: { position: selectedPosition, library: s.f2lSelection.library } }));
   }
 
   #buildF2lCatalogueTarget(
@@ -355,7 +496,7 @@ export class TrainingRuntime {
     if (!model) return;
     const token = ++this.#trainingSelectionToken;
     this.#recoveryToken++;
-    this.#dependencies.stopClock();
+    if (!this.state.get().drill.running) this.#dependencies.stopClock();
     const mode = this.state.get().mode;
     const captured = model.pattern;
     const capturedFacelets = patternToFacelets(captured);
@@ -367,6 +508,8 @@ export class TrainingRuntime {
     this.#f2lAgainTurns = [];
     this.#trainingVirtualPattern = mode === "virtual" ? target.pattern : null;
     this.#dependencies.elapsed.set(0);
+    // Target/reference preparation is complete; timing starts at case publication.
+    if (this.state.get().drill.running) this.#caseRevealedAt = this.#now();
     this.state.update((s) => ({
       ...s,
       family: target.info.family,
@@ -501,7 +644,7 @@ export class TrainingRuntime {
     }
 
     if (training.phase === "ready") {
-      this.#trainingStartedAt = performance.now();
+      this.#trainingStartedAt = this.#now();
       this.#trainingRawMoves = [move];
       this.#dependencies.elapsed.set(0);
       this.state.update((s) => ({ ...s, phase: "solving", liveMoves: [displayMove], result: null }));
@@ -583,7 +726,8 @@ export class TrainingRuntime {
 
   #finishTrainingAttempt(): void {
     if (this.state.get().phase !== "solving") return;
-    const mode = this.state.get().mode;
+    const { mode, activity } = this.state.get();
+    const caseTimeMs = activity === "drill" && this.#caseRevealedAt !== null ? Math.max(0, this.#now() - this.#caseRevealedAt) : null;
     this.#dependencies.stopClock();
     const offsets = fitMoveTimestamps(this.#trainingRawMoves);
     const timed: TimedMove[] = this.#trainingRawMoves.map((move, index) => ({
@@ -599,6 +743,7 @@ export class TrainingRuntime {
       moves: efficiency.moves.map(({ move }) => move),
       stm: efficiency.stm,
       elapsedMs: efficiency.elapsedMs,
+      caseTimeMs,
       recommendedStm: efficiency.recommendedStm,
       recommendedAlg: target?.info.references[0]?.alg ?? null,
       matchedReferenceRank: efficiency.matchedReferenceRank,
@@ -606,10 +751,13 @@ export class TrainingRuntime {
     };
     this.state.update((s) => ({
       ...s, phase: "result", result,
+      drill: activity === "drill" ? { ...s.drill, lastOutcome: "solved" } : s.drill,
       guide: s.guide ? { ...s.guide, currentMove: null } : null
     }));
-    if (target) this.#dependencies.onAttemptCompleted?.({ mode, target: target.info, result });
-    if (this.state.get().mode === "virtual") {
+    if (target) this.#dependencies.onAttemptCompleted?.({ activity, mode, target: target.info, result });
+    if (activity === "drill" && this.state.get().drill.running) {
+      this.#beginDrillCountdown();
+    } else if (this.state.get().mode === "virtual") {
       if (target && isLastLayerTarget(target)) void this.#reloadLastLayerTraining(true);
       else void this.#reloadF2lTraining(true);
     }

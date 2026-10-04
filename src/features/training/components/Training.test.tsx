@@ -36,7 +36,7 @@ describe("Training area", () => {
     if (!next || next.family === "f2l") throw new Error("Last-layer target missing");
     // Give the next target an alternative to exercise the preserved-result guard.
     const target = { ...next, references: [...next.references, { ...next.references[0], rank: 2, alg: "R U2 R'" }] };
-    const result = { moves: [], stm: first.stm, recommendedAlg: first.alg, recommendedStm: first.stm, matchedReferenceRank: 1, delta: 0, elapsedMs: 1000 };
+    const result = { moves: [], stm: first.stm, recommendedAlg: first.alg, recommendedStm: first.stm, matchedReferenceRank: 1, delta: 0, caseTimeMs: null, elapsedMs: 1000 };
     const draw = (preserved: typeof result | null) => {
       controller.training.state.set({ ...ready.training, target, result: preserved });
       return render(controller, <Training />);
@@ -89,7 +89,7 @@ describe("Training area", () => {
     expect(draw(solving)).toContain(`Move 2 / ${ready.training.guide!.moves.length}`);
     expect(draw({ ...ready, settings: { ...ready.settings, visualization: "2D" } })).not.toContain("cube-move-guide");
     expect(draw({ ...ready, settings: { ...ready.settings, visualization: "2D" } })).toContain('aria-current="step"');
-    const result = { moves: [], stm: 1, recommendedStm: 1, recommendedAlg: ready.training.target!.references[0].alg, matchedReferenceRank: null, delta: 0, elapsedMs: 1 };
+    const result = { moves: [], stm: 1, recommendedStm: 1, recommendedAlg: ready.training.target!.references[0].alg, matchedReferenceRank: null, delta: 0, caseTimeMs: null, elapsedMs: 1 };
     expect(draw({ ...ready, training: { ...ready.training, phase: "result", result } })).not.toContain("cube-move-guide");
     for (const phase of ["result", "ready"] as const) {
       const reviewed = draw({ ...ready, training: { ...ready.training, phase, result } });

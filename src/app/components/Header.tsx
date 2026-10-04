@@ -12,6 +12,7 @@ export function Header({
   onSelectArea: (area: AppArea) => void;
 }) {
   const controller = useController();
+  const drillRunning = useStoreValue(controller.training.state, value => value.drill.running);
   const trainingPhase = useStoreValue(controller.training.state, value => value.phase);
   const phase = useStoreValue(controller.timer.state, value => value.phase);
   const cubeStatus = useStoreValue(controller.physical.state, value => value.cubeStatus);
@@ -21,7 +22,7 @@ export function Header({
   const [renaming, setRenaming] = useState(false);
   const session = state.sessions.find((s) => s.id === state.sessionId);
   const smartEvent = session ? eventInfo(session.event).smart : false;
-  const liveTiming = state.phase === "inspection" || state.phase === "solving" || trainingPhase === "solving";
+  const liveTiming = state.phase === "inspection" || state.phase === "solving" || trainingPhase === "solving" || drillRunning;
   const sessionContextLocked = state.phase === "inspection" || state.phase === "solving";
 
   return (

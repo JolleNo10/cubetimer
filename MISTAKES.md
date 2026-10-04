@@ -1,5 +1,11 @@
 # Mistakes
 
+## 2026-10-04 — Drill test contract fixtures
+
+- What happened: an initial exact-step Drill fixture used invented step field names; old callback/export assertions omitted additive contract changes. Final inspection also found reveal timing began before target preparation finished.
+- Root cause: fixtures assumed domain contracts, and the countdown-expiry timestamp was initially treated as the reveal timestamp.
+- Prevention: use actual domain contracts and update boundary assertions alongside edits; stamp case reveal at prepared-state publication and test preparation latency separately.
+
 ## 2026-10-04 — Training history test boundaries
 
 - What happened: initial Controller import tests reached the new history adapter without a mock; an exact-completion fixture omitted its required cross-face analysis, and a timing formatter was initially passed directly as an array callback.

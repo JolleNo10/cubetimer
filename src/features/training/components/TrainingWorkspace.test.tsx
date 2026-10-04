@@ -22,7 +22,7 @@ async function selected() {
   await controller.selectF2lCase("F2L 1");
   return controller;
 }
-const result: TrainingResult = { moves: ["R", "U", "R'"], stm: 3, elapsedMs: 1250, recommendedStm: 3,
+const result: TrainingResult = { moves: ["R", "U", "R'"], stm: 3, caseTimeMs: null, elapsedMs: 1250, recommendedStm: 3,
   recommendedAlg: "R U R'", matchedReferenceRank: 1, delta: 0 };
 
 describe("shared Training presentation", () => {
@@ -116,7 +116,7 @@ describe("shared Training presentation", () => {
     expect(html).toContain(classification);
     expect(html).toContain(difference);
     expect(html).toContain("R U R&#x27;");
-    expect(html).toContain("elapsed 1.25");
+    expect(html).toContain("Move span 1.25");
   });
 
   it.each(["f2l", "oll", "pll"] as const)("shows shared result actions for %s", async family => {

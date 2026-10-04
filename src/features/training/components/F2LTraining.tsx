@@ -7,6 +7,7 @@ import { useController, useStore, useStoreValue } from "../../../app/useControll
 import { F2lCaseThumbnail } from "./F2lCaseThumbnail";
 import { TrainingWorkspace } from "./TrainingWorkspace";
 import { trainingCaseKey, trainingStatsByCase, type TrainingCaseStats } from "../trainingPerformance";
+import { DrillPoolActions } from "./TrainingDrill";
 import { TrainingCaseMarker, trainingPerformanceLabel } from "./TrainingPerformance";
 
 export function F2LTraining() {
@@ -21,6 +22,8 @@ function F2lLibraryPanel() {
   const controller = useController();
   const selection = useStoreValue(controller.training.state, state => state.f2lSelection);
   const selectedTarget = useStoreValue(controller.training.state, state => state.target);
+  const activity = useStoreValue(controller.training.state, state => state.activity);
+  const drill = useStoreValue(controller.training.state, state => state.drill);
   const catalogue = f2lTrainingCatalogue(selection.library);
   const attempts = useStore(controller.trainingAttempts);
   const statsByCase = useMemo(() => trainingStatsByCase(attempts), [attempts]);
@@ -37,6 +40,7 @@ function F2lLibraryPanel() {
                 key={option.library}
                 className={selection.library === option.library ? "active" : ""}
                 aria-pressed={selection.library === option.library}
+                disabled={drill.running}
                 onClick={() => controller.setF2lLibrary(option.library)}
               >
                 {option.label}
@@ -44,8 +48,9 @@ function F2lLibraryPanel() {
             ))}
           </nav>
           <span className="chip small">{catalogue.cases.length} cases</span>
-          <button className="ghost small" onClick={() => controller.randomTrainingCase("f2l")}>Random case</button>
-          <button className="ghost small" onClick={() => void controller.reviewTrainingCase("f2l")}>Review next</button>
+          {activity === "single" ? <><button className="ghost small" onClick={() => controller.randomTrainingCase("f2l")}>Random case</button>
+          <button className="ghost small" onClick={() => void controller.reviewTrainingCase("f2l")}>Review next</button></> :
+            <DrillPoolActions caseIds={catalogue.cases.map(c => c.name)} />}
         </div>
       </div>
       <div className="panel-body">
@@ -60,7 +65,7 @@ function F2lLibraryPanel() {
                 key={position}
                 className={selected ? "active" : ""}
                 aria-pressed={selected}
-                disabled={fixed}
+                disabled={fixed || drill.running}
                 onClick={() => void controller.selectF2lPosition(position)}
               >
                 {f2lPositionLabel(position)}
@@ -96,6 +101,8 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
   statsByCase: ReadonlyMap<string, TrainingCaseStats>;
 }) {
   const controller = useController();
+  const activity = useStoreValue(controller.training.state, state => state.activity);
+  const drill = useStoreValue(controller.training.state, state => state.drill);
   const groups = useMemo(() => [...new Set(cases.map((f2lCase) => f2lCase.group))], [cases]);
   const thumbnailModels = useMemo(
     () => new Map(cases.map((f2lCase) => [f2lCase.name, getF2lThumbnailModel(library, f2lCase.name, selectedPosition)])),
@@ -109,7 +116,7 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
           <div className="small faint">{group}</div>
           <div className="f2l-case-grid">
             {cases.filter((f2lCase) => f2lCase.group === group).map((f2lCase) => {
-              const selected = selectedCaseName === f2lCase.name;
+              const selected = activity === "drill" ? drill.selectedCaseIds.includes(f2lCase.name) : selectedCaseName === f2lCase.name;
               const model = thumbnailModels.get(f2lCase.name);
               const stats = statsByCase.get(trainingCaseKey({ family: "f2l", origin: "catalog", library, caseName: f2lCase.name, position: selectedPosition })!);
               const performance = trainingPerformanceLabel(stats);
@@ -120,12 +127,14 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
                   className={`f2l-case-button${selected ? " selected" : ""}`}
                   aria-label={`${f2lCase.name}, ${f2lPositionLabel(selectedPosition)}${performance ? `, ${performance}` : ""}`}
                   aria-pressed={selected}
-                  onClick={() => void controller.selectF2lCase(f2lCase.name)}
+                  disabled={drill.running}
+                  onClick={() => activity === "drill" ? controller.toggleDrillCase(f2lCase.name) : void controller.selectF2lCase(f2lCase.name)}
                 >
                   {model ? <F2lCaseThumbnail
                     model={model}
                   /> : null}
                   <span className="f2l-case-number">{shortF2lCaseLabel(f2lCase.name)}</span>
+                  {activity === "drill" && selected ? <span className="drill-pool-marker">✓ Selected</span> : null}
                   <TrainingCaseMarker stats={stats} />
                 </button>
               );

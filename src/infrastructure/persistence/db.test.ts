@@ -101,12 +101,25 @@ describe("migrateSession", () => {
 });
 
 const trainingAttempt = (values: Partial<TrainingAttempt> = {}): TrainingAttempt => ({
-  id: "attempt", createdAt: 10, mode: "virtual",
+  id: "attempt", createdAt: 10, mode: "virtual", activity: "single", caseTimeMs: null,
   target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 1", position: "FR" },
   moves: ["R", "U"], stm: 2, elapsedMs: 500, recommendedStm: 2, matchedReferenceRank: 1, delta: 0, ...values,
 });
 
 describe("TrainingAttempt current-record normalization", () => {
+  it("preserves old history as Single/null and accepts current Drill facts", () => {
+    const { activity: _activity, caseTimeMs: _caseTime, ...old } = trainingAttempt();
+    expect(normalizeTrainingAttempt(old)).toEqual(trainingAttempt());
+    const drill = trainingAttempt({ activity: "drill", caseTimeMs: 2400 });
+    expect(normalizeTrainingAttempt(drill)).toEqual(drill);
+  });
+  it.each([
+    { activity: "invalid" }, { caseTimeMs: -1 }, { caseTimeMs: Infinity }, { caseTimeMs: NaN },
+    { activity: "drill", caseTimeMs: null }, { activity: "drill", caseTimeMs: 2000, mode: "setup" },
+    { activity: "single", caseTimeMs: 2000 },
+  ])("rejects malformed activity/case timing %j", values => {
+    expect(normalizeTrainingAttempt({ ...trainingAttempt(), ...values })).toBeNull();
+  });
   it("keeps current facts and strips fields outside the historical contract", () => {
     const row = trainingAttempt();
     expect(normalizeTrainingAttempt({ ...row, sessionId: "timer", recommendedAlg: "R U" })).toEqual(row);

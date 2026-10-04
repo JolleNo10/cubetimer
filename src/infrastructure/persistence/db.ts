@@ -180,6 +180,12 @@ export function normalizeTrainingAttempt(value: unknown): TrainingAttempt | null
       !(value.recommendedStm === null || integer(value.recommendedStm) && value.recommendedStm >= 0) ||
       !(value.matchedReferenceRank === null || integer(value.matchedReferenceRank) && value.matchedReferenceRank > 0) ||
       !(value.delta === null || integer(value.delta))) return null;
+  const activity = value.activity === undefined ? "single" : value.activity;
+  const caseTimeMs = value.caseTimeMs === undefined ? null : value.caseTimeMs;
+  if ((activity !== "single" && activity !== "drill") ||
+      !(caseTimeMs === null || nonnegative(caseTimeMs)) ||
+      (activity === "single" && caseTimeMs !== null) ||
+      (activity === "drill" && (value.mode !== "virtual" || caseTimeMs === null || value.target.origin !== "catalog"))) return null;
   const t = value.target;
   let target: TrainingAttemptTarget;
   if (t.family === "f2l") {
@@ -207,7 +213,7 @@ export function normalizeTrainingAttempt(value: unknown): TrainingAttempt | null
     } else return null;
   } else return null;
   return {
-    id: value.id, createdAt: value.createdAt, mode: value.mode, target, moves: [...value.moves] as string[],
+    id: value.id, createdAt: value.createdAt, mode: value.mode, activity, caseTimeMs, target, moves: [...value.moves] as string[],
     stm: value.stm, elapsedMs: value.elapsedMs, recommendedStm: value.recommendedStm,
     matchedReferenceRank: value.matchedReferenceRank, delta: value.delta,
   };

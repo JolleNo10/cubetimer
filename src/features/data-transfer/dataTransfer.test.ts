@@ -35,13 +35,29 @@ function storage(sessions: Session[] = previous.sessions, solves: Solve[] = [], 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("JSON backup workflow", () => {
-  it("exports version 3 with solve and Training records", async () => {
+  it("imports v3 history as Single/null and exports current Drill fields in v4, keeping stable IDs", async () => {
+    const old = { id: "old-training", createdAt: 10, mode: "virtual",
+      target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 4", position: "FR" },
+      moves: ["R"], stm: 1, elapsedMs: 0, recommendedStm: 1, matchedReferenceRank: 1, delta: 0 };
+    const { attemptStore } = storage();
+    const v3 = JSON.stringify({ version: 3, sessions: [], solves: [], trainingAttempts: [old] });
+    await transfer.importData(kpuzzle, previous, v3);
+    expect(attemptStore.get(old.id)).toEqual({ ...old, activity: "single", caseTimeMs: null });
+    const drill = { ...old, id: "drill", activity: "drill", caseTimeMs: 2100 };
+    const v4 = JSON.stringify({ version: 4, sessions: [], solves: [], trainingAttempts: [drill] });
+    await transfer.importData(kpuzzle, previous, v4); await transfer.importData(kpuzzle, previous, v4);
+    expect(attemptStore.size).toBe(2);
+    expect(JSON.parse(await transfer.exportData())).toMatchObject({ version: 4, trainingAttempts: [
+      { ...old, activity: "single", caseTimeMs: null }, drill,
+    ] });
+  });
+  it("exports version 4 with solve and Training records", async () => {
     const sessions = [session("A", "222")];
     const solves = [solveFor("A")];
     storage(sessions, solves);
     vi.spyOn(Date, "now").mockReturnValue(1234);
     expect(JSON.parse(await transfer.exportData())).toEqual({
-      format: "cubetimer", version: 3, exportedAt: 1234, sessions, solves, trainingAttempts: [],
+      format: "cubetimer", version: 4, exportedAt: 1234, sessions, solves, trainingAttempts: [],
     });
   });
 
@@ -94,11 +110,11 @@ describe("JSON backup workflow", () => {
   });
 
   it("imports current Training facts, skips malformed records and upserts IDs even without their source Solve", async () => {
-    const attempt: TrainingAttempt = { id: "attempt", createdAt: 10, mode: "virtual",
+    const attempt: TrainingAttempt = { id: "attempt", createdAt: 10, mode: "virtual", activity: "single", caseTimeMs: null,
       target: { family: "oll", origin: "solve-step", solveId: "missing", stepName: "OLL", trainingSet: "full", caseId: "27", auf: 2 },
       moves: ["R", "U"], stm: 2, elapsedMs: 700, recommendedStm: 2, matchedReferenceRank: 1, delta: 0 };
     const { attemptStore } = storage();
-    const archive = JSON.stringify({ format: "cubetimer", version: 3, sessions: previous.sessions, solves: [], trainingAttempts: [
+    const archive = JSON.stringify({ format: "cubetimer", version: 4, sessions: previous.sessions, solves: [], trainingAttempts: [
       attempt, null, { ...attempt, id: "bad", stm: "2" }, { ...attempt, id: "bad-mode", mode: "timer" },
     ] });
     const result = await transfer.importData(kpuzzle, previous, archive);
@@ -110,7 +126,7 @@ describe("JSON backup workflow", () => {
   });
 
   it("keeps Training independent of Session compatibility and leaves existing Training history on v2 import", async () => {
-    const attempt: TrainingAttempt = { id: "global", createdAt: 0, mode: "setup",
+    const attempt: TrainingAttempt = { id: "global", createdAt: 0, mode: "setup", activity: "single", caseTimeMs: null,
       target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 1", position: "FR" },
       moves: ["R"], stm: 1, elapsedMs: 0, recommendedStm: null, matchedReferenceRank: null, delta: null };
     const { attemptStore } = storage(previous.sessions, [], [attempt]);

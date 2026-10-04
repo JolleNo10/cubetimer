@@ -64,6 +64,7 @@ Observable stores follow ownership:
 | `timer.state` | Timer phase, scramble/progress/generation, recovery, live moves, source and penalty |
 | `training.state` | Training lifecycle only |
 | `Controller.trainingAttempts` | Global persisted completed Training facts, separate from live Training and Timer history |
+| `training.drillCountdown` | Remaining Drill countdown milliseconds; narrow RAF-frequency presentation only |
 | `Controller.elapsed`, `inspectionLeft` | Shared elapsed publication and Timer inspection remaining |
 
 `AppState` contains neither Timer nor Training nor physical cube state. There is no
@@ -81,8 +82,12 @@ surfaces subscribe locally. Training navigation selects its family, libraries se
 case preferences/targets, and setup/cube/attempt surfaces own their live subscriptions.
 Selectors return primitive values or stable references contained in their store.
 
-One Controller RAF scheduler asks TimerRuntime to tick or reads
-`training.elapsedAt(now)`. The runtimes own their timestamps and request shared
+One Controller RAF scheduler calls `TimerRuntime.tick(now)` or
+`TrainingRuntime.tick(now)` for the active area. Training tick owns live elapsed
+publication and initial/inter-round Drill countdown progression/expiry. The narrow
+`drillCountdown` Store keeps RAF updates out of aggregate TrainingState and case
+libraries; React only presents the remaining milliseconds. There is no React timer
+or second RAF. The runtimes own their timestamps and request shared
 clock start/stop through injected callbacks. Timer and Training own independent
 recovery cancellation tokens and share the pure `calculateRecovery()` solver path.
 
@@ -168,7 +173,8 @@ statistics
 Timer and Training own live workflows. Statistics is a read-only/non-timing area
 for historical analytics. It gates live Timer/Training input while visible but
 does not create a third solve or training state machine. The Controller refuses
-to enter Statistics while Timer inspection/solving or a Training attempt is active.
+to enter Statistics while Timer inspection/solving, a Single solving attempt, or
+any running Drill phase (including countdown and ready) is active.
 Entering Statistics remembers the prior runtime area without resetting its idle
 state; returning to it reconciles progress against the physical cube.
 

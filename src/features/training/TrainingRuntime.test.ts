@@ -17,10 +17,11 @@ import { get3x3x3 } from "../../cube/puzzle";
 import { lastLayerCornersPermuted, lastLayerEdges, reframe, withCentresHome } from "../../cube/recognise";
 import * as solver from "../../cube/solver";
 import { cubeMove, handAlgorithm } from "../../cube/frames";
+import * as trainingDomain from "../../cube/training";
 import { trainingGrip } from "../../cube/training";
 import * as db from "../../infrastructure/persistence/db";
 import { Store } from "../../shared/store";
-import { TrainingRuntime, type CompletedTrainingAttempt } from "./TrainingRuntime";
+import { TrainingRuntime, type CompletedTrainingAttempt, type TrainingDependencies } from "./TrainingRuntime";
 import type { Solve } from "../../app/types";
 import { DEFAULT_SETTINGS, type Settings } from "../../app/types";
 
@@ -36,12 +37,12 @@ type Inputs = { model: CubeModel; settings: Settings; virtualCube: boolean; erro
 const fixtures = new WeakMap<TrainingRuntime, Inputs>();
 function inputs(runtime: TrainingRuntime): Inputs { return fixtures.get(runtime)!; }
 function configureInputs(runtime: TrainingRuntime, update: (input: Inputs) => Inputs): void { fixtures.set(runtime, update(inputs(runtime))); }
-function createRuntime(model: CubeModel, onAttemptCompleted?: (attempt: CompletedTrainingAttempt) => void): TrainingRuntime {
+function createRuntime(model: CubeModel, onAttemptCompleted?: (attempt: CompletedTrainingAttempt) => void, dependencies: Partial<TrainingDependencies> = {}): TrainingRuntime {
   const runtime: TrainingRuntime = new TrainingRuntime({
     getModel: () => inputs(runtime).model, getSettings: () => inputs(runtime).settings,
     hasCube: () => inputs(runtime).virtualCube, isActive: () => true, elapsed: new Store(0), startClock: vi.fn(), stopClock: vi.fn(),
     onAttemptCompleted,
-    reportError: error => { inputs(runtime).error = error; }
+    reportError: error => { inputs(runtime).error = error; }, ...dependencies
   });
   fixtures.set(runtime, { model, settings: DEFAULT_SETTINGS, virtualCube: false, error: null });
   return runtime;
@@ -163,6 +164,7 @@ describe("TrainingRuntime shared algorithm guide", () => {
       for (const move of reference.slice(1)) feedMove(runtime, cubeMove(move, grip));
       const result = runtime.state.get().result;
       expect(result).not.toBeNull();
+    expect(result?.caseTimeMs).toBeNull();
       expect(result?.matchedReferenceRank).toBeNull();
 
       if (mode === "setup") {
@@ -248,7 +250,7 @@ describe("TrainingRuntime last-layer sets", () => {
     expect(training.displayFacelets).toBe(patternToFacelets(next.pattern));
     expect(training.displayFacelets).not.toBe(patternToFacelets(first.pattern));
     expect(random).toHaveBeenCalledTimes(4);
-    expect(completed).toHaveBeenCalledExactlyOnceWith({ mode: "virtual", target: first.info, result: training.result });
+    expect(completed).toHaveBeenCalledExactlyOnceWith({ activity: "single", mode: "virtual", target: first.info, result: training.result });
 
     expect(saveSolve).not.toHaveBeenCalled();
     const nextMove = referenceExecutionSignature(next.info.references[0].alg)![0];
@@ -839,7 +841,7 @@ describe("Training completed-attempt boundary", () => {
     expect(runtime.state.get().phase).toBe("ready");
     for (const token of referenceExecutionSignature(target.references[0].alg)!) feedMove(runtime, cubeMove(token, trainingGrip(target)));
     const result = runtime.state.get().result;
-    expect(completed).toHaveBeenCalledExactlyOnceWith({ mode, target, result });
+    expect(completed).toHaveBeenCalledExactlyOnceWith({ activity: "single", mode, target, result });
     expect(result).not.toBeNull();
     runtime.physicalStateChanged();
     runtime.againTraining(); await Promise.resolve();
@@ -891,5 +893,155 @@ describe("Training completed-attempt boundary", () => {
       expect(select).toHaveBeenLastCalledWith(cases[index].name);
       expect(runtime.state.get().f2lSelection).toEqual({ library, position: "FL" });
     }
+  });
+});
+
+describe("TrainingRuntime continuous virtual Drill", () => {
+  function drill(family: "f2l" | "oll" | "pll" = "f2l", extra: Partial<TrainingDependencies> = {}) {
+    let now = 100;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const completed = vi.fn();
+    const model = new CubeModel(kpuzzle); model.applyMove("B");
+    const runtime = createRuntime(model, completed, extra);
+    runtime.setTrainingFamily(family); runtime.setTrainingActivity("drill");
+    const advance = (ms: number) => { now += ms; return runtime.tick(now); };
+    const solve = () => {
+      const target = runtime.state.get().target!;
+      for (const token of referenceExecutionSignature(target.references[0].alg)!) {
+        now += 100;
+        feedMove(runtime, cubeMove(token, trainingGrip(target)));
+      }
+    };
+    return { runtime, model, completed, advance, solve };
+  }
+  it("starts empty, rejects an empty pool, and conceals targets throughout the initial countdown", () => {
+    const { runtime, model, advance } = drill();
+    expect(runtime.state.get().drill.selectedCaseIds).toEqual([]);
+    runtime.startDrill(); expect(runtime.state.get().drill.running).toBe(false);
+    runtime.setDrillCases(["F2L 4"]); const physical = model.facelets;
+    runtime.startDrill();
+    expect(runtime.state.get()).toMatchObject({ activity: "drill", mode: "virtual", target: null, result: null, drill: { running: true, round: 0 } });
+    expect(runtime.drillCountdown.get()).toBe(2000);
+    expect(model.facelets).toBe(physical);
+    const state = runtime.state.get();
+    expect(advance(1999)).toBe(true);
+    expect(runtime.state.get()).toBe(state); // RAF changes only the narrow countdown Store.
+    expect(runtime.drillCountdown.get()).toBe(1);
+    expect(runtime.state.get().target).toBeNull();
+    advance(1);
+    expect(runtime.state.get()).toMatchObject({ phase: "ready", drill: { round: 1, lastCaseId: "F2L 4" } });
+    expect(runtime.state.get().target?.origin).toMatchObject({ kind: "catalog", caseName: "F2L 4" });
+    expect(runtime.drillCountdown.get()).toBeNull(); expect(model.facelets).toBe(physical);
+  });
+  it("starts case timing after target/reference preparation, at case publication", () => {
+    let clock = 100;
+    const buildGuide = trainingDomain.buildTrainingGuide;
+    vi.spyOn(trainingDomain, "buildTrainingGuide").mockImplementation((...args) => { clock += 50; return buildGuide(...args); });
+    const completed = vi.fn();
+    const runtime = createRuntime(new CubeModel(kpuzzle), completed, { now: () => clock });
+    runtime.setTrainingActivity("drill"); runtime.setDrillCases(["F2L 4"]); runtime.startDrill();
+    clock = 2100; runtime.tick(clock); // Preparation takes 50 ms before publication.
+    const target = runtime.state.get().target!;
+    clock = 2250;
+    for (const token of referenceExecutionSignature(target.references[0].alg)!) feedMove(runtime, cubeMove(token, trainingGrip(target)));
+    expect(completed).toHaveBeenCalledOnce();
+    expect(completed.mock.calls[0][0].result.caseTimeMs).toBe(100);
+  });
+  it.each(["f2l", "oll", "pll"] as const)("completes %s through the shared virtual path and preserves result until countdown expiry", family => {
+    const { runtime, completed, advance, solve } = drill(family);
+    runtime.setDrillCases([family === "f2l" ? "F2L 4" : family === "oll" ? "27" : "T"]);
+    runtime.startDrill(); advance(2000); advance(500);
+    const target = runtime.state.get().target;
+    solve();
+    expect(completed).toHaveBeenCalledOnce();
+    const fact = completed.mock.calls[0][0] as CompletedTrainingAttempt;
+    expect(fact).toMatchObject({ activity: "drill", mode: "virtual", target, result: { matchedReferenceRank: 1 } });
+    expect(fact.result.caseTimeMs).toBeGreaterThan(500);
+    expect(runtime.state.get()).toMatchObject({ phase: "result", drill: { lastOutcome: "solved" } });
+    expect(runtime.drillCountdown.get()).toBe(2000);
+    feedMove(runtime, "R"); expect(completed).toHaveBeenCalledOnce();
+    advance(1999); expect(runtime.state.get().target).toBe(target); expect(runtime.state.get().result).toBe(fact.result);
+    advance(1); expect(runtime.state.get()).toMatchObject({ phase: "ready", result: null, drill: { round: 2, lastOutcome: null } });
+    expect(runtime.state.get().target).not.toBe(target);
+  });
+  it("cycles catalogue order, clears results each round, and restarts from the first selected case", () => {
+    const { runtime, advance } = drill();
+    runtime.setDrillCases(["F2L 5", "F2L 4"]);
+    expect(runtime.state.get().drill.selectedCaseIds).toEqual(["F2L 4", "F2L 5"]);
+    runtime.startDrill();
+    for (const name of ["F2L 4", "F2L 5", "F2L 4"]) {
+      advance(2000); expect(runtime.state.get().drill.lastCaseId).toBe(name);
+      runtime.skipDrillCase();
+    }
+    runtime.stopDrill(); expect(runtime.state.get().drill.selectedCaseIds).toEqual(["F2L 4", "F2L 5"]);
+    runtime.startDrill(); advance(2000); expect(runtime.state.get().drill.lastCaseId).toBe("F2L 4");
+  });
+  it("Random avoids the previous case and reads current history for each weighted round", () => {
+    const history = vi.fn(() => []);
+    const { runtime, advance } = drill("f2l", { rng: () => 0, getTrainingAttempts: history });
+    runtime.setDrillCases(["F2L 4", "F2L 5"]); runtime.setDrillStrategy("random"); runtime.startDrill();
+    advance(2000); expect(runtime.state.get().drill.lastCaseId).toBe("F2L 4");
+    runtime.skipDrillCase(); advance(2000); expect(runtime.state.get().drill.lastCaseId).toBe("F2L 5");
+    runtime.stopDrill(); runtime.setDrillStrategy("weighted"); runtime.startDrill();
+    advance(2000); runtime.skipDrillCase(); advance(2000);
+    expect(history).toHaveBeenCalledTimes(4);
+    expect(runtime.state.get().drill.lastCaseId).toBe("F2L 5");
+  });
+  it("skip emits no completion, reveals the same target, and is unavailable after any turn", () => {
+    const { runtime, completed, advance } = drill();
+    runtime.setDrillCases(["F2L 4"]); runtime.startDrill(); advance(2000);
+    const target = runtime.state.get().target;
+    runtime.skipDrillCase(); runtime.skipDrillCase();
+    expect(runtime.state.get()).toMatchObject({ phase: "result", target, drill: { lastOutcome: "skipped" } });
+    expect(runtime.drillCountdown.get()).toBe(2000); expect(completed).not.toHaveBeenCalled();
+    advance(2000); feedMove(runtime, "B");
+    expect(runtime.state.get().phase).toBe("solving"); runtime.skipDrillCase();
+    expect(runtime.state.get().phase).toBe("solving"); expect(runtime.drillCountdown.get()).toBeNull();
+  });
+  it.each(["countdown", "ready", "solving", "solved", "skipped"])("stop safely cancels %s and retains configuration without recording an incomplete attempt", phase => {
+    const { runtime, completed, advance, solve } = drill();
+    runtime.setDrillCases(["F2L 4"]); runtime.setDrillStrategy("weighted"); runtime.startDrill();
+    if (phase !== "countdown") advance(2000);
+    if (phase === "solving") feedMove(runtime, "B");
+    if (phase === "solved") solve();
+    if (phase === "skipped") runtime.skipDrillCase();
+    runtime.stopDrill();
+    expect(runtime.state.get()).toMatchObject({ activity: "drill", phase: "selecting", target: null, result: null,
+      drill: { running: false, selectedCaseIds: ["F2L 4"], strategy: "weighted" } });
+    expect(runtime.drillCountdown.get()).toBeNull(); expect(advance(5000)).toBe(false);
+    expect(completed).toHaveBeenCalledTimes(phase === "solved" ? 1 : 0);
+  });
+  it("preserves position changes in configuration, rejects run-time library/position edits, and clears incompatible family/library pools", async () => {
+    const { runtime } = drill(); runtime.setDrillCases(["F2L 4"]);
+    await runtime.selectF2lPosition("FL"); expect(runtime.state.get().drill.selectedCaseIds).toEqual(["F2L 4"]);
+    runtime.startDrill(); await runtime.selectF2lPosition("BL"); runtime.setF2lLibrary("advanced");
+    expect(runtime.state.get().f2lSelection).toEqual({ library: "basic", position: "FL" });
+    runtime.setDrillCases([]); runtime.setDrillStrategy("random");
+    expect(runtime.state.get().drill).toMatchObject({ selectedCaseIds: ["F2L 4"], strategy: "sequence" });
+    runtime.setTrainingFamily("oll");
+    expect(runtime.state.get()).toMatchObject({ activity: "drill", family: "oll", drill: { running: false, selectedCaseIds: [] } });
+    runtime.setTrainingFamily("f2l"); runtime.setDrillCases(["F2L 4"]); runtime.setF2lLibrary("advanced");
+    expect(runtime.state.get().drill.selectedCaseIds).toEqual([]);
+  });
+  it("set invalidation cancels an initial last-layer countdown as well as a revealed target", () => {
+    const { runtime, advance } = drill("oll"); runtime.setDrillCases(["27"]); runtime.startDrill();
+    runtime.catalogueContextChanged();
+    expect(runtime.state.get().drill).toMatchObject({ running: false, selectedCaseIds: [] });
+    configureInputs(runtime, s => ({ ...s, settings: { ...s.settings, ollTrainingSet: "2look" } }));
+    runtime.setDrillCases(["Sune"]); runtime.startDrill(); advance(2000); runtime.catalogueContextChanged();
+    expect(runtime.state.get()).toMatchObject({ activity: "drill", target: null, drill: { running: false, selectedCaseIds: [] } });
+  });
+  it("exact solve-step practice stops Drill and remains Single", async () => {
+    const { runtime } = drill("oll"); runtime.setDrillCases(["27"]); runtime.startDrill();
+    const built = buildLastLayerCatalogueTarget(kpuzzle, "oll", "27", 0);
+    const solve = solveFor("s"); solve.scrambledFacelets = patternToFacelets(built.pattern);
+    const moves = referenceExecutionSignature(built.info.references[0].alg)!.map((token, index) => ({ move: cubeMove(token, trainingGrip(built.info)), t: index * 100 }));
+    solve.moves = moves; solve.analysis = { method: "CFOP", crossFace: "U", rotation: "", steps: [], solvingMs: 1000,
+      tps: 3, totalRecognitionMs: 0, totalExecutionMs: 1000, stepsSkipped: 0, turnsAfterSolution: 0, pauses: [],
+      sliceTurns: moves.length, faceTurns: moves.length, quarterTurns: moves.length };
+    await runtime.practiceSolveStep(solve, { name: "OLL", fromMove: 0, toMove: moves.length, case: "27", moves: moves.map(m => m.move).join(" "), recordedMoves: moves, skipped: false, hasTurns: true, timeMs: 1000, recognitionMs: 0, executionMs: 1000, cumulativeMs: 1000, sliceTurns: moves.length, faceTurns: moves.length, quarterTurns: moves.length, tps: 1, slot: null });
+    expect(runtime.state.get()).toMatchObject({ activity: "single", drill: { running: false }, target: { origin: { kind: "solve-step" } } });
+    expect(runtime.drillCountdown.get()).toBeNull();
   });
 });

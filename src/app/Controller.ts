@@ -25,7 +25,8 @@ import * as solveHistory from "../features/history/solveHistory";
 import type { StatisticsSnapshot } from "../features/statistics/state/statistics";
 import { Store } from "../shared/store";
 import { TimerRuntime, type TimerState } from "../features/timer/TimerRuntime";
-import { TrainingRuntime, type CompletedTrainingAttempt, type TrainingFamily, type TrainingMode } from "../features/training/TrainingRuntime";
+import { TrainingRuntime, type CompletedTrainingAttempt, type TrainingActivity, type TrainingFamily, type TrainingMode } from "../features/training/TrainingRuntime";
+import type { TrainingDrillStrategy } from "../features/training/trainingDrill";
 import * as trainingHistory from "../features/training/trainingHistory";
 import { catalogueCaseForTarget, selectTrainingReview, type TrainingCatalogueCase } from "../features/training/trainingPerformance";
 import {
@@ -89,6 +90,7 @@ export class Controller {
       isActive: () => this.state.get().area === "training", elapsed: this.elapsed,
       startClock: () => this.#startLoop(), stopClock: () => this.#stopLoop(),
       reportError: error => this.state.update((state) => ({ ...state, error })),
+      getTrainingAttempts: () => this.trainingAttempts.get(),
       onAttemptCompleted: attempt => this.#recordTrainingAttempt(attempt),
     });
   }
@@ -187,7 +189,7 @@ export class Controller {
   setArea(area: AppArea): void {
     if (area === this.state.get().area) return;
     const current = this.snapshot();
-    const liveTraining = this.training.state.get().phase === "solving";
+    const liveTraining = this.training.state.get().phase === "solving" || this.training.state.get().drill.running;
     if (area === "statistics") {
       if (current.phase === "inspection" || current.phase === "solving" || liveTraining) return;
       this.#areaBeforeStatistics = current.area === "training" ? "training" : "timer";
@@ -238,6 +240,14 @@ export class Controller {
     this.state.update((s) => ({ ...s, area: "timer" }));
     return true;
   }
+
+  setTrainingActivity(activity: TrainingActivity): void { this.setArea("training"); this.training.setTrainingActivity(activity); }
+  toggleDrillCase(caseId: string): void { this.training.toggleDrillCase(caseId); }
+  setDrillCases(caseIds: readonly string[]): void { this.training.setDrillCases(caseIds); }
+  setDrillStrategy(strategy: TrainingDrillStrategy): void { this.training.setDrillStrategy(strategy); }
+  startTrainingDrill(): void { this.setArea("training"); this.training.startDrill(); }
+  stopTrainingDrill(): void { this.training.stopDrill(); }
+  skipTrainingDrillCase(): void { this.training.skipDrillCase(); }
 
   setTrainingFamily(family: TrainingFamily): void {
     if (this.training.state.get().family === family) return;
@@ -325,9 +335,7 @@ export class Controller {
       const now = performance.now();
       const area = this.state.get().area;
       if (area === "training") {
-        const elapsed = this.training.elapsedAt(now);
-        if (elapsed !== null) this.elapsed.set(elapsed);
-        else this.#stopLoop();
+        if (!this.training.tick(now)) this.#stopLoop();
       } else if (area !== "timer" || !this.timer.tick(now)) this.#stopLoop();
     };
     this.#rafHandle = requestAnimationFrame(tick);
@@ -446,7 +454,7 @@ export class Controller {
     const trainingSetChanged =
       (training.family === "oll" && settings.ollTrainingSet !== current.settings.ollTrainingSet) ||
       (training.family === "pll" && settings.pllTrainingSet !== current.settings.pllTrainingSet);
-    if (trainingSetChanged && training.target) this.resetTraining();
+    if (trainingSetChanged) this.training.catalogueContextChanged();
     this.settings.set(settings);
     const specialCancellation = cancelsSpecialGeneration
       ? this.timer.cancelSpecialScrambleGeneration()

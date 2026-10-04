@@ -311,6 +311,7 @@ export type TrainingEfficiency = {
   recommendedStm: number | null;
   matchedReferenceRank: number | null;
   delta: number | null;
+  /** Registered move span: first registered move (rebased to zero) to last. */
   elapsedMs: number;
 };
 

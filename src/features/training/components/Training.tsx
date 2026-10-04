@@ -8,11 +8,13 @@ import { F2LTraining } from "./F2LTraining";
 import { LastLayerCaseThumbnail } from "./LastLayerCaseThumbnail";
 import { TrainingWorkspace } from "./TrainingWorkspace";
 import { trainingCaseKey, trainingStatsByCase } from "../trainingPerformance";
+import { DrillPoolActions } from "./TrainingDrill";
 import { TrainingCaseMarker, trainingPerformanceLabel } from "./TrainingPerformance";
 
 export function Training() {
   const controller = useController();
   const family = useStoreValue(controller.training.state, state => state.family);
+  const activity = useStoreValue(controller.training.state, state => state.activity);
   return (
     <div className="training-screen">
       <nav className="training-family-switch area-switch" aria-label="Training family">
@@ -28,6 +30,11 @@ export function Training() {
           </button>
         ))}
       </nav>
+      <nav className="training-activity-switch area-switch" aria-label="Training activity">
+        {(["single", "drill"] as const).map(option => <button type="button" key={option}
+          aria-pressed={activity === option} className={activity === option ? "active" : ""}
+          onClick={() => controller.setTrainingActivity(option)}>{option === "single" ? "Single" : "Drill"}</button>)}
+      </nav>
       {family === "f2l" ? <F2LTraining /> : <LastLayerTraining family={family} />}
     </div>
   );
@@ -41,6 +48,8 @@ function LastLayerTraining({ family }: { family: LastLayerFamily }) {
 function LastLayerCaseLibrary({ family }: { family: LastLayerFamily }) {
   const controller = useController();
   const selectedTarget = useStoreValue(controller.training.state, state => state.target);
+  const activity = useStoreValue(controller.training.state, state => state.activity);
+  const drill = useStoreValue(controller.training.state, state => state.drill);
   const trainingSet = useStoreValue(controller.settings, settings => family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet);
   const target = selectedTarget?.family === family
     ? selectedTarget
@@ -74,8 +83,9 @@ function LastLayerCaseLibrary({ family }: { family: LastLayerFamily }) {
       <div className="panel-head">
         <span className="panel-title">{trainingSet === "2look" ? "2-Look " : ""}{family.toUpperCase()} cases</span>
         <div className="row wrap"><span className="chip small">{catalogue.length} cases</span>
-          <button className="ghost small" onClick={() => controller.randomTrainingCase(family)}>Random case</button>
-          <button className="ghost small" onClick={() => void controller.reviewTrainingCase(family)}>Review next</button></div>
+          {activity === "single" ? <><button className="ghost small" onClick={() => controller.randomTrainingCase(family)}>Random case</button>
+          <button className="ghost small" onClick={() => void controller.reviewTrainingCase(family)}>Review next</button></> :
+            <DrillPoolActions caseIds={catalogue.map(c => c.caseId)} />}</div>
       </div>
       <div className="panel-body">
         {groups.map((sourceGroup) => {
@@ -86,13 +96,14 @@ function LastLayerCaseLibrary({ family }: { family: LastLayerFamily }) {
               <div className="last-layer-case-grid">
                 {cases.map((item) => {
                   const caseId = item.caseId;
-                  const selected = target?.trainingSet === trainingSet && target.caseId === caseId;
+                  const selected = activity === "drill" ? drill.selectedCaseIds.includes(caseId) : target?.trainingSet === trainingSet && target.caseId === caseId;
                   const stats = statsByCase.get(trainingCaseKey({ family, origin: "catalog", trainingSet, caseId })!);
                   const performance = trainingPerformanceLabel(stats);
                   return (
-                    <button type="button" className={`last-layer-case-button${selected ? " selected" : ""}`} key={item.id} aria-pressed={selected} aria-label={`${item.id}${performance ? `, ${performance}` : ""}`} onClick={() => void controller.selectLastLayerCase(family, caseId)}>
+                    <button type="button" className={`last-layer-case-button${selected ? " selected" : ""}`} key={item.id} disabled={drill.running} aria-pressed={selected} aria-label={`${item.id}${performance ? `, ${performance}` : ""}`} onClick={() => activity === "drill" ? controller.toggleDrillCase(caseId) : void controller.selectLastLayerCase(family, caseId)}>
                       {thumbnailModels.get(item.id) ? <LastLayerCaseThumbnail model={thumbnailModels.get(item.id)!} /> : null}
                       <span>{family === "oll" && trainingSet === "full" ? `#${caseId}` : item.name}</span>
+                      {activity === "drill" && selected ? <span className="drill-pool-marker">✓ Selected</span> : null}
                       <TrainingCaseMarker stats={stats} />
                     </button>
                   );

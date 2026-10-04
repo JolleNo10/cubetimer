@@ -3,7 +3,7 @@ import * as db from "../../infrastructure/persistence/db";
 import type { CompletedTrainingAttempt } from "./TrainingRuntime";
 
 /** Snapshot the completed target before any virtual reload randomizes it. */
-export function createTrainingAttempt({ mode, target: t, result }: CompletedTrainingAttempt): TrainingAttempt {
+export function createTrainingAttempt({ activity, mode, target: t, result }: CompletedTrainingAttempt): TrainingAttempt {
   let target: TrainingAttemptTarget;
   if (t.family === "f2l") {
     target = t.origin.kind === "catalog"
@@ -16,7 +16,7 @@ export function createTrainingAttempt({ mode, target: t, result }: CompletedTrai
       : { family: t.family, origin: "solve-step", solveId: t.origin.solveId, stepName: t.origin.stepName,
         trainingSet: "full", caseId: t.caseId, auf: t.auf };
   }
-  return { id: crypto.randomUUID(), createdAt: Date.now(), mode, target, moves: [...result.moves],
+  return { id: crypto.randomUUID(), createdAt: Date.now(), activity, mode, caseTimeMs: result.caseTimeMs, target, moves: [...result.moves],
     stm: result.stm, elapsedMs: result.elapsedMs, recommendedStm: result.recommendedStm,
     matchedReferenceRank: result.matchedReferenceRank, delta: result.delta };
 }

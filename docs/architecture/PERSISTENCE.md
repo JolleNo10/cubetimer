@@ -221,7 +221,9 @@ TrainingRuntime completion -> Controller -> TrainingHistory -> db.ts
 
 Live Training state remains ephemeral. Completed attempts are independent global
 application records, with UUID, timestamp, setup/virtual mode, discriminated target,
-actual moves and measured performance. They carry no Session/Event ownership and
+Single/Drill activity, actual moves and measured performance. `elapsedMs` is the
+registered first-to-last move span. Drill records also carry reveal-to-completion
+`caseTimeMs`; Single records carry null. They carry no Session/Event ownership and
 never enter normal Solve/Statistics collections. Controller owns a separate
 Training-attempt Store and appends immediately before asynchronous persistence;
 errors leave the completed result intact. TrainingRuntime and React do not access
@@ -231,8 +233,10 @@ mastery; their source Solve need not still exist.
 
 `normalizeTrainingAttempt` validates only the current shape: ID, timestamp, mode,
 discriminated target/catalogue combinations, result numbers and move array. It
-rebuilds the contract explicitly and skips malformed records on load/import. There
-is no legacy Training shape or fabricated Training migration.
+rebuilds the contract explicitly and skips malformed records on load/import. Missing
+additive activity/case-time fields in older records normalize to
+Single/null without discarding history. The store shape is unchanged and IndexedDB
+remains schema version 2.
 
 ### Legacy normalization
 
@@ -257,12 +261,13 @@ The export writes:
 
 ```text
 format: cubetimer
-version: 3
+version: 4
 ```
 
 Event identity exists on Sessions in the exported model.
-Full backups contain `sessions`, `solves` and global `trainingAttempts`. Older v2
-archives without Training history still import as an empty incoming attempt list,
+Full v4 backups contain `sessions`, `solves` and global `trainingAttempts`, including
+activity and case time. Version-3 attempts without those fields import as Single/null.
+Older v2 archives without Training history still import as an empty incoming attempt list,
 preserving existing local Training history. Current records normalize before
 stable-ID upsert; repeated import does not duplicate IDs. Training attempts do not
 participate in Session event compatibility checks or require a source Solve in the

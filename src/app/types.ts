@@ -16,9 +16,13 @@ export type TrainingAttempt = {
   id: string;
   createdAt: number;
   mode: "setup" | "virtual";
+  activity: "single" | "drill";
+  /** Case reveal to completion for Drill; null for Single. */
+  caseTimeMs: number | null;
   target: TrainingAttemptTarget;
   moves: string[];
   stm: number;
+  /** Registered move span: first registered move to last registered move. */
   elapsedMs: number;
   recommendedStm: number | null;
   matchedReferenceRank: number | null;
