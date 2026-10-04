@@ -4,7 +4,7 @@ import * as presets from "./trainingDrillPresets";
 
 const config: presets.DrillPresetConfiguration = {
   activity: "drill", status: "configuring", context: { family: "f2l", library: "basic", position: "FR" },
-  caseIds: ["F2L 4", "F2L 5"], strategy: "weighted",
+  caseIds: ["F2L 4", "F2L 5"], task: "execution", strategy: "weighted",
 };
 beforeEach(() => {
   vi.spyOn(Date, "now").mockReturnValue(100);
@@ -17,7 +17,7 @@ describe("Saved Drill configuration workflow", () => {
     const preset = presets.createTrainingDrillPreset("  New cases  ", { ...config, outcomes: [{ outcome: "skipped" }] } as never);
     expect(crypto.randomUUID).toHaveBeenCalledOnce();
     expect(preset).toEqual({ id: "00000000-0000-0000-0000-000000000001", name: "New cases",
-      createdAt: 100, updatedAt: 100, context: config.context, caseIds: config.caseIds, strategy: "weighted" });
+      createdAt: 100, updatedAt: 100, context: config.context, caseIds: config.caseIds, task: "execution", strategy: "weighted" });
     expect(preset.caseIds).not.toBe(config.caseIds);
     expect(preset.context).not.toBe(config.context);
   });
@@ -48,4 +48,11 @@ describe("Saved Drill configuration workflow", () => {
     expect(db.saveTrainingDrillPreset).toHaveBeenCalledWith(preset);
     expect(db.deleteTrainingDrillPreset).toHaveBeenCalledWith(preset.id);
   });
+});
+
+it("captures Recognition task explicitly on creation/update and rejects a one-case recognition snapshot", () => {
+  const saved = presets.createTrainingDrillPreset("Recognition", { ...config, task: "recognition" });
+  expect(saved.task).toBe("recognition");
+  expect(presets.updateTrainingDrillPreset(saved, { ...config, task: "execution" })).toMatchObject({ id: saved.id, task: "execution" });
+  expect(() => presets.createTrainingDrillPreset("Too small", { ...config, task: "recognition", caseIds: ["F2L 4"] })).toThrow();
 });

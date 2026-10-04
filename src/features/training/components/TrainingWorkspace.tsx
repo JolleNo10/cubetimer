@@ -11,6 +11,7 @@ import { ConnectionPanel } from "../../../shared/ui/ConnectionPanel";
 import { CubeView } from "../../../shared/ui/CubeView";
 import { TrainingAlgorithmGuide, type TrainingGuideNavigation } from "./TrainingAlgorithmGuide";
 import { DrillCountdown, TrainingDrillPanel, TrainingDrillControls, TrainingDrillSummary } from "./TrainingDrill";
+import { TrainingRecognition } from "./TrainingRecognition";
 import { TrainingPersonalPerformance } from "./TrainingPerformance";
 
 export type TrainingStepPreview = {
@@ -71,9 +72,10 @@ function TrainingTargetPanel({ details, emptyMessage, previewIndex, onPreviewSte
       <div className="panel-head"><span className="panel-title">Training target</span>{result ? <span className="chip live">result</span> : null}</div>
       <div className="panel-body">
         {!target ? <div className="empty">{training.activity === "drill" ? "Select cases and start a drill." : emptyMessage}</div> : concealed ? <>
-          <div className="small dim">Recognize and solve the cube case.</div><TrainingAttempt />
+          {training.drill.task === "recognition" ? <TrainingRecognition /> : <><div className="small dim">Recognize and solve the cube case.</div><TrainingAttempt /></>}
         </> : <>
           {training.drill.lastOutcome === "skipped" ? <div className="chip">Skipped</div> : null}
+          <TrainingRecognition />
           {details}
           <TrainingPersonalPerformance />
           <TrainingReferences previewIndex={previewIndex} onPreviewStep={onPreviewStep} />

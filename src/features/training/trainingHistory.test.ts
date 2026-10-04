@@ -46,7 +46,7 @@ describe("TrainingHistory completion projection", () => {
     const record = createTrainingAttempt({ activity: "single", mode: "virtual", result, target });
     expect(record.target).toEqual({ family, origin: "catalog", trainingSet: "full", caseId: target.caseId, auf: 2 });
     const exact = createTrainingAttempt({ activity: "single", mode: "virtual", result,
-      target: { ...target, origin: { kind: "solve-step", solveId: "source", stepName: family === "oll" ? "OLL" : "PLL" } } });
+      target: { ...target, origin: { kind: "solve-step", solveId: "source", stepName: family === "oll" ? "OLL" as const : "PLL" as const } } });
     expect(exact.target).toMatchObject({ origin: "solve-step", solveId: "source", trainingSet: "full" });
   });
 

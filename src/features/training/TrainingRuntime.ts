@@ -13,12 +13,14 @@ import type { Orientation } from "../../cube/orientation";
 import { ScrambleTracker, type ScrambleProgress } from "../../cube/scramble";
 import { algBetween } from "../../cube/solver";
 import { handAlgorithm, handMove, handTimedMoves } from "../../cube/frames";
-import { advanceTrainingGuide, buildTrainingGuide, trainingGrip, trainingGuideProgress, type TrainingGuide, type TrainingGuideProgress, type TrainingResolvedReference } from "../../cube/training";
+import { advanceTrainingGuide, buildTrainingGuide, trainingGrip, trainingGuideProgress, type TrainingGuide, type TrainingGuideProgress, type TrainingResolvedReference, type TrainingAuf } from "../../cube/training";
 import { calculateRecovery, type Recovery } from "../../shared/recovery";
 import { Store } from "../../shared/store";
-import { drillCatalogue, drillCaseId, selectDrillCase, weakDrillCases, type TrainingDrillContext, type TrainingDrillState, type TrainingDrillStrategy } from "./trainingDrill";
+import { drillCatalogue, drillCaseId, selectDrillCase, weakDrillCases, selectRecognitionDrillCase, recognitionChoices, weakRecognitionDrillCases, type TrainingDrillContext, type TrainingDrillState, type TrainingDrillStrategy } from "./trainingDrill";
 import { catalogueIdentityForTarget, trainingCatalogueKey } from "../../app/trainingCatalogue";
-import type { Settings, Solve, TrainingAttempt } from "../../app/types";
+import { recognitionIsCorrect } from "./trainingRecognitionPerformance";
+import type { CompletedTrainingRecognition } from "./trainingRecognitionHistory";
+import type { Settings, Solve, TrainingAttempt, TrainingRecognitionAttempt, TrainingDrillTask } from "../../app/types";
 
 export type TrainingFamily = "f2l" | "oll" | "pll";
 
@@ -65,6 +67,8 @@ export type CompletedTrainingAttempt = {
   mode: TrainingMode;
   target: TrainingTargetInfo;
   result: TrainingResult;
+  drillRunId?: string | null;
+  drillRound?: number | null;
 };
 
 function isLastLayerTarget(target: TrainingTarget): target is LastLayerTrainingTarget {
@@ -89,6 +93,8 @@ export type TrainingState = {
   liveMoves: string[];
   guide: TrainingGuideProgress | null;
   result: TrainingResult | null;
+  recognition: { choices: { caseId: string; label: string; group: string }[];
+    result: { correctCaseId: string; answerCaseId: string; correct: boolean; responseMs: number } | null } | null;
   displayFacelets: string;
   displayRevision: number;
 };
@@ -96,7 +102,7 @@ export type TrainingState = {
 function emptyTrainingState(): TrainingState {
   return {
     activity: "single",
-    drill: { strategy: "sequence", selectedCaseIds: [], running: false, status: "configuring", outcomes: [], round: 0, context: null, lastCaseId: null, lastOutcome: null },
+    drill: { task: "execution", runId: null, strategy: "sequence", selectedCaseIds: [], running: false, status: "configuring", outcomes: [], round: 0, context: null, lastCaseId: null, lastOutcome: null },
     family: "f2l",
     mode: "setup",
     f2lSelection: { library: "basic", position: "FR" },
@@ -110,6 +116,7 @@ function emptyTrainingState(): TrainingState {
     liveMoves: [],
     guide: null,
     result: null,
+    recognition: null,
     displayFacelets: "",
     displayRevision: 0,
   };
@@ -126,6 +133,9 @@ export type TrainingDependencies = {
   reportError: (error: string) => void;
   getTrainingAlgorithmPreference?: (key: string) => { algorithm: string } | null;
   getTrainingAttempts?: () => readonly TrainingAttempt[];
+  getTrainingRecognitionAttempts?: () => readonly TrainingRecognitionAttempt[];
+  createId?: () => string;
+  onRecognitionCompleted?: (fact: CompletedTrainingRecognition) => void;
   rng?: () => number;
   now?: () => number;
   onAttemptCompleted?: (attempt: CompletedTrainingAttempt) => void;
@@ -148,6 +158,7 @@ export class TrainingRuntime {
   #trainingStartedAt = 0;
   #trainingSelectionToken = 0;
   #f2lAgainTurns: string[] = [];
+  #previousVariations = new Map<string, number>();
 
   constructor(readonlyDependencies: TrainingDependencies) {
     this.#dependencies = readonlyDependencies;
@@ -155,6 +166,18 @@ export class TrainingRuntime {
   readonly #dependencies: TrainingDependencies;
   get #model(): CubeModel | null { return this.#dependencies.getModel(); }
   #now(): number { return this.#dependencies.now?.() ?? performance.now(); }
+  randomSample(): number {
+    const sample = (this.#dependencies.rng ?? Math.random)();
+    return Number.isFinite(sample) ? Math.max(0, Math.min(1 - Number.EPSILON, sample)) : 0;
+  }
+  #random(): number { return this.randomSample(); }
+  #draw(size: number): number { return Math.floor(this.#random() * size); }
+  #variation(key: string, variants = 1): { variant: number; auf: TrainingAuf } {
+    let index = (variants > 1 ? this.#draw(variants) : 0) * 4 + this.#draw(4);
+    if (this.#previousVariations.get(key) === index && variants * 4 > 1) index = (index + 1) % (variants * 4);
+    this.#previousVariations.set(key, index);
+    return { variant: Math.floor(index / 4), auf: (index % 4) as TrainingAuf };
+  }
   get hasCube(): boolean { return this.#dependencies.hasCube(); }
 
   elapsedAt(now: number): number | null {
@@ -199,12 +222,12 @@ export class TrainingRuntime {
   get drillConfigurationContext(): TrainingDrillContext { return this.#drillContext(); }
 
   /** Hydrate configuration only; no target, countdown or saved-preset identity. */
-  applyDrillConfiguration(context: TrainingDrillContext, caseIds: readonly string[], strategy: TrainingDrillStrategy): void {
+  applyDrillConfiguration(context: TrainingDrillContext, caseIds: readonly string[], strategy: TrainingDrillStrategy, task: TrainingDrillTask = "execution"): void {
     if (this.state.get().drill.status !== "configuring") return;
     this.reset("virtual");
     this.state.update(s => ({ ...s, activity: "drill", family: context.family,
       f2lSelection: context.family === "f2l" ? { library: context.library, position: context.position } : s.f2lSelection,
-      drill: { ...s.drill, strategy, selectedCaseIds: drillCatalogue(context).map(drillCaseId).filter(id => caseIds.includes(id)) },
+      drill: { ...s.drill, strategy, task, selectedCaseIds: drillCatalogue(context).map(drillCaseId).filter(id => caseIds.includes(id)) },
     }));
   }
 
@@ -224,12 +247,17 @@ export class TrainingRuntime {
     this.state.update(s => ({ ...s, drill: { ...s.drill, strategy } }));
   }
 
+  setDrillTask(task: TrainingDrillTask): void {
+    if (this.state.get().drill.status !== "configuring") return;
+    this.state.update(s => ({ ...s, drill: { ...s.drill, task } }));
+  }
+
   startDrill(): void {
     const state = this.state.get();
-    if (state.activity !== "drill" || state.drill.status !== "configuring" || !state.drill.selectedCaseIds.length || !this.#model) return;
+    if (state.activity !== "drill" || state.drill.status !== "configuring" || state.drill.selectedCaseIds.length < (state.drill.task === "recognition" ? 2 : 1) || !this.#model) return;
     const context = this.#drillContext();
     this.reset("virtual");
-    this.state.update(s => ({ ...s, drill: { ...s.drill, running: true, status: "running", context } }));
+    this.state.update(s => ({ ...s, drill: { ...s.drill, running: true, status: "running", context, runId: (this.#dependencies.createId ?? (() => crypto.randomUUID()))() } }));
     this.#beginDrillCountdown();
   }
 
@@ -243,8 +271,11 @@ export class TrainingRuntime {
     const { drill } = this.state.get();
     if (!drill.running || !drill.context || !this.#model) return;
     const cases = drillCatalogue(drill.context).filter(c => drill.selectedCaseIds.includes(drillCaseId(c)));
-    const selected = selectDrillCase(cases, drill.strategy, drill.round, drill.lastCaseId,
-      this.#dependencies.getTrainingAttempts?.() ?? [], this.#dependencies.rng ?? Math.random, drill.outcomes);
+    const selected = drill.task === "recognition"
+      ? selectRecognitionDrillCase(cases, drill.strategy, drill.round, drill.lastCaseId,
+        this.#dependencies.getTrainingRecognitionAttempts?.() ?? [], () => this.#random(), drill.outcomes)
+      : selectDrillCase(cases, drill.strategy, drill.round, drill.lastCaseId,
+        this.#dependencies.getTrainingAttempts?.() ?? [], () => this.#random(), drill.outcomes);
     if (!selected) { this.stopDrill(); return; }
     try {
       let target: TrainingTarget;
@@ -256,11 +287,28 @@ export class TrainingRuntime {
       }
       this.state.update(s => ({ ...s, drill: { ...s.drill, round: s.drill.round + 1, lastCaseId: drillCaseId(selected), lastOutcome: null } }));
       // Virtual preparation publishes synchronously and never replaces the physical model.
-      void this.#prepareTarget(target);
+      const recognition = drill.task === "recognition" ? { choices: recognitionChoices(cases, selected, () => this.#random()), result: null } : null;
+      void this.#prepareTarget(target, false, recognition);
     } catch (error) {
       this.stopDrill();
       this.#dependencies.reportError(String(error));
     }
+  }
+
+  submitTrainingRecognition(answerCaseId: string): void {
+    const state = this.state.get(), identity = catalogueIdentityForTarget(state.target);
+    if (!state.drill.running || state.drill.task !== "recognition" || state.phase !== "ready" ||
+        !state.recognition?.choices.some(c => c.caseId === answerCaseId) || !identity ||
+        this.#caseRevealedAt === null || !state.drill.runId || !state.drill.lastCaseId) return;
+    const completedAt = this.#now(), responseMs = Math.max(0, completedAt - this.#caseRevealedAt);
+    const correct = recognitionIsCorrect({ target: identity, answerCaseId });
+    this.state.update(s => ({ ...s, phase: "result", recognition: { choices: s.recognition!.choices,
+      result: { correctCaseId: state.drill.lastCaseId!, answerCaseId, correct, responseMs } },
+      drill: { ...s.drill, lastOutcome: correct ? "correct" : "incorrect", outcomes: [...s.drill.outcomes,
+        { caseId: state.drill.lastCaseId!, outcome: "answered", answerCaseId, correct, responseMs, completedAt }] } }));
+    this.#dependencies.onRecognitionCompleted?.({ drillRunId: state.drill.runId, drillRound: state.drill.round,
+      target: identity, answerCaseId, responseMs });
+    this.#beginDrillCountdown();
   }
 
   skipDrillCase(): void {
@@ -285,9 +333,13 @@ export class TrainingRuntime {
     const { drill } = this.state.get();
     if (drill.status !== "summary" || !drill.context) return;
     const cases = drillCatalogue(drill.context).filter(c => drill.selectedCaseIds.includes(drillCaseId(c)));
-    const weakIds = weakOnly ? weakDrillCases(cases, drill.outcomes, this.#dependencies.getTrainingAttempts?.() ?? []).map(c => c.caseId) : drill.selectedCaseIds;
+    const weakIds = weakOnly ? (drill.task === "recognition"
+      ? weakRecognitionDrillCases(cases, drill.outcomes, this.#dependencies.getTrainingRecognitionAttempts?.() ?? [])
+      : weakDrillCases(cases, drill.outcomes, this.#dependencies.getTrainingAttempts?.() ?? [])).map(c => c.caseId) : drill.selectedCaseIds;
     if (weakOnly && !weakIds.length) return;
     const compatible = JSON.stringify(drill.context) === JSON.stringify(this.#drillContext());
+    // Settings may change while a captured summary is open. Never reinterpret its pool.
+    if (!compatible && drill.task === "recognition") return;
     this.reset("virtual");
     this.state.update(s => ({ ...s, drill: { ...s.drill,
       selectedCaseIds: compatible ? cases.map(drillCaseId).filter(id => weakIds.includes(id)) : [], strategy: weakOnly ? "weighted" : drill.strategy } }));
@@ -371,18 +423,14 @@ export class TrainingRuntime {
   randomTrainingCase(family: TrainingFamily): void {
     if (family === "f2l") {
       const cases = f2lTrainingCatalogue(this.state.get().f2lSelection.library).cases;
-      const selected = cases[Math.floor(Math.random() * cases.length)];
+      const selected = cases[this.#draw(cases.length)];
       if (selected) void this.selectF2lCase(selected.name);
       return;
     }
     const settings = this.#dependencies.getSettings();
     const cases = lastLayerCaseIds(family, family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet);
-    const caseId = cases[Math.floor(Math.random() * cases.length)];
+    const caseId = cases[this.#draw(cases.length)];
     if (caseId) void this.selectLastLayerCase(family, caseId);
-  }
-
-  #randomAuf(): 0 | 1 | 2 | 3 {
-    return Math.floor(Math.random() * 4) as 0 | 1 | 2 | 3;
   }
 
   #buildRandomLastLayerCatalogueTarget(
@@ -392,8 +440,8 @@ export class TrainingRuntime {
   ): LastLayerTrainingTarget {
     const kpuzzle = this.#model!.kpuzzle;
     const variants = lastLayerTrainingVariants(kpuzzle, family, caseId, trainingSet);
-    const variant = variants.length > 1 ? variants[Math.floor(Math.random() * variants.length)] : variants[0];
-    return buildLastLayerCatalogueTarget(kpuzzle, family, caseId, this.#randomAuf(), trainingSet, variant.id);
+    const variation = this.#variation(trainingCatalogueKey({ family, caseId, trainingSet }), variants.length);
+    return buildLastLayerCatalogueTarget(kpuzzle, family, caseId, variation.auf, trainingSet, variants[variation.variant].id);
   }
 
   async selectF2lPosition(position: F2lPosition): Promise<void> {
@@ -505,7 +553,7 @@ export class TrainingRuntime {
     this.#f2lAgainTurns = [];
     this.#dependencies.stopClock();
     this.#dependencies.elapsed.set(0);
-    this.state.update((s) => ({ ...emptyTrainingState(), activity: s.activity, drill: { ...s.drill, selectedCaseIds, running: false, status: "configuring", outcomes: [], round: 0, context: null, lastCaseId: null, lastOutcome: null }, family: s.family, mode, f2lSelection: { position: selectedPosition, library: s.f2lSelection.library } }));
+    this.state.update((s) => ({ ...emptyTrainingState(), activity: s.activity, drill: { ...s.drill, selectedCaseIds, running: false, status: "configuring", outcomes: [], round: 0, runId: null, context: null, lastCaseId: null, lastOutcome: null }, family: s.family, mode, f2lSelection: { position: selectedPosition, library: s.f2lSelection.library } }));
   }
 
   #buildF2lCatalogueTarget(
@@ -517,7 +565,8 @@ export class TrainingRuntime {
     const base = mode === "setup" && isStandardF2lBase(this.#model.pattern)
       ? this.#model.pattern
       : undefined;
-    return buildF2lCatalogueTarget(this.#model.kpuzzle, f2lCase, position, base);
+    const variation = this.#variation(trainingCatalogueKey({ family: "f2l", library: f2lCase.library, caseName: f2lCase.name, position }));
+    return buildF2lCatalogueTarget(this.#model.kpuzzle, f2lCase, position, base, variation.auf);
   }
 
   async #reloadF2lTraining(preserveResult = false): Promise<void> {
@@ -567,6 +616,7 @@ export class TrainingRuntime {
   async #prepareTarget(
     target: TrainingTarget,
     preserveResult = false,
+    recognition: TrainingState["recognition"] = null,
   ): Promise<void> {
     const model = this.#model;
     if (!model) return;
@@ -601,8 +651,9 @@ export class TrainingRuntime {
       recovery: null,
       recoveryPending: false,
       liveMoves: [],
-      guide: this.#trainingGuide ? trainingGuideProgress(this.#trainingGuide) : null,
+      guide: !recognition && this.#trainingGuide ? trainingGuideProgress(this.#trainingGuide) : null,
       result: preserveResult ? s.result : null,
+      recognition,
       displayFacelets: mode === "virtual" || !this.hasCube ? targetFacelets : capturedFacelets,
       displayRevision: s.displayRevision + 1,
     }));
@@ -612,8 +663,8 @@ export class TrainingRuntime {
     try {
       const grip = trainingGrip(target.info);
       const direct = this.#directF2lSetup(target, captured, model);
-      let tracker = direct?.tracker ?? null;
-      let displayedSetup = direct?.setup ?? null;
+      let tracker = capturedFacelets === targetFacelets ? new ScrambleTracker(model.kpuzzle, "", captured) : direct?.tracker ?? null;
+      let displayedSetup = capturedFacelets === targetFacelets ? "" : direct?.setup ?? null;
 
       if (!tracker) {
         const setup = await algBetween(captured, target.pattern);
@@ -645,7 +696,7 @@ export class TrainingRuntime {
   /** Keep the known F2L catalogue setup when the physical base permits it. */
   #directF2lSetup(target: TrainingTarget, captured: KPattern, model: CubeModel): { tracker: ScrambleTracker; setup: string } | null {
     if (isLastLayerTarget(target) || !this.#f2lCase || target.info.origin.kind !== "catalog" || !isStandardF2lBase(captured)) return null;
-    const setup = f2lCatalogueSetupMoves(this.#f2lCase, target.info.position);
+    const setup = f2lCatalogueSetupMoves(this.#f2lCase, target.info.position, target.info.auf ?? 0);
     if (setup === null) return null;
     const tracker = new ScrambleTracker(model.kpuzzle, f2lCubeAlgorithm(setup, trainingGrip(target.info)), captured);
     return patternToFacelets(tracker.targetPattern) === patternToFacelets(target.pattern) ? { tracker, setup } : null;
@@ -705,7 +756,7 @@ export class TrainingRuntime {
   handleMove(move: GanCubeMove & { serial: number }): void {
     const training = this.state.get();
     const target = this.#trainingTarget;
-    if (!target) return;
+    if (!target || training.activity === "drill" && training.drill.task === "recognition") return;
     if (training.phase === "result") {
       if (!isLastLayerTarget(target) && training.mode === "setup" && this.#observeF2lAgainMove(move.move)) {
         void this.#reloadF2lTraining();
@@ -804,7 +855,7 @@ export class TrainingRuntime {
 
   #finishTrainingAttempt(): void {
     if (this.state.get().phase !== "solving") return;
-    const { mode, activity } = this.state.get();
+    const { mode, activity, drill } = this.state.get();
     const completedAt = this.#now();
     const caseTimeMs = activity === "drill" && this.#caseRevealedAt !== null ? Math.max(0, completedAt - this.#caseRevealedAt) : null;
     this.#dependencies.stopClock();
@@ -837,7 +888,8 @@ export class TrainingRuntime {
           stm: result.stm, delta: result.preferredDelta ?? result.delta, completedAt }] } : s.drill,
       guide: s.guide ? { ...s.guide, currentMove: null } : null
     }));
-    if (target) this.#dependencies.onAttemptCompleted?.({ activity, mode, target: target.info, result });
+    if (target) this.#dependencies.onAttemptCompleted?.({ activity, mode, target: target.info, result,
+      drillRunId: activity === "drill" ? drill.runId : null, drillRound: activity === "drill" ? drill.round : null });
     if (activity === "drill" && this.state.get().drill.running) {
       this.#beginDrillCountdown();
     } else if (this.state.get().mode === "virtual") {

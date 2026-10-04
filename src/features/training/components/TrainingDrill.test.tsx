@@ -1,3 +1,5 @@
+import { TrainingRecognition } from "./TrainingRecognition";
+import { TrainingInsights } from "./TrainingInsights";
 import type { ReactElement, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -112,9 +114,9 @@ describe("Single and Drill presentation", () => {
     expect(html).toContain("Needs work"); expect(html).toContain("1 skip");
     expect(html).not.toContain("Avg case time"); expect(button("Drill weak cases").disabled).toBe(false);
     button("Drill weak cases").onClick();
-    expect(controller.training.state.get().drill).toMatchObject({ status: "configuring", running: false, strategy: "weighted", selectedCaseIds: ["F2L 4"], outcomes: [] });
+    expect(controller.training.state.get().drill).toMatchObject({ status: "configuring", running: false, task: "execution", strategy: "weighted", selectedCaseIds: ["F2L 4"], outcomes: [] });
     reveal(); controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
-    button("Repeat same set").onClick(); expect(controller.training.state.get().drill).toMatchObject({ status: "configuring", running: false, strategy: "weighted", outcomes: [] });
+    button("Repeat same set").onClick(); expect(controller.training.state.get().drill).toMatchObject({ status: "configuring", running: false, task: "execution", strategy: "weighted", outcomes: [] });
     reveal(); controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
     expect(button("Done")).toBeUndefined();
     expect(controller.training.state.get().activity).toBe("drill");
@@ -149,7 +151,7 @@ function nativeNodes(node: ReactNode, kind: string): UiProps[] {
 function savedUi() { hooks.cursor = 0; return SavedDrills(); }
 const savedPreset = (values: Partial<TrainingDrillPreset> = {}): TrainingDrillPreset => ({
   id: "preset", name: "Same name", createdAt: 10, updatedAt: 20, context: { family: "pll", trainingSet: "2look" },
-  caseIds: ["Headlights"], strategy: "weighted", ...values,
+  caseIds: ["Headlights"], task: "execution", strategy: "weighted", ...values,
 });
 async function settleUi() { await new Promise<void>(resolve => setTimeout(resolve, 0)); }
 
@@ -199,7 +201,7 @@ describe("Saved drills configuration presentation", () => {
     vi.spyOn(db, "saveSettings").mockResolvedValue(); const apply = vi.spyOn(controller, "applyTrainingDrillPreset");
     button("Load", savedUi()).onClick(); await settleUi();
     expect(apply).toHaveBeenCalledWith(preset.id);
-    expect(controller.training.state.get()).toMatchObject({ family: "pll", drill: { strategy: "weighted", selectedCaseIds: ["Headlights"], running: false, status: "configuring" } });
+    expect(controller.training.state.get()).toMatchObject({ family: "pll", drill: { task: "execution", strategy: "weighted", selectedCaseIds: ["Headlights"], running: false, status: "configuring" } });
     const html = renderToStaticMarkup(<Training />);
     expect(html).toContain("2-Look PLL cases"); expect(html).toContain("✓ Selected");
     expect(controller.training.drillCountdown.get()).toBeNull(); expect(button("Start drill").disabled).toBe(false);
@@ -259,4 +261,54 @@ it("visibly disables Start while a saved Drill load is applying", () => {
   expect(button("Start drill").disabled).toBe(false);
   controller.trainingDrillPresetApplying.set(true);
   expect(button("Start drill").disabled).toBe(true);
+});
+
+describe("Recognition task and Training Insights presentation", () => {
+  it("disables Start/save for one Recognition case and restores Execution's one-case boundary", () => {
+    const { controller } = fixture(); controller.setDrillCases(["F2L 4"]);
+    button("Recognition task", <TrainingDrillPanel />).onClick();
+    expect(button("Start drill").disabled).toBe(true); expect(button("Save current as…", <TrainingDrillPanel />).disabled).toBe(true);
+    expect(renderToStaticMarkup(<TrainingDrillPanel />)).toContain("Select at least two cases");
+    controller.setDrillCases(["F2L 4", "F2L 5"]); expect(button("Start drill").disabled).toBe(false);
+    button("Execution task", <TrainingDrillPanel />).onClick(); controller.setDrillCases(["F2L 4"]); expect(button("Start drill").disabled).toBe(false);
+  });
+  it("conceals identity/references/My Algorithm while offering text choices and reveals final answer feedback", () => {
+    const { controller } = fixture(); vi.spyOn(db, "saveTrainingRecognitionAttempt").mockResolvedValue();
+    controller.setDrillTask("recognition"); controller.setDrillCases(["F2L 4", "F2L 5"]); controller.startTrainingDrill(); controller.training.tick(2100);
+    const hidden = renderToStaticMarkup(workspace);
+    expect(hidden).toContain('aria-label="Recognition choices"'); expect(hidden).not.toContain("ANSWER ID AND GROUP");
+    expect(hidden).not.toContain("RECOMMENDED"); expect(hidden).not.toContain("My algorithm"); expect(hidden).not.toContain("data-guide=");
+    const choice = buttons(<TrainingRecognition />)[0]; choice.onClick();
+    const revealed = renderToStaticMarkup(workspace); expect(revealed).toContain('aria-label="Recognition result"');
+    expect(revealed).toContain("Correct case:"); expect(revealed).toContain("Your answer:"); expect(revealed).toContain("ANSWER ID AND GROUP");
+    expect(revealed).toContain("RECOMMENDED"); expect(revealed).not.toContain("Set custom algorithm");
+    expect(buttons(<TrainingRecognition />)).toHaveLength(0);
+    controller.stopTrainingDrill(); const summary = renderToStaticMarkup(<TrainingDrillSummary />);
+    for (const label of ["Answered", "Correct", "Incorrect", "Accuracy", "Median correct recognition"]) expect(summary).toContain(label);
+    expect(summary).not.toContain("Avg STM"); expect(summary).not.toContain("Save current as");
+  });
+  it("uses Recognition markers in Recognition configuration and Execution markers in Single", () => {
+    const { controller } = fixture(); controller.trainingRecognitionAttempts.set([{ id: "answer", createdAt: 1, drillRunId: "run", drillRound: 1,
+      target: { family: "f2l", library: "basic", position: "FR", caseName: "F2L 4" }, answerCaseId: "F2L 5", responseMs: 1000 }]);
+    expect(renderToStaticMarkup(<Training />)).not.toContain("1 · Learning");
+    controller.setDrillTask("recognition"); expect(renderToStaticMarkup(<Training />)).toContain("1 · Learning");
+    controller.setTrainingActivity("single"); expect(renderToStaticMarkup(<Training />)).not.toContain("1 · Learning");
+  });
+  it("keeps Insights local, preserves idle configuration and blocks the switch during live Training", () => {
+    const { controller } = fixture(); hooks.inlineState = [];
+    const practice = () => { hooks.cursor = 0; return Training(); };
+    const before = controller.training.state.get(); button("Insights", practice()).onClick();
+    hooks.inlineState![1] = 50; // The hook mock must seed the newly mounted Insights window, not reuse SavedDrills state.
+    const insights = renderToStaticMarkup(practice()); expect(insights).toContain("Common recognition confusions"); expect(insights).toContain("Later-round change");
+    expect(controller.training.state.get()).toBe(before); expect(controller.sessions.get().solves).toEqual([]);
+    button("Practice", practice()).onClick(); expect(renderToStaticMarkup(practice())).toContain("Start drill");
+    controller.setDrillCases(["F2L 4"]); controller.startTrainingDrill(); expect(button("Insights", practice()).disabled).toBe(true);
+    controller.stopTrainingDrill(); controller.setTrainingActivity("single"); controller.training.state.update(s => ({ ...s, phase: "solving" }));
+    expect(button("Insights", practice()).disabled).toBe(true);
+  });
+  it("renders unavailable metrics honestly and separates time from STM trends", () => {
+    fixture(); const html = renderToStaticMarkup(<TrainingInsights />);
+    expect(html).toContain("New"); expect(html).toContain("Basic F2L"); expect(html).toContain("My Algorithm match rate");
+    expect(html).toContain("Speed includes correct answers only"); expect(html).toContain("Chronological trends"); expect(html).toContain("Window");
+  });
 });

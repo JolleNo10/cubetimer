@@ -1,6 +1,6 @@
-import type { TrainingCatalogueIdentity } from "./types";
+import type { TrainingCatalogueIdentity, TrainingDrillPresetContext } from "./types";
 import { F2L_POSITIONS } from "../cube/f2lCases";
-import { findF2lTrainingCase } from "../cube/f2lTrainingCases";
+import { findF2lTrainingCase, f2lTrainingCatalogue } from "../cube/f2lTrainingCases";
 import { lastLayerCaseIds, type LastLayerTrainingTargetInfo } from "../cube/lastLayerTraining";
 import type { F2lTrainingTargetInfo } from "../cube/f2lTraining";
 
@@ -31,4 +31,14 @@ export function normalizeTrainingCatalogueIdentity(value: unknown): TrainingCata
   if ((v.trainingSet !== "full" && v.trainingSet !== "2look") || typeof v.caseId !== "string" ||
       !lastLayerCaseIds(v.family, v.trainingSet).includes(v.caseId) || "library" in v || "position" in v || "caseName" in v) return null;
   return { family: v.family, trainingSet: v.trainingSet, caseId: v.caseId };
+}
+
+
+export function trainingCatalogueCaseId(identity: TrainingCatalogueIdentity): string {
+  return identity.family === "f2l" ? identity.caseName : identity.caseId;
+}
+
+export function trainingCatalogueCaseIds(context: TrainingDrillPresetContext): readonly string[] {
+  return context.family === "f2l" ? f2lTrainingCatalogue(context.library).cases.map(c => c.name)
+    : lastLayerCaseIds(context.family, context.trainingSet);
 }

@@ -172,8 +172,8 @@ export function SettingsDialog({
 
           <Section title="Your data">
             <div className="small faint" style={{ margin: "6px 0 10px" }}>
-              Solves, Training history, saved drills and personal algorithms are stored in this browser only. Full JSON backups
-              include all four and merge by stable ID or catalogue key, so importing twice does not duplicate records.
+              Solves, Execution and Recognition Training history, saved drills and personal algorithms are stored in this browser only. Full JSON backups
+              include all Training data and merge by stable ID or catalogue key, so importing twice does not duplicate records.
             </div>
             <div className="row wrap">
               <button onClick={() => void exportSolves(controller)}>Export JSON</button>
@@ -293,7 +293,7 @@ async function importSolves(
 ) {
   try {
     const result = await controller.importData(await file.text());
-    alert(`Imported ${result.solves} solves, ${result.trainingAttempts} training attempts, ${result.trainingDrillPresets} saved drills and ${result.trainingAlgorithmPreferences} personal algorithms across ${result.sessions} sessions.`);
+    alert(`Imported ${result.solves} solves, ${result.trainingAttempts} execution attempts, ${result.trainingRecognitionAttempts} recognition attempts, ${result.trainingDrillPresets} saved drills and ${result.trainingAlgorithmPreferences} personal algorithms across ${result.sessions} sessions.`);
   } catch (error) {
     alert(`Could not import that file: ${String(error)}`);
   }

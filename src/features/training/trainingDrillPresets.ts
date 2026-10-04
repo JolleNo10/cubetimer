@@ -1,4 +1,4 @@
-import type { TrainingDrillPreset, TrainingDrillPresetContext, TrainingDrillStrategy } from "../../app/types";
+import type { TrainingDrillPreset, TrainingDrillPresetContext, TrainingDrillStrategy, TrainingDrillTask } from "../../app/types";
 import * as db from "../../infrastructure/persistence/db";
 
 export type DrillPresetConfiguration = {
@@ -7,6 +7,7 @@ export type DrillPresetConfiguration = {
   context: TrainingDrillPresetContext;
   caseIds: readonly string[];
   strategy: TrainingDrillStrategy;
+  task: TrainingDrillTask;
 };
 
 function presetName(name: string): string {
@@ -18,7 +19,7 @@ function presetName(name: string): string {
 function snapshotDrillConfiguration(config: DrillPresetConfiguration) {
   if (config.activity !== "drill" || config.status !== "configuring" || !config.caseIds.length)
     throw new Error("Configure a Drill with at least one selected case first.");
-  return { context: { ...config.context }, caseIds: [...config.caseIds], strategy: config.strategy };
+  return { context: { ...config.context }, caseIds: [...config.caseIds], strategy: config.strategy, task: config.task };
 }
 
 function normalizePresetOrThrow(preset: TrainingDrillPreset): TrainingDrillPreset {

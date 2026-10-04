@@ -31,7 +31,7 @@ SmartCube -> PhysicalCubeRuntime -> Controller routing <- Keyboard / UI
                                  |
                               React UI
 
-Controller -> SessionService / SolveHistory / TrainingHistory / TrainingDrillPresets / DataTransfer -> db.ts
+Controller -> SessionService / SolveHistory / TrainingHistory / TrainingRecognitionHistory / TrainingDrillPresets / TrainingAlgorithmPreferences / DataTransfer -> db.ts
 ```
 
 The important ownership direction is:
@@ -140,17 +140,23 @@ The following are current architectural rules.
     Single and Drill activities share this one runtime and target/move/completion
     engine. Single supports setup and virtual modes; catalogue-only Drill is virtual
     only, with selected case pools, runtime-owned countdowns and ephemeral run outcomes/
-    summaries. Skips affect only the active run, never persisted mastery. Completed solved Drill
-    rounds are dedicated TrainingAttempt records, never Solves.
+    summaries. Skips affect only the active run, never persisted mastery. Completed solved Execution Drill
+    rounds are dedicated TrainingAttempt records; Recognition answers are separate
+    TrainingRecognitionAttempt facts, never Solves. Both capture explicit run ID/round,
+    without a persistent DrillSession. Recognition is answer-driven and ignores turns.
+    Runtime selects smart catalogue AUF/variants; family cube builders construct them.
+    Variation never changes durable identity or stable personal source algorithms.
+    Training-local Insights derives separate execution/recognition dimensions from
+    historical facts, isolated from normal Solve Statistics.
     Named TrainingDrillPreset records persist reusable single-catalogue configuration,
     independently of runtime/history/Settings. Controller owns their separate Store;
-    loading hydrates ordinary Drill configuration and keeps Start explicit. F2L
+    loading atomically hydrates context/pool/strategy/task in ordinary Drill configuration and keeps Start explicit. F2L
     context owns library/position; OLL/PLL context synchronizes the applicable
     Settings Full/2-Look preference. Loaded presets are templates with explicit edits.
     Personal TrainingAlgorithmPreference records persist one stable source algorithm
     per exact catalogue identity. Runtime resolves its executable reference for Single
     guidance and Training benchmarks; canonical data and exact historical practice stay
-    separate. IndexedDB schema 4 and JSON backup 6 include this independent collection.
+    separate. IndexedDB schema 5 and JSON backup 7 include this independent collection.
     Live attempt state is ephemeral; completed facts may be persisted as dedicated
     `TrainingAttempt` records. Controller coordinates the completion callback with
     TrainingHistory and publishes a separate Training-attempt Store. These records
@@ -165,7 +171,7 @@ The following are current architectural rules.
     The application does not fetch either external source at runtime.
 
 18. **Persisted workflows are separate from live runtime orchestration.**
-    SessionService, SolveHistory, TrainingHistory, TrainingDrillPresets, and DataTransfer own persisted application-data
+    SessionService, SolveHistory, TrainingHistory, TrainingRecognitionHistory, TrainingDrillPresets, TrainingAlgorithmPreferences, and DataTransfer own persisted application-data
     workflows and return explicit results. Controller owns Timer/Training runtime
     policy and applies the runtime consequences of those results.
 

@@ -1,3 +1,4 @@
+import { recognitionStatsByCase } from "../trainingRecognitionPerformance";
 import { trainingCatalogueKey } from "../../../app/trainingCatalogue";
 import { TrainingMyAlgorithmMarker } from "./TrainingAlgorithmEditor";
 import { memo, useMemo } from "react";
@@ -30,7 +31,9 @@ function F2lLibraryPanel() {
   const preferences = useStore(controller.trainingAlgorithmPreferences);
   const preferredKeys = useMemo(() => new Set(preferences.map(p => p.key)), [preferences]);
   const attempts = useStore(controller.trainingAttempts);
-  const statsByCase = useMemo(() => trainingStatsByCase(attempts), [attempts]);
+  const recognitionAttempts = useStore(controller.trainingRecognitionAttempts);
+  const statsByCase = useMemo(() => activity === "drill" && drill.task === "recognition"
+    ? recognitionStatsByCase(recognitionAttempts) : trainingStatsByCase(attempts), [activity, drill.task, recognitionAttempts, attempts]);
   const target = selectedTarget?.family === "f2l" ? selectedTarget : null;
   return (
     <div className="panel f2l-library">
@@ -104,7 +107,7 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
   cases: readonly F2lTrainingCase[];
   selectedPosition: (typeof F2L_POSITIONS)[number];
   selectedCaseName: string | null;
-  statsByCase: ReadonlyMap<string, TrainingCaseStats>;
+  statsByCase: ReadonlyMap<string, Pick<TrainingCaseStats, "attempts" | "status">>;
   preferredKeys: ReadonlySet<string>;
 }) {
   const controller = useController();

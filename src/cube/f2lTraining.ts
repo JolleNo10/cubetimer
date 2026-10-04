@@ -36,7 +36,7 @@ import {
 import { parseFaceMove } from "./moves";
 import { reframe, withCentresHome } from "./recognise";
 import { cubeAlgorithm, cubeMove, cubeMoves, handAlgorithm, handMove, handMoves, handTimedMoves } from "./frames";
-import { algorithmStm, buildTrainingGuide, normalizeTrainingReferenceAlgorithm, calculateTrainingEfficiency, referenceExecutionSignature, reconstructTrainingStepStart, type TrainingSolveInput, type TrainingEfficiency, type TrainingResolvedReference } from "./training";
+import { algorithmStm, buildTrainingGuide, normalizeTrainingReferenceAlgorithm, calculateTrainingEfficiency, referenceExecutionSignature, reconstructTrainingStepStart, type TrainingSolveInput, type TrainingEfficiency, type TrainingResolvedReference, type TrainingAuf, TRAINING_AUF_TOKENS, TRAINING_UNDO_AUF_TOKENS } from "./training";
 
 export {
   algorithmStm,
@@ -64,6 +64,8 @@ export type F2lReference = {
 export type F2lTrainingTargetInfo = {
   family: "f2l";
   origin: F2lTrainingOrigin;
+  /** Concrete catalogue variation in the Training/held frame, never durable identity. */
+  auf?: TrainingAuf;
   crossFace: Face;
   /** The single cube frame used for display, notation, and reference planning. */
   trainingRotation: Rotation;
@@ -162,7 +164,7 @@ export function isStandardF2lBase(pattern: KPattern): boolean {
   );
 }
 
-const UNDO_AUF = ["", "U'", "U2", "U"];
+const UNDO_AUF = TRAINING_UNDO_AUF_TOKENS;
 
 function alignedReferenceAlgorithm(algorithm: string, auf: number): string {
   const split = splitLeadingRotation(algorithm);
@@ -277,8 +279,8 @@ function catalogueSetup(f2lCase: F2lTrainingCase, position: F2lPosition): Alg {
   return new Alg(f2lTrainingCaseInput(f2lCase, position).setup);
 }
 
-export function f2lCatalogueSetupMoves(f2lCase: F2lTrainingCase, position: F2lPosition): string | null {
-  const setup = catalogueSetup(f2lCase, position);
+export function f2lCatalogueSetupMoves(f2lCase: F2lTrainingCase, position: F2lPosition, auf: TrainingAuf = 0): string | null {
+  const setup = catalogueSetup(f2lCase, position).concat(new Alg(TRAINING_AUF_TOKENS[auf]));
   // Reference normalization supports wide/slice turns; setup tracking keeps its
   // existing outer-turn/rotation vocabulary and generic solver fallback.
   if (!Array.from(setup.expand().childAlgNodes()).every((node) => {
@@ -295,6 +297,7 @@ export function buildF2lCatalogueCaseState(
   f2lCase: F2lTrainingCase,
   position: F2lPosition,
   basePattern?: KPattern,
+  auf: TrainingAuf = 0,
 ): F2lCatalogueCaseState {
   const rotation = standardF2lTrainingRotation();
   const rotationAlg = new Alg(rotation.tokens.join(" "));
@@ -306,7 +309,7 @@ export function buildF2lCatalogueCaseState(
   const positionedSetup = catalogueSetup(f2lCase, position);
   const pattern = reframe(
     kpuzzle,
-    handBase.applyAlg(positionedSetup),
+    handBase.applyAlg(positionedSetup).applyAlg(TRAINING_AUF_TOKENS[auf]),
     rotationAlg.invert(),
   );
   return {
@@ -321,6 +324,7 @@ export function buildF2lCatalogueTarget(
   f2lCase: F2lTrainingCase,
   positionOrBase: F2lPosition | KPattern = "FR",
   suppliedBase?: KPattern,
+  auf: TrainingAuf = 0,
 ): F2lTrainingTarget {
   const position = typeof positionOrBase === "string" ? positionOrBase : "FR";
   const basePattern = typeof positionOrBase === "string" ? suppliedBase : positionOrBase;
@@ -330,6 +334,7 @@ export function buildF2lCatalogueTarget(
     f2lCase,
     position,
     basePattern,
+    auf,
   );
   const { pattern, trainingRotation, slot } = caseState;
   const goal = goalFor(pattern, crossFace, slot);
@@ -338,7 +343,7 @@ export function buildF2lCatalogueTarget(
     f2lCase,
     algorithms: f2lTrainingCaseInput(f2lCase, position).algorithms,
     position,
-    auf: 0,
+    auf,
     targetPattern: pattern,
     trainingRotation,
     goal,
@@ -349,6 +354,7 @@ export function buildF2lCatalogueTarget(
     info: {
       family: "f2l",
       origin: { kind: "catalog", library: f2lCase.library, caseName: f2lCase.name, group: f2lCase.group },
+      auf,
       crossFace,
       trainingRotation,
       position,

@@ -30,6 +30,7 @@ import type { TrainingDrillStrategy } from "../features/training/trainingDrill";
 import { catalogueIdentityForTarget, trainingCatalogueKey } from "./trainingCatalogue";
 import * as trainingAlgorithmPreferences from "../features/training/trainingAlgorithmPreferences";
 import * as trainingDrillPresets from "../features/training/trainingDrillPresets";
+import * as recognitionHistory from "../features/training/trainingRecognitionHistory";
 import * as trainingHistory from "../features/training/trainingHistory";
 import { catalogueCaseForTarget, selectTrainingReview, type TrainingCatalogueCase } from "../features/training/trainingPerformance";
 import {
@@ -38,6 +39,8 @@ import {
   type Settings,
   type Solve,
   type TrainingAttempt,
+  type TrainingRecognitionAttempt,
+  type TrainingDrillTask,
   type TrainingDrillPreset,
   type TrainingAlgorithmPreference,
 } from "./types";
@@ -57,6 +60,7 @@ export class Controller {
   readonly physical: PhysicalCubeRuntime;
   readonly timer: TimerRuntime;
   readonly training: TrainingRuntime;
+  readonly trainingRecognitionAttempts = new Store<TrainingRecognitionAttempt[]>([]);
   readonly trainingAttempts = new Store<TrainingAttempt[]>([]);
   readonly trainingAlgorithmPreferences = new Store<TrainingAlgorithmPreference[]>([]);
   readonly trainingDrillPresetApplying = new Store(false);
@@ -101,6 +105,9 @@ export class Controller {
       reportError: error => this.state.update((state) => ({ ...state, error })),
       getTrainingAlgorithmPreference: key => this.trainingAlgorithmPreferences.get().find(p => p.key === key) ?? null,
       getTrainingAttempts: () => this.trainingAttempts.get(),
+      getTrainingRecognitionAttempts: () => this.trainingRecognitionAttempts.get(),
+      createId: () => crypto.randomUUID(),
+      onRecognitionCompleted: attempt => this.#recordTrainingRecognition(attempt),
       onAttemptCompleted: attempt => this.#recordTrainingAttempt(attempt),
     });
   }
@@ -115,6 +122,19 @@ export class Controller {
       this.#pendingTrainingWrites.add(saving);
     } catch (error) {
       this.state.update(state => ({ ...state, error: `Could not record Training attempt: ${String(error)}` }));
+    }
+  }
+
+  #recordTrainingRecognition(completed: recognitionHistory.CompletedTrainingRecognition): void {
+    try {
+      const attempt = recognitionHistory.createTrainingRecognitionAttempt(completed);
+      this.trainingRecognitionAttempts.update(attempts => [...attempts, attempt]);
+      const saving = recognitionHistory.saveTrainingRecognitionAttempt(attempt)
+        .catch(error => this.state.update(state => ({ ...state, error: `Could not save Recognition attempt: ${String(error)}` })))
+        .finally(() => this.#pendingTrainingWrites.delete(saving));
+      this.#pendingTrainingWrites.add(saving);
+    } catch (error) {
+      this.state.update(state => ({ ...state, error: `Could not record Recognition attempt: ${String(error)}` }));
     }
   }
 
@@ -189,6 +209,7 @@ export class Controller {
     this.settings.set(settings);
     this.sessions.set({ sessions, sessionId, solves, lastSolve: solves.at(-1) ?? null });
     this.trainingAttempts.set(await trainingHistory.loadTrainingAttempts());
+    this.trainingRecognitionAttempts.set(await recognitionHistory.loadTrainingRecognitionAttempts());
     this.trainingDrillPresets.set(await trainingDrillPresets.loadTrainingDrillPresets());
     this.trainingAlgorithmPreferences.set(await trainingAlgorithmPreferences.loadTrainingAlgorithmPreferences());
     this.state.update((state) => ({ ...state, ready: true }));
@@ -257,6 +278,8 @@ export class Controller {
   setTrainingActivity(activity: TrainingActivity): void { this.setArea("training"); this.training.setTrainingActivity(activity); }
   toggleDrillCase(caseId: string): void { this.training.toggleDrillCase(caseId); }
   setDrillCases(caseIds: readonly string[]): void { this.training.setDrillCases(caseIds); }
+  setDrillTask(task: TrainingDrillTask): void { this.training.setDrillTask(task); }
+  submitTrainingRecognition(caseId: string): void { this.training.submitTrainingRecognition(caseId); }
   setDrillStrategy(strategy: TrainingDrillStrategy): void { this.training.setDrillStrategy(strategy); }
   startTrainingDrill(): void { if (this.trainingDrillPresetApplying.get()) return; this.setArea("training"); this.training.startDrill(); }
   stopTrainingDrill(): void { this.training.stopDrill(); }
@@ -329,7 +352,7 @@ export class Controller {
   #presetConfiguration(): trainingDrillPresets.DrillPresetConfiguration {
     const { activity, drill } = this.training.state.get();
     return { activity, status: drill.status, context: this.training.drillConfigurationContext,
-      caseIds: drill.selectedCaseIds, strategy: drill.strategy };
+      caseIds: drill.selectedCaseIds, strategy: drill.strategy, task: drill.task };
   }
 
   /** Serialize explicit record edits and publish only committed records. */
@@ -408,7 +431,7 @@ export class Controller {
         }
       }
       this.setArea("training");
-      this.training.applyDrillConfiguration(preset.context, preset.caseIds, preset.strategy);
+      this.training.applyDrillConfiguration(preset.context, preset.caseIds, preset.strategy, preset.task);
       return true;
     } catch (error) {
       this.state.update(s => ({ ...s, error: `Could not load saved Drill: ${String(error)}` }));
@@ -454,7 +477,7 @@ export class Controller {
       const trainingSet = family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet;
       cases = lastLayerCaseIds(family, trainingSet).map(caseId => ({ family, origin: "catalog", trainingSet, caseId }));
     }
-    const selected = selectTrainingReview(cases, catalogueCaseForTarget(state.target), this.trainingAttempts.get());
+    const selected = selectTrainingReview(cases, catalogueCaseForTarget(state.target), this.trainingAttempts.get(), () => this.training.randomSample());
     if (!selected) return;
     if (selected.family === "f2l") await this.selectF2lCase(selected.caseName);
     else await this.selectLastLayerCase(selected.family, selected.caseId, selected.trainingSet);
@@ -641,7 +664,7 @@ export class Controller {
     return dataTransfer.exportData();
   }
 
-  async importData(json: string): Promise<{ sessions: number; solves: number; trainingAttempts: number; trainingDrillPresets: number; trainingAlgorithmPreferences: number }> {
+  async importData(json: string): Promise<{ sessions: number; solves: number; trainingAttempts: number; trainingRecognitionAttempts: number; trainingDrillPresets: number; trainingAlgorithmPreferences: number }> {
     if (!this.#beginSessionContextMutation()) {
       throw new Error("Cannot import while the timer or another Session operation is active.");
     }
@@ -652,10 +675,11 @@ export class Controller {
         const result = await dataTransfer.importData(this.physical.model?.kpuzzle, this.snapshot(), json);
         await this.#applySessionContext(result.context);
         this.trainingAttempts.set(await trainingHistory.loadTrainingAttempts());
+        this.trainingRecognitionAttempts.set(await recognitionHistory.loadTrainingRecognitionAttempts());
         this.trainingDrillPresets.set(await trainingDrillPresets.loadTrainingDrillPresets());
         this.trainingAlgorithmPreferences.set(await trainingAlgorithmPreferences.loadTrainingAlgorithmPreferences());
         this.training.refreshPreferredAlgorithm();
-        return { sessions: result.sessions, solves: result.solves, trainingAttempts: result.trainingAttempts, trainingDrillPresets: result.trainingDrillPresets, trainingAlgorithmPreferences: result.trainingAlgorithmPreferences };
+        return { sessions: result.sessions, solves: result.solves, trainingAttempts: result.trainingAttempts, trainingRecognitionAttempts: result.trainingRecognitionAttempts, trainingDrillPresets: result.trainingDrillPresets, trainingAlgorithmPreferences: result.trainingAlgorithmPreferences };
       });
     } finally {
       this.#endSessionContextMutation();

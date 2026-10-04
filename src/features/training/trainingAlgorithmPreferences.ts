@@ -1,4 +1,4 @@
-import { normalizeTrainingReferenceAlgorithm } from "../../cube/training";
+import { normalizeTrainingReferenceAlgorithm, TRAINING_AUFS } from "../../cube/training";
 import type { KPuzzle } from "cubing/kpuzzle";
 import type { TrainingAlgorithmPreference, TrainingCatalogueIdentity } from "../../app/types";
 import { normalizeTrainingCatalogueIdentity, trainingCatalogueKey } from "../../app/trainingCatalogue";
@@ -20,8 +20,10 @@ export function validateTrainingAlgorithm(kpuzzle: KPuzzle, identity: TrainingCa
   if (!target) throw new Error("This is not a valid Training catalogue case.");
   const normalized = normalizePersonalAlgorithm(algorithm);
   if (target.family === "f2l") {
-    const built = buildF2lCatalogueTarget(kpuzzle, findF2lTrainingCase(target.library, target.caseName)!, target.position);
-    if (!resolveF2lTrainingReference(built, normalized)) throw new Error("This algorithm does not complete the selected F2L case and preserve its protected slots.");
+    for (const auf of TRAINING_AUFS) {
+      const built = buildF2lCatalogueTarget(kpuzzle, findF2lTrainingCase(target.library, target.caseName)!, target.position, undefined, auf);
+      if (!resolveF2lTrainingReference(built, normalized)) throw new Error("This algorithm does not complete every selected F2L variation and preserve its protected slots.");
+    }
   } else {
     for (const variant of lastLayerTrainingVariants(kpuzzle, target.family, target.caseId, target.trainingSet)) {
       for (const auf of [0, 1, 2, 3] as const) {

@@ -160,7 +160,7 @@ The current database is:
 
 ```text
 name: cubetimer
-schema version: 4
+schema version: 5
 
 stores:
   sessions
@@ -169,6 +169,7 @@ stores:
   trainingAttempts
   trainingDrillPresets
   trainingAlgorithmPreferences
+  trainingRecognitionAttempts
 ```
 
 The v1-to-v2 upgrade adds `trainingAttempts` with key path `id` without replacing
@@ -177,7 +178,8 @@ loads all attempts in timestamp-then-ID order. Stable-ID `put()` upserts are
 idempotent, and Training writes wait for transaction completion. The v2-to-v3
 upgrade adds only `trainingDrillPresets` with key path `id`; all four existing
 stores and their records survive. The v3-to-v4 upgrade adds only
-`trainingAlgorithmPreferences` with key path `key`, preserving all five old stores.
+`trainingAlgorithmPreferences` with key path `key`, preserving all five old stores. The v4-to-v5 upgrade adds only
+`trainingRecognitionAttempts` with key path `id`, preserving all six existing stores.
 
 ### Persisted records
 
@@ -187,6 +189,8 @@ stores and their records survive. The v3-to-v4 upgrade adds only
 - `Solve`;
 - `TrainingAttempt`;
 - `TrainingDrillPreset`;
+- `TrainingAlgorithmPreference`;
+- `TrainingRecognitionAttempt`;
 - `Settings`.
 
 Components do not write IndexedDB directly.
@@ -205,7 +209,8 @@ React
   v
 Controller public API
   |
-  +--> SessionService / SolveHistory / TrainingHistory / TrainingDrillPresets / DataTransfer
+  +--> SessionService / SolveHistory / TrainingHistory / TrainingRecognitionHistory
+  |    / TrainingDrillPresets / TrainingAlgorithmPreferences / DataTransfer
           |
           v
         db.ts
@@ -246,6 +251,34 @@ preferredDelta normalize to null. Current personal benchmark combinations must b
 all null or a finite nonnegative STM, boolean match and finite delta; partial
 combinations are rejected. Completed benchmark facts never change with later preferences.
 
+### Recognition history and Drill run metadata
+
+React -> Controller -> TrainingRecognitionHistory -> db.ts -> IndexedDB
+trainingRecognitionAttempts. Runtime emits a completion fact; Controller constructs
+UUID/timestamp, immediately appends to its independent Store, then persists. Failure
+retains the visible answer/result and reports globally. Both historical workflows
+participate in `#pendingTrainingWrites`; export/import await these writes and the
+separate Training configuration mutation queue.
+
+Recognition records contain run ID, positive safe-integer revealed round, normalized
+TrainingCatalogueIdentity, answer case ID in exactly that catalogue context and finite
+nonnegative response time. Correctness is derived, not stored. Unknown fields drop;
+malformed rows skip; loads order by createdAt then ID and writes await transaction
+completion. Recognition history has no Session/Event, source Solve, preset or personal
+algorithm ownership.
+
+TrainingAttempt adds nullable `drillRunId`/`drillRound`: Single null/null, new Execution
+Drill nonempty ID/positive integer, legacy (including old Drill) null/null. Partial
+pairs reject; personal benchmark normalization is unchanged. No persistent run object
+or skip record exists. Preset task defaults to Execution when absent; unknown task
+rejects; Recognition requires two distinct selected cases, Execution one.
+
+JSON v7 includes Recognition; older versions contribute an empty incoming list and
+never erase local Recognition history. Recognition stable-ID upserts are independent
+of Session compatibility. Old run metadata/preset task normalize as above. Existing
+personal-algorithm semantic import validation and deterministic-key upserts remain.
+CSV remains Solve-only.
+
 ### Saved Drill configuration
 
 ```text
@@ -275,7 +308,7 @@ React -> Controller -> TrainingAlgorithmPreferences workflow -> db.ts
 ```
 
 `TrainingAttempt` is a historical completed practice fact. `TrainingDrillPreset`
-is reusable case/strategy configuration. `TrainingAlgorithmPreference` is a user
+is reusable case/strategy/task configuration. `TrainingAlgorithmPreference` is a user
 algorithm choice for one catalogue identity. Settings remains application preferences.
 None of these Training records is a Timer Session.
 
@@ -309,12 +342,12 @@ The export writes:
 
 ```text
 format: cubetimer
-version: 6
+version: 7
 ```
 
 Event identity exists on Sessions in the exported model.
-Full v6 backups contain `sessions`, `solves`, global `trainingAttempts` and
-`trainingDrillPresets` plus `trainingAlgorithmPreferences`. Training attempts include
+Full v7 backups contain `sessions`, `solves`, global `trainingAttempts` and
+`trainingDrillPresets`, `trainingAlgorithmPreferences` and `trainingRecognitionAttempts`. Training attempts include
 activity and case time. Version-3 attempts without those fields import as Single/null.
 Older v2 archives without Training history still import as an empty incoming attempt list,
 preserving existing local Training history. Current records normalize before
@@ -323,8 +356,9 @@ participate in Session event compatibility checks or require a source Solve in t
 archive. v4/v3/v2 archives without presets contribute an empty incoming list,
 preserving existing saved drills. Presets normalize and stable-ID upsert independently
 of Session/Solve compatibility and TrainingAttempt source-Solve checks. Same-name,
-different-ID presets coexist. JSON import counts include attempts and presets;
-Controller refreshes all three separate Training Stores after success. Preferences
+different-ID presets coexist. JSON import counts include both histories, presets and preferences;
+Controller refreshes all four separate Training Stores after success, then refreshes
+the current runtime preferred reference without recreating the target. Preferences
 normalize shape/key/catalogue in db.ts and validate algorithm semantics through the
 Training workflow using the supplied KPuzzle. Invalid preferences are skipped.
 They upsert by deterministic catalogue key, independently of Session compatibility,

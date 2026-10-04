@@ -8,7 +8,7 @@ These documents describe current state. Start at [SYSTEM.md](SYSTEM.md); load on
 | --- | --- |
 | Training lifecycle, setup, virtual pattern, attempts, recovery, retry | `src/features/training/TrainingRuntime.ts` and its tests |
 | Single/Drill activities, selected pools and countdown | `src/features/training/TrainingRuntime.ts`, `trainingDrill.ts`, `components/TrainingDrill.tsx` |
-| Completed Training history, catalogue performance and Random/Review | `src/features/training/trainingHistory.ts`, `trainingPerformance.ts`; composition in `src/app/Controller.ts` |
+| Completed Execution/Recognition history, catalogue performance, Insights and Random/Review | `src/features/training/trainingHistory.ts`, `trainingPerformance.ts`; composition in `src/app/Controller.ts` |
 | Reference checkpoints/progress and frame handling | `src/cube/training.ts`; conversion boundary in `src/cube/frames.ts`; shared visual move semantics in `src/cube/moveGuide.ts` |
 | F2L targets, catalogue/exact history, slots/protected slots, completion | `src/cube/f2lTraining.ts`, `f2lTrainingCases.ts` |
 | Full/2-Look OLL/PLL targets, AUF, variants or stage completion | `src/cube/lastLayerTraining.ts`, `lastLayerCases.ts`, `lastLayerTwoLookCases.ts` |
@@ -173,7 +173,8 @@ Training
 │   ├── Setup cube
 │   └── Virtual case
 └── Drill
-    └── Virtual case only
+    ├── Execution (virtual case)
+    └── Recognition (virtual case, answer-driven)
 ```
 
 Activity and case mode are separate concepts. Both activities use the same
@@ -183,7 +184,7 @@ stops Drill and switches to Single. Single retains manual case selection,
 Random/Review, Again, guide previews and virtual auto-reload with result preservation.
 
 Drill current configuration is ephemeral runtime state: one current catalogue family/context,
-selected case pool and Sequence/Random/Weighted worst strategy. F2L pools retain
+selected case pool, Execution/Recognition task and Sequence/Random/Weighted worst strategy. F2L pools retain
 Basic/Advanced library and position; OLL/PLL pools retain Full/2-Look set. Cards toggle
 membership rather than loading targets. Select all/Clear operate on that catalogue.
 Sequence cycles in catalogue display order and starts over on each run. Random is
@@ -192,7 +193,7 @@ Training history at each round. Both random strategies exclude the previous case
 when alternatives exist. Pure selection lives in `trainingDrill.ts`, without target
 construction, UI clocks or persistence.
 
-Weights start at Practised 1, Learning 3, New 4, Needs review 6. Positive median STM
+Execution weights start at Practised 1, Learning 3, New 4, Needs review 6. Positive median STM
 delta adds at most 4. Timing regression adds at most 4 using `(ratio - 1) * 5`,
 preferentially from Drill case time, otherwise registered move span. Current-run solved weakness uses the same capped delta/timing adjustments, taking
 the stronger historical/run signal to avoid double-counting completed attempts that
@@ -247,7 +248,10 @@ selected catalogue: most skips, largest run time regression (both historical bes
 and run average, taking the larger regression), positive recent median STM delta, historical review status,
 then catalogue order. Display/action pools are bounded to five meaningful weak cases.
 Summary retains its captured family/library/position or family/set context even when
-Settings changes. Exiting resumes current catalogue rules and clears incompatible IDs.
+Settings changes. Recognition summary actions refuse incompatible catalogue context until the
+run's Training set is restored, preserving the captured pool rather than silently
+clearing it. Execution summary exit, leaving Training or switching activity resumes
+current catalogue rules and clears incompatible IDs.
 
 Drill weak cases configures those IDs with Weighted worst; Repeat same set
 retains pool/strategy. These actions clear previous outcomes and return to configuration,
@@ -272,7 +276,9 @@ algorithm, catalog/custom source, optional note and timestamps. It is independen
 of Sessions, Settings, history and Saved Drill presets. The Training workflow
 validates syntax and catalogue completion before explicit save or JSON import:
 F2L uses the normal solved base and protected-slot semantics; last-layer validation
-checks every relevant variant and AUF with its stage completion goal.
+checks every relevant variant and AUF with its stage completion goal. F2L save/import
+validation also checks all four supported AUFs through the existing target builder
+and personal-reference resolver.
 
 Controller owns the preference Store and serializes saved-drill/preference writes
 through one Training configuration mutation queue, separate from attempt writes.
@@ -302,6 +308,78 @@ persist the nullable preferred numeric/match facts from that completed snapshot.
 Adaptive efficiency and ephemeral Drill outcome delta use `preferredDelta ?? delta`
 from each attempt, never today's preference applied retroactively. Timing is unchanged.
 
+## Smart catalogue generation
+
+The runtime selects concrete variations through its injected RNG (including Random,
+Review, AUF, underlying Full variant and answer ordering). Family-owned cube builders
+construct and validate them. F2L applies AUF as a held/Training-frame U turn after
+positioned setup. Full last-layer uses existing AUF construction; 2-Look first-look
+uses the existing underlying Full-case variant authority. Per-catalogue-key last
+variation is ephemeral runtime policy: avoid immediately identical AUF/variant when
+alternatives exist. Single Again, virtual automatic reload and both Drill tasks use
+these same seams. Exact historical targets never vary.
+
+Concrete AUF/variant is not durable catalogue identity. `sourceAlg` stays stable;
+canonical/personal executable `alg` resolves each exact generated target. Physical
+F2L direct setup includes AUF and must match the exact target; unsupported wide/slice
+setup retains `algBetween()` fallback. An already exact physical target uses an empty
+tracker. Protected-slot/cross completion rules remain unchanged.
+
+## Recognition Drill and historical facts
+
+Recognition extends TrainingRuntime's existing countdown/run/summary lifecycle;
+it has no separate runtime. The target and bounded textual choices publish after
+preparation completes, with `caseRevealedAt` at publication. No RAF is kept alive
+while awaiting an answer. One offered case ID ends the round, with response time
+from publication to answer; an incorrect answer is final. The correct identity,
+chosen identity, outcome and response time remain visible during inter-round
+countdown. Cube turns return before altering the virtual target or execution state.
+Skip reveals the target but persists no answer. Concealment hides identity, group,
+references, My Algorithm, performance, active catalogue and guide until answer/skip.
+
+Choices come only from the selected single catalogue: correct case once, up to three
+distractors, same authoritative group first, remainder from the pool, no duplicates.
+Injected RNG shuffles choices. Two/three selected cases expose all selected choices.
+
+`TrainingRecognitionAttempt` is a separate historical answer fact: UUID/timestamp,
+explicit Drill run ID/round, durable catalogue target, answer case ID and response
+milliseconds. Correctness derives from target/answer, never a persisted boolean.
+Each Start creates a fresh run ID; Execution TrainingAttempt completion also snapshots
+this ID and actual revealed round. Single and legacy attempts use null/null. There
+is no persistent DrillSession, Solve or skip record.
+
+Recognition performance derives attempts/correct/incorrect/accuracy, best and median
+correct-response time, latest-five accuracy/wrong count/timing and last practice.
+Wrong answers never enter speed medians. New is zero attempts, Learning is one/two;
+after three, Needs review means latest-five accuracy below 80% or correct median
+more than 20% slower than correct PB; otherwise Practised. Missing speed stays null.
+Recognition Weighted worst reads Recognition history, not Execution: bounded status,
+incorrect-answer/timing and ephemeral skip signals. It takes the stronger historical
+or current-run signal to avoid counting persisted answers twice. Weak-case ranking
+prioritizes incorrect/poor accuracy, skips, timing regression and historical review,
+with catalogue-order ties. Summary shows rounds/answered/correct/incorrect/skipped,
+accuracy and correct-only median/best time. Weak-case/Repeat actions retain task and
+context and return to configuration without Start.
+
+## Training Insights
+
+Practice/Insights is local React presentation, default Practice. Live Single solving
+or any running Drill blocks Insights; opening it never resets runtime or Timer context.
+Training-owned pure analytics reuse execution performance and derive Recognition,
+personal benchmark match-rate/delta snapshots, case/group dimensions, explicit wrong-
+answer confusion pairs and chronological task-specific windows (25/50/100/All).
+Case identity is the shared catalogue contract; AUF/underlying variants aggregate,
+while library/position/family/Training-set remain distinct. Exact execution facts can
+contribute to overview but not catalogue case metrics. Historical efficiency remains
+`preferredDelta ?? delta`; today's preference Store is never an analytics input.
+
+Runs with six or more completions support chronological-half comparisons. Execution
+compares median case time (and effective STM where available); Recognition compares
+accuracy and correct-only speed, requiring two correct answers per half for speed.
+Across qualifying runs report median later-round differences, not physiological
+fatigue or causal training effectiveness. Unavailable values remain null. Timer
+Statistics continues consuming Solves only.
+
 ## Saved Drill presets
 
 ```text
@@ -313,7 +391,9 @@ Drill configuration
 `trainingDrillPresets.ts` constructs and edits configuration-only records; Controller
 owns their separate Store and delegates persistence to `db.ts`. Each record has a
 stable UUID, a trimmed name (1-80 characters), creation/modification timestamps,
-discriminated catalogue context, selected case IDs and strategy. Duplicate names
+discriminated catalogue context, selected case IDs, strategy and task. Legacy missing
+task means Execution. Execution requires one selected case; Recognition requires
+at least two distinct selected cases. Duplicate names
 are allowed; context metadata distinguishes entries. Presets remain single-family
 and single-catalogue. F2L owns Basic/Advanced library and position; OLL/PLL owns
 Full/2-Look. The durable context/strategy value contracts live in `app/types.ts`
@@ -323,14 +403,14 @@ Loading restores context and hydrates the existing TrainingRuntime configuration
 without selecting/revealing a case or starting a countdown. OLL/PLL loads synchronize
 the applicable Settings preference through a narrow Controller boundary. The prospective
 Settings record persists before Settings/catalogue/runtime publication. A failed write
-leaves both Stores and the selected pool unchanged. Controller exposes a preset-application
+leaves Settings and the exact current runtime context/pool/strategy/task unchanged. Controller exposes a preset-application
 busy Store and refuses Drill Start until loading finishes;
 there is no hidden preset catalogue preference alongside Settings. The other family's
 preference remains unchanged. F2L loads restore remembered library and position.
 
 The runtime owns no preset ID/name and has no link back to the record. Editing a
 loaded pool changes only current configuration; Update explicitly replaces context,
-cases and strategy while retaining ID/name/creation time. Rename changes only the
+cases, strategy and task while retaining ID/name/creation time. Rename changes only the
 name/modification time. Loading does not edit timestamps. Delete removes the record
 without changing current configuration. Record edits persist before Store publication;
 failed writes report through Controller's error path and retain the existing Store.
@@ -589,3 +669,15 @@ meaning rather than catalogue preference ownership.
 
 Rejected for this phase: one My algorithm is the benchmark per catalogue identity;
 canonical alternatives remain available without another user algorithm library.
+
+### Recognition as zero-move Execution history or a second runtime
+
+Rejected: identification answers are different historical facts and require answer-
+driven completion. Reuse the Drill lifecycle while keeping Recognition history and
+performance distinct. Cube turns cannot complete Recognition.
+
+### Causal effectiveness or a combined mastery score
+
+Rejected: sparse catalogue/solve observations, personal algorithm changes and broader
+skill changes do not establish causality. Keep descriptive execution, recognition,
+STM and timing dimensions separate; label within-run comparisons Later-round change.

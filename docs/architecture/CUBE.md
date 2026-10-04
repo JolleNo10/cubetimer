@@ -221,3 +221,28 @@ Cube domain validates/resolves algorithms and never owns persistence keys, notes
 timestamps or a user preference Store. Persisting target-adjusted algorithms,
 replacing canonical rank 1, and creating another matcher are rejected because stable
 source semantics and distinct benchmark facts already fit the existing reference engine.
+
+## Smart catalogue target variations
+
+KPattern + Alg and the existing cube modules remain the single pure state authority;
+CubeModel is the mutable physical/normal wrapper. Runtime chooses variation, while
+F2L/last-layer target builders construct, recognize, align references and validate
+completion. F2L positions authoritative setup in the held Training frame, applies
+TrainingAuf U there, then transforms back through the existing frame seam. Shared
+quarter-turn AUF values/tokens belong to cube/training.ts; LastLayerAuf aliases them.
+Last-layer variant/AUF authority remains in lastLayerTraining.ts. Exact historical
+state/grip/boundaries never randomize.
+
+Generated concrete state does not split durable catalogue identity. Canonical and
+personal sourceAlg remain stable; executable alg changes to solve the actual state.
+My Algorithm save/import validation covers every concrete AUF/variant the generator
+may emit, using the family builders/resolvers, not another cube validator. Physical
+F2L direct setup is accepted only when its full AUF-inclusive tracker reaches the exact
+target; wide/slice setup continues through generic solver fallback.
+
+### Rejected: a second generic Training cube-state engine above KPattern
+
+The current cube domain already owns state, frames, recognition, target construction,
+completion, source/executable references and checkpoints. A parallel engine would
+introduce competing authority. Feature policy chooses variation; it does not interpret
+cube state.

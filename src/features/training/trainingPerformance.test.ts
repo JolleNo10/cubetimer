@@ -6,7 +6,7 @@ const f2l = (caseName = "F2L 1"): TrainingCatalogueCase => ({ family: "f2l", ori
 const a = f2l(), b = f2l("F2L 2"), c = f2l("F2L 3");
 let serial = 0;
 function attempt(target: TrainingCatalogueCase = a, values: Partial<TrainingAttempt> = {}): TrainingAttempt {
-  return { id: String(++serial), createdAt: serial, mode: "virtual", activity: "single", caseTimeMs: null,
+  return { id: String(++serial), createdAt: serial, mode: "virtual", activity: "single", drillRunId: null, drillRound: null, caseTimeMs: null,
     target: target.family === "f2l" ? target : { ...target, auf: 0 },
     moves: ["R"], stm: 4, elapsedMs: 1000, recommendedStm: 4, matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0, ...values };
 }
@@ -38,9 +38,9 @@ describe("Training per-case performance", () => {
     const rows = [1000, 1000, 1000, 1400, 1400, 1400].map((caseTimeMs, i) =>
       attempt(a, { createdAt: i, activity: "drill", caseTimeMs, elapsedMs: 100 }));
     expect(stats(rows)).toMatchObject({ bestCaseTimeMs: 1000, recentMedianCaseTimeMs: 1400, status: "review" });
-    expect(stats([attempt(a, { activity: "drill", caseTimeMs: 0 }), attempt(a, { activity: "drill", caseTimeMs: NaN }),
+    expect(stats([attempt(a, { activity: "drill", drillRunId: null, drillRound: null, caseTimeMs: 0 }), attempt(a, { activity: "drill", drillRunId: null, drillRound: null, caseTimeMs: NaN }),
       attempt(a, { caseTimeMs: null })])).toMatchObject({ bestCaseTimeMs: null, recentMedianCaseTimeMs: null });
-    const stable = [100, 140, 140].map(elapsedMs => attempt(a, { activity: "drill", caseTimeMs: 1000, elapsedMs }));
+    const stable = [100, 140, 140].map(elapsedMs => attempt(a, { activity: "drill", drillRunId: null, drillRound: null, caseTimeMs: 1000, elapsedMs }));
     expect(stats(stable).status).toBe("practiced");
   });
   it("counts attempts, ignores invalid/nonpositive times, and keeps best STM and last practice", () => {

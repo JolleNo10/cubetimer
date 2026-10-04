@@ -1,3 +1,4 @@
+import { recognizeF2lSlot } from "./f2l";
 import { describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
 import { faceColour } from "./colours";
@@ -642,4 +643,40 @@ describe("personal F2L reference resolution", () => {
     const bl = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0], "BL");
     expect(resolveF2lTrainingReference(bl, fr.info.references[0].sourceAlg)).toBeNull();
   });
+});
+
+
+describe("catalogue F2L held-frame AUF variation", () => {
+  it("varies every Basic case in every position while retaining source and completion authority", () => {
+    for (const item of BASIC_CASES) for (const position of F2L_POSITIONS) {
+      const canonical = buildF2lCatalogueTarget(kpuzzle, item, position);
+      const facelets = new Set<string>();
+      for (const auf of [0, 1, 2, 3] as const) {
+        const target = buildF2lCatalogueTarget(kpuzzle, item, position, undefined, auf);
+        facelets.add(patternToFacelets(target.pattern));
+        expect(recognizeF2lSlot(kpuzzle, reframe(kpuzzle, target.pattern, new Alg(target.info.trainingRotation.tokens.join(" "))), position).match?.name).toBe(item.name);
+        expect(target.info.references.length, `${item.name}/${position}/${auf}`).toBeGreaterThan(0);
+        expect(target.info.references.map(r => r.sourceAlg)).toEqual(canonical.info.references.map(r => r.sourceAlg));
+        const preferred = resolveF2lTrainingReference(target, canonical.info.references[0].sourceAlg)!;
+        expect(preferred).not.toBeNull();
+        const rotation = new Alg(target.info.trainingRotation.tokens.join(" "));
+        const complete = reframe(kpuzzle, reframe(kpuzzle, target.pattern, rotation).applyAlg(preferred.alg), rotation.invert());
+        expect(isF2lTrainingComplete(target, complete)).toBe(true);
+      }
+      expect(facelets.size).toBe(4);
+    }
+  });
+});
+
+it("keeps Advanced source references and protected completion valid for every position and generated AUF", () => {
+  for (const item of F2L_TRAINING_CATALOGUES.advanced.cases) for (const position of F2L_POSITIONS) for (const auf of [0, 1, 2, 3] as const) {
+    const target = buildF2lCatalogueTarget(kpuzzle, item, position, undefined, auf);
+    const canonical = buildF2lCatalogueTarget(kpuzzle, item, position);
+    expect(target.info.references.length, `${item.name}/${position}/${auf}`).toBeGreaterThan(0);
+    expect(target.info.references.map(r => r.sourceAlg)).toEqual(canonical.info.references.map(r => r.sourceAlg));
+    expect(resolveF2lTrainingReference(target, canonical.info.references[0].sourceAlg)).not.toBeNull();
+    const setup = f2lCatalogueSetupMoves(item, position, auf);
+    if (setup !== null) expect(patternToFacelets(kpuzzle.defaultPattern().applyAlg(f2lCubeAlgorithm(setup, target.info.trainingRotation.orientation))))
+      .toBe(patternToFacelets(target.pattern));
+  }
 });

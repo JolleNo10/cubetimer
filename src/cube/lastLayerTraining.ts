@@ -7,7 +7,7 @@ import { decodeGripTrack } from "./gripTrack";
 import { lastLayerCornersOriented, lastLayerCornersPermuted, lastLayerEdges, reframe, withCentresHome } from "./recognise";
 import { rotationForCrossFace, rotationTokensBetween, IDENTITY } from "./orientation";
 import type { Face } from "./moves";
-import { reconstructTrainingStepStart, standardTrainingRotation, algorithmStm, buildTrainingGuide, normalizeTrainingReferenceAlgorithm, type TrainingResolvedReference, type TrainingSolveInput } from "./training";
+import { reconstructTrainingStepStart, standardTrainingRotation, algorithmStm, buildTrainingGuide, normalizeTrainingReferenceAlgorithm, type TrainingResolvedReference, type TrainingSolveInput, type TrainingAuf, TRAINING_AUF_TOKENS, TRAINING_UNDO_AUF_TOKENS } from "./training";
 import { joinMoves } from "./notation";
 import { ollGroupForCase, pllGroupForCase } from "./lastLayerCases";
 import { TWO_LOOK_CASES } from "./lastLayerTwoLookCases";
@@ -15,7 +15,7 @@ import { TWO_LOOK_CASES } from "./lastLayerTwoLookCases";
 export type LastLayerFamily = "oll" | "pll";
 export type LastLayerTrainingSet = "full" | "2look";
 export type LastLayerCompletionGoal = "orient-edges" | "orient-last-layer" | "permute-corners" | "solve-cube";
-export type LastLayerAuf = 0 | 1 | 2 | 3;
+export type LastLayerAuf = TrainingAuf;
 
 export type LastLayerTrainingOrigin =
   | { kind: "catalog"; caseId: string }
@@ -48,8 +48,8 @@ export type LastLayerTrainingTarget = {
   pattern: KPattern;
 };
 
-const AUF = ["", "U", "U2", "U'"] as const;
-const UNDO_AUF = ["", "U'", "U2", "U"] as const;
+const AUF = TRAINING_AUF_TOKENS;
+const UNDO_AUF = TRAINING_UNDO_AUF_TOKENS;
 
 type GeneratedCase = { id: string; group: string; setup: string; algorithms: readonly string[] };
 

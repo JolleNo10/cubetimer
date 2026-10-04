@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_EVENT_ID } from "../../cube/scramble";
-import { mergeSettings, migrateSession, migrateSolve, normalizeTrainingAttempt, normalizeTrainingDrillPreset, normalizeTrainingAlgorithmPreference } from "./db";
-import type { Solve, TrainingAttempt, TrainingDrillPreset, TrainingAlgorithmPreference } from "../../app/types";
+import { mergeSettings, migrateSession, migrateSolve, normalizeTrainingAttempt, normalizeTrainingDrillPreset, normalizeTrainingAlgorithmPreference, normalizeTrainingRecognitionAttempt } from "./db";
+import type { Solve, TrainingAttempt, TrainingDrillPreset, TrainingAlgorithmPreference, TrainingRecognitionAttempt } from "../../app/types";
 
 import { f2lTrainingCatalogue } from "../../cube/f2lTrainingCases";
 import { lastLayerCaseIds } from "../../cube/lastLayerTraining";
@@ -104,7 +104,7 @@ describe("migrateSession", () => {
 });
 
 const trainingAttempt = (values: Partial<TrainingAttempt> = {}): TrainingAttempt => ({
-  id: "attempt", createdAt: 10, mode: "virtual", activity: "single", caseTimeMs: null,
+  id: "attempt", createdAt: 10, mode: "virtual", activity: "single", drillRunId: null, drillRound: null, caseTimeMs: null,
   target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 1", position: "FR" },
   moves: ["R", "U"], stm: 2, elapsedMs: 500, recommendedStm: 2, matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0, ...values,
 });
@@ -113,13 +113,13 @@ describe("TrainingAttempt current-record normalization", () => {
   it("preserves old history as Single/null and accepts current Drill facts", () => {
     const { activity: _activity, caseTimeMs: _caseTime, ...old } = trainingAttempt();
     expect(normalizeTrainingAttempt(old)).toEqual(trainingAttempt());
-    const drill = trainingAttempt({ activity: "drill", caseTimeMs: 2400 });
+    const drill = trainingAttempt({ activity: "drill", drillRunId: null, drillRound: null, caseTimeMs: 2400 });
     expect(normalizeTrainingAttempt(drill)).toEqual(drill);
   });
   it.each([
     { activity: "invalid" }, { caseTimeMs: -1 }, { caseTimeMs: Infinity }, { caseTimeMs: NaN },
-    { activity: "drill", caseTimeMs: null }, { activity: "drill", caseTimeMs: 2000, mode: "setup" },
-    { activity: "single", caseTimeMs: 2000 },
+    { activity: "drill", drillRunId: null, drillRound: null, caseTimeMs: null }, { activity: "drill", drillRunId: null, drillRound: null, caseTimeMs: 2000, mode: "setup" },
+    { activity: "single", drillRunId: null, drillRound: null, caseTimeMs: 2000 },
   ])("rejects malformed activity/case timing %j", values => {
     expect(normalizeTrainingAttempt({ ...trainingAttempt(), ...values })).toBeNull();
   });
@@ -219,11 +219,11 @@ describe("Training IndexedDB adapter", () => {
     vi.resetModules();
     const adapter = await import("./db");
     expect(await adapter.loadTrainingAttempts()).toEqual([]);
-    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 4);
+    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 5);
     expect(createObjectStore).toHaveBeenCalledWith("trainingAttempts", { keyPath: "id" });
     expect(createObjectStore).toHaveBeenCalledWith("trainingDrillPresets", { keyPath: "id" });
     expect(createObjectStore).toHaveBeenCalledWith("trainingAlgorithmPreferences", { keyPath: "key" });
-    expect(createObjectStore).toHaveBeenCalledTimes(3);
+    expect(createObjectStore).toHaveBeenCalledTimes(4);
     expect([...stores.values()].slice(0, 3)).toEqual(existing);
     const a = trainingAttempt({ id: "a", createdAt: 20 });
     const b = trainingAttempt({ id: "b", createdAt: 20 });
@@ -238,7 +238,7 @@ describe("Training IndexedDB adapter", () => {
 
 const drillPreset = (values: Partial<TrainingDrillPreset> = {}): TrainingDrillPreset => ({
   id: "preset", name: "Cases", createdAt: 10, updatedAt: 20,
-  context: { family: "f2l", library: "basic", position: "FR" }, caseIds: ["F2L 4", "F2L 5"], strategy: "sequence", ...values,
+  context: { family: "f2l", library: "basic", position: "FR" }, caseIds: ["F2L 4", "F2L 5"], task: "execution", strategy: "sequence", ...values,
 });
 
 describe("TrainingDrillPreset normalization", () => {
@@ -306,10 +306,10 @@ describe("Saved Drill IndexedDB adapter", () => {
     vi.stubGlobal("indexedDB", { open }); vi.resetModules();
     const adapter = await import("./db");
     expect(await adapter.loadTrainingDrillPresets()).toEqual([]);
-    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 4);
+    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 5);
     expect(createObjectStore).toHaveBeenCalledWith("trainingDrillPresets", { keyPath: "id" });
     expect(createObjectStore).toHaveBeenCalledWith("trainingAlgorithmPreferences", { keyPath: "key" });
-    expect(createObjectStore).toHaveBeenCalledTimes(2);
+    expect(createObjectStore).toHaveBeenCalledTimes(3);
     expect([...stores.values()].slice(0, 4)).toEqual(originals);
     async function commit(write: Promise<void>) {
       let resolved = false; void write.then(() => { resolved = true; });
@@ -376,7 +376,7 @@ describe("personal algorithm IndexedDB v4 migration", () => {
   it("preserves v3 stores, adds only the key store, waits for commits, upserts and skips malformed rows", async () => {
     const stores = new Map<string, Map<string, unknown>>(["sessions", "solves", "settings", "trainingAttempts", "trainingDrillPresets"].map(name => [name, new Map([["old", { id: "old" }]])]));
     const originals = [...stores.values()];
-    const createObjectStore = vi.fn((name: string, options: unknown) => { expect(options).toEqual({ keyPath: "key" }); stores.set(name, new Map()); });
+    const createObjectStore = vi.fn((name: string, options: unknown) => { expect(options).toEqual({ keyPath: name === "trainingAlgorithmPreferences" ? "key" : "id" }); stores.set(name, new Map()); });
     let complete: (() => void) | undefined;
     const database = { objectStoreNames: { contains: (name: string) => stores.has(name) }, createObjectStore,
       transaction: (name: string) => {
@@ -391,8 +391,10 @@ describe("personal algorithm IndexedDB v4 migration", () => {
       queueMicrotask(() => { req.onupgradeneeded?.(); req.onsuccess?.(); }); return req; });
     vi.stubGlobal("indexedDB", { open }); vi.resetModules(); const adapter = await import("./db");
     expect(await adapter.loadTrainingAlgorithmPreferences()).toEqual([]);
-    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 4);
-    expect(createObjectStore).toHaveBeenCalledExactlyOnceWith("trainingAlgorithmPreferences", { keyPath: "key" });
+    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 5);
+    expect(createObjectStore).toHaveBeenCalledWith("trainingAlgorithmPreferences", { keyPath: "key" });
+    expect(createObjectStore).toHaveBeenCalledWith("trainingRecognitionAttempts", { keyPath: "id" });
+    expect(createObjectStore).toHaveBeenCalledTimes(2);
     expect([...stores.values()].slice(0, 5)).toEqual(originals);
     async function commit(write: Promise<void>) { let resolved = false; void write.then(() => { resolved = true; });
       await Promise.resolve(); await Promise.resolve(); expect(resolved).toBe(false); complete!(); await write; }
@@ -404,5 +406,71 @@ describe("personal algorithm IndexedDB v4 migration", () => {
     expect(stores.get("trainingAlgorithmPreferences")!.size).toBe(2);
     await commit(adapter.deleteTrainingAlgorithmPreference(original.key));
     expect(await adapter.loadTrainingAlgorithmPreferences()).toEqual([]);
+  });
+});
+
+const recognitionAttempt = (fields: Partial<TrainingRecognitionAttempt> = {}): TrainingRecognitionAttempt => ({
+  id: "answer", createdAt: 10, drillRunId: "run", drillRound: 2,
+  target: { family: "pll", trainingSet: "full", caseId: "T" }, answerCaseId: "Ua", responseMs: 1200, ...fields,
+});
+describe("Recognition/current Drill record normalization", () => {
+  it("rebuilds a valid answer without persisting correctness or unknown runtime fields", () => {
+    expect(normalizeTrainingRecognitionAttempt({ ...recognitionAttempt(), isCorrect: true, round: 99, sessionId: "bad" })).toEqual(recognitionAttempt());
+    expect(normalizeTrainingRecognitionAttempt(recognitionAttempt({ target: { family: "f2l", library: "advanced", caseName: "AF2L 1", position: "BL" }, answerCaseId: "AF2L 2" }))).not.toBeNull();
+    expect(normalizeTrainingRecognitionAttempt(recognitionAttempt({ target: { family: "oll", trainingSet: "2look", caseId: "Sune" }, answerCaseId: "Antisune" }))).not.toBeNull();
+  });
+  it.each([{ id: " " }, { createdAt: -1 }, { createdAt: Infinity }, { drillRunId: "" }, { drillRound: 0 }, { drillRound: 1.5 },
+    { drillRound: Number.MAX_SAFE_INTEGER + 1 }, { responseMs: NaN }, { responseMs: -1 }, { answerCaseId: "Sune" },
+    { target: { family: "pll", trainingSet: "2look", caseId: "T" } },
+    { target: { family: "f2l", library: "basic", position: "FR", caseName: "F2L 4" }, answerCaseId: "AF2L 4" }])("rejects malformed answer %j", fields => {
+    expect(normalizeTrainingRecognitionAttempt({ ...recognitionAttempt(), ...fields })).toBeNull();
+  });
+  it("keeps old Drill attempts and validates complete run metadata without weakening personal benchmark rules", () => {
+    const { drillRunId: _id, drillRound: _round, ...legacy } = trainingAttempt({ activity: "drill", caseTimeMs: 2000 });
+    expect(normalizeTrainingAttempt(legacy)).toMatchObject({ drillRunId: null, drillRound: null });
+    const current = trainingAttempt({ activity: "drill", drillRunId: "run", drillRound: 3, caseTimeMs: 2000,
+      preferredStm: 3, matchedPreferred: false, preferredDelta: -1 });
+    expect(normalizeTrainingAttempt(current)).toEqual(current);
+    for (const fields of [{ drillRunId: null }, { drillRound: null }, { drillRound: 0 }, { drillRunId: " " }, { matchedPreferred: null }])
+      expect(normalizeTrainingAttempt({ ...current, ...fields })).toBeNull();
+    expect(normalizeTrainingAttempt({ ...current, activity: "single", caseTimeMs: null })).toBeNull();
+  });
+  it("defaults legacy presets to Execution and requires two distinct Recognition cases", () => {
+    const { task: _task, ...legacy } = drillPreset({ caseIds: ["F2L 4"] });
+    expect(normalizeTrainingDrillPreset(legacy)).toEqual({ ...legacy, task: "execution" });
+    expect(normalizeTrainingDrillPreset(drillPreset({ task: "recognition" }))).not.toBeNull();
+    expect(normalizeTrainingDrillPreset(drillPreset({ task: "recognition", caseIds: ["F2L 4", "F2L 4"] }))).toBeNull();
+    expect(normalizeTrainingDrillPreset({ ...legacy, task: "unknown" })).toBeNull();
+  });
+});
+
+describe("Recognition IndexedDB v5 migration", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+  it("preserves all six v4 stores, adds only Recognition, waits for commit and normalizes ordered stable-ID upserts", async () => {
+    const names = ["sessions", "solves", "settings", "trainingAttempts", "trainingDrillPresets", "trainingAlgorithmPreferences"];
+    const stores = new Map(names.map(name => [name, new Map<string, unknown>([["old", { id: "old" }]])]));
+    const originals = [...stores.values()]; let complete: (() => void) | undefined;
+    const createObjectStore = vi.fn((name: string, options: unknown) => { expect(options).toEqual({ keyPath: "id" }); stores.set(name, new Map()); });
+    const database = { objectStoreNames: { contains: (name: string) => stores.has(name) }, createObjectStore,
+      transaction: (name: string) => {
+        const tx = { oncomplete: null as null | (() => void), objectStore: () => ({
+          getAll: () => { const request = { result: [...stores.get(name)!.values()], onsuccess: null as null | (() => void) }; queueMicrotask(() => request.onsuccess?.()); return request; },
+          put: (row: TrainingRecognitionAttempt) => { stores.get(name)!.set(row.id, row); complete = () => tx.oncomplete?.(); },
+        }) }; return tx;
+      } };
+    const open = vi.fn(() => { const request = { result: database, onupgradeneeded: null as null | (() => void), onsuccess: null as null | (() => void) };
+      queueMicrotask(() => { request.onupgradeneeded?.(); request.onsuccess?.(); }); return request; });
+    vi.stubGlobal("indexedDB", { open }); vi.resetModules(); const adapter = await import("./db");
+    expect(await adapter.loadTrainingRecognitionAttempts()).toEqual([]); expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 5);
+    expect(createObjectStore).toHaveBeenCalledExactlyOnceWith("trainingRecognitionAttempts", { keyPath: "id" });
+    expect([...stores.values()].slice(0, 6)).toEqual(originals);
+    async function commit(write: Promise<void>) { let done = false; void write.then(() => { done = true; });
+      await Promise.resolve(); await Promise.resolve(); expect(done).toBe(false); complete!(); await write; }
+    const a = recognitionAttempt({ id: "a" }), b = recognitionAttempt({ id: "b" });
+    await commit(adapter.saveTrainingRecognitionAttempt(b)); await commit(adapter.saveTrainingRecognitionAttempt(a));
+    await commit(adapter.saveTrainingRecognitionAttempt({ ...b, responseMs: 500 }));
+    stores.get("trainingRecognitionAttempts")!.set("bad", { ...a, id: "bad", answerCaseId: "Sune" });
+    expect(await adapter.loadTrainingRecognitionAttempts()).toEqual([a, { ...b, responseMs: 500 }]);
+    await expect(adapter.saveTrainingRecognitionAttempt({ ...a, responseMs: -1 })).rejects.toThrow("Invalid Recognition");
   });
 });

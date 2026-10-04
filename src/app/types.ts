@@ -9,6 +9,7 @@ import type { F2lPosition } from "../cube/f2lCases";
 export type TrainingDrillPresetContext =
   | { family: "f2l"; library: F2lTrainingLibrary; position: F2lPosition }
   | { family: "oll" | "pll"; trainingSet: LastLayerTrainingSet };
+export type TrainingDrillTask = "execution" | "recognition";
 export type TrainingDrillStrategy = "sequence" | "random" | "weighted";
 export type TrainingDrillPreset = {
   id: string;
@@ -17,6 +18,7 @@ export type TrainingDrillPreset = {
   updatedAt: number;
   context: TrainingDrillPresetContext;
   strategy: TrainingDrillStrategy;
+  task: TrainingDrillTask;
   caseIds: string[];
 };
 
@@ -43,11 +45,23 @@ export type TrainingAttemptTarget =
   | { family: "oll" | "pll"; origin: "catalog"; trainingSet: LastLayerTrainingSet; caseId: string; auf: LastLayerAuf }
   | { family: "oll" | "pll"; origin: "solve-step"; solveId: string; stepName: "OLL" | "PLL"; trainingSet: "full"; caseId: string; auf: LastLayerAuf };
 
+export type TrainingRecognitionAttempt = {
+  id: string;
+  createdAt: number;
+  drillRunId: string;
+  drillRound: number;
+  target: TrainingCatalogueIdentity;
+  answerCaseId: string;
+  responseMs: number;
+};
+
 export type TrainingAttempt = {
   id: string;
   createdAt: number;
   mode: "setup" | "virtual";
   activity: "single" | "drill";
+  drillRunId: string | null;
+  drillRound: number | null;
   /** Case reveal to completion for Drill; null for Single. */
   caseTimeMs: number | null;
   target: TrainingAttemptTarget;

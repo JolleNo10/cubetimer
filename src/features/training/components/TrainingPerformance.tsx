@@ -5,12 +5,12 @@ import { concealsTrainingAnswer } from "../TrainingRuntime";
 import { catalogueCaseForTarget, EMPTY_TRAINING_CASE_STATS, trainingCaseKey, trainingStatsByCase, type TrainingCaseStats } from "../trainingPerformance";
 
 const statusText = { new: "New", learning: "Learning", review: "Needs review", practiced: "Practised" };
-export function trainingPerformanceLabel(stats?: TrainingCaseStats): string {
+export function trainingPerformanceLabel(stats?: Pick<TrainingCaseStats, "attempts" | "status">): string {
   return stats?.attempts ? `${stats.attempts} ${stats.attempts === 1 ? "attempt" : "attempts"}, ${statusText[stats.status].toLowerCase()}` : "";
 }
 
 /** Cards receive derived facts; they never subscribe independently. */
-export function TrainingCaseMarker({ stats }: { stats?: TrainingCaseStats }) {
+export function TrainingCaseMarker({ stats }: { stats?: Pick<TrainingCaseStats, "attempts" | "status"> }) {
   if (!stats?.attempts) return null;
   return <span className={`training-case-marker ${stats.status}`} title={trainingPerformanceLabel(stats)}>
     {stats.attempts} · {statusText[stats.status]}
@@ -24,7 +24,7 @@ export function TrainingPersonalPerformance() {
   const statsByCase = useMemo(() => trainingStatsByCase(attempts), [attempts]);
   const training = useStoreValue(controller.training.state, state => state);
   const identity = catalogueCaseForTarget(target);
-  if (!identity || concealsTrainingAnswer(training)) return null;
+  if (!identity || training.activity === "drill" && training.drill.task === "recognition" || concealsTrainingAnswer(training)) return null;
   const stats = statsByCase.get(trainingCaseKey(identity)!) ?? EMPTY_TRAINING_CASE_STATS;
   const time = (value: number | null) => value === null ? "—" : formatTime(value);
   const delta = stats.recentMedianDelta;

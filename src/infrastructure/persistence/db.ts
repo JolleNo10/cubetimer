@@ -5,15 +5,15 @@
  * more than `localStorage` will hold, hence IndexedDB.
  */
 import { DEFAULT_EVENT_ID, EVENTS, type EventId } from "../../cube/scramble";
-import { DEFAULT_SETTINGS, type Session, type Settings, type Solve, type TrainingAttempt, type TrainingAttemptTarget, type TrainingDrillPreset, type TrainingDrillPresetContext, type TrainingAlgorithmPreference } from "../../app/types";
-import { normalizeTrainingCatalogueIdentity, trainingCatalogueKey } from "../../app/trainingCatalogue";
+import { DEFAULT_SETTINGS, type Session, type Settings, type Solve, type TrainingAttempt, type TrainingAttemptTarget, type TrainingDrillPreset, type TrainingDrillPresetContext, type TrainingAlgorithmPreference, type TrainingRecognitionAttempt } from "../../app/types";
+import { normalizeTrainingCatalogueIdentity, trainingCatalogueCaseIds, trainingCatalogueKey } from "../../app/trainingCatalogue";
 import { normaliseLastLayerTrainingSet } from "../../app/settings";
 import { F2L_POSITIONS } from "../../cube/f2lCases";
 import { findF2lTrainingCase, f2lTrainingCatalogue } from "../../cube/f2lTrainingCases";
 import { lastLayerCaseIds } from "../../cube/lastLayerTraining";
 
 const DB_NAME = "cubetimer";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -37,6 +37,9 @@ function openDatabase(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("trainingDrillPresets")) {
         db.createObjectStore("trainingDrillPresets", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("trainingRecognitionAttempts")) {
+        db.createObjectStore("trainingRecognitionAttempts", { keyPath: "id" });
       }
       if (!db.objectStoreNames.contains("trainingAlgorithmPreferences")) {
         db.createObjectStore("trainingAlgorithmPreferences", { keyPath: "key" });
@@ -193,6 +196,10 @@ export function normalizeTrainingAttempt(value: unknown): TrainingAttempt | null
       !(caseTimeMs === null || nonnegative(caseTimeMs)) ||
       (activity === "single" && caseTimeMs !== null) ||
       (activity === "drill" && (value.mode !== "virtual" || caseTimeMs === null || value.target.origin !== "catalog"))) return null;
+  const drillRunId = value.drillRunId === undefined ? null : value.drillRunId;
+  const drillRound = value.drillRound === undefined ? null : value.drillRound;
+  if (!(drillRunId === null && drillRound === null) &&
+      !(activity === "drill" && text(drillRunId) && integer(drillRound) && drillRound > 0)) return null;
   const preferredStm = value.preferredStm === undefined ? null : value.preferredStm;
   const matchedPreferred = value.matchedPreferred === undefined ? null : value.matchedPreferred;
   const preferredDelta = value.preferredDelta === undefined ? null : value.preferredDelta;
@@ -225,7 +232,7 @@ export function normalizeTrainingAttempt(value: unknown): TrainingAttempt | null
     } else return null;
   } else return null;
   return {
-    id: value.id, createdAt: value.createdAt, mode: value.mode, activity, caseTimeMs, target, moves: [...value.moves] as string[],
+    id: value.id, createdAt: value.createdAt, mode: value.mode, activity, caseTimeMs, drillRunId, drillRound, target, moves: [...value.moves] as string[],
     stm: value.stm, elapsedMs: value.elapsedMs, recommendedStm: value.recommendedStm,
     matchedReferenceRank: value.matchedReferenceRank, delta: value.delta, preferredStm, matchedPreferred, preferredDelta,
   };
@@ -258,6 +265,8 @@ export function normalizeTrainingDrillPreset(value: unknown): TrainingDrillPrese
       !nonnegative(value.createdAt) || !nonnegative(value.updatedAt) || value.updatedAt < value.createdAt ||
       !["sequence", "random", "weighted"].includes(value.strategy as string) ||
       !record(value.context) || !Array.isArray(value.caseIds) || !value.caseIds.length || !value.caseIds.every(text)) return null;
+  const task = value.task === undefined ? "execution" : value.task;
+  if (task !== "execution" && task !== "recognition") return null;
   const c = value.context;
   let context: TrainingDrillPresetContext;
   let catalogue: readonly string[];
@@ -272,11 +281,11 @@ export function normalizeTrainingDrillPreset(value: unknown): TrainingDrillPrese
     catalogue = lastLayerCaseIds(c.family, c.trainingSet);
   } else return null;
   if (!value.caseIds.every(id => catalogue.includes(id))) return null;
-  return {
-    id: value.id, name: value.name.trim(), createdAt: value.createdAt, updatedAt: value.updatedAt,
-    context, strategy: value.strategy as TrainingDrillPreset["strategy"],
-    caseIds: catalogue.filter(id => (value.caseIds as string[]).includes(id)),
-  };
+  const caseIds = catalogue.filter(id => (value.caseIds as string[]).includes(id));
+  if (task === "recognition" && caseIds.length < 2) return null;
+  return { id: value.id, name: value.name.trim(), createdAt: value.createdAt, updatedAt: value.updatedAt,
+    context, task, strategy: value.strategy as TrainingDrillPreset["strategy"], caseIds };
+
 }
 
 export function compareTrainingDrillPresets(a: TrainingDrillPreset, b: TrainingDrillPreset): number {
@@ -291,20 +300,20 @@ export async function loadTrainingDrillPresets(): Promise<TrainingDrillPreset[]>
 export async function saveTrainingDrillPreset(preset: TrainingDrillPreset): Promise<void> {
   const normalized = normalizeTrainingDrillPreset(preset);
   if (!normalized) throw new Error("Invalid saved Drill configuration.");
-  await writeTrainingConfiguration("trainingDrillPresets", store => store.put(normalized));
+  await writeTrainingRecord("trainingDrillPresets", store => store.put(normalized));
 }
 
 export async function deleteTrainingDrillPreset(id: string): Promise<void> {
-  await writeTrainingConfiguration("trainingDrillPresets", store => store.delete(id));
+  await writeTrainingRecord("trainingDrillPresets", store => store.delete(id));
 }
 
-async function writeTrainingConfiguration(name: "trainingDrillPresets" | "trainingAlgorithmPreferences", write: (store: IDBObjectStore) => void): Promise<void> {
+async function writeTrainingRecord(name: "trainingDrillPresets" | "trainingAlgorithmPreferences" | "trainingRecognitionAttempts", write: (store: IDBObjectStore) => void): Promise<void> {
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {
     const transaction = db.transaction(name, "readwrite");
     transaction.oncomplete = () => resolve();
-    transaction.onabort = () => reject(transaction.error ?? new Error("Training configuration write aborted."));
-    transaction.onerror = () => reject(transaction.error ?? new Error("Training configuration write failed."));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Training record write aborted."));
+    transaction.onerror = () => reject(transaction.error ?? new Error("Training record write failed."));
     write(transaction.objectStore(name));
   });
 }
@@ -333,9 +342,31 @@ export async function loadTrainingAlgorithmPreferences(): Promise<TrainingAlgori
 export async function saveTrainingAlgorithmPreference(preference: TrainingAlgorithmPreference): Promise<void> {
   const normalized = normalizeTrainingAlgorithmPreference(preference);
   if (!normalized) throw new Error("Invalid personal Training algorithm record.");
-  await writeTrainingConfiguration("trainingAlgorithmPreferences", store => store.put(normalized));
+  await writeTrainingRecord("trainingAlgorithmPreferences", store => store.put(normalized));
 }
 
 export async function deleteTrainingAlgorithmPreference(key: string): Promise<void> {
-  await writeTrainingConfiguration("trainingAlgorithmPreferences", store => store.delete(key));
+  await writeTrainingRecord("trainingAlgorithmPreferences", store => store.delete(key));
+}
+
+
+export function normalizeTrainingRecognitionAttempt(value: unknown): TrainingRecognitionAttempt | null {
+  if (!record(value) || !text(value.id) || !nonnegative(value.createdAt) || !text(value.drillRunId) ||
+      !integer(value.drillRound) || value.drillRound <= 0 || !nonnegative(value.responseMs)) return null;
+  const target = normalizeTrainingCatalogueIdentity(value.target);
+  if (!target || typeof value.answerCaseId !== "string" || !trainingCatalogueCaseIds(target).includes(value.answerCaseId)) return null;
+  return { id: value.id, createdAt: value.createdAt, drillRunId: value.drillRunId, drillRound: value.drillRound,
+    target, answerCaseId: value.answerCaseId, responseMs: value.responseMs };
+}
+
+export async function loadTrainingRecognitionAttempts(): Promise<TrainingRecognitionAttempt[]> {
+  const rows = await promisify((await store("trainingRecognitionAttempts", "readonly")).getAll() as IDBRequest<unknown[]>);
+  return rows.map(normalizeTrainingRecognitionAttempt).filter((row): row is TrainingRecognitionAttempt => row !== null)
+    .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+}
+
+export async function saveTrainingRecognitionAttempt(attempt: TrainingRecognitionAttempt): Promise<void> {
+  const normalized = normalizeTrainingRecognitionAttempt(attempt);
+  if (!normalized) throw new Error("Invalid Recognition history record.");
+  await writeTrainingRecord("trainingRecognitionAttempts", store => store.put(normalized));
 }

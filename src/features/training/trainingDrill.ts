@@ -1,5 +1,7 @@
-import type { TrainingAttempt, TrainingDrillPresetContext, TrainingDrillStrategy } from "../../app/types";
-import { f2lTrainingCatalogue, type F2lTrainingCase } from "../../cube/f2lTrainingCases";
+import { trainingCatalogueKey } from "../../app/trainingCatalogue";
+import { EMPTY_RECOGNITION_STATS, recognitionStatsByCase, trainingMedian, type TrainingRecognitionStats } from "./trainingRecognitionPerformance";
+import type { TrainingAttempt, TrainingDrillPresetContext, TrainingDrillStrategy, TrainingDrillTask, TrainingCatalogueIdentity, TrainingRecognitionAttempt } from "../../app/types";
+import { f2lTrainingCatalogue, findF2lTrainingCase, shortF2lCaseLabel, type F2lTrainingCase } from "../../cube/f2lTrainingCases";
 import { lastLayerCaseCatalogue } from "../../cube/lastLayerTraining";
 import { EMPTY_TRAINING_CASE_STATS, trainingCaseKey, trainingStatsByCase, trainingTimingRatio, type TrainingCaseStats, type TrainingCatalogueCase } from "./trainingPerformance";
 
@@ -7,6 +9,8 @@ export type { TrainingDrillStrategy } from "../../app/types";
 export type TrainingDrillContext = TrainingDrillPresetContext;
 export type TrainingDrillState = {
   strategy: TrainingDrillStrategy;
+  task: TrainingDrillTask;
+  runId: string | null;
   selectedCaseIds: string[];
   running: boolean;
   status: "configuring" | "running" | "summary";
@@ -14,7 +18,7 @@ export type TrainingDrillState = {
   round: number;
   context: TrainingDrillContext | null;
   lastCaseId: string | null;
-  lastOutcome: "solved" | "skipped" | null;
+  lastOutcome: "solved" | "skipped" | "correct" | "incorrect" | null;
 };
 
 /** Catalogue order is authoritative, independently of selection click order. */
@@ -32,7 +36,8 @@ export function drillCaseId(target: TrainingCatalogueCase): string {
 
 export type TrainingDrillRoundOutcome =
   | { caseId: string; outcome: "solved"; caseTimeMs: number; moveSpanMs: number; stm: number; delta: number | null; completedAt: number }
-  | { caseId: string; outcome: "skipped"; completedAt: number };
+  | { caseId: string; outcome: "skipped"; completedAt: number }
+  | { caseId: string; outcome: "answered"; answerCaseId: string; correct: boolean; responseMs: number; completedAt: number };
 
 const mean = (values: readonly number[]): number | null => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 const positive = (value: number) => Number.isFinite(value) && value > 0;
@@ -123,5 +128,83 @@ export function weakDrillCases(cases: readonly TrainingCatalogueCase[], outcomes
     (c.recentMedianDelta !== null && c.recentMedianDelta > 0) || c.historicalReview)
     .sort((a, b) => b.skipped - a.skipped || Math.max(0, (b.timingRatio ?? 1) - 1) - Math.max(0, (a.timingRatio ?? 1) - 1) ||
       Math.max(0, b.recentMedianDelta ?? 0) - Math.max(0, a.recentMedianDelta ?? 0) || Number(b.historicalReview) - Number(a.historicalReview) || a.order - b.order)
+    .slice(0, Math.max(0, limit));
+}
+
+
+export function drillCaseMetadata(identity: TrainingCatalogueIdentity) {
+  if (identity.family === "f2l") {
+    const item = findF2lTrainingCase(identity.library, identity.caseName)!;
+    return { caseId: item.name, label: shortF2lCaseLabel(item.name), group: item.group };
+  }
+  const item = lastLayerCaseCatalogue(identity.family, identity.trainingSet).find(c => c.caseId === identity.caseId)!;
+  return { caseId: item.caseId, label: item.caseId, group: item.group };
+}
+
+function shuffled<T>(values: readonly T[], rng: () => number): T[] {
+  const result = [...values];
+  for (let i = result.length - 1; i > 0; i--) {
+    const j = Math.min(i, Math.max(0, Math.floor(rng() * (i + 1))));
+    [result[i], result[j]] = [result[j], result[i]];
+  }
+  return result;
+}
+
+/** Text choices come only from the selected pool; catalogue groups own distractor affinity. */
+export function recognitionChoices(cases: readonly TrainingCatalogueCase[], target: TrainingCatalogueCase, rng: () => number) {
+  const correct = drillCaseMetadata(target), other = cases.map(drillCaseMetadata).filter(c => c.caseId !== correct.caseId);
+  const distractors = [...shuffled(other.filter(c => c.group === correct.group), rng),
+    ...shuffled(other.filter(c => c.group !== correct.group), rng)].slice(0, 3);
+  return shuffled([correct, ...distractors], rng);
+}
+
+export function recognitionDrillSummary(outcomes: readonly TrainingDrillRoundOutcome[]) {
+  const answered = outcomes.filter(o => o.outcome === "answered"), correct = answered.filter(o => o.correct);
+  return { rounds: outcomes.length, answered: answered.length, correct: correct.length, incorrect: answered.length - correct.length,
+    skipped: outcomes.filter(o => o.outcome === "skipped").length,
+    accuracy: answered.length ? correct.length / answered.length : null,
+    medianCorrectResponseMs: trainingMedian(correct.map(o => o.responseMs)),
+    bestCorrectResponseMs: correct.length ? Math.min(...correct.map(o => o.responseMs)) : null };
+}
+
+export function recognitionCaseWeight(stats: TrainingRecognitionStats, outcomes: readonly TrainingDrillRoundOutcome[] = []): number {
+  const recent = outcomes.slice(-5), run = recognitionDrillSummary(recent);
+  const wrong = Math.max(stats.recentWrongCount, run.incorrect);
+  const best = stats.bestCorrectResponseMs ?? run.bestCorrectResponseMs;
+  const runRatio = best !== null && run.medianCorrectResponseMs !== null
+    ? best === 0 ? run.medianCorrectResponseMs > 0 ? 2 : 1 : run.medianCorrectResponseMs / best : 1;
+  const historyRatio = stats.bestCorrectResponseMs !== null && stats.recentMedianCorrectResponseMs !== null
+    ? stats.bestCorrectResponseMs === 0 ? stats.recentMedianCorrectResponseMs > 0 ? 2 : 1 : stats.recentMedianCorrectResponseMs / stats.bestCorrectResponseMs : 1;
+  return { new: 4, learning: 3, review: 6, practiced: 1 }[stats.status] + Math.min(8, wrong * 2) +
+    Math.min(12, run.skipped * 6) + Math.min(4, Math.max(0, Math.max(runRatio, historyRatio) - 1) * 5);
+}
+
+export function selectRecognitionDrillCase(cases: readonly TrainingCatalogueCase[], strategy: TrainingDrillStrategy,
+  round: number, previousCaseId: string | null, attempts: readonly TrainingRecognitionAttempt[],
+  rng: () => number, outcomes: readonly TrainingDrillRoundOutcome[]): TrainingCatalogueCase | null {
+  if (!cases.length) return null;
+  if (strategy === "sequence") return cases[round % cases.length];
+  const pool = cases.length > 1 ? cases.filter(c => drillCaseId(c) !== previousCaseId) : cases;
+  const history = recognitionStatsByCase(attempts);
+  const weights = pool.map(c => strategy === "weighted" ? recognitionCaseWeight(history.get(trainingCatalogueKey(c)) ?? EMPTY_RECOGNITION_STATS,
+    outcomes.filter(o => o.caseId === drillCaseId(c))) : 1);
+  let draw = Math.max(0, Math.min(1, rng())) * weights.reduce((sum, w) => sum + w, 0);
+  for (let i = 0; i < pool.length; i++) { draw -= weights[i]; if (draw < 0) return pool[i]; }
+  return pool.at(-1)!;
+}
+
+export function weakRecognitionDrillCases(cases: readonly TrainingCatalogueCase[], outcomes: readonly TrainingDrillRoundOutcome[],
+  attempts: readonly TrainingRecognitionAttempt[], limit = 5) {
+  const history = recognitionStatsByCase(attempts);
+  return cases.map((target, order) => {
+    const caseId = drillCaseId(target), run = recognitionDrillSummary(outcomes.filter(o => o.caseId === caseId));
+    const stats = history.get(trainingCatalogueKey(target)) ?? EMPTY_RECOGNITION_STATS;
+    const ratio = stats.bestCorrectResponseMs !== null && run.medianCorrectResponseMs !== null
+      ? stats.bestCorrectResponseMs === 0 ? run.medianCorrectResponseMs > 0 ? 2 : 1 : run.medianCorrectResponseMs / stats.bestCorrectResponseMs : null;
+    return { target, caseId, order, ...run, incorrect: Math.max(run.incorrect, stats.recentWrongCount),
+      accuracy: run.accuracy ?? stats.recentAccuracy, timingRatio: ratio, historicalReview: stats.status === "review" };
+  }).filter(c => c.incorrect || c.skipped || c.timingRatio !== null && c.timingRatio > 1.2 || c.historicalReview)
+    .sort((a, b) => b.incorrect - a.incorrect || (a.accuracy ?? 1) - (b.accuracy ?? 1) || b.skipped - a.skipped ||
+      (b.timingRatio ?? 1) - (a.timingRatio ?? 1) || Number(b.historicalReview) - Number(a.historicalReview) || a.order - b.order)
     .slice(0, Math.max(0, limit));
 }

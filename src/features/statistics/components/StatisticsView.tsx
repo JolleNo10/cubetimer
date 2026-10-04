@@ -162,6 +162,24 @@ export function StatisticsOverviewSummary({ model }: { model: StatisticsViewMode
   </div>;
 }
 
+export function StatisticsRecentPerformance({ model }: { model: StatisticsViewModel }) {
+  const comparison = model.recentPerformance;
+  const signed = (ms: number) => `${ms > 0 ? "+" : ms < 0 ? "−" : ""}${(Math.abs(ms) / 1000).toFixed(2)} s`;
+  return <section className="panel" aria-label="Recent performance comparison"><div className="panel-head"><h2 className="panel-title">Recent performance</h2></div>
+    <div className="panel-body">{comparison ? <>
+      <p>{comparison.recentMedianDelta === 0 ? "Recent median is unchanged from the previous window." :
+        `Recent median is ${(Math.abs(comparison.recentMedianDelta) / 1000).toFixed(2)} s ${comparison.recentMedianDelta > 0 ? "slower" : "faster"} than the previous window.`}</p>
+      {comparison.largestPositivePhaseDelta ? <p>{comparison.largestPositivePhaseDelta.phase} has the largest measured phase increase at {signed(comparison.largestPositivePhaseDelta.delta)}.</p> : null}
+      {comparison.largestNegativePhaseDelta ? <p>{comparison.largestNegativePhaseDelta.phase} has the largest measured phase decrease at {signed(comparison.largestNegativePhaseDelta.delta)}.</p> : null}
+      <p>Measured recognition is {signed(comparison.recognitionDelta)} and measured execution is {signed(comparison.executionDelta)}.</p>
+      <p>{comparison.iqrDelta === 0 ? "Consistency is unchanged." :
+        `Consistency ${comparison.iqrDelta > 0 ? "widened" : "narrowed"} by ${(Math.abs(comparison.iqrDelta) / 1000).toFixed(2)} s IQR.`}</p>
+      <p className="small dim">Latest {comparison.sampleSize} analysed counted solves vs the immediately preceding {comparison.sampleSize} in this scope.</p>
+      <div className="row wrap small">Cross {signed(comparison.crossDelta)} · F2L {signed(comparison.f2lDelta)} · OLL {signed(comparison.ollDelta)} · PLL {signed(comparison.pllDelta)}</div>
+    </> : <p className="small dim">Comparison unavailable. At least five analysed counted solves are needed in each window.</p>}</div>
+  </section>;
+}
+
 export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTools, onTrainCase, onScopeChange }: {
   currentEvent: EventId; activeSessionId: string | null;
   onReplay: (solve: Solve) => void; onTools: (solve: Solve) => void;
@@ -265,6 +283,7 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTool
           <section className="stats-section">
             <div className="section-heading"><div><h2>Overview</h2><p>{scopeLabel} · summaries use the full selected scope</p></div></div>
             <StatisticsOverviewSummary model={model} />
+            <StatisticsRecentPerformance model={model} />
           </section>
 
           <section className="stats-section trend-section">

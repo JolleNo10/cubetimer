@@ -5,6 +5,7 @@ import { describeGrip, rotationForGrip, slotInCubeFrame } from "../../../cube/or
 import { averageOf } from "./stats";
 import {
   deriveStatistics,
+  recentPerformanceComparison,
   filterPhaseChartWindow,
   percentile,
   sliceChartWindow,
@@ -14,6 +15,7 @@ import {
   type StatisticsSnapshot,
 } from "./statistics";
 import type { Penalty, Session, Solve } from "../../../app/types";
+import { analysedSolveFacts } from "./stats";
 
 function session(id: string, event = DEFAULT_EVENT_ID, createdAt = 1): Session {
   return { id, name: id, event, createdAt };
@@ -59,6 +61,37 @@ function analysed(id: string, sessionId: string, createdAt: number): Solve {
     } as unknown as SolveAnalysis,
   });
 }
+
+describe("recent analysed performance comparison", () => {
+  it("requires five per equal chronological window and uses the latest up-to-ten plus immediately previous window", () => {
+    const facts = Array.from({ length: 23 }, (_, i) => ({ ...analysedSolveFacts(analysed(`s${i}`, "A", i))!, solvingMs: i * 100,
+      recognitionMs: i * 10, executionMs: i * 90, phases: { crossMs: -i * 10, f2lMs: i * 40, ollMs: i * 30, pllMs: i * 40 } }));
+    expect(recentPerformanceComparison(facts.slice(0, 9))).toBeNull();
+    const comparison = recentPerformanceComparison([...facts].reverse())!;
+    expect(comparison.sampleSize).toBe(10);
+    expect(comparison.recentSolveIds).toEqual(facts.slice(13).map(a => a.id)); expect(comparison.baselineSolveIds).toEqual(facts.slice(3, 13).map(a => a.id));
+    expect(comparison).toMatchObject({ recentMedianDelta: 1000, recognitionDelta: 100, executionDelta: 900,
+      crossDelta: -100, f2lDelta: 400, ollDelta: 300, pllDelta: 400, largestPositivePhaseDelta: { phase: "F2L", delta: 400 },
+      largestNegativePhaseDelta: { phase: "Cross", delta: -100 }, iqrDelta: 0 });
+    expect(recentPerformanceComparison(facts.slice(0, 11))?.sampleSize).toBe(5);
+  });
+  it("compares IQR rather than WCA averages and returns no phase extrema when unchanged", () => {
+    const facts = Array.from({ length: 10 }, (_, i) => ({ ...analysedSolveFacts(analysed(`s${i}`, "A", i))!, solvingMs: i < 5 ? 1000 : 1000 + (i - 5) * 100 }));
+    const comparison = recentPerformanceComparison(facts)!;
+    expect(comparison.iqrDelta).toBe(200); expect(comparison.largestPositivePhaseDelta).toBeNull(); expect(comparison.largestNegativePhaseDelta).toBeNull();
+  });
+  it("derives within counted Event/Session scope without synthesizing All-Sessions WCA windows", () => {
+    const solves = Array.from({ length: 12 }, (_, i) => analysed(`s${i}`, i < 6 ? "A" : "B", i));
+    const snapshot = { sessions: [session("A"), session("B"), session("C", "222")], solves: [...solves,
+      ...Array.from({ length: 10 }, (_, i) => analysed(`c${i}`, "C", 20 + i)), analysed("ignored", "A", 30)] };
+    snapshot.solves.at(-1)!.practice = true;
+    const all = deriveStatistics(snapshot, { event: "333", sessionId: null }, "A");
+    expect(all.recentPerformance?.sampleSize).toBe(6); expect(all.recentPerformance?.recentSolveIds).toEqual(solves.slice(6).map(s => s.id));
+    expect(all.records.ao12).toEqual([]);
+    expect(deriveStatistics(snapshot, { event: "333", sessionId: "A" }, "A").recentPerformance).toBeNull();
+    expect(deriveStatistics(snapshot, { event: "222", sessionId: null }, "A").recentPerformance?.sampleSize).toBe(5);
+  });
+});
 
 describe("deriveStatistics", () => {
   it("keeps returning Session runs distinct when an intervening Session has no Ao5", () => {

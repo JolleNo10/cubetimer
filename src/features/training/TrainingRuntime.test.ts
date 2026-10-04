@@ -27,10 +27,11 @@ import { DEFAULT_SETTINGS, type Settings } from "../../app/types";
 
 
 const kpuzzle = await get3x3x3();
+const runtimeRandom = vi.fn<() => number>().mockReturnValue(0);
 const BASIC_CASES = F2L_TRAINING_CATALOGUES.basic.cases;
 const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
-afterEach(() => { vi.restoreAllMocks(); globalThis.requestAnimationFrame = originalRequestAnimationFrame; globalThis.cancelAnimationFrame = originalCancelAnimationFrame; });
+afterEach(() => { vi.restoreAllMocks(); runtimeRandom.mockReset().mockReturnValue(0); globalThis.requestAnimationFrame = originalRequestAnimationFrame; globalThis.cancelAnimationFrame = originalCancelAnimationFrame; });
 function stubTimerLoop() { globalThis.requestAnimationFrame = () => 1; globalThis.cancelAnimationFrame = () => { }; }
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(fulfil => { resolve = fulfil; }); return { promise, resolve }; }
 type Inputs = { model: CubeModel; settings: Settings; virtualCube: boolean; error: string | null };
@@ -41,7 +42,7 @@ function createRuntime(model: CubeModel, onAttemptCompleted?: (attempt: Complete
   const runtime: TrainingRuntime = new TrainingRuntime({
     getModel: () => inputs(runtime).model, getSettings: () => inputs(runtime).settings,
     hasCube: () => inputs(runtime).virtualCube, isActive: () => true, elapsed: new Store(0), startClock: vi.fn(), stopClock: vi.fn(),
-    onAttemptCompleted,
+    onAttemptCompleted, rng: runtimeRandom,
     reportError: error => { inputs(runtime).error = error; }, ...dependencies
   });
   fixtures.set(runtime, { model, settings: DEFAULT_SETTINGS, virtualCube: false, error: null });
@@ -68,7 +69,7 @@ describe("TrainingRuntime shared algorithm guide", () => {
     const built = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 0, "2look");
     const setup = await solver.algBetween(kpuzzle.defaultPattern(), built.pattern);
     vi.spyOn(solver, "algBetween").mockResolvedValue(setup);
-    vi.spyOn(Math, "random").mockReturnValue(0);
+    runtimeRandom.mockReturnValue(0);
     const runtime = createRuntime(new CubeModel(kpuzzle));
     configureInputs(runtime, (state) => ({
       ...state, virtualCube: true,
@@ -95,7 +96,7 @@ describe("TrainingRuntime shared algorithm guide", () => {
 
   it("classifies a validated F2L alternative while keeping a rejoining execution custom", async () => {
     stubTimerLoop();
-    vi.spyOn(Math, "random").mockReturnValue(0);
+    runtimeRandom.mockReturnValue(0);
     const runtime = createRuntime(new CubeModel(kpuzzle));
     await runtime.setTrainingMode("virtual");
     await runtime.selectF2lCase("F2L 1");
@@ -122,7 +123,7 @@ describe("TrainingRuntime shared algorithm guide", () => {
       const setup = await solver.algBetween(kpuzzle.defaultPattern(), built.pattern);
       vi.spyOn(solver, "algBetween").mockResolvedValue(setup);
     }
-    vi.spyOn(Math, "random").mockReturnValue(0);
+    runtimeRandom.mockReturnValue(0);
     const runtime = createRuntime(new CubeModel(kpuzzle));
     configureInputs(runtime, (state) => ({ ...state, virtualCube: true }));
     runtime.setTrainingFamily(family);
@@ -232,7 +233,7 @@ describe("TrainingRuntime last-layer sets", () => {
     configureInputs(runtime, (state) => ({ ...state, virtualCube: true, settings: { ...state.settings, pllTrainingSet: "2look" } }));
     runtime.setTrainingFamily("pll");
     await runtime.setTrainingMode("virtual");
-    const random = vi.spyOn(Math, "random")
+    const random = runtimeRandom
       .mockReturnValueOnce(0.5 / variants.length).mockReturnValueOnce(0)
       .mockReturnValueOnce((nextIndex + 0.5) / variants.length).mockReturnValueOnce(0);
     await runtime.selectLastLayerCase("pll", "Headlights");
@@ -250,7 +251,7 @@ describe("TrainingRuntime last-layer sets", () => {
     expect(training.displayFacelets).toBe(patternToFacelets(next.pattern));
     expect(training.displayFacelets).not.toBe(patternToFacelets(first.pattern));
     expect(random).toHaveBeenCalledTimes(4);
-    expect(completed).toHaveBeenCalledExactlyOnceWith({ activity: "single", mode: "virtual", target: first.info, result: training.result });
+    expect(completed).toHaveBeenCalledExactlyOnceWith({ activity: "single", drillRunId: null, drillRound: null, mode: "virtual", target: first.info, result: training.result });
 
     expect(saveSolve).not.toHaveBeenCalled();
     const nextMove = referenceExecutionSignature(next.info.references[0].alg)![0];
@@ -274,7 +275,7 @@ describe("TrainingRuntime last-layer sets", () => {
     runtime.setTrainingFamily(family);
     await runtime.setTrainingMode("virtual");
     const variants = lastLayerTrainingVariants(kpuzzle, family, caseId, "2look");
-    const random = vi.spyOn(Math, "random");
+    const random = runtimeRandom;
     // A separate fixed AUF draw proves facelet variation comes from Full cases.
     for (let index = 0;index < variants.length;index++) {
       random.mockReturnValueOnce((index + 0.5) / variants.length).mockReturnValueOnce(0.25);
@@ -313,7 +314,7 @@ describe("TrainingRuntime last-layer sets", () => {
     const runtime = createRuntime(new CubeModel(kpuzzle));
     runtime.setTrainingFamily(family);
     await runtime.setTrainingMode("virtual");
-    const random = vi.spyOn(Math, "random").mockReturnValueOnce(0.25).mockReturnValueOnce(0.75);
+    const random = runtimeRandom.mockReturnValueOnce(0.25).mockReturnValueOnce(0.75);
     await runtime.selectLastLayerCase(family, caseId, trainingSet);
     expect(runtime.state.get().displayFacelets).toBe(patternToFacelets(buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 1, trainingSet).pattern));
     runtime.againTraining();
@@ -330,7 +331,7 @@ describe("TrainingRuntime last-layer sets", () => {
     const model = new CubeModel(kpuzzle);
     const runtime = createRuntime(model);
     configureInputs(runtime, (state) => ({ ...state, settings: { ...state.settings, ollTrainingSet: "2look", pllTrainingSet: "2look" } }));
-    const random = vi.spyOn(Math, "random").mockReturnValueOnce((index + 0.5) / variants.length).mockReturnValueOnce(0.5);
+    const random = runtimeRandom.mockReturnValueOnce((index + 0.5) / variants.length).mockReturnValueOnce(0.5);
     await runtime.selectLastLayerCase(family, caseId);
     expect(patternToFacelets(between.mock.calls[0][1])).toBe(patternToFacelets(expected.pattern));
     expect(patternToFacelets(model.pattern.applyAlg(new Alg(setup)))).toBe(patternToFacelets(expected.pattern));
@@ -361,7 +362,7 @@ describe("TrainingRuntime last-layer sets", () => {
     ["pll", "Ua", "solve-cube", "virtual"],
   ] as const)("completes 2-Look %s %s at %s in %s mode without Solve history", async (family, caseId, goal, mode) => {
     stubTimerLoop();
-    vi.spyOn(Math, "random").mockReturnValue(0);
+    runtimeRandom.mockReturnValue(0);
     const saveSolve = vi.spyOn(db, "saveSolve").mockResolvedValue();
     const built = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 0, "2look");
     const rawSetup = mode === "setup" ? (await solver.algBetween(kpuzzle.defaultPattern(), built.pattern)).toString() : "";
@@ -402,7 +403,7 @@ describe("TrainingRuntime last-layer sets", () => {
   it.each(["oll", "pll"] as const)("random %s enumerates only the selected catalogue", (family) => {
     const runtime = createRuntime(new CubeModel(kpuzzle));
     const select = vi.spyOn(runtime, "selectLastLayerCase").mockResolvedValue();
-    const random = vi.spyOn(Math, "random");
+    const random = runtimeRandom;
     for (const trainingSet of ["full", "2look"] as const) {
       configureInputs(runtime, (state) => ({ ...state, settings: { ...state.settings, [family === "oll" ? "ollTrainingSet" : "pllTrainingSet"]: trainingSet } }));
       const cases = lastLayerCaseIds(family, trainingSet);
@@ -555,7 +556,8 @@ describe("TrainingRuntime F2L setup and retry", () => {
     expect(f2lTargetOf(runtime)?.position).toBe("BL");
     await runtime.setTrainingMode("setup");
     expect(f2lTargetOf(runtime)?.position).toBe("BL");
-    expect(runtime.state.get().setup).toBe(firstSetup);
+    expect(runtime.state.get().setup).not.toBe(firstSetup);
+    expect(f2lTargetOf(runtime)?.auf).toBe(1);
   });
   it("keeps the generic setup fallback for a non-F2L-complete start", async () => {
     const physicalStart = kpuzzle.defaultPattern().applyAlg(new Alg("R U F"));
@@ -611,7 +613,7 @@ describe("TrainingRuntime Advanced F2L catalogue", () => {
     await runtime.selectF2lCase("AF2L 3");
     for (const position of F2L_POSITIONS) {
       await runtime.selectF2lPosition(position);
-      const expected = buildF2lCatalogueTarget(kpuzzle, findF2lTrainingCase("advanced", "AF2L 3")!, position);
+      const expected = buildF2lCatalogueTarget(kpuzzle, findF2lTrainingCase("advanced", "AF2L 3")!, position, undefined, f2lTargetOf(runtime)?.auf);
       expect(f2lTargetOf(runtime)?.position).toBe(position);
       expect(runtime.state.get().displayFacelets).toBe(patternToFacelets(expected.pattern));
     }
@@ -728,7 +730,7 @@ describe("TrainingRuntime async ownership", () => {
   });
 
   it.each(["f2l", "oll"] as const)("transforms every move of %s recovery into the Training frame", async (family) => {
-    vi.spyOn(Math, "random").mockReturnValue(0);
+    runtimeRandom.mockReturnValue(0);
     const built = family === "oll" ? buildLastLayerCatalogueTarget(kpuzzle, "oll", "27") : null;
     const setup = built ? await solver.algBetween(kpuzzle.defaultPattern(), built.pattern) : new Alg("");
     const between = vi.spyOn(solver, "algBetween").mockResolvedValue(setup);
@@ -841,7 +843,7 @@ describe("Training completed-attempt boundary", () => {
     expect(runtime.state.get().phase).toBe("ready");
     for (const token of referenceExecutionSignature(target.references[0].alg)!) feedMove(runtime, cubeMove(token, trainingGrip(target)));
     const result = runtime.state.get().result;
-    expect(completed).toHaveBeenCalledExactlyOnceWith({ activity: "single", mode, target, result });
+    expect(completed).toHaveBeenCalledExactlyOnceWith({ activity: "single", drillRunId: null, drillRound: null, mode, target, result });
     expect(result).not.toBeNull();
     runtime.physicalStateChanged();
     runtime.againTraining(); await Promise.resolve();
@@ -886,7 +888,7 @@ describe("Training completed-attempt boundary", () => {
     runtime.setF2lLibrary(library); await runtime.selectF2lPosition("FL");
     const select = vi.spyOn(runtime, "selectF2lCase").mockResolvedValue();
     const cases = F2L_TRAINING_CATALOGUES[library].cases;
-    const random = vi.spyOn(Math, "random");
+    const random = runtimeRandom;
     for (const index of [0, cases.length - 1]) {
       random.mockReturnValue((index + 0.5) / cases.length);
       runtime.randomTrainingCase("f2l");
@@ -900,7 +902,7 @@ describe("TrainingRuntime continuous virtual Drill", () => {
   function drill(family: "f2l" | "oll" | "pll" = "f2l", extra: Partial<TrainingDependencies> = {}) {
     let now = 100;
     vi.spyOn(performance, "now").mockImplementation(() => now);
-    vi.spyOn(Math, "random").mockReturnValue(0);
+    runtimeRandom.mockReturnValue(0);
     const completed = vi.fn();
     const model = new CubeModel(kpuzzle); model.applyMove("B");
     const runtime = createRuntime(model, completed, extra);
@@ -915,6 +917,16 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     };
     return { runtime, model, completed, advance, solve, wait: (ms: number) => { now += ms; } };
   }
+  it("snapshots the completed round identity before publishing its result", () => {
+    const { runtime, advance, solve, completed } = drill("f2l", { createId: () => "completed-run" });
+    runtime.setDrillCases(["F2L 4"]); runtime.startDrill(); advance(2000);
+    const unsubscribe = runtime.state.subscribe(() => {
+      if (runtime.state.get().phase === "result") runtime.stopDrill();
+    });
+    solve(); unsubscribe();
+    expect(completed).toHaveBeenCalledOnce();
+    expect(completed.mock.calls[0][0]).toMatchObject({ drillRunId: "completed-run", drillRound: 1 });
+  });
   it("evaluates Drill against My algorithm, uses effective outcome delta and resolves later rounds afresh", () => {
     const built = buildF2lCatalogueTarget(kpuzzle, findF2lTrainingCase("basic", "F2L 1")!);
     let preference = { algorithm: built.info.references[1].sourceAlg };
@@ -924,7 +936,8 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     expect(result.matchedPreferred).toBe(false);
     expect(runtime.state.get().drill.outcomes[0]).toMatchObject({ outcome: "solved", delta: result.preferredDelta });
     preference = { algorithm: built.info.references[0].sourceAlg };
-    advance(2000); expect(runtime.state.get().preferredReference?.alg).toBe(built.info.references[0].alg);
+    advance(2000); expect(runtime.state.get().preferredReference?.alg).toBe(runtime.state.get().target!.references[0].alg);
+    expect(runtime.state.get().preferredReference?.alg).not.toBe(built.info.references[0].alg);
     solve(); expect(completed.mock.calls[1][0].result.matchedPreferred).toBe(true);
   });
   it("stops RAF while recognizing, restarts on the first move, and includes the unticked wait in case time", () => {
@@ -966,13 +979,23 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     runtime.startDrill(); advance(2000); runtime.skipDrillCase(); runtime.stopDrill(); runtime.leave();
     expect(runtime.state.get().drill).toMatchObject({ status: "configuring", outcomes: [], selectedCaseIds: ["F2L 4"] });
   });
-  it("keeps captured summary context through Settings edits and clears incompatible configuration on exit", () => {
+  it("keeps captured Execution summary context through Settings edits and clears incompatible configuration on exit", () => {
     const { runtime, advance } = drill("oll"); runtime.setDrillCases(["27"]); runtime.startDrill(); advance(2000);
     runtime.skipDrillCase(); runtime.stopDrill();
     configureInputs(runtime, s => ({ ...s, settings: { ...s.settings, ollTrainingSet: "2look" } }));
     runtime.catalogueContextChanged();
     expect(runtime.state.get().drill).toMatchObject({ status: "summary", context: { family: "oll", trainingSet: "full" }, selectedCaseIds: ["27"] });
     runtime.finishDrillSummary(); expect(runtime.state.get().drill).toMatchObject({ status: "configuring", selectedCaseIds: [] });
+  });
+  it("preserves a Recognition summary and weak pool until its catalogue context is restored", () => {
+    const { runtime, advance } = drill("oll"); runtime.setDrillTask("recognition"); runtime.setDrillCases(["27", "26"]);
+    runtime.startDrill(); advance(2000); runtime.skipDrillCase(); runtime.stopDrill();
+    configureInputs(runtime, s => ({ ...s, settings: { ...s.settings, ollTrainingSet: "2look" } }));
+    runtime.catalogueContextChanged();
+    const summary = runtime.state.get(); runtime.finishDrillSummary(true);
+    expect(runtime.state.get()).toBe(summary);
+    configureInputs(runtime, s => ({ ...s, settings: { ...s.settings, ollTrainingSet: "full" } }));
+    runtime.finishDrillSummary(true); expect(runtime.state.get().drill).toMatchObject({ task: "recognition", status: "configuring", selectedCaseIds: ["26"] });
   });
   it.each(["leave", "activity"])("reconciles changed catalogue IDs when exiting summary through %s", exit => {
     const { runtime, advance } = drill("oll"); runtime.setDrillCases(["27"]); runtime.startDrill(); advance(2000);
@@ -1046,7 +1069,7 @@ describe("TrainingRuntime continuous virtual Drill", () => {
   });
   it("Random avoids the previous case and reads current history for each weighted round", () => {
     const history = vi.fn(() => []);
-    const { runtime, advance } = drill("f2l", { rng: () => 0, getTrainingAttempts: history });
+    const { runtime, advance } = drill("f2l", { rng: runtimeRandom, getTrainingAttempts: history });
     runtime.setDrillCases(["F2L 4", "F2L 5"]); runtime.setDrillStrategy("random"); runtime.startDrill();
     advance(2000); expect(runtime.state.get().drill.lastCaseId).toBe("F2L 4");
     runtime.skipDrillCase(); advance(2000); expect(runtime.state.get().drill.lastCaseId).toBe("F2L 5");
@@ -1169,13 +1192,102 @@ it.each([["oll", "27", "full"], ["oll", "L-Shape", "2look"], ["pll", "Headlights
     const runtime = createRuntime(new CubeModel(kpuzzle), undefined, { getTrainingAlgorithmPreference: key => { keys.push(key); return { algorithm: sourceAlg }; } });
     configureInputs(runtime, s => ({ ...s, settings: { ...s.settings, ollTrainingSet: set, pllTrainingSet: set } }));
     runtime.setTrainingFamily(family); await runtime.setTrainingMode("virtual");
-    vi.spyOn(Math, "random").mockReturnValue(0);
+    runtimeRandom.mockReturnValue(0);
     await runtime.selectLastLayerCase(family, caseId);
     const first = runtime.state.get().target!, preferred = runtime.state.get().preferredReference!;
     expect(preferred).not.toBeNull();
-    vi.mocked(Math.random).mockReturnValue(0.75);
+    runtimeRandom.mockReturnValue(0.75);
     await runtime.selectLastLayerCase(family, caseId);
     expect(runtime.state.get().target).not.toBe(first); expect(runtime.state.get().target).toMatchObject({ auf: 3 });
     expect(runtime.state.get().preferredReference).not.toBeNull();
     expect(new Set(keys).size).toBe(1);
   });
+
+describe("Recognition Drill lifecycle and shared smart generation", () => {
+  function recognitionRuntime() {
+    let clock = 100, ids = 0;
+    const completed = vi.fn(), executionCompleted = vi.fn(), startClock = vi.fn();
+    const runtime = createRuntime(new CubeModel(kpuzzle), executionCompleted, { now: () => clock,
+      createId: () => `run-${++ids}`, onRecognitionCompleted: completed, startClock });
+    runtime.setTrainingActivity("drill"); runtime.setDrillTask("recognition");
+    runtime.setDrillCases(["F2L 4", "F2L 5", "F2L 6"]);
+    return { runtime, completed, executionCompleted, startClock, advance: (ms: number) => { clock += ms; return runtime.tick(clock); },
+      wait: (ms: number) => { clock += ms; } };
+  }
+  it("requires two cases, publishes only after countdown, offers bounded valid choices and sleeps while awaiting an answer", () => {
+    const { runtime, advance, startClock } = recognitionRuntime();
+    runtime.setDrillCases(["F2L 4"]); runtime.startDrill(); expect(runtime.state.get().drill.running).toBe(false);
+    runtime.setDrillCases(["F2L 4", "F2L 5"]); runtime.startDrill();
+    expect(runtime.state.get().target).toBeNull(); expect(advance(1999)).toBe(true); expect(runtime.state.get().target).toBeNull();
+    expect(advance(1)).toBe(false); expect(runtime.state.get().guide).toBeNull();
+    const state = runtime.state.get(); expect(state.drill).toMatchObject({ runId: "run-1", round: 1, task: "recognition" });
+    expect(state.recognition?.choices.map(c => c.caseId).sort()).toEqual(["F2L 4", "F2L 5"]);
+    startClock.mockClear(); expect(advance(500)).toBe(false); expect(startClock).not.toHaveBeenCalled();
+    expect(runtime.state.get()).toBe(state);
+  });
+  it.each([true, false])("finalizes a %s answer once, reveals feedback and preserves it until the next publication", correct => {
+    const { runtime, completed, executionCompleted, advance, wait } = recognitionRuntime();
+    runtime.startDrill(); advance(2000); const revealed = runtime.state.get(), answer = correct ? "F2L 4" : "F2L 5";
+    runtime.submitTrainingRecognition("outside"); expect(runtime.state.get()).toBe(revealed);
+    wait(700); runtime.submitTrainingRecognition(answer);
+    expect(completed).toHaveBeenCalledExactlyOnceWith({ drillRunId: "run-1", drillRound: 1,
+      target: { family: "f2l", library: "basic", position: "FR", caseName: "F2L 4" }, answerCaseId: answer, responseMs: 700 });
+    expect(executionCompleted).not.toHaveBeenCalled();
+    const result = runtime.state.get(); expect(result.target).toBe(revealed.target);
+    expect(result.recognition?.result).toMatchObject({ correct, answerCaseId: answer, correctCaseId: "F2L 4", responseMs: 700 });
+    expect(result.drill.outcomes).toHaveLength(1); expect(runtime.drillCountdown.get()).toBe(2000);
+    runtime.submitTrainingRecognition(answer); expect(completed).toHaveBeenCalledOnce();
+    advance(1999); expect(runtime.state.get()).toBe(result); advance(1);
+    expect(runtime.state.get().recognition?.result).toBeNull(); expect(runtime.state.get().drill.round).toBe(2);
+    runtime.submitTrainingRecognition("F2L 5"); expect(completed.mock.calls[1][0]).toMatchObject({ drillRunId: "run-1", drillRound: 2 });
+    runtime.stopDrill(); expect(runtime.state.get().drill.status).toBe("summary");
+    runtime.finishDrillSummary(); expect(runtime.state.get().drill).toMatchObject({ task: "recognition", strategy: "sequence", status: "configuring", selectedCaseIds: ["F2L 4", "F2L 5", "F2L 6"] });
+    runtime.startDrill(); expect(runtime.state.get().drill.runId).toBe("run-2");
+  });
+  it("timestamps after target/reference preparation, ignores cube turns and keeps skips ephemeral", () => {
+    let clock = 100;
+    const build = trainingDomain.buildTrainingGuide;
+    vi.spyOn(trainingDomain, "buildTrainingGuide").mockImplementation((...args) => { clock += 50; return build(...args); });
+    const completed = vi.fn(), runtime = createRuntime(new CubeModel(kpuzzle), undefined, { now: () => clock, onRecognitionCompleted: completed });
+    runtime.setTrainingActivity("drill"); runtime.setDrillTask("recognition"); runtime.setDrillCases(["F2L 4", "F2L 5"]);
+    runtime.startDrill(); clock = 2100; runtime.tick(clock);
+    const publishedAt = clock, state = runtime.state.get();
+    for (const turn of ["R", "U", "R'", "U'"]) feedMove(runtime, turn);
+    expect(runtime.state.get()).toBe(state); expect(runtime.state.get().liveMoves).toEqual([]);
+    clock = publishedAt + 300; runtime.submitTrainingRecognition("F2L 4"); expect(completed.mock.calls[0][0].responseMs).toBe(300);
+    clock += 2000; runtime.tick(clock); runtime.skipDrillCase(); expect(completed).toHaveBeenCalledOnce();
+    expect(runtime.state.get().drill.lastOutcome).toBe("skipped"); expect(runtime.state.get().target).not.toBeNull();
+  });
+  it("weak-case action retains Recognition task and context cancellation clears answer state", () => {
+    const { runtime, advance } = recognitionRuntime(); runtime.startDrill(); advance(2000);
+    runtime.submitTrainingRecognition("F2L 5"); runtime.stopDrill(); runtime.finishDrillSummary(true);
+    expect(runtime.state.get().drill).toMatchObject({ task: "recognition", selectedCaseIds: ["F2L 4"], status: "configuring" });
+    runtime.setDrillCases(["F2L 4", "F2L 5"]); runtime.startDrill(); advance(2000);
+    const ready = runtime.state.get(); runtime.setF2lLibrary("advanced"); expect(runtime.state.get()).toBe(ready);
+    runtime.setTrainingFamily("oll"); expect(runtime.state.get()).toMatchObject({ recognition: null, target: null, drill: { running: false, selectedCaseIds: [] } });
+    expect(runtime.drillCountdown.get()).toBeNull();
+  });
+  it("varies F2L Again using injected RNG, preserves identity and stable source preferences, and tracks exact direct setup", async () => {
+    const model = new CubeModel(kpuzzle), caseData = findF2lTrainingCase("basic", "F2L 4")!;
+    const source = caseData.algorithms.FR[0], keys: string[] = [];
+    const runtime = createRuntime(model, undefined, { rng: () => 0.5, getTrainingAlgorithmPreference: key => { keys.push(key); return { algorithm: source }; } });
+    configureInputs(runtime, s => ({ ...s, virtualCube: true })); await runtime.selectF2lCase("F2L 4");
+    const target = f2lTargetOf(runtime)!, expected = buildF2lCatalogueTarget(kpuzzle, caseData, "FR", undefined, 2);
+    expect(target.auf).toBe(2); expect(runtime.state.get().setup).toBeTruthy();
+    for (const move of f2lCubeAlgorithm(runtime.state.get().setup, trainingGrip(target)).split(" ")) feedMove(runtime, move);
+    expect(runtime.state.get().phase).toBe("ready"); expect(patternToFacelets(model.pattern)).toBe(patternToFacelets(expected.pattern));
+    await runtime.setTrainingMode("virtual"); const before = runtime.state.get(), preference = before.preferredReference!;
+    runtime.againTraining(); expect(f2lTargetOf(runtime)?.auf).not.toBe((before.target as F2lTrainingTargetInfo).auf);
+    expect(runtime.state.get().displayFacelets).not.toBe(before.displayFacelets); expect(runtime.state.get().preferredReference).not.toBeNull();
+    expect(new Set(keys).size).toBe(1); expect(runtime.state.get().preferredReference?.alg).not.toBe(preference.alg);
+    expect(runtime.state.get().target?.references.map(r => r.sourceAlg)).toEqual(before.target?.references.map(r => r.sourceAlg));
+  });
+});
+
+it("accepts an already exact physical generated F2L target without asking the generic solver", async () => {
+  const built = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0], "FR", undefined, 1);
+  const between = vi.spyOn(solver, "algBetween");
+  const runtime = createRuntime(new CubeModel(kpuzzle, built.pattern), undefined, { rng: () => 0.25 });
+  configureInputs(runtime, s => ({ ...s, virtualCube: true })); await runtime.selectF2lCase(BASIC_CASES[0].name);
+  expect(runtime.state.get()).toMatchObject({ phase: "ready", setup: "" }); expect(between).not.toHaveBeenCalled();
+});

@@ -66,6 +66,7 @@ Observable stores follow ownership:
 | `Controller.trainingDrillPresets` | Global persisted named Drill configurations, separate from runtime, Settings and Sessions |
 | `Controller.trainingDrillPresetApplying` | Narrow application busy fact; blocks Drill Start during atomic preset loading |
 | `Controller.trainingAlgorithmPreferences` | Global user-owned catalogue algorithm preferences, independent of Sessions/Settings/runtime |
+| `Controller.trainingRecognitionAttempts` | Global persisted Recognition answers, separate from Execution and runtime |
 | `Controller.trainingAttempts` | Global persisted completed Training facts, separate from live Training and Timer history |
 | `training.drillCountdown` | Remaining Drill countdown milliseconds; narrow RAF-frequency presentation only |
 | `Controller.elapsed`, `inspectionLeft` | Shared elapsed publication and Timer inspection remaining |
@@ -77,7 +78,7 @@ through ownership hooks. Timer/cube high-frequency subscriptions live below App
 navigation; Header selects stable phase/device facts. Training subscribes directly
 to TrainingRuntime. Presentation-only selection/dialog/hold state remains React-owned.
 
-Saved presets reach TrainingRuntime only as hydrated context, selected cases and
+Saved presets reach TrainingRuntime only as hydrated context, selected cases, task and
 strategy through a narrow configuration seam. Runtime owns no persistence or saved
 identity. Controller persists prospective OLL/PLL Settings before publishing/hydrating and
 refuses loads in running/summary state. Start remains explicit; RAF ownership and
@@ -302,3 +303,25 @@ Reason:
 ```text
 Cube events could start or progress hidden timed activity. Statistics is an explicit non-timing Controller area instead.
 ```
+
+## Recognition and smart catalogue runtime policy
+
+One TrainingRuntime owns Execution/Recognition Drill task, generated concrete target,
+answer options, publication timestamp, ephemeral outcomes and summary. Preparation
+publishes target/options together after domain reference preparation; answer timing
+uses that timestamp with no RAF while waiting. Recognition ignores cube turns before
+virtual mutation. Runtime emits a separate Recognition completion fact containing
+run ID/actual round/catalogue target/answer/response time. Each explicit Start creates
+one fresh injected run ID; Execution completion carries the same run context.
+
+Controller owns Recognition Store publication and TrainingRecognitionHistory
+persistence. Both histories enter `#pendingTrainingWrites`; backups/imports await it
+and `#trainingConfigurationMutationQueue`. Preset application remains persist-first,
+busy through publication, Start blocked, hydrating context/pool/strategy/task atomically.
+
+Runtime's injected RNG chooses cases, AUF, underlying variants and textual choices.
+Family cube builders own target construction/validation. Last variation per durable
+catalogue key is ephemeral and never enters history or preferences. Exact historical
+practice never randomizes. Personal source preferences resolve each generated target
+through the existing injected lookup and family resolver. No additional state machine,
+physical CubeModel, preference Store or persistence owner exists.

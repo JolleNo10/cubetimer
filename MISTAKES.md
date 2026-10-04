@@ -466,3 +466,13 @@ a general preference-edit path for an all-or-nothing configuration application.
 Prevention: persist prospective Settings before publishing configuration, hold a
 narrow application-busy fact through the operation, and cover failed/deferred writes
 with exact live-state preservation and explicit-start regression tests.
+
+## Smart generation test randomness and exact physical setup
+
+The first integration fixtures kept a global Math.random stub active through generic
+solver setup, causing the solver to return unusable output; they also assumed every
+retry had the same AUF. Training test randomness now uses the injected runtime RNG,
+and Controller tests limit mocked draws to Training selection. Validate concrete
+variation while keeping durable identity and exact historical behavior assertions.
+An already matching physical generated target is a valid zero-setup path: use an
+empty tracker and skip solver work, with a focused regression test.

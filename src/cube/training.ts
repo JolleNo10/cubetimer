@@ -33,6 +33,11 @@ export function normalizeTrainingReferenceAlgorithm(input: string): string | nul
   } catch { return null; }
 }
 
+export type TrainingAuf = 0 | 1 | 2 | 3;
+export const TRAINING_AUFS = [0, 1, 2, 3] as const;
+export const TRAINING_AUF_TOKENS = ["", "U", "U2", "U'"] as const;
+export const TRAINING_UNDO_AUF_TOKENS = ["", "U'", "U2", "U"] as const;
+
 export type TrainingGuideProgress = {
   moves: readonly string[];
   /** Exact display instructions built against each reference checkpoint's frame. */

@@ -34,7 +34,7 @@ function median(values: number[]): number | null {
 }
 const positive = (n: number) => Number.isFinite(n) && n > 0;
 
-function aggregate(attempts: readonly TrainingAttempt[]): TrainingCaseStats {
+export function trainingExecutionPerformance(attempts: readonly TrainingAttempt[]): TrainingCaseStats {
   const sorted = [...attempts].sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const recent = sorted.slice(-5);
   const times = sorted.map(a => a.elapsedMs).filter(positive);
@@ -56,7 +56,7 @@ function aggregate(attempts: readonly TrainingAttempt[]): TrainingCaseStats {
     recentMoveSpansMs };
 }
 
-export const EMPTY_TRAINING_CASE_STATS: TrainingCaseStats = aggregate([]);
+export const EMPTY_TRAINING_CASE_STATS: TrainingCaseStats = trainingExecutionPerformance([]);
 
 export function trainingStatsByCase(attempts: readonly TrainingAttempt[]): Map<string, TrainingCaseStats> {
   const grouped = new Map<string, TrainingAttempt[]>();
@@ -66,7 +66,7 @@ export function trainingStatsByCase(attempts: readonly TrainingAttempt[]): Map<s
     const group = grouped.get(key) ?? [];
     group.push(attempt); grouped.set(key, group);
   }
-  return new Map([...grouped].map(([key, rows]) => [key, aggregate(rows)]));
+  return new Map([...grouped].map(([key, rows]) => [key, trainingExecutionPerformance(rows)]));
 }
 
 /** Review tiers are feature policy; selection never constructs a Training target. */

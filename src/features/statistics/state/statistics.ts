@@ -85,6 +85,7 @@ export type SessionComparisonRow = {
 };
 
 export type StatisticsViewModel = {
+  recentPerformance: RecentPerformanceComparison | null;
   event: EventId;
   sessionId: string | null;
   eventSessions: Session[];
@@ -126,6 +127,40 @@ export type StatisticsViewModel = {
   f2lSlots: PerformanceSummary[];
   f2lUnassignedCount: number;
 };
+
+export type RecentPerformanceComparison = {
+  sampleSize: number;
+  recentSolveIds: string[];
+  baselineSolveIds: string[];
+  recentMedianDelta: number;
+  recognitionDelta: number;
+  executionDelta: number;
+  crossDelta: number;
+  f2lDelta: number;
+  ollDelta: number;
+  pllDelta: number;
+  largestPositivePhaseDelta: { phase: string; delta: number } | null;
+  largestNegativePhaseDelta: { phase: string; delta: number } | null;
+  iqrDelta: number;
+};
+
+/** Descriptive analysed-solve windows, independent of WCA rolling averages. */
+export function recentPerformanceComparison(facts: readonly AnalysedSolveFacts[]): RecentPerformanceComparison | null {
+  const ordered = [...facts].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+  const size = Math.min(10, Math.floor(ordered.length / 2));
+  if (size < 5) return null;
+  const recent = ordered.slice(-size), baseline = ordered.slice(-size * 2, -size);
+  const difference = (select: (fact: AnalysedSolveFacts) => number) => median(recent.map(select))! - median(baseline.map(select))!;
+  const phases = (["Cross", "F2L", "OLL", "PLL"] as const).map((phase, index) => ({ phase,
+    delta: difference(fact => fact.phases[(["crossMs", "f2lMs", "ollMs", "pllMs"] as const)[index]]) }));
+  const iqr = (rows: readonly AnalysedSolveFacts[]) => percentile(rows.map(a => a.solvingMs), 0.75)! - percentile(rows.map(a => a.solvingMs), 0.25)!;
+  return { sampleSize: size, recentSolveIds: recent.map(a => a.id), baselineSolveIds: baseline.map(a => a.id),
+    recentMedianDelta: difference(a => a.solvingMs), recognitionDelta: difference(a => a.recognitionMs), executionDelta: difference(a => a.executionMs),
+    crossDelta: phases[0].delta, f2lDelta: phases[1].delta, ollDelta: phases[2].delta, pllDelta: phases[3].delta,
+    largestPositivePhaseDelta: phases.filter(p => p.delta > 0).sort((a, b) => b.delta - a.delta)[0] ?? null,
+    largestNegativePhaseDelta: phases.filter(p => p.delta < 0).sort((a, b) => a.delta - b.delta)[0] ?? null,
+    iqrDelta: iqr(recent) - iqr(baseline) };
+}
 
 export const RANKING_METRICS = [
   { id: "single", label: "Single", group: "Solve", unit: "time", direction: "asc" },
@@ -594,6 +629,7 @@ export function deriveStatistics(
   }
   return {
     event: scope.event,
+    recentPerformance: recentPerformanceComparison(facts),
     sessionId: scope.sessionId,
     eventSessions,
     scopeSolves,
