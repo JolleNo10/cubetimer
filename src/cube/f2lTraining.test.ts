@@ -5,6 +5,7 @@ import { faceletsToPattern, patternToFacelets } from "./facelets";
 import { F2L_POSITIONS, f2lPositionTransform } from "./f2lCases";
 import { F2L_TRAINING_CATALOGUES } from "./f2lTrainingCases";
 import {
+  resolveF2lTrainingReference,
   buildExactF2lTarget,
   buildF2lCatalogueTarget,
   calculateTrainingEfficiency,
@@ -620,5 +621,25 @@ describe("F2L training targets", () => {
     expect(f2lCatalogueSetupMoves(entry, "BR")).toBeNull();
     expect(referenceExecutionSignature(target.info.references[0].alg)).not.toBeNull();
     expect(isF2lTrainingComplete(target, solveReference(target, target.info.references[0].alg))).toBe(true);
+  });
+});
+
+
+describe("personal F2L reference resolution", () => {
+  it("retains canonical source and resolves an arbitrary supported execution against the same target", () => {
+    const built = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0]);
+    const canonical = built.info.references[0];
+    expect(canonical.sourceAlg).toBeTruthy();
+    const personal = resolveF2lTrainingReference(built, `F F' ${canonical.sourceAlg}`)!;
+    expect(personal).not.toBeNull();
+    expect(personal.sourceAlg).toBe(`F F' ${canonical.sourceAlg}`);
+    expect(personal.stm).toBe(canonical.stm);
+    expect(resolveF2lTrainingReference(built, "R")).toBeNull();
+    expect(resolveF2lTrainingReference(built, "invalid ?")).toBeNull();
+  });
+  it("rejects an execution that solves a different selected slot", () => {
+    const fr = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0], "FR");
+    const bl = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0], "BL");
+    expect(resolveF2lTrainingReference(bl, fr.info.references[0].sourceAlg)).toBeNull();
   });
 });

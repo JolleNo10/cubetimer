@@ -1,23 +1,17 @@
-import type { TrainingAttempt, TrainingAttemptTarget } from "../../app/types";
+import { trainingCatalogueKey, catalogueIdentityForTarget } from "../../app/trainingCatalogue";
+import type { TrainingAttempt, TrainingAttemptTarget, TrainingCatalogueIdentity } from "../../app/types";
 import type { TrainingTargetInfo } from "./TrainingRuntime";
 
-export type TrainingCatalogueCase =
-  | Extract<TrainingAttemptTarget, { family: "f2l"; origin: "catalog" }>
-  | Omit<Extract<TrainingAttemptTarget, { family: "oll" | "pll"; origin: "catalog" }>, "auf">;
+export type TrainingCatalogueCase = TrainingCatalogueIdentity & { origin: "catalog" };
 
 export function catalogueCaseForTarget(target: TrainingTargetInfo | null): TrainingCatalogueCase | null {
-  if (!target || target.origin.kind !== "catalog") return null;
-  return target.family === "f2l"
-    ? { family: "f2l", origin: "catalog", library: target.origin.library, caseName: target.origin.caseName, position: target.position }
-    : { family: target.family, origin: "catalog", trainingSet: target.trainingSet, caseId: target.caseId };
+  const identity = catalogueIdentityForTarget(target);
+  return identity ? { ...identity, origin: "catalog" } : null;
 }
 
-/** JSON tuples avoid delimiter collisions; AUF deliberately does not split a case. */
+/** JSON tuple encoding is shared by all catalogue-owned user records. */
 export function trainingCaseKey(target: TrainingAttemptTarget | TrainingCatalogueCase): string | null {
-  if (target.origin !== "catalog") return null;
-  return JSON.stringify(target.family === "f2l"
-    ? [target.family, target.library, target.caseName, target.position]
-    : [target.family, target.trainingSet, target.caseId]);
+  return target.origin === "catalog" ? trainingCatalogueKey(target) : null;
 }
 
 export type TrainingCaseStats = {
@@ -48,7 +42,7 @@ function aggregate(attempts: readonly TrainingAttempt[]): TrainingCaseStats {
   const recentMoveSpansMs = recent.map(a => a.elapsedMs).filter(positive);
   const bestMoveSpanMs = times.length ? times.reduce((best, time) => Math.min(best, time)) : null;
   const recentMedianMoveSpanMs = median([...recentMoveSpansMs]);
-  const recentMedianDelta = median(recent.map(a => a.delta).filter((n): n is number => n !== null && Number.isFinite(n)));
+  const recentMedianDelta = median(recent.map(a => a.preferredDelta ?? a.delta).filter((n): n is number => n !== null && Number.isFinite(n)));
   const caseTimes = sorted.filter(a => a.activity === "drill").map(a => a.caseTimeMs).filter((n): n is number => n !== null && positive(n));
   const bestCaseTimeMs = caseTimes.length ? caseTimes.reduce((best, time) => Math.min(best, time)) : null;
   const recentMedianCaseTimeMs = median(recent.filter(a => a.activity === "drill").map(a => a.caseTimeMs).filter((n): n is number => n !== null && positive(n)));

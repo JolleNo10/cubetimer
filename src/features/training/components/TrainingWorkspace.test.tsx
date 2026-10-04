@@ -1,3 +1,5 @@
+import { createTrainingAlgorithmPreference } from "../trainingAlgorithmPreferences";
+import { catalogueIdentityForTarget } from "../../../app/trainingCatalogue";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { CubeModel } from "../../../cube/model";
@@ -23,7 +25,7 @@ async function selected() {
   return controller;
 }
 const result: TrainingResult = { moves: ["R", "U", "R'"], stm: 3, caseTimeMs: null, elapsedMs: 1250, recommendedStm: 3,
-  recommendedAlg: "R U R'", matchedReferenceRank: 1, delta: 0 };
+  preferredAlg: null, recommendedAlg: "R U R'", matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0 };
 
 describe("shared Training presentation", () => {
   it("places the case library before connection controls in DOM and focus order", async () => {
@@ -146,4 +148,37 @@ describe("family result presentation", () => {
     expect(html).toContain(`Show ${target.references.length - 1} alternatives`);
     expect(html).not.toContain('aria-current="step"');
   });
+});
+
+
+describe("personal and canonical Training presentation", () => {
+  it("keeps My algorithm, note and Recommended separate, and hides editing while solving/exact/Drill", async () => {
+    const controller = await selected(), target = controller.training.state.get().target!;
+    if (target.family !== "f2l") throw new Error("Expected F2L fixture");
+    const preference = createTrainingAlgorithmPreference(kpuzzle, catalogueIdentityForTarget(target)!, target.references[1].sourceAlg, "catalog", "My grip");
+    controller.trainingAlgorithmPreferences.set([preference]); controller.training.refreshPreferredAlgorithm();
+    const html = render(controller, <TrainingReferences />);
+    expect(html).toContain("MY ALGORITHM"); expect(html).toContain("RECOMMENDED"); expect(html).toContain("My grip");
+    expect(html).toContain(">Edit</button>"); expect(html).toContain(">Remove</button>"); expect(html).toContain("Use as mine");
+    controller.training.state.update(s => ({ ...s, phase: "solving" }));
+    expect(render(controller, <TrainingReferences />)).not.toContain(">Edit</button>");
+    controller.training.state.update(s => ({ ...s, phase: "ready", target: { ...target, origin: { kind: "solve-step", solveId: "history", stepName: "F2L Slot 1", slot: "FR" } } }));
+    expect(render(controller, <TrainingReferences />)).not.toContain("Use as mine");
+    expect(render(controller, <TrainingReferences />)).not.toContain("Set custom algorithm");
+    controller.training.state.update(s => ({ ...s, activity: "drill", phase: "ready", target, drill: { ...s.drill, running: true, status: "running" } }));
+    expect(render(controller, <TrainingReferences />)).toBe("");
+    controller.training.state.update(s => ({ ...s, phase: "result", result: { ...result, preferredAlg: preference.algorithm, preferredStm: 4, matchedPreferred: true, preferredDelta: 0 } }));
+    const revealed = render(controller, <TrainingReferences />);
+    expect(revealed).toContain("MY ALGORITHM"); expect(revealed).not.toContain(">Edit</button>"); expect(revealed).not.toContain("Use as mine");
+  });
+  it.each([[true, 0, "Matched my algorithm", "Same STM as my algorithm"],
+    [false, 2, "Known alternative #2", "+2 STM vs my algorithm"],
+    [false, -1, "Valid custom solution", "1 STM fewer than my algorithm"]] as const)
+    ("renders the attempt's personal snapshot %s %s", (matchedPreferred, preferredDelta, classification, comparison) => {
+      const personal = { ...result, preferredAlg: "R U", preferredStm: 4, matchedPreferred, preferredDelta,
+        matchedReferenceRank: classification.includes("alternative") ? 2 : null };
+      const html = renderToStaticMarkup(<TrainingAttemptResult result={personal} phase="result" liveMoveCount={0} elapsed={0} />);
+      expect(html).toContain(classification); expect(html).toContain(comparison);
+      expect(html).toContain("My algorithm 4 STM");
+    });
 });

@@ -202,3 +202,22 @@ that do not belong to the pure cube domain.
 ```
 
 `F2lTrainingSolveInput` is the narrow domain-facing seam instead.
+
+
+## Training source and executable references
+
+`sourceAlg` is stable algorithm notation in catalogue/personal case semantics.
+`alg` is the executable reference aligned to one concrete Training target, including
+AUF and final AUF where necessary. Canonical references retain both without changing
+ranks. F2L and last-layer domain resolvers share canonical alignment/completion rules
+and return only source/executable algorithm and STM. Last-layer personal resolution
+searches the natural alignment first, remaining U alignments next, and prefers a
+valid solution without unnecessary final AUF. Stage-specific 2-Look goals remain authoritative.
+
+Personal algorithms reuse `buildTrainingGuide`, strict checkpoint/reference matching,
+rotation/wide/slice handling and `calculateTrainingEfficiency`. Canonical and preferred
+matches remain independent; canonical comparison facts retain their meaning.
+Cube domain validates/resolves algorithms and never owns persistence keys, notes,
+timestamps or a user preference Store. Persisting target-adjusted algorithms,
+replacing canonical rank 1, and creating another matcher are rejected because stable
+source semantics and distinct benchmark facts already fit the existing reference engine.

@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_EVENT_ID } from "../../cube/scramble";
-import { mergeSettings, migrateSession, migrateSolve, normalizeTrainingAttempt, normalizeTrainingDrillPreset } from "./db";
-import type { Solve, TrainingAttempt, TrainingDrillPreset } from "../../app/types";
+import { mergeSettings, migrateSession, migrateSolve, normalizeTrainingAttempt, normalizeTrainingDrillPreset, normalizeTrainingAlgorithmPreference } from "./db";
+import type { Solve, TrainingAttempt, TrainingDrillPreset, TrainingAlgorithmPreference } from "../../app/types";
 
 import { f2lTrainingCatalogue } from "../../cube/f2lTrainingCases";
 import { lastLayerCaseIds } from "../../cube/lastLayerTraining";
@@ -106,7 +106,7 @@ describe("migrateSession", () => {
 const trainingAttempt = (values: Partial<TrainingAttempt> = {}): TrainingAttempt => ({
   id: "attempt", createdAt: 10, mode: "virtual", activity: "single", caseTimeMs: null,
   target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 1", position: "FR" },
-  moves: ["R", "U"], stm: 2, elapsedMs: 500, recommendedStm: 2, matchedReferenceRank: 1, delta: 0, ...values,
+  moves: ["R", "U"], stm: 2, elapsedMs: 500, recommendedStm: 2, matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0, ...values,
 });
 
 describe("TrainingAttempt current-record normalization", () => {
@@ -196,7 +196,7 @@ describe("Training IndexedDB adapter", () => {
     };
     const put = vi.fn();
     const createObjectStore = vi.fn((name: string, options: unknown) => {
-      expect(options).toEqual({ keyPath: "id" }); stores.set(name, new Map());
+      expect(options).toEqual({ keyPath: name === "trainingAlgorithmPreferences" ? "key" : "id" }); stores.set(name, new Map());
     });
     const database = {
       objectStoreNames: { contains: (name: string) => stores.has(name) }, createObjectStore,
@@ -219,10 +219,11 @@ describe("Training IndexedDB adapter", () => {
     vi.resetModules();
     const adapter = await import("./db");
     expect(await adapter.loadTrainingAttempts()).toEqual([]);
-    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 3);
+    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 4);
     expect(createObjectStore).toHaveBeenCalledWith("trainingAttempts", { keyPath: "id" });
     expect(createObjectStore).toHaveBeenCalledWith("trainingDrillPresets", { keyPath: "id" });
-    expect(createObjectStore).toHaveBeenCalledTimes(2);
+    expect(createObjectStore).toHaveBeenCalledWith("trainingAlgorithmPreferences", { keyPath: "key" });
+    expect(createObjectStore).toHaveBeenCalledTimes(3);
     expect([...stores.values()].slice(0, 3)).toEqual(existing);
     const a = trainingAttempt({ id: "a", createdAt: 20 });
     const b = trainingAttempt({ id: "b", createdAt: 20 });
@@ -275,9 +276,9 @@ describe("TrainingDrillPreset normalization", () => {
   });
 });
 
-describe("Saved Drill IndexedDB v3 adapter", () => {
+describe("Saved Drill IndexedDB adapter", () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
-  it("preserves all v2 stores, adds only presets, upserts/deletes after commit and skips malformed rows in deterministic order", async () => {
+  it("preserves all v2 stores, adds Training configuration stores, upserts/deletes after commit and skips malformed rows in deterministic order", async () => {
     const stores = new Map<string, Map<string, unknown>>(["sessions", "solves", "settings", "trainingAttempts"].map(name => [name, new Map([["old", { id: "old" }]])]));
     const originals = [...stores.values()];
     const request = <T>(result: T) => {
@@ -285,7 +286,7 @@ describe("Saved Drill IndexedDB v3 adapter", () => {
       queueMicrotask(() => req.onsuccess?.()); return req;
     };
     const createObjectStore = vi.fn((name: string, options: unknown) => {
-      expect(options).toEqual({ keyPath: "id" }); stores.set(name, new Map());
+      expect(options).toEqual({ keyPath: name === "trainingAlgorithmPreferences" ? "key" : "id" }); stores.set(name, new Map());
     });
     let complete: (() => void) | undefined;
     const database = {
@@ -305,8 +306,10 @@ describe("Saved Drill IndexedDB v3 adapter", () => {
     vi.stubGlobal("indexedDB", { open }); vi.resetModules();
     const adapter = await import("./db");
     expect(await adapter.loadTrainingDrillPresets()).toEqual([]);
-    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 3);
-    expect(createObjectStore).toHaveBeenCalledExactlyOnceWith("trainingDrillPresets", { keyPath: "id" });
+    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 4);
+    expect(createObjectStore).toHaveBeenCalledWith("trainingDrillPresets", { keyPath: "id" });
+    expect(createObjectStore).toHaveBeenCalledWith("trainingAlgorithmPreferences", { keyPath: "key" });
+    expect(createObjectStore).toHaveBeenCalledTimes(2);
     expect([...stores.values()].slice(0, 4)).toEqual(originals);
     async function commit(write: Promise<void>) {
       let resolved = false; void write.then(() => { resolved = true; });
@@ -335,5 +338,71 @@ describe("Saved Drill IndexedDB v3 adapter", () => {
     } }); vi.resetModules();
     const adapter = await import("./db");
     await expect(action === "save" ? adapter.saveTrainingDrillPreset(drillPreset()) : adapter.deleteTrainingDrillPreset("preset")).rejects.toBe(error);
+  });
+});
+
+
+const algorithmPreference = (values: Partial<TrainingAlgorithmPreference> = {}): TrainingAlgorithmPreference => ({
+  key: '["f2l","basic","F2L 1","FR"]', target: { family: "f2l", library: "basic", caseName: "F2L 1", position: "FR" },
+  algorithm: "R U R'", source: "custom", note: null, createdAt: 10, updatedAt: 20, ...values,
+});
+describe("personal algorithm record normalization", () => {
+  it("rebuilds trimmed records with a verified durable key", () => {
+    expect(normalizeTrainingAlgorithmPreference({ ...algorithmPreference(), algorithm: " R U R' ", note: "  grip  " }))
+      .toEqual(algorithmPreference({ note: "grip" }));
+  });
+  it.each([
+    { key: "wrong" }, { algorithm: " " }, { algorithm: "R".repeat(1001) }, { source: "rank" },
+    { note: 3 }, { note: "x".repeat(241) }, { createdAt: -1 }, { updatedAt: Infinity }, { updatedAt: 9 },
+    { target: { family: "f2l", library: "basic", caseName: "missing", position: "FR" } },
+    { target: { family: "f2l", library: "full", caseName: "F2L 1", position: "FR" } },
+    { target: { family: "f2l", library: "basic", caseName: "F2L 1", position: "UF" } },
+    { target: { family: "pll", trainingSet: "2look", caseId: "T" } },
+    { target: { family: "oll", trainingSet: "full", caseId: "27", library: "basic" } },
+  ])("rejects malformed preference %j", fields => {
+    expect(normalizeTrainingAlgorithmPreference({ ...algorithmPreference(), ...fields })).toBeNull();
+  });
+  it("normalizes legacy attempts to nullable personal facts and validates the complete combination", () => {
+    const { preferredStm: _stm, matchedPreferred: _match, preferredDelta: _delta, ...legacy } = trainingAttempt();
+    expect(normalizeTrainingAttempt(legacy)).toEqual(trainingAttempt());
+    const current = trainingAttempt({ preferredStm: 4, matchedPreferred: false, preferredDelta: -2 });
+    expect(normalizeTrainingAttempt(current)).toEqual(current);
+    for (const fields of [{ matchedPreferred: true }, { preferredStm: 4 }, { preferredStm: 4, matchedPreferred: true, preferredDelta: Infinity }])
+      expect(normalizeTrainingAttempt({ ...trainingAttempt(), ...fields })).toBeNull();
+  });
+});
+describe("personal algorithm IndexedDB v4 migration", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+  it("preserves v3 stores, adds only the key store, waits for commits, upserts and skips malformed rows", async () => {
+    const stores = new Map<string, Map<string, unknown>>(["sessions", "solves", "settings", "trainingAttempts", "trainingDrillPresets"].map(name => [name, new Map([["old", { id: "old" }]])]));
+    const originals = [...stores.values()];
+    const createObjectStore = vi.fn((name: string, options: unknown) => { expect(options).toEqual({ keyPath: "key" }); stores.set(name, new Map()); });
+    let complete: (() => void) | undefined;
+    const database = { objectStoreNames: { contains: (name: string) => stores.has(name) }, createObjectStore,
+      transaction: (name: string) => {
+        const tx = { oncomplete: null as null | (() => void), objectStore: () => ({
+          getAll: () => { const req = { result: [...stores.get(name)!.values()], onsuccess: null as null | (() => void) }; queueMicrotask(() => req.onsuccess?.()); return req; },
+          put: (row: TrainingAlgorithmPreference) => { stores.get(name)!.set(row.key, row); complete = () => tx.oncomplete?.(); },
+          delete: (key: string) => { stores.get(name)!.delete(key); complete = () => tx.oncomplete?.(); },
+        }) }; return tx;
+      },
+    };
+    const open = vi.fn(() => { const req = { result: database, onupgradeneeded: null as null | (() => void), onsuccess: null as null | (() => void) };
+      queueMicrotask(() => { req.onupgradeneeded?.(); req.onsuccess?.(); }); return req; });
+    vi.stubGlobal("indexedDB", { open }); vi.resetModules(); const adapter = await import("./db");
+    expect(await adapter.loadTrainingAlgorithmPreferences()).toEqual([]);
+    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 4);
+    expect(createObjectStore).toHaveBeenCalledExactlyOnceWith("trainingAlgorithmPreferences", { keyPath: "key" });
+    expect([...stores.values()].slice(0, 5)).toEqual(originals);
+    async function commit(write: Promise<void>) { let resolved = false; void write.then(() => { resolved = true; });
+      await Promise.resolve(); await Promise.resolve(); expect(resolved).toBe(false); complete!(); await write; }
+    const original = algorithmPreference();
+    await commit(adapter.saveTrainingAlgorithmPreference(original));
+    await commit(adapter.saveTrainingAlgorithmPreference({ ...original, note: "edited", updatedAt: 30 }));
+    stores.get("trainingAlgorithmPreferences")!.set("bad", { ...original, key: "bad" });
+    expect(await adapter.loadTrainingAlgorithmPreferences()).toEqual([{ ...original, note: "edited", updatedAt: 30 }]);
+    expect(stores.get("trainingAlgorithmPreferences")!.size).toBe(2);
+    await commit(adapter.deleteTrainingAlgorithmPreference(original.key));
+    expect(await adapter.loadTrainingAlgorithmPreferences()).toEqual([]);
   });
 });

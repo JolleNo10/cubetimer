@@ -20,6 +20,22 @@ export type TrainingDrillPreset = {
   caseIds: string[];
 };
 
+/** Durable catalogue identity: AUF and live target state never split a case. */
+export type TrainingCatalogueIdentity =
+  | (Extract<TrainingDrillPresetContext, { family: "f2l" }> & { caseName: string })
+  | (Extract<TrainingDrillPresetContext, { family: "oll" | "pll" }> & { caseId: string });
+
+export type TrainingAlgorithmPreference = {
+  key: string;
+  target: TrainingCatalogueIdentity;
+  /** Stable source/core notation, never a live target's AUF-adjusted reference. */
+  algorithm: string;
+  source: "catalog" | "custom";
+  note: string | null;
+  createdAt: number;
+  updatedAt: number;
+};
+
 /** Global Training history, independent of Timer Session/Event identity. */
 export type TrainingAttemptTarget =
   | { family: "f2l"; origin: "catalog"; library: F2lTrainingLibrary; caseName: string; position: F2lPosition }
@@ -42,6 +58,9 @@ export type TrainingAttempt = {
   recommendedStm: number | null;
   matchedReferenceRank: number | null;
   delta: number | null;
+  preferredStm: number | null;
+  matchedPreferred: boolean | null;
+  preferredDelta: number | null;
 };
 
 export type { WhiteCrossMoves } from "../cube/crossScramble";

@@ -915,6 +915,18 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     };
     return { runtime, model, completed, advance, solve, wait: (ms: number) => { now += ms; } };
   }
+  it("evaluates Drill against My algorithm, uses effective outcome delta and resolves later rounds afresh", () => {
+    const built = buildF2lCatalogueTarget(kpuzzle, findF2lTrainingCase("basic", "F2L 1")!);
+    let preference = { algorithm: built.info.references[1].sourceAlg };
+    const { runtime, advance, solve, completed } = drill("f2l", { getTrainingAlgorithmPreference: () => preference });
+    runtime.setDrillCases(["F2L 1"]); runtime.startDrill(); advance(2000); solve();
+    const result = completed.mock.calls[0][0].result;
+    expect(result.matchedPreferred).toBe(false);
+    expect(runtime.state.get().drill.outcomes[0]).toMatchObject({ outcome: "solved", delta: result.preferredDelta });
+    preference = { algorithm: built.info.references[0].sourceAlg };
+    advance(2000); expect(runtime.state.get().preferredReference?.alg).toBe(built.info.references[0].alg);
+    solve(); expect(completed.mock.calls[1][0].result.matchedPreferred).toBe(true);
+  });
   it("stops RAF while recognizing, restarts on the first move, and includes the unticked wait in case time", () => {
     const startClock = vi.fn(), elapsed = new Store(0);
     const { runtime, advance, wait, solve, completed } = drill("f2l", { startClock, elapsed });
@@ -1088,7 +1100,8 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     expect(runtime.state.get()).toMatchObject({ activity: "drill", target: null, drill: { running: false, selectedCaseIds: [] } });
   });
   it("exact solve-step practice stops Drill and remains Single", async () => {
-    const { runtime } = drill("oll"); runtime.setDrillCases(["27"]); runtime.startDrill();
+    const lookup = vi.fn(() => ({ algorithm: "R U R'" }));
+    const { runtime } = drill("oll", { getTrainingAlgorithmPreference: lookup }); runtime.setDrillCases(["27"]); runtime.startDrill();
     const built = buildLastLayerCatalogueTarget(kpuzzle, "oll", "27", 0);
     const solve = solveFor("s"); solve.scrambledFacelets = patternToFacelets(built.pattern);
     const moves = referenceExecutionSignature(built.info.references[0].alg)!.map((token, index) => ({ move: cubeMove(token, trainingGrip(built.info)), t: index * 100 }));
@@ -1096,7 +1109,73 @@ describe("TrainingRuntime continuous virtual Drill", () => {
       tps: 3, totalRecognitionMs: 0, totalExecutionMs: 1000, stepsSkipped: 0, turnsAfterSolution: 0, pauses: [],
       sliceTurns: moves.length, faceTurns: moves.length, quarterTurns: moves.length };
     await runtime.practiceSolveStep(solve, { name: "OLL", fromMove: 0, toMove: moves.length, case: "27", moves: moves.map(m => m.move).join(" "), recordedMoves: moves, skipped: false, hasTurns: true, timeMs: 1000, recognitionMs: 0, executionMs: 1000, cumulativeMs: 1000, sliceTurns: moves.length, faceTurns: moves.length, quarterTurns: moves.length, tps: 1, slot: null });
+    expect(runtime.state.get().preferredReference).toBeNull();
     expect(runtime.state.get()).toMatchObject({ activity: "single", drill: { running: false }, target: { origin: { kind: "solve-step" } } });
     expect(runtime.drillCountdown.get()).toBeNull();
   });
 });
+
+
+describe("TrainingRuntime personal benchmark", () => {
+  it("refreshes guidance without replacing the target or setup, and removal restores canonical guidance", async () => {
+    let preference: { algorithm: string } | null = null;
+    const runtime = createRuntime(new CubeModel(kpuzzle), undefined, { getTrainingAlgorithmPreference: () => preference });
+    await runtime.selectF2lCase("F2L 1");
+    const before = runtime.state.get();
+    preference = { algorithm: before.target!.references[1].sourceAlg };
+    expect(runtime.refreshPreferredAlgorithm()).toBe(true);
+    const after = runtime.state.get();
+    expect(after.target).toBe(before.target); expect(after.setupProgress).toBe(before.setupProgress);
+    expect(after.setup).toBe(before.setup); expect(after.phase).toBe(before.phase);
+    expect(after.displayFacelets).toBe(before.displayFacelets); expect(after.displayRevision).toBe(before.displayRevision);
+    expect(after.preferredReference?.alg).toBe(before.target!.references[1].alg);
+    expect(after.guide?.moves.join(" ")).toBe(after.preferredReference?.alg);
+    preference = null; runtime.refreshPreferredAlgorithm();
+    expect(runtime.state.get().preferredReference).toBeNull();
+    expect(runtime.state.get().guide?.moves.join(" ")).toBe(before.guide?.moves.join(" "));
+  });
+  it("freezes the benchmark after the first turn and snapshots personal result facts", async () => {
+    const built = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0]);
+    let preference: { algorithm: string } | null = { algorithm: built.info.references[1].sourceAlg };
+    const runtime = createRuntime(new CubeModel(kpuzzle), undefined, { getTrainingAlgorithmPreference: () => preference });
+    await runtime.setTrainingMode("virtual"); await runtime.selectF2lCase(BASIC_CASES[0].name);
+    const target = runtime.state.get().target!, preferred = runtime.state.get().preferredReference!;
+    const execution = referenceExecutionSignature(preferred.alg)!;
+    feedMove(runtime, cubeMove(execution[0], trainingGrip(target)));
+    expect(runtime.state.get().phase).toBe("solving");
+    preference = null;
+    expect(runtime.refreshPreferredAlgorithm()).toBe(false);
+    expect(runtime.state.get().preferredReference).toBe(preferred);
+    for (const move of execution.slice(1)) feedMove(runtime, cubeMove(move, trainingGrip(target)));
+    const result = runtime.state.get().result!;
+    expect(result).toMatchObject({ preferredAlg: preferred.alg, preferredStm: preferred.stm, matchedPreferred: true, preferredDelta: 0 });
+    runtime.refreshPreferredAlgorithm(); expect(runtime.state.get().result).toBe(result);
+    expect(target.references).toEqual(built.info.references);
+  });
+  it("falls back to canonical guidance when a stale preference no longer resolves", async () => {
+    const runtime = createRuntime(new CubeModel(kpuzzle), undefined, { getTrainingAlgorithmPreference: () => ({ algorithm: "R" }) });
+    await runtime.setTrainingMode("virtual"); await runtime.selectF2lCase("F2L 1");
+    expect(runtime.state.get().preferredReference).toBeNull();
+    expect(runtime.state.get().guide?.moves.join(" ")).toBe(runtime.state.get().target!.references[0].alg);
+  });
+});
+
+
+it.each([["oll", "27", "full"], ["oll", "L-Shape", "2look"], ["pll", "Headlights", "2look"]] as const)
+  ("resolves stable personal %s %s source across virtual randomized targets", async (family, caseId, set) => {
+    const built = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, 0, set);
+    const sourceAlg = built.info.references[0].sourceAlg;
+    const keys: string[] = [];
+    const runtime = createRuntime(new CubeModel(kpuzzle), undefined, { getTrainingAlgorithmPreference: key => { keys.push(key); return { algorithm: sourceAlg }; } });
+    configureInputs(runtime, s => ({ ...s, settings: { ...s.settings, ollTrainingSet: set, pllTrainingSet: set } }));
+    runtime.setTrainingFamily(family); await runtime.setTrainingMode("virtual");
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    await runtime.selectLastLayerCase(family, caseId);
+    const first = runtime.state.get().target!, preferred = runtime.state.get().preferredReference!;
+    expect(preferred).not.toBeNull();
+    vi.mocked(Math.random).mockReturnValue(0.75);
+    await runtime.selectLastLayerCase(family, caseId);
+    expect(runtime.state.get().target).not.toBe(first); expect(runtime.state.get().target).toMatchObject({ auf: 3 });
+    expect(runtime.state.get().preferredReference).not.toBeNull();
+    expect(new Set(keys).size).toBe(1);
+  });

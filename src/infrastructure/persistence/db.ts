@@ -5,14 +5,15 @@
  * more than `localStorage` will hold, hence IndexedDB.
  */
 import { DEFAULT_EVENT_ID, EVENTS, type EventId } from "../../cube/scramble";
-import { DEFAULT_SETTINGS, type Session, type Settings, type Solve, type TrainingAttempt, type TrainingAttemptTarget, type TrainingDrillPreset, type TrainingDrillPresetContext } from "../../app/types";
+import { DEFAULT_SETTINGS, type Session, type Settings, type Solve, type TrainingAttempt, type TrainingAttemptTarget, type TrainingDrillPreset, type TrainingDrillPresetContext, type TrainingAlgorithmPreference } from "../../app/types";
+import { normalizeTrainingCatalogueIdentity, trainingCatalogueKey } from "../../app/trainingCatalogue";
 import { normaliseLastLayerTrainingSet } from "../../app/settings";
 import { F2L_POSITIONS } from "../../cube/f2lCases";
 import { findF2lTrainingCase, f2lTrainingCatalogue } from "../../cube/f2lTrainingCases";
 import { lastLayerCaseIds } from "../../cube/lastLayerTraining";
 
 const DB_NAME = "cubetimer";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -36,6 +37,9 @@ function openDatabase(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("trainingDrillPresets")) {
         db.createObjectStore("trainingDrillPresets", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("trainingAlgorithmPreferences")) {
+        db.createObjectStore("trainingAlgorithmPreferences", { keyPath: "key" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -189,6 +193,11 @@ export function normalizeTrainingAttempt(value: unknown): TrainingAttempt | null
       !(caseTimeMs === null || nonnegative(caseTimeMs)) ||
       (activity === "single" && caseTimeMs !== null) ||
       (activity === "drill" && (value.mode !== "virtual" || caseTimeMs === null || value.target.origin !== "catalog"))) return null;
+  const preferredStm = value.preferredStm === undefined ? null : value.preferredStm;
+  const matchedPreferred = value.matchedPreferred === undefined ? null : value.matchedPreferred;
+  const preferredDelta = value.preferredDelta === undefined ? null : value.preferredDelta;
+  if (!(preferredStm === null && matchedPreferred === null && preferredDelta === null) &&
+      !(nonnegative(preferredStm) && typeof matchedPreferred === "boolean" && typeof preferredDelta === "number" && Number.isFinite(preferredDelta))) return null;
   const t = value.target;
   let target: TrainingAttemptTarget;
   if (t.family === "f2l") {
@@ -218,7 +227,7 @@ export function normalizeTrainingAttempt(value: unknown): TrainingAttempt | null
   return {
     id: value.id, createdAt: value.createdAt, mode: value.mode, activity, caseTimeMs, target, moves: [...value.moves] as string[],
     stm: value.stm, elapsedMs: value.elapsedMs, recommendedStm: value.recommendedStm,
-    matchedReferenceRank: value.matchedReferenceRank, delta: value.delta,
+    matchedReferenceRank: value.matchedReferenceRank, delta: value.delta, preferredStm, matchedPreferred, preferredDelta,
   };
 }
 
@@ -282,20 +291,51 @@ export async function loadTrainingDrillPresets(): Promise<TrainingDrillPreset[]>
 export async function saveTrainingDrillPreset(preset: TrainingDrillPreset): Promise<void> {
   const normalized = normalizeTrainingDrillPreset(preset);
   if (!normalized) throw new Error("Invalid saved Drill configuration.");
-  await writeTrainingDrillPreset(store => store.put(normalized));
+  await writeTrainingConfiguration("trainingDrillPresets", store => store.put(normalized));
 }
 
 export async function deleteTrainingDrillPreset(id: string): Promise<void> {
-  await writeTrainingDrillPreset(store => store.delete(id));
+  await writeTrainingConfiguration("trainingDrillPresets", store => store.delete(id));
 }
 
-async function writeTrainingDrillPreset(write: (store: IDBObjectStore) => void): Promise<void> {
+async function writeTrainingConfiguration(name: "trainingDrillPresets" | "trainingAlgorithmPreferences", write: (store: IDBObjectStore) => void): Promise<void> {
   const db = await openDatabase();
   await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction("trainingDrillPresets", "readwrite");
+    const transaction = db.transaction(name, "readwrite");
     transaction.oncomplete = () => resolve();
-    transaction.onabort = () => reject(transaction.error ?? new Error("Saved Drill write aborted."));
-    transaction.onerror = () => reject(transaction.error ?? new Error("Saved Drill write failed."));
-    write(transaction.objectStore("trainingDrillPresets"));
+    transaction.onabort = () => reject(transaction.error ?? new Error("Training configuration write aborted."));
+    transaction.onerror = () => reject(transaction.error ?? new Error("Training configuration write failed."));
+    write(transaction.objectStore(name));
   });
+}
+
+/** Record shape/catalogue normalization only; semantic validation belongs to Training. */
+export function normalizeTrainingAlgorithmPreference(value: unknown): TrainingAlgorithmPreference | null {
+  if (!record(value)) return null;
+  const target = normalizeTrainingCatalogueIdentity(value.target);
+  if (!target || value.key !== trainingCatalogueKey(target) || !text(value.algorithm) || value.algorithm.length > 1000 ||
+      (value.source !== "catalog" && value.source !== "custom") ||
+      !(value.note === null || typeof value.note === "string" && value.note.trim().length <= 240) ||
+      !nonnegative(value.createdAt) || !nonnegative(value.updatedAt) || value.updatedAt < value.createdAt) return null;
+  return { key: value.key as string, target, algorithm: value.algorithm.trim(), source: value.source,
+    note: typeof value.note === "string" ? value.note.trim() || null : null, createdAt: value.createdAt, updatedAt: value.updatedAt };
+}
+
+export function compareTrainingAlgorithmPreferences(a: TrainingAlgorithmPreference, b: TrainingAlgorithmPreference): number {
+  return b.updatedAt - a.updatedAt || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+}
+
+export async function loadTrainingAlgorithmPreferences(): Promise<TrainingAlgorithmPreference[]> {
+  const rows = await promisify((await store("trainingAlgorithmPreferences", "readonly")).getAll() as IDBRequest<unknown[]>);
+  return rows.map(normalizeTrainingAlgorithmPreference).filter((row): row is TrainingAlgorithmPreference => row !== null).sort(compareTrainingAlgorithmPreferences);
+}
+
+export async function saveTrainingAlgorithmPreference(preference: TrainingAlgorithmPreference): Promise<void> {
+  const normalized = normalizeTrainingAlgorithmPreference(preference);
+  if (!normalized) throw new Error("Invalid personal Training algorithm record.");
+  await writeTrainingConfiguration("trainingAlgorithmPreferences", store => store.put(normalized));
+}
+
+export async function deleteTrainingAlgorithmPreference(key: string): Promise<void> {
+  await writeTrainingConfiguration("trainingAlgorithmPreferences", store => store.delete(key));
 }

@@ -8,7 +8,7 @@ let serial = 0;
 function attempt(target: TrainingCatalogueCase = a, values: Partial<TrainingAttempt> = {}): TrainingAttempt {
   return { id: String(++serial), createdAt: serial, mode: "virtual", activity: "single", caseTimeMs: null,
     target: target.family === "f2l" ? target : { ...target, auf: 0 },
-    moves: ["R"], stm: 4, elapsedMs: 1000, recommendedStm: 4, matchedReferenceRank: 1, delta: 0, ...values };
+    moves: ["R"], stm: 4, elapsedMs: 1000, recommendedStm: 4, matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0, ...values };
 }
 const stats = (attempts: TrainingAttempt[], target = a) => trainingStatsByCase(attempts).get(trainingCaseKey(target)!) ?? EMPTY_TRAINING_CASE_STATS;
 const practiced = (target: TrainingCatalogueCase, values: Partial<TrainingAttempt> = {}) =>
@@ -113,5 +113,16 @@ describe("adaptive Training review selection", () => {
     expect(selectTrainingReview([a, b], a, [exact], () => 0)).toEqual(b);
     expect(selectTrainingReview([a], a, practiced(a))).toEqual(a);
     expect(selectTrainingReview([], null, [])).toBeNull();
+  });
+});
+
+
+describe("historical personal benchmark", () => {
+  it("uses each attempt's own benchmark without reinterpreting old canonical deltas", () => {
+    expect(stats([attempt(a, { delta: 8, preferredStm: 5, matchedPreferred: false, preferredDelta: 2 }),
+      attempt(a, { delta: 4 }), attempt(a, { delta: -9, preferredStm: 5, matchedPreferred: false, preferredDelta: 6 })]))
+      .toMatchObject({ recentMedianDelta: 4, status: "review" });
+    expect(stats(practiced(a, { delta: 8, preferredStm: 5, matchedPreferred: true, preferredDelta: 0 })))
+      .toMatchObject({ recentMedianDelta: 0, status: "practiced" });
   });
 });

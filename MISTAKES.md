@@ -455,3 +455,14 @@ not independently invented states. The original entry is retained as history.
 - Prevention: send ASCII-only source with Unicode escapes through shell pipes, or
   use apply_patch for Unicode text; verify rendered copy rather than matching two
   equally corrupted literals.
+
+
+## Atomic Saved Drill catalogue loading
+
+Saved last-layer Drill loading used optimistic Settings mutation before awaiting
+persistence. A failed Settings write could clear the current selected pool without
+applying the preset; a pending load also allowed Drill Start. The cause was reusing
+a general preference-edit path for an all-or-nothing configuration application.
+Prevention: persist prospective Settings before publishing configuration, hold a
+narrow application-busy fact through the operation, and cover failed/deferred writes
+with exact live-state preservation and explicit-start regression tests.

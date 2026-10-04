@@ -9,6 +9,7 @@ import { patternToFacelets } from "./model";
 import { get3x3x3 } from "./puzzle";
 import { algBetween } from "./solver";
 import {
+  resolveLastLayerTrainingReference,
   buildLastLayerCatalogueTarget,
   buildExactLastLayerTarget,
   isLastLayerTrainingComplete,
@@ -299,5 +300,35 @@ describe("J Perm 2-Look catalogue", () => {
       const invalid = reframe(kpuzzle, trainingFrame(target, completed).applyAlg(new Alg(move)), rotation.invert());
       expect(isLastLayerTrainingComplete(target.info, invalid), move).toBe(false);
     }
+  });
+});
+
+
+describe("personal last-layer references", () => {
+  it.each([0, 1, 2, 3] as const)("keeps stable OLL source across target AUF %s", auf => {
+    const target = buildLastLayerCatalogueTarget(kpuzzle, "oll", "27", auf);
+    const zero = buildLastLayerCatalogueTarget(kpuzzle, "oll", "27", 0);
+    expect(target.info.references.map(r => r.sourceAlg)).toEqual(zero.info.references.map(r => r.sourceAlg));
+    expect(target.info.references.map(r => r.rank)).toEqual(zero.info.references.map(r => r.rank));
+    const resolved = resolveLastLayerTrainingReference(target, zero.info.references[0].sourceAlg)!;
+    expect(isLastLayerTrainingComplete(target.info, applyReference(target, resolved.alg))).toBe(true);
+    if (auf !== 0) expect(resolved.alg).not.toBe(resolved.sourceAlg);
+    expect(resolveLastLayerTrainingReference(target, "R")).toBeNull();
+  });
+  it("accepts a PLL personal recognition angle different from canonical rank 1", () => {
+    const target = buildLastLayerCatalogueTarget(kpuzzle, "pll", "T", 2);
+    const source = `U ${target.info.references[0].sourceAlg} U'`;
+    const resolved = resolveLastLayerTrainingReference(target, source)!;
+    expect(resolved).not.toBeNull();
+    expect(isLastLayerTrainingComplete(target.info, applyReference(target, resolved.alg))).toBe(true);
+    expect(resolved.sourceAlg).toBe(source);
+  });
+  it("adds final AUF only when required", () => {
+    const target = buildLastLayerCatalogueTarget(kpuzzle, "pll", "T", 0);
+    const source = target.info.references[0].sourceAlg;
+    expect(resolveLastLayerTrainingReference(target, source)?.alg).toBe(source);
+    const resolved = resolveLastLayerTrainingReference(target, `${source} U`)!;
+    expect(isLastLayerTrainingComplete(target.info, applyReference(target, resolved.alg))).toBe(true);
+    expect(resolved.alg).toMatch(/U'$/);
   });
 });

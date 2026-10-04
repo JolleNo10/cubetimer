@@ -1,3 +1,7 @@
+import { buildF2lCatalogueTarget } from "../../../cube/f2lTraining";
+import { F2L_TRAINING_CATALOGUES } from "../../../cube/f2lTrainingCases";
+import { createTrainingAlgorithmPreference } from "../trainingAlgorithmPreferences";
+import { catalogueIdentityForTarget } from "../../../app/trainingCatalogue";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ControllerContext } from "../../../app/useController";
@@ -67,4 +71,14 @@ describe("F2L training library presentation", () => {
   it.each([["F2L 12", "#12"], ["AF2L 12", "#12"], ["AF2L 1a", "#1a"]])(
     "formats %s as %s", (name, expected) => expect(shortF2lCaseLabel(name)).toBe(expected),
   );
+});
+
+
+it("marks a personal algorithm only for its exact F2L library and position", async () => {
+  const controller = new Controller(new CubeModel(kpuzzle)); controller.setArea("training");
+  const built = buildF2lCatalogueTarget(kpuzzle, F2L_TRAINING_CATALOGUES.basic.cases[0], "FR");
+  controller.trainingAlgorithmPreferences.set([createTrainingAlgorithmPreference(kpuzzle, catalogueIdentityForTarget(built.info)!, built.info.references[0].sourceAlg, "catalog")]);
+  expect(render(controller)).toContain('aria-label="My algorithm saved"');
+  await controller.selectF2lPosition("FL"); expect(render(controller)).not.toContain('aria-label="My algorithm saved"');
+  controller.setF2lLibrary("advanced"); expect(render(controller)).not.toContain('aria-label="My algorithm saved"');
 });

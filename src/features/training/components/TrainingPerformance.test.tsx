@@ -12,7 +12,7 @@ import { TrainingActions } from "./TrainingWorkspace";
 
 const kpuzzle = await get3x3x3();
 const result: TrainingResult = { moves: ["R", "U"], stm: 4, caseTimeMs: null, elapsedMs: 1400,
-  recommendedStm: 3, recommendedAlg: "R U", matchedReferenceRank: null, delta: 1 };
+  recommendedStm: 3, preferredAlg: null, recommendedAlg: "R U", matchedReferenceRank: null, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 1 };
 afterEach(() => vi.restoreAllMocks());
 async function fixture(family: TrainingFamily) {
   const controller = new Controller(new CubeModel(kpuzzle)); controller.setArea("training");
@@ -38,7 +38,7 @@ describe("personal Training presentation", () => {
     expect(html).toContain("4 · Needs review");
     expect(html).toContain('aria-label="Personal Training performance"');
     expect(html).toContain("Best move span"); expect(html).toContain("Recent move span");
-    expect(html).toContain("Best STM"); expect(html).toContain("Recent median delta");
+    expect(html).toContain("Best STM"); expect(html).toContain("Recent STM delta");
     expect(html).toContain("1.00"); expect(html).toContain("1.40"); expect(html).toContain("+1 STM");
     expect(html).toContain("Recent move spans:");
   });

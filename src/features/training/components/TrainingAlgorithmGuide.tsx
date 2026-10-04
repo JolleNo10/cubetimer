@@ -8,10 +8,11 @@ export type TrainingGuideNavigation = {
   onPreviewStep?: (index: number | null) => void;
 };
 
-export function TrainingAlgorithmGuide({ algorithm, guide, active, previewIndex = null, onPreviewStep }: {
+export function TrainingAlgorithmGuide({ algorithm, guide, active, label = "Recommended algorithm", previewIndex = null, onPreviewStep }: {
   algorithm: string;
   guide: TrainingGuideProgress | null;
   active: boolean;
+  label?: string;
 } & TrainingGuideNavigation) {
   const moves = useMemo(() => {
     if (guide) return guide.moves;
@@ -26,7 +27,7 @@ export function TrainingAlgorithmGuide({ algorithm, guide, active, previewIndex 
     <div className="training-algorithm-guide">
       <MoveSequence moves={moves} currentIndex={current ? confirmed : null}
         completedCount={confirmed} selectedIndex={browsing ? viewed : null}
-        onSelect={current ? selectStep : undefined} label="Recommended algorithm" />
+        onSelect={current ? selectStep : undefined} label={label} />
       {current ? <div className="training-algorithm-navigation" aria-label="Algorithm step navigation">
         <button type="button" className="ghost small" disabled={viewed === 0} onClick={() => selectStep(viewed - 1)}>Previous</button>
         <button type="button" className="ghost small" disabled={viewed === moves.length - 1} onClick={() => selectStep(viewed + 1)}>Next</button>

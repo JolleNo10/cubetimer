@@ -27,6 +27,8 @@ import { Store } from "../shared/store";
 import { TimerRuntime, type TimerState } from "../features/timer/TimerRuntime";
 import { TrainingRuntime, type CompletedTrainingAttempt, type TrainingActivity, type TrainingFamily, type TrainingMode } from "../features/training/TrainingRuntime";
 import type { TrainingDrillStrategy } from "../features/training/trainingDrill";
+import { catalogueIdentityForTarget, trainingCatalogueKey } from "./trainingCatalogue";
+import * as trainingAlgorithmPreferences from "../features/training/trainingAlgorithmPreferences";
 import * as trainingDrillPresets from "../features/training/trainingDrillPresets";
 import * as trainingHistory from "../features/training/trainingHistory";
 import { catalogueCaseForTarget, selectTrainingReview, type TrainingCatalogueCase } from "../features/training/trainingPerformance";
@@ -37,6 +39,7 @@ import {
   type Solve,
   type TrainingAttempt,
   type TrainingDrillPreset,
+  type TrainingAlgorithmPreference,
 } from "./types";
 
 export type AppArea = "timer" | "training" | "statistics";
@@ -55,8 +58,10 @@ export class Controller {
   readonly timer: TimerRuntime;
   readonly training: TrainingRuntime;
   readonly trainingAttempts = new Store<TrainingAttempt[]>([]);
+  readonly trainingAlgorithmPreferences = new Store<TrainingAlgorithmPreference[]>([]);
+  readonly trainingDrillPresetApplying = new Store(false);
   readonly trainingDrillPresets = new Store<TrainingDrillPreset[]>([]);
-  #presetMutationQueue: Promise<void> = Promise.resolve();
+  #trainingConfigurationMutationQueue: Promise<void> = Promise.resolve();
   #pendingTrainingWrites = new Set<Promise<void>>();
   #rafHandle: number | null = null;
   #areaBeforeStatistics: "timer" | "training" | null = null;
@@ -94,6 +99,7 @@ export class Controller {
       isActive: () => this.state.get().area === "training", elapsed: this.elapsed,
       startClock: () => this.#startLoop(), stopClock: () => this.#stopLoop(),
       reportError: error => this.state.update((state) => ({ ...state, error })),
+      getTrainingAlgorithmPreference: key => this.trainingAlgorithmPreferences.get().find(p => p.key === key) ?? null,
       getTrainingAttempts: () => this.trainingAttempts.get(),
       onAttemptCompleted: attempt => this.#recordTrainingAttempt(attempt),
     });
@@ -184,6 +190,7 @@ export class Controller {
     this.sessions.set({ sessions, sessionId, solves, lastSolve: solves.at(-1) ?? null });
     this.trainingAttempts.set(await trainingHistory.loadTrainingAttempts());
     this.trainingDrillPresets.set(await trainingDrillPresets.loadTrainingDrillPresets());
+    this.trainingAlgorithmPreferences.set(await trainingAlgorithmPreferences.loadTrainingAlgorithmPreferences());
     this.state.update((state) => ({ ...state, ready: true }));
     await this.newScramble();
   }
@@ -251,10 +258,73 @@ export class Controller {
   toggleDrillCase(caseId: string): void { this.training.toggleDrillCase(caseId); }
   setDrillCases(caseIds: readonly string[]): void { this.training.setDrillCases(caseIds); }
   setDrillStrategy(strategy: TrainingDrillStrategy): void { this.training.setDrillStrategy(strategy); }
-  startTrainingDrill(): void { this.setArea("training"); this.training.startDrill(); }
+  startTrainingDrill(): void { if (this.trainingDrillPresetApplying.get()) return; this.setArea("training"); this.training.startDrill(); }
   stopTrainingDrill(): void { this.training.stopDrill(); }
   finishTrainingDrillSummary(weakOnly = false): void { this.training.finishDrillSummary(weakOnly); }
   skipTrainingDrillCase(): void { this.training.skipDrillCase(); }
+
+  /** User-authored Training configuration shares one narrow persistence queue. */
+  #queueTrainingConfigurationMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const pending = this.#trainingConfigurationMutationQueue.then(operation);
+    this.#trainingConfigurationMutationQueue = pending.then(() => {}, () => {});
+    return pending;
+  }
+
+  #canEditTrainingAlgorithm(): boolean {
+    const state = this.training.state.get();
+    return state.activity === "single" && state.phase !== "solving" && state.target?.origin.kind === "catalog";
+  }
+
+  #refreshTrainingAlgorithmPreference(key: string): void {
+    const current = catalogueIdentityForTarget(this.training.state.get().target);
+    if (current && trainingCatalogueKey(current) === key) this.training.refreshPreferredAlgorithm();
+  }
+
+  setTrainingAlgorithmPreference(algorithm: string, note: string | null = null, source: "custom" | "catalog" = "custom"):
+    Promise<{ success: boolean; error?: string }> {
+    const target = this.training.state.get().target;
+    const identity = catalogueIdentityForTarget(target);
+    if (!identity || !this.#canEditTrainingAlgorithm() || !this.physical.model ||
+        (source === "catalog" && !target?.references.some(r => r.sourceAlg === algorithm)))
+      return Promise.resolve({ success: false, error: "Choose a Single catalogue case outside an active solve first." });
+    const kpuzzle = this.physical.model.kpuzzle, key = trainingCatalogueKey(identity);
+    return this.#queueTrainingConfigurationMutation(async () => {
+      try {
+        const previous = this.trainingAlgorithmPreferences.get().find(p => p.key === key) ?? null;
+        const preference = trainingAlgorithmPreferences.createTrainingAlgorithmPreference(kpuzzle, identity, algorithm, source, note, previous);
+        await trainingAlgorithmPreferences.saveTrainingAlgorithmPreference(preference);
+        this.trainingAlgorithmPreferences.update(rows => [...rows.filter(p => p.key !== key), preference].sort(db.compareTrainingAlgorithmPreferences));
+        this.#refreshTrainingAlgorithmPreference(key);
+        return { success: true };
+      } catch (error) {
+        const message = String(error);
+        this.state.update(s => ({ ...s, error: `Could not save My algorithm: ${message}` }));
+        return { success: false, error: message };
+      }
+    });
+  }
+
+  useCanonicalTrainingAlgorithm(sourceAlg: string): Promise<{ success: boolean; error?: string }> {
+    return this.setTrainingAlgorithmPreference(sourceAlg, null, "catalog");
+  }
+
+  removeTrainingAlgorithmPreference(): Promise<{ success: boolean; error?: string }> {
+    const identity = catalogueIdentityForTarget(this.training.state.get().target);
+    if (!identity || !this.#canEditTrainingAlgorithm()) return Promise.resolve({ success: false, error: "Personal algorithms can be edited only in Single catalogue Training outside a solve." });
+    const key = trainingCatalogueKey(identity);
+    return this.#queueTrainingConfigurationMutation(async () => {
+      try {
+        await trainingAlgorithmPreferences.deleteTrainingAlgorithmPreference(key);
+        this.trainingAlgorithmPreferences.update(rows => rows.filter(p => p.key !== key));
+        this.#refreshTrainingAlgorithmPreference(key);
+        return { success: true };
+      } catch (error) {
+        const message = String(error);
+        this.state.update(s => ({ ...s, error: `Could not remove My algorithm: ${message}` }));
+        return { success: false, error: message };
+      }
+    });
+  }
 
   #presetConfiguration(): trainingDrillPresets.DrillPresetConfiguration {
     const { activity, drill } = this.training.state.get();
@@ -264,7 +334,7 @@ export class Controller {
 
   /** Serialize explicit record edits and publish only committed records. */
   #editDrillPreset(edit: () => Promise<TrainingDrillPreset | string | null>): Promise<boolean> {
-    const pending = this.#presetMutationQueue.then(async () => {
+    return this.#queueTrainingConfigurationMutation(async () => {
       try {
         const result = await edit();
         if (result === null) return false;
@@ -279,8 +349,6 @@ export class Controller {
         return false;
       }
     });
-    this.#presetMutationQueue = pending.then(() => {}, () => {});
-    return pending;
   }
 
   createTrainingDrillPreset(name: string): Promise<boolean> {
@@ -325,21 +393,28 @@ export class Controller {
 
   async applyTrainingDrillPreset(id: string): Promise<boolean> {
     const preset = this.trainingDrillPresets.get().find(p => p.id === id);
-    if (!preset || this.training.state.get().drill.status !== "configuring") return false;
+    if (!preset || this.training.state.get().drill.status !== "configuring" || this.trainingDrillPresetApplying.get()) return false;
+    this.trainingDrillPresetApplying.set(true);
     try {
       const context = preset.context;
       if (context.family !== "f2l") {
         const key = context.family === "oll" ? "ollTrainingSet" : "pllTrainingSet";
-        if (this.settings.get()[key] !== context.trainingSet) await this.updateSettings({ [key]: context.trainingSet });
+        if (this.settings.get()[key] !== context.trainingSet) {
+          // This application boundary persists before touching either live Store.
+          const settings = normaliseSettings({ ...this.settings.get(), [key]: context.trainingSet });
+          await db.saveSettings(settings);
+          this.settings.set(settings);
+          if (this.training.state.get().family === context.family) this.training.catalogueContextChanged();
+        }
       }
-      // Persistence can yield; never overwrite a run/summary started meanwhile.
-      if (this.training.state.get().drill.status !== "configuring") return false;
       this.setArea("training");
       this.training.applyDrillConfiguration(preset.context, preset.caseIds, preset.strategy);
       return true;
     } catch (error) {
       this.state.update(s => ({ ...s, error: `Could not load saved Drill: ${String(error)}` }));
       return false;
+    } finally {
+      this.trainingDrillPresetApplying.set(false);
     }
   }
 
@@ -561,24 +636,26 @@ export class Controller {
 
   /** Everything the app has stored, as JSON, so a session is never trapped here. */
   async exportData(): Promise<string> {
-    await this.#presetMutationQueue;
+    await this.#trainingConfigurationMutationQueue;
     await Promise.all(this.#pendingTrainingWrites);
     return dataTransfer.exportData();
   }
 
-  async importData(json: string): Promise<{ sessions: number; solves: number; trainingAttempts: number; trainingDrillPresets: number }> {
+  async importData(json: string): Promise<{ sessions: number; solves: number; trainingAttempts: number; trainingDrillPresets: number; trainingAlgorithmPreferences: number }> {
     if (!this.#beginSessionContextMutation()) {
       throw new Error("Cannot import while the timer or another Session operation is active.");
     }
     try {
       return await this.#queueSessionMutation(async () => {
-        await this.#presetMutationQueue;
+        await this.#trainingConfigurationMutationQueue;
         await Promise.all(this.#pendingTrainingWrites);
         const result = await dataTransfer.importData(this.physical.model?.kpuzzle, this.snapshot(), json);
         await this.#applySessionContext(result.context);
         this.trainingAttempts.set(await trainingHistory.loadTrainingAttempts());
         this.trainingDrillPresets.set(await trainingDrillPresets.loadTrainingDrillPresets());
-        return { sessions: result.sessions, solves: result.solves, trainingAttempts: result.trainingAttempts, trainingDrillPresets: result.trainingDrillPresets };
+        this.trainingAlgorithmPreferences.set(await trainingAlgorithmPreferences.loadTrainingAlgorithmPreferences());
+        this.training.refreshPreferredAlgorithm();
+        return { sessions: result.sessions, solves: result.solves, trainingAttempts: result.trainingAttempts, trainingDrillPresets: result.trainingDrillPresets, trainingAlgorithmPreferences: result.trainingAlgorithmPreferences };
       });
     } finally {
       this.#endSessionContextMutation();

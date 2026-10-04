@@ -1,3 +1,5 @@
+import { createTrainingAlgorithmPreference } from "../trainingAlgorithmPreferences";
+import { catalogueIdentityForTarget } from "../../../app/trainingCatalogue";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildLastLayerCatalogueTarget, lastLayerTrainingVariants } from "../../../cube/lastLayerTraining";
@@ -36,7 +38,7 @@ describe("Training area", () => {
     if (!next || next.family === "f2l") throw new Error("Last-layer target missing");
     // Give the next target an alternative to exercise the preserved-result guard.
     const target = { ...next, references: [...next.references, { ...next.references[0], rank: 2, alg: "R U2 R'" }] };
-    const result = { moves: [], stm: first.stm, recommendedAlg: first.alg, recommendedStm: first.stm, matchedReferenceRank: 1, delta: 0, caseTimeMs: null, elapsedMs: 1000 };
+    const result = { moves: [], stm: first.stm, preferredAlg: null, recommendedAlg: first.alg, recommendedStm: first.stm, matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0, caseTimeMs: null, elapsedMs: 1000 };
     const draw = (preserved: typeof result | null) => {
       controller.training.state.set({ ...ready.training, target, result: preserved });
       return render(controller, <Training />);
@@ -51,7 +53,7 @@ describe("Training area", () => {
     expect(html).not.toContain("alternatives");
     const resumed = draw(null);
     expect(resumed).toContain(`<strong>${next.references[0].stm} STM</strong>`);
-    expect(resumed).toContain("Show 1 alternatives");
+    expect(resumed).toContain("Show 1 alternative");
     expect(resumed).toContain('aria-current="step"');
   });
 
@@ -89,7 +91,7 @@ describe("Training area", () => {
     expect(draw(solving)).toContain(`Move 2 / ${ready.training.guide!.moves.length}`);
     expect(draw({ ...ready, settings: { ...ready.settings, visualization: "2D" } })).not.toContain("cube-move-guide");
     expect(draw({ ...ready, settings: { ...ready.settings, visualization: "2D" } })).toContain('aria-current="step"');
-    const result = { moves: [], stm: 1, recommendedStm: 1, recommendedAlg: ready.training.target!.references[0].alg, matchedReferenceRank: null, delta: 0, caseTimeMs: null, elapsedMs: 1 };
+    const result = { moves: [], stm: 1, recommendedStm: 1, preferredAlg: null, recommendedAlg: ready.training.target!.references[0].alg, matchedReferenceRank: null, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0, caseTimeMs: null, elapsedMs: 1 };
     expect(draw({ ...ready, training: { ...ready.training, phase: "result", result } })).not.toContain("cube-move-guide");
     for (const phase of ["result", "ready"] as const) {
       const reviewed = draw({ ...ready, training: { ...ready.training, phase, result } });
@@ -184,4 +186,14 @@ describe("Header application navigation", () => {
     expect(html).toMatch(/Statistics<\/button>/);
     expect(html).toContain("disabled");
   });
+});
+
+
+it("marks personal algorithms independently for Full and 2-Look last-layer catalogues", async () => {
+  const controller = new Controller(new CubeModel(kpuzzle)); controller.setArea("training"); controller.setTrainingFamily("oll");
+  const target = buildLastLayerCatalogueTarget(kpuzzle, "oll", "27");
+  controller.trainingAlgorithmPreferences.set([createTrainingAlgorithmPreference(kpuzzle, catalogueIdentityForTarget(target.info)!, target.info.references[0].sourceAlg, "catalog")]);
+  expect(render(controller, <Training />)).toContain('aria-label="My algorithm saved"');
+  controller.settings.update(settings => ({ ...settings, ollTrainingSet: "2look" }));
+  expect(render(controller, <Training />)).not.toContain('aria-label="My algorithm saved"');
 });

@@ -1,3 +1,5 @@
+import { trainingCatalogueKey } from "../../../app/trainingCatalogue";
+import { TrainingMyAlgorithmMarker } from "./TrainingAlgorithmEditor";
 import { memo, useMemo } from "react";
 import { faceColour, slotColours } from "../../../cube/colours";
 import { F2L_POSITIONS, f2lPositionLabel } from "../../../cube/f2lCases";
@@ -25,6 +27,8 @@ function F2lLibraryPanel() {
   const activity = useStoreValue(controller.training.state, state => state.activity);
   const drill = useStoreValue(controller.training.state, state => state.drill);
   const catalogue = f2lTrainingCatalogue(selection.library);
+  const preferences = useStore(controller.trainingAlgorithmPreferences);
+  const preferredKeys = useMemo(() => new Set(preferences.map(p => p.key)), [preferences]);
   const attempts = useStore(controller.trainingAttempts);
   const statsByCase = useMemo(() => trainingStatsByCase(attempts), [attempts]);
   const target = selectedTarget?.family === "f2l" ? selectedTarget : null;
@@ -78,6 +82,7 @@ function F2lLibraryPanel() {
           cases={catalogue.cases}
           selectedPosition={selection.position}
           statsByCase={statsByCase}
+          preferredKeys={preferredKeys}
           selectedCaseName={target?.origin.kind === "catalog" && target.origin.library === selection.library
             ? target.origin.caseName
             : null}
@@ -93,12 +98,14 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
   selectedPosition,
   selectedCaseName,
   statsByCase,
+  preferredKeys,
 }: {
   library: F2lTrainingLibrary;
   cases: readonly F2lTrainingCase[];
   selectedPosition: (typeof F2L_POSITIONS)[number];
   selectedCaseName: string | null;
   statsByCase: ReadonlyMap<string, TrainingCaseStats>;
+  preferredKeys: ReadonlySet<string>;
 }) {
   const controller = useController();
   const activity = useStoreValue(controller.training.state, state => state.activity);
@@ -135,6 +142,7 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
                   /> : null}
                   <span className="f2l-case-number">{shortF2lCaseLabel(f2lCase.name)}</span>
                   {activity === "drill" && selected ? <span className="drill-pool-marker">✓ Selected</span> : null}
+                  {preferredKeys.has(trainingCatalogueKey({ family: "f2l", library, caseName: f2lCase.name, position: selectedPosition })) ? <TrainingMyAlgorithmMarker /> : null}
                   <TrainingCaseMarker stats={stats} />
                 </button>
               );

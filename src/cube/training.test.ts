@@ -317,3 +317,33 @@ describe("Training reference execution signatures", () => {
     expect(calculateTrainingEfficiency([{ move: "R", t: 0 }, { move: "U", t: 100 }], references)).toMatchObject({ matchedReferenceRank: null, stm: 2, delta: -5 });
   });
 });
+
+
+describe("personal benchmark efficiency", () => {
+  const canonical = [{ rank: 1, alg: "R U", stm: 2 }, { rank: 2, alg: "R U F", stm: 3 }];
+  const preferred = { alg: "R U F B", stm: 4 };
+  const evaluate = (alg: string, mine: typeof preferred | null = preferred) => calculateTrainingEfficiency(
+    alg.split(" ").map((move, t) => ({ move, t })), canonical,
+    { pattern: start, trainingRotation: identityRotation }, mine);
+  it("keeps canonical semantics without a preference", () => {
+    expect(evaluate("R U", null)).toMatchObject({ stm: 2, delta: 0, matchedReferenceRank: 1,
+      preferredStm: null, matchedPreferred: null, preferredDelta: null });
+  });
+  it("independently matches a custom preferred reference", () => {
+    expect(evaluate(preferred.alg)).toMatchObject({ stm: 4, delta: 2, matchedReferenceRank: null,
+      preferredStm: 4, matchedPreferred: true, preferredDelta: 0 });
+    expect(evaluate("R U F")).toMatchObject({ stm: 3, delta: 1, matchedReferenceRank: 2,
+      matchedPreferred: false, preferredDelta: -1 });
+  });
+  it("can match both and prioritizes the preferred reference STM", () => {
+    expect(evaluate("R U", { alg: "R U", stm: 5 })).toMatchObject({ stm: 5, delta: 3,
+      matchedReferenceRank: 1, matchedPreferred: true, preferredDelta: 0 });
+  });
+  it.each(decompositions)("matches personal %s via existing rotation/wide/slice checkpoints", (alg, execution) => {
+    const mine = { alg: `${alg} U`, stm: 2 };
+    const signature = referenceExecutionSignature(`${execution} U`)!;
+    const result = calculateTrainingEfficiency(signature.map((move, t) => ({ move, t })), [],
+      { pattern: start, trainingRotation: identityRotation }, mine);
+    expect(result).toMatchObject({ matchedPreferred: true, preferredDelta: 0, stm: 2 });
+  });
+});

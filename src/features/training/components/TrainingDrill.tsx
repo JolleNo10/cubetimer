@@ -36,6 +36,7 @@ export function DrillCountdown({ initial = false }: { initial?: boolean }) {
 export function TrainingDrillPanel() {
   const controller = useController();
   const { drill } = useTrainingState();
+  const applying = useStore(controller.trainingDrillPresetApplying);
   const strategy = DRILL_STRATEGIES.find(s => s.id === drill.strategy)!;
   const summary = trainingDrillSummary(drill.outcomes);
   return <section className="panel training-drill-panel" aria-label="Training drill">
@@ -59,7 +60,7 @@ export function TrainingDrillPanel() {
           </button>)}
         </div>
         <div className="row wrap drill-actions"><span className="small">{drill.selectedCaseIds.length} selected</span>
-          <button className="primary" disabled={!drill.selectedCaseIds.length} onClick={() => controller.startTrainingDrill()}>Start drill</button>
+          <button className="primary" disabled={applying || !drill.selectedCaseIds.length} onClick={() => controller.startTrainingDrill()}>Start drill</button>
         </div>
       </> : null}
     </div>

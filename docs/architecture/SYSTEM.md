@@ -57,7 +57,7 @@ src/
     useController.ts, types.ts, settings.ts, scrambleProvider.ts, components/
   features/
     timer/           TimerRuntime.ts, components/
-    training/        TrainingRuntime.ts, trainingHistory.ts, trainingPerformance.ts, trainingDrill.ts, trainingDrillPresets.ts, components/
+    training/        TrainingRuntime.ts, trainingHistory.ts, trainingPerformance.ts, trainingDrill.ts, trainingDrillPresets.ts, trainingAlgorithmPreferences.ts, components/
     sessions/        sessionService.ts
     history/         solveHistory.ts, repair.ts, components/
     data-transfer/   dataTransfer.ts, solveCsv.ts, csv.ts
@@ -147,6 +147,10 @@ The following are current architectural rules.
     loading hydrates ordinary Drill configuration and keeps Start explicit. F2L
     context owns library/position; OLL/PLL context synchronizes the applicable
     Settings Full/2-Look preference. Loaded presets are templates with explicit edits.
+    Personal TrainingAlgorithmPreference records persist one stable source algorithm
+    per exact catalogue identity. Runtime resolves its executable reference for Single
+    guidance and Training benchmarks; canonical data and exact historical practice stay
+    separate. IndexedDB schema 4 and JSON backup 6 include this independent collection.
     Live attempt state is ephemeral; completed facts may be persisted as dedicated
     `TrainingAttempt` records. Controller coordinates the completion callback with
     TrainingHistory and publishes a separate Training-attempt Store. These records

@@ -7,7 +7,7 @@ import { decodeGripTrack } from "./gripTrack";
 import { lastLayerCornersOriented, lastLayerCornersPermuted, lastLayerEdges, reframe, withCentresHome } from "./recognise";
 import { rotationForCrossFace, rotationTokensBetween, IDENTITY } from "./orientation";
 import type { Face } from "./moves";
-import { reconstructTrainingStepStart, standardTrainingRotation, algorithmStm, type TrainingSolveInput } from "./training";
+import { reconstructTrainingStepStart, standardTrainingRotation, algorithmStm, buildTrainingGuide, normalizeTrainingReferenceAlgorithm, type TrainingResolvedReference, type TrainingSolveInput } from "./training";
 import { joinMoves } from "./notation";
 import { ollGroupForCase, pllGroupForCase } from "./lastLayerCases";
 import { TWO_LOOK_CASES } from "./lastLayerTwoLookCases";
@@ -23,6 +23,7 @@ export type LastLayerTrainingOrigin =
 
 export type LastLayerReference = {
   rank: number;
+  sourceAlg: string;
   alg: string;
   stm: number;
   auf: LastLayerAuf;
@@ -190,6 +191,30 @@ function referenceSolvesTarget(
   return targetIsComplete(completionGoal, solved, trainingRotation);
 }
 
+function alignReference(
+  kpuzzle: KPuzzle, pattern: KPattern, goal: LastLayerCompletionGoal,
+  rotation: LastLayerTrainingTargetInfo["trainingRotation"], sourceAlg: string,
+  candidates: readonly LastLayerAuf[], finalAufs: readonly LastLayerAuf[],
+): { auf: LastLayerAuf; alg: string } | undefined {
+  // Try every recognition angle without final AUF before adding an alignment turn.
+  return finalAufs.flatMap(finalAuf => candidates.map(auf => ({ auf, alg: alignedAlgorithm(sourceAlg, auf, finalAuf) })))
+    .find(({ alg }) => referenceSolvesTarget(kpuzzle, pattern, goal, rotation, alg));
+}
+
+export function resolveLastLayerTrainingReference(target: LastLayerTrainingTarget, sourceAlgorithm: string): TrainingResolvedReference | null {
+  try {
+    const sourceAlg = normalizeTrainingReferenceAlgorithm(sourceAlgorithm);
+    if (!sourceAlg) return null;
+    const natural = target.info.auf;
+    const candidates = [natural, ...([0, 1, 2, 3] as const).filter(auf => auf !== natural)];
+    const aligned = alignReference(target.pattern.kpuzzle, target.pattern, target.info.completionGoal,
+      target.info.trainingRotation, sourceAlg, candidates, [0, 1, 2, 3]);
+    if (!aligned) return null;
+    const reference = { sourceAlg, alg: aligned.alg, stm: algorithmStm(aligned.alg) };
+    return buildTrainingGuide(target.pattern, { ...target.info, references: [reference] }) ? reference : null;
+  } catch { return null; }
+}
+
 function buildReferences(
   kpuzzle: KPuzzle,
   family: LastLayerFamily,
@@ -212,12 +237,11 @@ function buildReferences(
     // Centre-normalized catalogue states can also need a new final alignment.
     const finalAufs: readonly LastLayerAuf[] = allowFinalAuf || (trainingSet === "2look" && source.completionGoal === "permute-corners")
       ? [0, 1, 2, 3] : [0];
-    const aligned = finalAufs
-      .flatMap((finalAuf) => candidates.map((auf) => ({ auf, alg: alignedAlgorithm(algorithm, auf, finalAuf) })))
-      .find(({ alg }) => referenceSolvesTarget(kpuzzle, targetPattern, source.completionGoal, trainingRotation, alg));
+    const aligned = alignReference(kpuzzle, targetPattern, source.completionGoal, trainingRotation, algorithm, candidates, finalAufs);
     if (!aligned) continue;
     references.push({
       rank: references.length + 1,
+      sourceAlg: algorithm,
       alg: aligned.alg,
       stm: algorithmStm(aligned.alg),
       auf: aligned.auf,

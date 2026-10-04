@@ -155,7 +155,7 @@ describe("manual Training instruction preview", () => {
   it("routes a completed catalogue Next review through the family action while keeping Again", async () => {
     const { controller, render } = await fixture();
     controller.training.state.update(state => ({ ...state, result: { moves: ["R"], stm: 1, caseTimeMs: null, elapsedMs: 500,
-      recommendedStm: 1, recommendedAlg: "R", matchedReferenceRank: 1, delta: 0 } }));
+      recommendedStm: 1, preferredAlg: null, recommendedAlg: "R", matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0 } }));
     const review = vi.spyOn(controller, "reviewTrainingCase").mockResolvedValue();
     const again = vi.spyOn(controller, "againTraining");
     let view = render();

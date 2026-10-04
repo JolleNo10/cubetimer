@@ -160,7 +160,7 @@ The current database is:
 
 ```text
 name: cubetimer
-schema version: 3
+schema version: 4
 
 stores:
   sessions
@@ -168,6 +168,7 @@ stores:
   settings
   trainingAttempts
   trainingDrillPresets
+  trainingAlgorithmPreferences
 ```
 
 The v1-to-v2 upgrade adds `trainingAttempts` with key path `id` without replacing
@@ -175,7 +176,8 @@ Sessions, Solves or Settings. No speculative Training indexes are needed; startu
 loads all attempts in timestamp-then-ID order. Stable-ID `put()` upserts are
 idempotent, and Training writes wait for transaction completion. The v2-to-v3
 upgrade adds only `trainingDrillPresets` with key path `id`; all four existing
-stores and their records survive.
+stores and their records survive. The v3-to-v4 upgrade adds only
+`trainingAlgorithmPreferences` with key path `key`, preserving all five old stores.
 
 ### Persisted records
 
@@ -239,7 +241,10 @@ mastery; their source Solve need not still exist.
 discriminated target/catalogue combinations, result numbers and move array. It
 rebuilds the contract explicitly and skips malformed records on load/import. Missing
 additive activity/case-time fields in older records normalize to
-Single/null without discarding history. The TrainingAttempt store shape is unchanged.
+Single/null without discarding history. Missing preferredStm/matchedPreferred/
+preferredDelta normalize to null. Current personal benchmark combinations must be
+all null or a finite nonnegative STM, boolean match and finite delta; partial
+combinations are rejected. Completed benchmark facts never change with later preferences.
 
 ### Saved Drill configuration
 
@@ -261,6 +266,25 @@ invalid. Load/import skip malformed rows; save rejects invalid records. Loads or
 by updatedAt descending, then ID. Stable-ID put and delete await transaction completion.
 Controller serializes explicit edits and publishes only after successful persistence;
 loading/using a preset does not change modification time.
+
+### Personal algorithm configuration
+
+```text
+React -> Controller -> TrainingAlgorithmPreferences workflow -> db.ts
+-> IndexedDB trainingAlgorithmPreferences
+```
+
+`TrainingAttempt` is a historical completed practice fact. `TrainingDrillPreset`
+is reusable case/strategy configuration. `TrainingAlgorithmPreference` is a user
+algorithm choice for one catalogue identity. Settings remains application preferences.
+None of these Training records is a Timer Session.
+
+Preference key equals the shared JSON catalogue tuple, verified against the target.
+F2L includes library/case/position; last layer includes family/set/case, not AUF.
+Record normalization validates catalogue, stable algorithm text, source, optional
+note and timestamps. Cube solving semantics belong to Training/cube, not IndexedDB.
+Save/delete await transaction completion. Explicit configuration edits share the
+Controller Training configuration mutation queue and publish only after persistence.
 
 ### Legacy normalization
 
@@ -285,12 +309,12 @@ The export writes:
 
 ```text
 format: cubetimer
-version: 5
+version: 6
 ```
 
 Event identity exists on Sessions in the exported model.
-Full v5 backups contain `sessions`, `solves`, global `trainingAttempts` and
-`trainingDrillPresets`. Training attempts include
+Full v6 backups contain `sessions`, `solves`, global `trainingAttempts` and
+`trainingDrillPresets` plus `trainingAlgorithmPreferences`. Training attempts include
 activity and case time. Version-3 attempts without those fields import as Single/null.
 Older v2 archives without Training history still import as an empty incoming attempt list,
 preserving existing local Training history. Current records normalize before
@@ -300,7 +324,13 @@ archive. v4/v3/v2 archives without presets contribute an empty incoming list,
 preserving existing saved drills. Presets normalize and stable-ID upsert independently
 of Session/Solve compatibility and TrainingAttempt source-Solve checks. Same-name,
 different-ID presets coexist. JSON import counts include attempts and presets;
-Controller refreshes both separate Stores after success. CSV remains Solve-only and its contract is unchanged.
+Controller refreshes all three separate Training Stores after success. Preferences
+normalize shape/key/catalogue in db.ts and validate algorithm semantics through the
+Training workflow using the supplied KPuzzle. Invalid preferences are skipped.
+They upsert by deterministic catalogue key, independently of Session compatibility,
+source Solves and Drill preset identity. v5 and older archives without preferences
+contribute an empty incoming list without erasing local preferences. CSV remains
+Solve-only and its contract is unchanged.
 
 The JSON import path normalizes legacy Session/Solve shapes through the current persistence migrations before saving them.
 

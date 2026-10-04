@@ -18,6 +18,21 @@ import { reframe, withCentresHome } from "./recognise";
 import { expandedAlgorithmMoves } from "./frames";
 import { moveGuideForToken, type MoveGuide } from "./moveGuide";
 
+/** Bounded cubing parser for user references, including grouped notation. */
+export function normalizeTrainingReferenceAlgorithm(input: string): string | null {
+  if (!input.trim() || input.length > 1000) return null;
+  try {
+    const parsed = new Alg(input);
+    let moves = 0, nodes = 0;
+    // Lazy expansion bounds repetitions before applying or building checkpoints.
+    for (const node of parsed.experimentalExpand()) {
+      if (++nodes > 2000) return null;
+      if (node instanceof Move && ++moves > 1000) return null;
+    }
+    return moves ? parsed.toString() : null;
+  } catch { return null; }
+}
+
 export type TrainingGuideProgress = {
   moves: readonly string[];
   /** Exact display instructions built against each reference checkpoint's frame. */
@@ -213,6 +228,8 @@ export function algorithmStm(algorithm: string): number {
   return countTurns(moves).sliceTurns;
 }
 
+export type TrainingResolvedReference = { sourceAlg: string; alg: string; stm: number };
+
 export type TrainingReferenceLike = { rank?: number; alg: string; stm: number };
 
 type TrainingReferenceContext = { pattern: KPattern; trainingRotation: Rotation };
@@ -311,6 +328,9 @@ export type TrainingEfficiency = {
   recommendedStm: number | null;
   matchedReferenceRank: number | null;
   delta: number | null;
+  preferredStm: number | null;
+  matchedPreferred: boolean | null;
+  preferredDelta: number | null;
   /** Registered move span: first registered move (rebased to zero) to last. */
   elapsedMs: number;
 };
@@ -319,6 +339,7 @@ export function calculateTrainingEfficiency(
   rawMoves: readonly TimedMove[],
   references?: readonly TrainingReferenceLike[] | TrainingReferenceLike | null,
   context?: TrainingReferenceContext,
+  preferred?: TrainingReferenceLike | null,
 ): TrainingEfficiency {
   const moves = mergeSameFaceTurns(rawMoves);
   const observedStm = countTurns(moves.map(({ move }) => metricToken(move))).sliceTurns;
@@ -329,18 +350,22 @@ export function calculateTrainingEfficiency(
       : [];
   const recommendedStm = referenceList[0]?.stm ?? null;
   const execution = moves.map(({ move }) => move);
-  const matchedReference = referenceList.find((reference) => {
+  const matches = (reference: TrainingReferenceLike) => {
     if (context) return followsTrainingReference(rawMoves, reference, context);
     const signature = referenceExecutionSignature(reference.alg);
     return signature !== null && signature.length === execution.length && signature.every((move, index) => move === execution[index]);
-  });
-  const stm = matchedReference?.stm ?? observedStm;
+  };
+  const matchedReference = referenceList.find(matches);
+  const matchedPreferred = preferred ? matches(preferred) : null;
+  const preferredStm = preferred?.stm ?? null;
+  const stm = matchedPreferred ? preferred!.stm : matchedReference?.stm ?? observedStm;
   return {
     moves,
     stm,
     recommendedStm,
     matchedReferenceRank: matchedReference?.rank ?? null,
     delta: recommendedStm === null ? null : stm - recommendedStm,
+    preferredStm, matchedPreferred, preferredDelta: preferredStm === null ? null : stm - preferredStm,
     elapsedMs: rawMoves.at(-1)?.t ?? 0,
   };
 }

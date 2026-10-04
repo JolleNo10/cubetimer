@@ -36,7 +36,7 @@ import {
 import { parseFaceMove } from "./moves";
 import { reframe, withCentresHome } from "./recognise";
 import { cubeAlgorithm, cubeMove, cubeMoves, handAlgorithm, handMove, handMoves, handTimedMoves } from "./frames";
-import { algorithmStm, calculateTrainingEfficiency, referenceExecutionSignature, reconstructTrainingStepStart, type TrainingSolveInput, type TrainingEfficiency } from "./training";
+import { algorithmStm, buildTrainingGuide, normalizeTrainingReferenceAlgorithm, calculateTrainingEfficiency, referenceExecutionSignature, reconstructTrainingStepStart, type TrainingSolveInput, type TrainingEfficiency, type TrainingResolvedReference } from "./training";
 
 export {
   algorithmStm,
@@ -53,6 +53,7 @@ export type F2lTrainingOrigin =
 
 export type F2lReference = {
   rank: number;
+  sourceAlg: string;
   alg: string;
   stm: number;
   caseName: string;
@@ -231,6 +232,7 @@ export function buildF2lReferences({
     })) continue;
     references.push({
       rank: references.length + 1,
+      sourceAlg: algorithm,
       alg,
       stm: algorithmStm(alg),
       caseName: f2lCase.name,
@@ -239,6 +241,22 @@ export function buildF2lReferences({
     });
   }
   return references;
+}
+
+/** Reuse the canonical alignment and exact F2L protected-slot completion rules. */
+export function resolveF2lTrainingReference(target: F2lTrainingTarget, sourceAlgorithm: string): TrainingResolvedReference | null {
+  try {
+    const sourceAlg = normalizeTrainingReferenceAlgorithm(sourceAlgorithm);
+    if (!sourceAlg) return null;
+    for (const auf of [0, 1, 2, 3]) {
+      const alg = alignedReferenceAlgorithm(sourceAlg, auf);
+      if (!referenceSolvesTarget({ kpuzzle: target.pattern.kpuzzle, targetPattern: target.pattern,
+        trainingRotation: target.info.trainingRotation, goal: target.goal, algorithm: alg })) continue;
+      const reference = { sourceAlg, alg, stm: algorithmStm(alg) };
+      if (buildTrainingGuide(target.pattern, { ...target.info, references: [reference] })) return reference;
+    }
+  } catch { /* Invalid/unsupported input is not an available reference. */ }
+  return null;
 }
 
 function goalFor(pattern: KPattern, crossFace: Face, targetSlot: string): F2lTrainingGoal {

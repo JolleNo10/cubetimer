@@ -1,3 +1,5 @@
+import { trainingCatalogueKey } from "../../../app/trainingCatalogue";
+import { TrainingMyAlgorithmMarker } from "./TrainingAlgorithmEditor";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { LastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
 import { getLastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
@@ -69,6 +71,8 @@ function LastLayerCaseLibrary({ family }: { family: LastLayerFamily }) {
     : null;
   const [thumbnailModels, setThumbnailModels] = useState<Map<string, LastLayerThumbnailModel>>(new Map());
   const catalogue = useMemo(() => lastLayerCaseCatalogue(family, trainingSet), [family, trainingSet]);
+  const preferences = useStore(controller.trainingAlgorithmPreferences);
+  const preferredKeys = useMemo(() => new Set(preferences.map(p => p.key)), [preferences]);
   const attempts = useStore(controller.trainingAttempts);
   const statsByCase = useMemo(() => trainingStatsByCase(attempts), [attempts]);
 
@@ -117,6 +121,7 @@ function LastLayerCaseLibrary({ family }: { family: LastLayerFamily }) {
                       {thumbnailModels.get(item.id) ? <LastLayerCaseThumbnail model={thumbnailModels.get(item.id)!} /> : null}
                       <span>{family === "oll" && trainingSet === "full" ? `#${caseId}` : item.name}</span>
                       {activity === "drill" && selected ? <span className="drill-pool-marker">✓ Selected</span> : null}
+                      {preferredKeys.has(trainingCatalogueKey({ family, trainingSet, caseId })) ? <TrainingMyAlgorithmMarker /> : null}
                       <TrainingCaseMarker stats={stats} />
                     </button>
                   );

@@ -64,6 +64,8 @@ Observable stores follow ownership:
 | `timer.state` | Timer phase, scramble/progress/generation, recovery, live moves, source and penalty |
 | `training.state` | Training lifecycle only |
 | `Controller.trainingDrillPresets` | Global persisted named Drill configurations, separate from runtime, Settings and Sessions |
+| `Controller.trainingDrillPresetApplying` | Narrow application busy fact; blocks Drill Start during atomic preset loading |
+| `Controller.trainingAlgorithmPreferences` | Global user-owned catalogue algorithm preferences, independent of Sessions/Settings/runtime |
 | `Controller.trainingAttempts` | Global persisted completed Training facts, separate from live Training and Timer history |
 | `training.drillCountdown` | Remaining Drill countdown milliseconds; narrow RAF-frequency presentation only |
 | `Controller.elapsed`, `inspectionLeft` | Shared elapsed publication and Timer inspection remaining |
@@ -77,9 +79,15 @@ to TrainingRuntime. Presentation-only selection/dialog/hold state remains React-
 
 Saved presets reach TrainingRuntime only as hydrated context, selected cases and
 strategy through a narrow configuration seam. Runtime owns no persistence or saved
-identity. Controller synchronizes applicable OLL/PLL Settings before hydration and
+identity. Controller persists prospective OLL/PLL Settings before publishing/hydrating and
 refuses loads in running/summary state. Start remains explicit; RAF ownership and
 lifecycle are unchanged.
+
+TrainingRuntime receives only a narrow preference lookup and resolves a target-specific
+preferred executable reference, separate from canonical references. It owns neither
+persistence nor preference record metadata. Refresh updates guidance/reference facts
+without replacing the target; solving freezes the benchmark and completed results
+remain snapshots. No RAF or runtime lifecycle changes are needed.
 
 High-frequency physical and Timer stores are subscribed at the smallest feature
 surface that consumes them. Navigation, history, statistics summaries, and case

@@ -9,7 +9,7 @@ import type { CompletedTrainingAttempt, TrainingResult } from "./TrainingRuntime
 
 const kpuzzle = await get3x3x3();
 const result: TrainingResult = { moves: ["R", "U"], stm: 2, caseTimeMs: null, elapsedMs: 700, recommendedStm: 2,
-  recommendedAlg: "catalogue authority", matchedReferenceRank: 1, delta: 0 };
+  preferredAlg: null, recommendedAlg: "catalogue authority", matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0 };
 afterEach(() => vi.restoreAllMocks());
 
 describe("TrainingHistory completion projection", () => {
@@ -61,4 +61,13 @@ describe("TrainingHistory completion projection", () => {
     save.mockRejectedValue(new Error("disk full"));
     await expect(saveTrainingAttempt(record)).rejects.toThrow("disk full");
   });
+});
+
+
+it("snapshots the completed personal benchmark without retaining the executable algorithm", () => {
+  const personal = { ...result, preferredAlg: "R U", preferredStm: 4, matchedPreferred: false, preferredDelta: -2 };
+  const record = createTrainingAttempt({ activity: "single", mode: "virtual", result: personal,
+    target: buildLastLayerCatalogueTarget(kpuzzle, "oll", "27").info });
+  expect(record).toMatchObject({ preferredStm: 4, matchedPreferred: false, preferredDelta: -2, delta: 0 });
+  expect(record).not.toHaveProperty("preferredAlg");
 });

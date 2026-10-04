@@ -1,3 +1,5 @@
+import { buildLastLayerCatalogueTarget } from "../../cube/lastLayerTraining";
+import { catalogueIdentityForTarget, trainingCatalogueKey } from "../../app/trainingCatalogue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { get3x3x3 } from "../../cube/puzzle";
 import { DEFAULT_EVENT_ID } from "../../cube/scramble";
@@ -5,7 +7,7 @@ import * as db from "../../infrastructure/persistence/db";
 import * as transfer from "./dataTransfer";
 import { formatSolveCsv, parseSolveCsv } from "./solveCsv";
 import type { SessionContext } from "../sessions/sessionService";
-import type { Session, Solve, TrainingAttempt, TrainingDrillPreset } from "../../app/types";
+import type { Session, Solve, TrainingAttempt, TrainingDrillPreset, TrainingAlgorithmPreference } from "../../app/types";
 
 const kpuzzle = await get3x3x3();
 const session = (id: string, event: Session["event"] = DEFAULT_EVENT_ID): Session =>
@@ -18,9 +20,12 @@ const jsonExport = (sessions: unknown[], solves: unknown[] = []) =>
   JSON.stringify({ format: "cubetimer", version: 2, sessions, solves });
 
 /** Model adapter upserts so repeat-import tests exercise stable persisted identities. */
-function storage(sessions: Session[] = previous.sessions, solves: Solve[] = [], attempts: TrainingAttempt[] = [], presets: TrainingDrillPreset[] = []) {
+function storage(sessions: Session[] = previous.sessions, solves: Solve[] = [], attempts: TrainingAttempt[] = [], presets: TrainingDrillPreset[] = [], preferences: TrainingAlgorithmPreference[] = []) {
   const sessionStore = new Map(sessions.map((value) => [value.id, value]));
   const solveStore = new Map(solves.map((value) => [value.id, value]));
+  const preferenceStore = new Map(preferences.map(value => [value.key, value]));
+  vi.spyOn(db, "loadTrainingAlgorithmPreferences").mockImplementation(async () => [...preferenceStore.values()]);
+  vi.spyOn(db, "saveTrainingAlgorithmPreference").mockImplementation(async value => { preferenceStore.set(value.key, value); });
   const presetStore = new Map(presets.map(value => [value.id, value]));
   vi.spyOn(db, "loadTrainingDrillPresets").mockImplementation(async () => [...presetStore.values()]);
   vi.spyOn(db, "saveTrainingDrillPreset").mockImplementation(async value => { presetStore.set(value.id, value); });
@@ -32,16 +37,16 @@ function storage(sessions: Session[] = previous.sessions, solves: Solve[] = [], 
   vi.spyOn(db, "loadSolves").mockImplementation(async (id) => [...solveStore.values()].filter((value) => value.sessionId === id));
   vi.spyOn(db, "saveSession").mockImplementation(async (value) => { sessionStore.set(value.id, value); });
   vi.spyOn(db, "saveSolve").mockImplementation(async (value) => { solveStore.set(value.id, value); });
-  return { sessionStore, solveStore, attemptStore, presetStore };
+  return { sessionStore, solveStore, attemptStore, presetStore, preferenceStore };
 }
 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("JSON backup workflow", () => {
-  it("imports v3 history as Single/null and exports current Drill fields in v5, keeping stable IDs", async () => {
+  it("imports v3 history as Single/null and exports current Drill fields in v6, keeping stable IDs", async () => {
     const old = { id: "old-training", createdAt: 10, mode: "virtual",
       target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 4", position: "FR" },
-      moves: ["R"], stm: 1, elapsedMs: 0, recommendedStm: 1, matchedReferenceRank: 1, delta: 0 };
+      moves: ["R"], stm: 1, elapsedMs: 0, recommendedStm: 1, matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0 };
     const { attemptStore } = storage();
     const v3 = JSON.stringify({ version: 3, sessions: [], solves: [], trainingAttempts: [old] });
     await transfer.importData(kpuzzle, previous, v3);
@@ -50,17 +55,17 @@ describe("JSON backup workflow", () => {
     const v4 = JSON.stringify({ version: 4, sessions: [], solves: [], trainingAttempts: [drill] });
     await transfer.importData(kpuzzle, previous, v4); await transfer.importData(kpuzzle, previous, v4);
     expect(attemptStore.size).toBe(2);
-    expect(JSON.parse(await transfer.exportData())).toMatchObject({ version: 5, trainingAttempts: [
+    expect(JSON.parse(await transfer.exportData())).toMatchObject({ version: 6, trainingAttempts: [
       { ...old, activity: "single", caseTimeMs: null }, drill,
     ] });
   });
-  it("exports version 5 with solve, Training and preset records", async () => {
+  it("exports version 6 with solve, Training and preset records", async () => {
     const sessions = [session("A", "222")];
     const solves = [solveFor("A")];
     storage(sessions, solves);
     vi.spyOn(Date, "now").mockReturnValue(1234);
     expect(JSON.parse(await transfer.exportData())).toEqual({
-      format: "cubetimer", version: 5, exportedAt: 1234, sessions, solves, trainingAttempts: [], trainingDrillPresets: [],
+      format: "cubetimer", version: 6, exportedAt: 1234, sessions, solves, trainingAttempts: [], trainingDrillPresets: [], trainingAlgorithmPreferences: [],
     });
   });
 
@@ -74,7 +79,7 @@ describe("JSON backup workflow", () => {
     ]);
     const result = await transfer.importData(kpuzzle, previous, archive);
     expect(result).toEqual({
-      sessions: 1, solves: 1, trainingAttempts: 0, trainingDrillPresets: 0,
+      sessions: 1, solves: 1, trainingAttempts: 0, trainingDrillPresets: 0, trainingAlgorithmPreferences: 0,
       context: { sessions: [sessionStore.get("legacy")], sessionId: "legacy", solves: [solveStore.get("solve-legacy")], eventChanged: false },
     });
     expect(sessionStore.get("legacy")).toMatchObject({ event: DEFAULT_EVENT_ID });
@@ -115,7 +120,7 @@ describe("JSON backup workflow", () => {
   it("imports current Training facts, skips malformed records and upserts IDs even without their source Solve", async () => {
     const attempt: TrainingAttempt = { id: "attempt", createdAt: 10, mode: "virtual", activity: "single", caseTimeMs: null,
       target: { family: "oll", origin: "solve-step", solveId: "missing", stepName: "OLL", trainingSet: "full", caseId: "27", auf: 2 },
-      moves: ["R", "U"], stm: 2, elapsedMs: 700, recommendedStm: 2, matchedReferenceRank: 1, delta: 0 };
+      moves: ["R", "U"], stm: 2, elapsedMs: 700, recommendedStm: 2, matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0 };
     const { attemptStore } = storage();
     const archive = JSON.stringify({ format: "cubetimer", version: 4, sessions: previous.sessions, solves: [], trainingAttempts: [
       attempt, null, { ...attempt, id: "bad", stm: "2" }, { ...attempt, id: "bad-mode", mode: "timer" },
@@ -131,7 +136,7 @@ describe("JSON backup workflow", () => {
   it("keeps Training independent of Session compatibility and leaves existing Training history on v2 import", async () => {
     const attempt: TrainingAttempt = { id: "global", createdAt: 0, mode: "setup", activity: "single", caseTimeMs: null,
       target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 1", position: "FR" },
-      moves: ["R"], stm: 1, elapsedMs: 0, recommendedStm: null, matchedReferenceRank: null, delta: null };
+      moves: ["R"], stm: 1, elapsedMs: 0, recommendedStm: null, matchedReferenceRank: null, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: null };
     const { attemptStore } = storage(previous.sessions, [], [attempt]);
     expect(await transfer.importData(kpuzzle, previous, jsonExport([]))).toMatchObject({ trainingAttempts: 0 });
     expect(attemptStore.size).toBe(1);
@@ -232,7 +237,7 @@ describe("JSON v5 saved drills", () => {
     await transfer.importData(kpuzzle, previous, archive);
     expect(presetStore.size).toBe(3); expect(presetStore.get(preset.id)).toEqual(preset);
     const exported = JSON.parse(await transfer.exportData());
-    expect(exported).toMatchObject({ version: 5, sessions: previous.sessions, solves: [], trainingAttempts: [] });
+    expect(exported).toMatchObject({ version: 6, sessions: previous.sessions, solves: [], trainingAttempts: [] });
     expect(exported.trainingDrillPresets).toEqual([...presetStore.values()]);
     expect(new Set(exported.trainingDrillPresets.map((p: TrainingDrillPreset) => p.name)).size).toBe(1);
   });
@@ -248,5 +253,32 @@ describe("JSON v5 saved drills", () => {
     expect(csv).not.toContain("Same name");
     await transfer.importSolveCsv(kpuzzle, previous, csv);
     expect(db.saveTrainingDrillPreset).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("JSON v6 personal algorithm interchange", () => {
+  const target = buildLastLayerCatalogueTarget(kpuzzle, "oll", "27", 2);
+  const identity = catalogueIdentityForTarget(target.info)!;
+  const preference: TrainingAlgorithmPreference = { key: trainingCatalogueKey(identity), target: identity,
+    algorithm: target.info.references[0].sourceAlg, source: "catalog", note: "grip", createdAt: 1, updatedAt: 2 };
+  it("semantically validates preferences, upserts by catalogue key and preserves other collections", async () => {
+    const { preferenceStore } = storage();
+    const archive = JSON.stringify({ version: 6, sessions: [], solves: [], trainingDrillPresets: [], trainingAttempts: [], trainingAlgorithmPreferences: [
+      preference, { ...preference, key: "wrong" }, { ...preference, algorithm: "R" }, { ...preference, algorithm: "R ?" },
+    ] });
+    expect(await transfer.importData(kpuzzle, previous, archive)).toMatchObject({ trainingAlgorithmPreferences: 1, trainingDrillPresets: 0 });
+    await transfer.importData(kpuzzle, previous, archive);
+    expect(preferenceStore.size).toBe(1);
+    expect(JSON.parse(await transfer.exportData())).toMatchObject({ version: 6, trainingAlgorithmPreferences: [preference], trainingDrillPresets: [], trainingAttempts: [] });
+    const updated = JSON.stringify({ version: 6, sessions: [], solves: [], trainingAlgorithmPreferences: [{ ...preference, note: "updated", updatedAt: 3 }] });
+    await transfer.importData(kpuzzle, previous, updated);
+    expect(preferenceStore.size).toBe(1); expect(preferenceStore.get(preference.key)?.note).toBe("updated");
+  });
+  it.each([2, 3, 4, 5])("older v%s imports do not erase local personal algorithms", async version => {
+    const { preferenceStore } = storage([], [], [], [], [preference]);
+    expect(await transfer.importData(kpuzzle, previous, JSON.stringify({ version, sessions: [], solves: [] })))
+      .toMatchObject({ trainingAlgorithmPreferences: 0 });
+    expect(preferenceStore.get(preference.key)).toEqual(preference);
   });
 });

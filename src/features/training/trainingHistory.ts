@@ -18,7 +18,8 @@ export function createTrainingAttempt({ activity, mode, target: t, result }: Com
   }
   return { id: crypto.randomUUID(), createdAt: Date.now(), activity, mode, caseTimeMs: result.caseTimeMs, target, moves: [...result.moves],
     stm: result.stm, elapsedMs: result.elapsedMs, recommendedStm: result.recommendedStm,
-    matchedReferenceRank: result.matchedReferenceRank, delta: result.delta };
+    matchedReferenceRank: result.matchedReferenceRank, delta: result.delta, preferredStm: result.preferredStm,
+    matchedPreferred: result.matchedPreferred, preferredDelta: result.preferredDelta };
 }
 
 export async function loadTrainingAttempts(): Promise<TrainingAttempt[]> { return db.loadTrainingAttempts(); }

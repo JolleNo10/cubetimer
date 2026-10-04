@@ -1,3 +1,5 @@
+import { catalogueIdentityForTarget, trainingCatalogueKey } from "../../../app/trainingCatalogue";
+import { TrainingAlgorithmEditor } from "./TrainingAlgorithmEditor";
 import { formatTime } from "../../../shared/time";
 import { useEffect, useState, type ReactNode } from "react";
 import { useController, useSettings, useStore, useStoreValue, useTrainingState } from "../../../app/useController";
@@ -258,56 +260,69 @@ export function TrainingSetupPanel() {
 }
 
 export function TrainingReferences({ previewIndex, onPreviewStep }: TrainingGuideNavigation = {}) {
+  const controller = useController();
   const training = useTrainingState();
-  const target = training.target;
-  const references = target?.references ?? [];
+  const preferences = useStore(controller.trainingAlgorithmPreferences);
+  const target = training.target, references = target?.references ?? [];
+  const identity = catalogueIdentityForTarget(target);
+  const preference = identity ? preferences.find(p => p.key === trainingCatalogueKey(identity)) ?? null : null;
+  const preferred = training.preferredReference;
+  const canManage = training.activity === "single" && training.phase !== "solving" && Boolean(identity);
   const result = training.activity === "drill" || training.family === "f2l" ? null : training.result;
   const [showAlternatives, setShowAlternatives] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const canEdit = canManage && !busy;
+  const [error, setError] = useState<string | null>(null);
   const reference = result
     ? result.recommendedAlg === null ? null : { alg: result.recommendedAlg, stm: result.recommendedStm }
     : references[0];
-  useEffect(() => { setShowAlternatives(false); }, [target]);
+  useEffect(() => { setShowAlternatives(false); setError(null); }, [target]);
   if (concealsTrainingAnswer(training)) return null;
-
-  return (
-    <div className="f2l-reference">
-      <div className="result-context-label">RECOMMENDED</div>
-      {reference ? (
-        <>
-          <div className="row">
-            <strong>{reference.stm} STM</strong>
-            {!result && target?.family === "f2l" ? <span className="phase-case">{target.references[0]?.caseName}</span> : null}
-          </div>
-          <TrainingAlgorithmGuide algorithm={reference.alg} guide={result ? null : training.guide} active={(training.phase === "ready" || training.phase === "solving") && !training.result} previewIndex={previewIndex} onPreviewStep={onPreviewStep} />
-          {!result && references.length > 1 ? (
-            <>
-              <button
-                className="ghost small"
-                onClick={() => setShowAlternatives((shown) => !shown)}
-              >
-                {showAlternatives ? "Hide alternatives" : `Show ${references.length - 1} alternatives`}
-              </button>
-              {showAlternatives ? (
-                <div className="f2l-alternatives">
-                  {references.slice(1).map((alternative) => (
-                    <div key={`${alternative.rank}-${alternative.alg}`} className="f2l-alternative">
-                      <div className="row">
-                        <strong>#{alternative.rank}</strong>
-                        <span className="small faint">{alternative.stm} STM</span>
-                      </div>
-                      <div className="mono f2l-reference-alg">{alternative.alg}</div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </>
-          ) : null}
-        </>
-      ) : (
-        <div className="small faint">No validated reference for this exact target.</div>
-      )}
-    </div>
-  );
+  const useAsMine = async (sourceAlg: string) => {
+    setBusy(true); setError(null);
+    try {
+      const response = await controller.useCanonicalTrainingAlgorithm(sourceAlg);
+      if (!response.success) setError(response.error ?? "Could not save My algorithm.");
+    } finally { setBusy(false); }
+  };
+  const guideActive = (training.phase === "ready" || training.phase === "solving") && !training.result;
+  return <div className="f2l-reference">
+    {preference ? <section className="training-my-algorithm" aria-label="My algorithm">
+      <div className="result-context-label">MY ALGORITHM <span aria-label="Personal algorithm">★</span></div>
+      {preferred ? <>
+        <strong>{preferred.stm} STM</strong>
+        <TrainingAlgorithmGuide algorithm={preferred.alg} label="My algorithm" guide={training.guide}
+          active={guideActive} previewIndex={previewIndex} onPreviewStep={onPreviewStep} />
+      </> : <><div className="mono f2l-reference-alg">{preference.algorithm}</div>
+        <p className="small dim">This saved algorithm needs editing for the current catalogue. Training uses Recommended.</p></>}
+      {preference.note ? <p className="small training-algorithm-note">{preference.note}</p> : null}
+      {canManage && identity ? <TrainingAlgorithmEditor key={trainingCatalogueKey(identity)} identity={identity} preference={preference} canEdit={canEdit} /> : null}
+    </section> : null}
+    <div className="result-context-label">RECOMMENDED</div>
+    {reference ? <>
+      <div className="row wrap"><strong>{reference.stm} STM</strong>
+        {!result && target?.family === "f2l" ? <span className="phase-case">{target.references[0]?.caseName}</span> : null}
+      </div>
+      <TrainingAlgorithmGuide algorithm={reference.alg} guide={preferred || result ? null : training.guide}
+        active={!preferred && guideActive} previewIndex={previewIndex} onPreviewStep={onPreviewStep} />
+      {canManage && references[0] ? <button type="button" className="ghost small" disabled={!canEdit}
+        onClick={() => void useAsMine(references[0].sourceAlg)}>Use as mine</button> : null}
+      {!preference && canManage && identity ? <TrainingAlgorithmEditor key={trainingCatalogueKey(identity)} identity={identity} preference={null} canEdit={canEdit} /> : null}
+      {!result && references.length > 1 ? <>
+        <button className="ghost small" onClick={() => setShowAlternatives(shown => !shown)}>
+          {showAlternatives ? "Hide alternatives" : `Show ${references.length - 1} ${references.length === 2 ? "alternative" : "alternatives"}`}
+        </button>
+        {showAlternatives ? <div className="f2l-alternatives">{references.slice(1).map(alternative =>
+          <div key={`${alternative.rank}-${alternative.alg}`} className="f2l-alternative">
+            <div className="row wrap"><strong>#{alternative.rank}</strong><span className="small faint">{alternative.stm} STM</span></div>
+            <div className="mono f2l-reference-alg">{alternative.alg}</div>
+            {canManage ? <button type="button" className="ghost small" disabled={!canEdit}
+              onClick={() => void useAsMine(alternative.sourceAlg)}>Use as mine</button> : null}
+          </div>)}</div> : null}
+      </> : null}
+    </> : <div className="small faint">No validated reference for this exact target.</div>}
+    {error ? <p className="small error" role="alert">{error}</p> : null}
+  </div>;
 }
 
 export function TrainingAttemptResult({
@@ -324,12 +339,13 @@ export function TrainingAttemptResult({
   activity?: TrainingState["activity"];
 }) {
   if (result) {
-    const description = result.matchedReferenceRank === 1
+    const description = result.matchedPreferred ? "Matched my algorithm" : result.matchedReferenceRank === 1
       ? "Recommended solution"
       : result.matchedReferenceRank
         ? `Known alternative #${result.matchedReferenceRank}`
         : "Valid custom solution";
-    const { delta } = result;
+    const delta = result.preferredDelta ?? result.delta;
+    const benchmark = result.preferredStm != null ? "my algorithm" : "recommended";
     return (
       <div className="f2l-result-card">
         <div className="result-context-label">ATTEMPT</div>
@@ -339,12 +355,13 @@ export function TrainingAttemptResult({
         {delta !== null && delta !== undefined ? (
           <div className={`f2l-delta${delta <= 0 ? " good" : ""}`}>
             {delta > 0
-              ? `+${delta} STM vs recommended`
+              ? `+${delta} STM vs ${benchmark}`
               : delta < 0
-                ? `${Math.abs(delta)} STM fewer than recommended`
-                : "Same STM as recommended"}
+                ? `${Math.abs(delta)} STM fewer than ${benchmark}`
+                : `Same STM as ${benchmark}`}
           </div>
         ) : null}
+        {result.preferredStm != null ? <div className="small dim">My algorithm {result.preferredStm} STM · Recommended {result.recommendedStm ?? "—"} STM</div> : null}
         <div className="mono f2l-result-moves">{result.moves.join(" ") || "(no turns)"}</div>
         <div className="small faint">Move span {formatTime(result.elapsedMs)}</div>
       </div>

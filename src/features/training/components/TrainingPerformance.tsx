@@ -37,8 +37,9 @@ export function TrainingPersonalPerformance() {
       {stats.bestCaseTimeMs !== null ? <><div><dt>Best drill case time</dt><dd>{time(stats.bestCaseTimeMs)}</dd></div>
         <div><dt>Recent drill case time</dt><dd>{time(stats.recentMedianCaseTimeMs)}</dd></div></> : null}
       <div><dt>Best STM</dt><dd>{stats.bestStm ?? "—"}</dd></div>
-      <div><dt>Recent median delta</dt><dd>{delta === null ? "—" : `${delta > 0 ? "+" : ""}${delta} STM`}</dd></div>
+      <div><dt>Recent STM delta</dt><dd>{delta === null ? "—" : `${delta > 0 ? "+" : ""}${delta} STM`}</dd></div>
     </dl>
+    <p className="small dim">STM delta vs My algorithm when set, otherwise recommended.</p>
     {stats.recentMoveSpansMs.length ? <div className="small dim training-recent-times">
       Recent move spans: <span className="mono">{stats.recentMoveSpansMs.map(value => formatTime(value)).join(" · ")}</span>
     </div> : null}

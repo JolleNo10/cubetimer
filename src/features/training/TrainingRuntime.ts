@@ -3,20 +3,21 @@ import type { GanCubeMove } from "gan-web-bluetooth";
 import { fitMoveTimestamps } from "../../infrastructure/bluetooth/smartCube";
 import type { SolveStep, TimedMove } from "../../cube/analysis";
 import type { F2lPosition } from "../../cube/f2lCases";
-import { buildExactF2lTarget, buildF2lCatalogueTarget, calculateTrainingEfficiency, f2lCatalogueSetupMoves, f2lCubeAlgorithm, f2lHandAlgorithm, f2lTrainingGrip, isF2lTrainingComplete, isStandardF2lBase, type F2lTrainingTarget, type F2lTrainingTargetInfo } from "../../cube/f2lTraining";
+import { buildExactF2lTarget, buildF2lCatalogueTarget, resolveF2lTrainingReference, calculateTrainingEfficiency, f2lCatalogueSetupMoves, f2lCubeAlgorithm, f2lHandAlgorithm, f2lTrainingGrip, isF2lTrainingComplete, isStandardF2lBase, type F2lTrainingTarget, type F2lTrainingTargetInfo } from "../../cube/f2lTraining";
 import { findF2lTrainingCase, f2lTrainingCatalogue, type F2lTrainingCase, type F2lTrainingLibrary } from "../../cube/f2lTrainingCases";
 import { F2L_AGAIN_GESTURE_TURNS, isF2lAgainGesture } from "../../cube/gestures";
-import { buildExactLastLayerTarget, buildLastLayerCatalogueTarget, isLastLayerTrainingComplete, lastLayerCaseIds, lastLayerTrainingVariants, type LastLayerFamily, type LastLayerTrainingSet, type LastLayerTrainingTarget, type LastLayerTrainingTargetInfo } from "../../cube/lastLayerTraining";
+import { buildExactLastLayerTarget, buildLastLayerCatalogueTarget, resolveLastLayerTrainingReference, isLastLayerTrainingComplete, lastLayerCaseIds, lastLayerTrainingVariants, type LastLayerFamily, type LastLayerTrainingSet, type LastLayerTrainingTarget, type LastLayerTrainingTargetInfo } from "../../cube/lastLayerTraining";
 import { CubeModel, patternToFacelets } from "../../cube/model";
 import { parseFaceMove } from "../../cube/moves";
 import type { Orientation } from "../../cube/orientation";
 import { ScrambleTracker, type ScrambleProgress } from "../../cube/scramble";
 import { algBetween } from "../../cube/solver";
 import { handAlgorithm, handMove, handTimedMoves } from "../../cube/frames";
-import { advanceTrainingGuide, buildTrainingGuide, trainingGrip, trainingGuideProgress, type TrainingGuide, type TrainingGuideProgress } from "../../cube/training";
+import { advanceTrainingGuide, buildTrainingGuide, trainingGrip, trainingGuideProgress, type TrainingGuide, type TrainingGuideProgress, type TrainingResolvedReference } from "../../cube/training";
 import { calculateRecovery, type Recovery } from "../../shared/recovery";
 import { Store } from "../../shared/store";
 import { drillCatalogue, drillCaseId, selectDrillCase, weakDrillCases, type TrainingDrillContext, type TrainingDrillState, type TrainingDrillStrategy } from "./trainingDrill";
+import { catalogueIdentityForTarget, trainingCatalogueKey } from "../../app/trainingCatalogue";
 import type { Settings, Solve, TrainingAttempt } from "../../app/types";
 
 export type TrainingFamily = "f2l" | "oll" | "pll";
@@ -49,6 +50,10 @@ export type TrainingResult = {
   recommendedAlg: string | null;
   matchedReferenceRank: number | null;
   delta: number | null;
+  preferredAlg: string | null;
+  preferredStm: number | null;
+  matchedPreferred: boolean | null;
+  preferredDelta: number | null;
 };
 
 export type TrainingTargetInfo = F2lTrainingTargetInfo | LastLayerTrainingTargetInfo;
@@ -76,6 +81,7 @@ export type TrainingState = {
   f2lSelection: F2lTrainingSelection;
   phase: TrainingPhase;
   target: TrainingTargetInfo | null;
+  preferredReference: { alg: string; stm: number } | null;
   setup: string;
   setupProgress: ScrambleProgress | null;
   recovery: Recovery | null;
@@ -96,6 +102,7 @@ function emptyTrainingState(): TrainingState {
     f2lSelection: { library: "basic", position: "FR" },
     phase: "selecting",
     target: null,
+    preferredReference: null,
     setup: "",
     setupProgress: null,
     recovery: null,
@@ -117,6 +124,7 @@ export type TrainingDependencies = {
   startClock: () => void;
   stopClock: () => void;
   reportError: (error: string) => void;
+  getTrainingAlgorithmPreference?: (key: string) => { algorithm: string } | null;
   getTrainingAttempts?: () => readonly TrainingAttempt[];
   rng?: () => number;
   now?: () => number;
@@ -133,6 +141,7 @@ export class TrainingRuntime {
   #f2lCase: F2lTrainingCase | null = null;
   #trainingTarget: TrainingTarget | null = null;
   #trainingGuide: TrainingGuide | null = null;
+  #preferredReference: TrainingResolvedReference | null = null;
   #trainingTracker: ScrambleTracker | null = null;
   #trainingRawMoves: GanCubeMove[] = [];
   #trainingVirtualPattern: KPattern | null = null;
@@ -489,6 +498,7 @@ export class TrainingRuntime {
     this.#f2lCase = null;
     this.#trainingTarget = null;
     this.#trainingGuide = null;
+    this.#preferredReference = null;
     this.#trainingTracker = null;
     this.#trainingRawMoves = [];
     this.#trainingVirtualPattern = null;
@@ -522,6 +532,38 @@ export class TrainingRuntime {
     await this.#prepareTarget(target, preserveResult);
   }
 
+  #resolvePreferredReference(target: TrainingTarget): TrainingResolvedReference | null {
+    const identity = catalogueIdentityForTarget(target.info);
+    if (!identity) return null;
+    const preference = this.#dependencies.getTrainingAlgorithmPreference?.(trainingCatalogueKey(identity));
+    if (!preference) return null;
+    return isLastLayerTarget(target)
+      ? resolveLastLayerTrainingReference(target, preference.algorithm)
+      : resolveF2lTrainingReference(target, preference.algorithm);
+  }
+
+  #buildEffectiveGuide(target: TrainingTarget): TrainingGuide | null {
+    return buildTrainingGuide(target.pattern, { ...target.info,
+      references: this.#preferredReference ? [this.#preferredReference] : target.info.references });
+  }
+
+  /** Refresh reference facts only: the target/setup/pattern/result/lifecycle stay intact. */
+  refreshPreferredAlgorithm(): boolean {
+    const state = this.state.get(), target = this.#trainingTarget;
+    if (!target || state.phase === "solving") return false;
+    this.#preferredReference = this.#resolvePreferredReference(target);
+    if (state.activity === "single") this.#trainingGuide = this.#buildEffectiveGuide(target);
+    const guide = this.#trainingGuide;
+    const pattern = state.mode === "virtual" ? this.#trainingVirtualPattern : this.#model?.pattern;
+    const progress = guide ? (state.phase === "ready" && pattern
+      ? advanceTrainingGuide(guide, pattern, 0) : trainingGuideProgress(guide)) : null;
+    this.state.update(s => ({ ...s,
+      preferredReference: this.#preferredReference ? { alg: this.#preferredReference.alg, stm: this.#preferredReference.stm } : null,
+      guide: state.activity === "single" ? progress : s.guide,
+    }));
+    return true;
+  }
+
   async #prepareTarget(
     target: TrainingTarget,
     preserveResult = false,
@@ -536,7 +578,8 @@ export class TrainingRuntime {
     const capturedFacelets = patternToFacelets(captured);
     const targetFacelets = patternToFacelets(target.pattern);
     this.#trainingTarget = target;
-    this.#trainingGuide = buildTrainingGuide(target.pattern, target.info);
+    this.#preferredReference = this.#resolvePreferredReference(target);
+    this.#trainingGuide = this.#buildEffectiveGuide(target);
     this.#trainingTracker = null;
     this.#trainingRawMoves = [];
     this.#f2lAgainTurns = [];
@@ -552,6 +595,7 @@ export class TrainingRuntime {
         ? { ...s.f2lSelection, position: target.info.position } : s.f2lSelection,
       phase: mode === "virtual" ? "ready" : "preparing",
       target: target.info,
+      preferredReference: this.#preferredReference ? { alg: this.#preferredReference.alg, stm: this.#preferredReference.stm } : null,
       setup: "",
       setupProgress: null,
       recovery: null,
@@ -772,7 +816,7 @@ export class TrainingRuntime {
     const target = this.#trainingTarget;
     const handTimed = target ? handTimedMoves(timed, this.#trainingGrip(target)) : timed;
     const efficiency = calculateTrainingEfficiency(handTimed, target?.info.references,
-      target ? { pattern: target.pattern, trainingRotation: target.info.trainingRotation } : undefined);
+      target ? { pattern: target.pattern, trainingRotation: target.info.trainingRotation } : undefined, this.#preferredReference);
     this.#dependencies.elapsed.set(efficiency.elapsedMs);
     const result: TrainingResult = {
       moves: efficiency.moves.map(({ move }) => move),
@@ -783,12 +827,14 @@ export class TrainingRuntime {
       recommendedAlg: target?.info.references[0]?.alg ?? null,
       matchedReferenceRank: efficiency.matchedReferenceRank,
       delta: efficiency.delta,
+      preferredAlg: this.#preferredReference?.alg ?? null,
+      preferredStm: efficiency.preferredStm, matchedPreferred: efficiency.matchedPreferred, preferredDelta: efficiency.preferredDelta,
     };
     this.state.update((s) => ({
       ...s, phase: "result", result,
       drill: activity === "drill" ? { ...s.drill, lastOutcome: "solved", outcomes: [...s.drill.outcomes,
         { caseId: s.drill.lastCaseId!, outcome: "solved", caseTimeMs: caseTimeMs!, moveSpanMs: result.elapsedMs,
-          stm: result.stm, delta: result.delta, completedAt }] } : s.drill,
+          stm: result.stm, delta: result.preferredDelta ?? result.delta, completedAt }] } : s.drill,
       guide: s.guide ? { ...s.guide, currentMove: null } : null
     }));
     if (target) this.#dependencies.onAttemptCompleted?.({ activity, mode, target: target.info, result });

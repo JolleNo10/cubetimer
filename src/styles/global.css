@@ -1339,3 +1339,11 @@ button.icon { display: inline-grid; place-items: center; padding: 8px; }
 .saved-drill-editor { margin-top: 8px; min-width: 0; }
 .saved-drill-editor label { flex: 1 1 160px; min-width: 0; }
 .saved-drill-editor input { width: 100%; min-width: 0; box-sizing: border-box; }
+
+.training-my-algorithm { margin-bottom: 18px; }
+.training-algorithm-note, .f2l-reference-alg, .f2l-result-moves { overflow-wrap: anywhere; }
+.training-algorithm-editor { margin: 8px 0; min-width: 0; }
+.training-algorithm-editor form, .training-algorithm-editor label { display: grid; gap: 8px; min-width: 0; }
+.training-algorithm-editor textarea { width: 100%; min-width: 0; box-sizing: border-box; resize: vertical; }
+.training-algorithm-editor button, .f2l-alternative button { min-height: 44px; }
+.training-my-alg-marker { display: block; font-size: 10px; line-height: 1.4; }

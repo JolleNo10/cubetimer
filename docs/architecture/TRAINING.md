@@ -258,6 +258,50 @@ Ready recognition with no countdown does not require continuous RAF. The reveal
 timestamp stays independent of ticks; first move restarts the shared clock, and case
 time includes the entire unticked wait. Solving and countdown require ticks.
 
+## Personal algorithms and catalogue identity
+
+`TrainingCatalogueIdentity` in `app/types.ts` owns durable catalogue identity.
+`app/trainingCatalogue.ts` encodes the shared JSON tuple key: F2L uses family,
+library, case name and position; OLL/PLL uses family, Full/2-Look set and case ID.
+AUF does not split an identity. Performance, review, weighting, preference storage
+and case-card markers share this key.
+
+Canonical references are repository/source authority. One user-owned
+`TrainingAlgorithmPreference` per catalogue key stores a stable source/core
+algorithm, catalog/custom source, optional note and timestamps. It is independent
+of Sessions, Settings, history and Saved Drill presets. The Training workflow
+validates syntax and catalogue completion before explicit save or JSON import:
+F2L uses the normal solved base and protected-slot semantics; last-layer validation
+checks every relevant variant and AUF with its stage completion goal.
+
+Controller owns the preference Store and serializes saved-drill/preference writes
+through one Training configuration mutation queue, separate from attempt writes.
+Writes persist before publication. Save captures its catalogue identity; after
+navigation it updates the global Store but refreshes only a still-matching target.
+Export/import wait for configuration mutations and completed-attempt writes.
+
+TrainingRuntime receives a narrow preference lookup and derives a separate ephemeral
+resolved reference for the concrete target. It owns no preference persistence/key/note.
+The source algorithm stays stable; the executable algorithm includes target-specific
+alignment. Canonical references and ranks remain unchanged. Stale unresolved
+preferences fall back to canonical guidance and remain available for editing/removal.
+Exact solve-step practice never inherits catalogue preferences.
+
+Single guidance, checkpoints and arrows use My algorithm when resolved, otherwise
+canonical rank 1. Refreshing a preference uses the existing target: setup, pattern,
+AUF, variant, lifecycle and completed result remain unchanged. Editing/refresh is
+refused once solving starts, so an attempt's benchmark stays fixed. Drill conceals
+answers during recognition/solving but evaluates the personal benchmark and reveals
+it after completion; management remains Single catalogue presentation only.
+
+Reference matching evaluates canonical and preferred references independently using
+existing strict checkpoint semantics. STM priority is matched preferred, matched
+canonical, then observed. Canonical `delta` retains its historical meaning.
+Results snapshot preferred executable algorithm, STM, match and delta; attempts
+persist the nullable preferred numeric/match facts from that completed snapshot.
+Adaptive efficiency and ephemeral Drill outcome delta use `preferredDelta ?? delta`
+from each attempt, never today's preference applied retroactively. Timing is unchanged.
+
 ## Saved Drill presets
 
 ```text
@@ -277,7 +321,10 @@ and are reused by `trainingDrill.ts`; selection policy stays in Training.
 
 Loading restores context and hydrates the existing TrainingRuntime configuration,
 without selecting/revealing a case or starting a countdown. OLL/PLL loads synchronize
-and persist the applicable Settings preference through Controller.updateSettings;
+the applicable Settings preference through a narrow Controller boundary. The prospective
+Settings record persists before Settings/catalogue/runtime publication. A failed write
+leaves both Stores and the selected pool unchanged. Controller exposes a preset-application
+busy Store and refuses Drill Start until loading finishes;
 there is no hidden preset catalogue preference alongside Settings. The other family's
 preference remains unchanged. F2L loads restore remembered library and position.
 
@@ -514,3 +561,31 @@ runtime selection and tests, not a second React state machine.
 
 Rejected: summary actions configure the next set. Explicit Start keeps the user in
 control of when the next countdown begins.
+
+
+### Personal algorithms in generated data, Settings or Saved Drill presets
+
+Rejected: generated catalogues are repository authority, Settings is one application
+preference record, and Drill presets select cases/strategy. Personal algorithms are
+a separate keyed user collection applying globally to future catalogue practice.
+
+### Persist AUF-adjusted algorithms or canonical ranks
+
+Rejected: a live executable depends on randomized target orientation, and ranks can
+change with catalogue ordering. Persist stable source/core notation and resolve the
+concrete target independently, including alternate PLL recognition angles/final AUF.
+
+### Replace canonical rank 1 or create another matcher
+
+Rejected: recommendation and personal preference are distinct facts. Keep references
+separate and reuse existing Training guide/checkpoint/reference execution machinery.
+
+### Apply preferences to exact solve-step practice
+
+Rejected: exact practice preserves historical state, grip, boundaries and completion
+meaning rather than catalogue preference ownership.
+
+### Multiple personal algorithms per case
+
+Rejected for this phase: one My algorithm is the benchmark per catalogue identity;
+canonical alternatives remain available without another user algorithm library.

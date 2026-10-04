@@ -129,7 +129,7 @@ describe("Single and Drill presentation", () => {
     expect(button("Drill weak cases", <TrainingDrillSummary />).disabled).toBe(true);
   });
   it("shows complete Drill case time more prominently than registered move span, including zero spans", () => {
-    const result = { moves: ["R"], stm: 1, elapsedMs: 0, caseTimeMs: 2300, recommendedStm: 1, recommendedAlg: "R", matchedReferenceRank: 1, delta: 0 };
+    const result = { moves: ["R"], stm: 1, elapsedMs: 0, caseTimeMs: 2300, recommendedStm: 1, preferredAlg: null, recommendedAlg: "R", matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0 };
     const html = renderToStaticMarkup(<TrainingAttemptResult result={result} phase="result" liveMoveCount={0} elapsed={500} activity="drill" />);
     expect(html).toContain("2.30"); expect(html).toContain("case time"); expect(html).toContain("Move span 0.00");
     expect(html).toContain("1 STM"); expect(html).toContain("Recommended solution");
@@ -251,4 +251,12 @@ describe("Saved drills configuration presentation", () => {
     expect(renderToStaticMarkup(<TrainingDrillSummary />)).toContain("2 rounds");
     expect(button("Done", <TrainingDrillSummary />)).toBeUndefined();
   });
+});
+
+
+it("visibly disables Start while a saved Drill load is applying", () => {
+  const { controller } = fixture(); controller.setDrillCases(["F2L 4"]);
+  expect(button("Start drill").disabled).toBe(false);
+  controller.trainingDrillPresetApplying.set(true);
+  expect(button("Start drill").disabled).toBe(true);
 });

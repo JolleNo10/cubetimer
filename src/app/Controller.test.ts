@@ -26,6 +26,7 @@ const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
 
 beforeEach(() => {
   vi.spyOn(db, "loadTrainingDrillPresets").mockResolvedValue([]);
+  vi.spyOn(db, "loadTrainingAlgorithmPreferences").mockResolvedValue([]);
   vi.spyOn(db, "loadTrainingAttempts").mockResolvedValue([]);
   vi.spyOn(db, "saveTrainingAttempt").mockResolvedValue();
 });
@@ -1028,7 +1029,7 @@ describe("Controller store ownership", () => {
 const persistedTrainingAttempt = (): TrainingAttempt => ({
   id: "training-history", createdAt: 10, mode: "virtual", activity: "single", caseTimeMs: null,
   target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 4", position: "FR" },
-  moves: ["R"], stm: 1, elapsedMs: 800, recommendedStm: 1, matchedReferenceRank: 1, delta: 0,
+  moves: ["R"], stm: 1, elapsedMs: 800, recommendedStm: 1, matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0,
 });
 async function completeControllerTraining() {
   stubTimerLoop();
@@ -1130,7 +1131,7 @@ describe("Controller Training history composition", () => {
     vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]);
     vi.spyOn(db, "loadAllSolves").mockResolvedValue([]); vi.spyOn(db, "loadSolves").mockResolvedValue([]);
     const result = await controller.importData(JSON.stringify({ version: 3, sessions: [], solves: [], trainingAttempts: [attempt] }));
-    expect(result).toEqual({ sessions: 0, solves: 0, trainingAttempts: 1, trainingDrillPresets: 0 });
+    expect(result).toEqual({ sessions: 0, solves: 0, trainingAttempts: 1, trainingDrillPresets: 0, trainingAlgorithmPreferences: 0 });
     expect(controller.trainingAttempts.get()).toEqual([attempt]);
     expect(controller.sessions.get().sessionId).toBe("1");
   });
@@ -1336,7 +1337,144 @@ describe("Controller Saved Drill composition", () => {
     vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]); vi.spyOn(db, "loadAllSolves").mockResolvedValue([]); vi.spyOn(db, "loadSolves").mockResolvedValue([]);
     vi.spyOn(db, "saveTrainingDrillPreset").mockImplementation(async () => { vi.mocked(db.loadTrainingDrillPresets).mockResolvedValue([preset]); });
     expect(await controller.importData(JSON.stringify({ version: 5, sessions: [], solves: [], trainingDrillPresets: [preset] })))
-      .toEqual({ sessions: 0, solves: 0, trainingAttempts: 0, trainingDrillPresets: 1 });
+      .toEqual({ sessions: 0, solves: 0, trainingAttempts: 0, trainingDrillPresets: 1, trainingAlgorithmPreferences: 0 });
     expect(controller.trainingDrillPresets.get()).toEqual([preset]);
   });
+});
+
+describe("Saved Drill atomic application", () => {
+  it.each(["oll", "pll"] as const)("failed %s Settings write preserves the exact live configuration", async family => {
+    const controller = presetController(); controller.setTrainingFamily(family); controller.setTrainingActivity("drill");
+    controller.setDrillCases(lastLayerCaseIds(family, "full").slice(0, 3));
+    const preset = savedDrill({ context: { family, trainingSet: "2look" }, caseIds: lastLayerCaseIds(family, "2look").slice(0, 2) });
+    controller.trainingDrillPresets.set([preset]);
+    const settings = controller.settings.get(), runtime = controller.training.state.get();
+    vi.spyOn(db, "saveSettings").mockRejectedValue(new Error("settings disk failure"));
+    expect(await controller.applyTrainingDrillPreset(preset.id)).toBe(false);
+    expect(controller.settings.get()).toBe(settings); expect(controller.training.state.get()).toBe(runtime);
+    expect(controller.training.drillCountdown.get()).toBeNull(); expect(controller.state.get().error).toContain("settings disk failure");
+    expect(controller.trainingDrillPresetApplying.get()).toBe(false);
+  });
+  it("blocks Start while a Settings write is pending and publishes only after success", async () => {
+    const controller = presetController(); controller.setTrainingFamily("pll"); controller.setTrainingActivity("drill"); controller.setDrillCases(["T"]);
+    const preset = savedDrill({ context: { family: "pll", trainingSet: "2look" }, caseIds: ["Headlights"] }); controller.trainingDrillPresets.set([preset]);
+    const settings = controller.settings.get(), runtime = controller.training.state.get();
+    const pending = deferred<void>(); vi.spyOn(db, "saveSettings").mockReturnValue(pending.promise);
+    const loading = controller.applyTrainingDrillPreset(preset.id);
+    expect(controller.trainingDrillPresetApplying.get()).toBe(true);
+    controller.startTrainingDrill(); expect(controller.training.state.get()).toBe(runtime); expect(controller.settings.get()).toBe(settings);
+    pending.resolve(); expect(await loading).toBe(true); expect(controller.trainingDrillPresetApplying.get()).toBe(false);
+    expect(controller.settings.get().pllTrainingSet).toBe("2look");
+    expect(controller.training.state.get().drill).toMatchObject({ status: "configuring", running: false, selectedCaseIds: ["Headlights"] });
+    expect(controller.training.drillCountdown.get()).toBeNull();
+    controller.startTrainingDrill(); expect(controller.training.state.get().drill.running).toBe(true);
+  });
+  it("avoids Settings writes for F2L and same-set last-layer loads", async () => {
+    const controller = presetController(); vi.spyOn(db, "saveSettings").mockResolvedValue();
+    for (const preset of [savedDrill(), savedDrill({ context: { family: "pll", trainingSet: "full" }, caseIds: ["T"] })]) {
+      controller.trainingDrillPresets.set([preset]); expect(await controller.applyTrainingDrillPreset(preset.id)).toBe(true);
+    }
+    expect(db.saveSettings).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("Controller personal algorithm composition", () => {
+  async function selectedPreferenceCase() {
+    stubTimerLoop();
+    const controller = readyController([session("1"), session("2")], "1");
+    controller.setArea("training"); await controller.setTrainingMode("virtual");
+    await controller.selectF2lCase("F2L 1"); return controller;
+  }
+  it("persists a canonical source before publishing and refreshes the same target", async () => {
+    const controller = await selectedPreferenceCase();
+    const before = controller.training.state.get(), alternative = before.target!.references[1];
+    const pending = deferred<void>();
+    vi.spyOn(db, "saveTrainingAlgorithmPreference").mockReturnValue(pending.promise);
+    const saving = controller.useCanonicalTrainingAlgorithm(alternative.sourceAlg);
+    await Promise.resolve();
+    expect(controller.trainingAlgorithmPreferences.get()).toEqual([]);
+    expect(controller.training.state.get()).toBe(before);
+    pending.resolve(); expect(await saving).toEqual({ success: true });
+    expect(db.saveTrainingAlgorithmPreference).toHaveBeenCalledWith(expect.objectContaining({ algorithm: alternative.sourceAlg, source: "catalog" }));
+    expect(controller.training.state.get().target).toBe(before.target);
+    expect(controller.training.state.get().preferredReference?.alg).toBe(alternative.alg);
+    expect(controller.training.state.get()).not.toHaveProperty("trainingAlgorithmPreferences");
+    expect(controller.sessions.get()).not.toHaveProperty("trainingAlgorithmPreferences");
+  });
+  it("rejects invalid syntax/semantics before persistence and reports a failed write without publication", async () => {
+    const controller = await selectedPreferenceCase(), before = controller.training.state.get();
+    const save = vi.spyOn(db, "saveTrainingAlgorithmPreference").mockRejectedValue(new Error("disk failed"));
+    expect((await controller.setTrainingAlgorithmPreference("R ?")).success).toBe(false);
+    expect((await controller.setTrainingAlgorithmPreference("R")).success).toBe(false);
+    expect(save).not.toHaveBeenCalled();
+    expect((await controller.setTrainingAlgorithmPreference(before.target!.references[0].sourceAlg)).success).toBe(false);
+    expect(controller.trainingAlgorithmPreferences.get()).toEqual([]);
+    expect(controller.training.state.get()).toBe(before); expect(controller.state.get().error).toContain("disk failed");
+  });
+  it("captures case A while a pending write permits navigation to B, without replacing B", async () => {
+    const controller = await selectedPreferenceCase(); const a = controller.training.state.get().target!;
+    const pending = deferred<void>(); vi.spyOn(db, "saveTrainingAlgorithmPreference").mockReturnValue(pending.promise);
+    const saving = controller.setTrainingAlgorithmPreference(a.references[1].sourceAlg, "My grip");
+    await Promise.resolve(); await controller.selectF2lCase("F2L 2");
+    const b = controller.training.state.get();
+    pending.resolve(); expect((await saving).success).toBe(true);
+    expect(controller.trainingAlgorithmPreferences.get()[0].target).toMatchObject({ caseName: "F2L 1" });
+    expect(controller.training.state.get()).toBe(b);
+  });
+  it("removes by deterministic key, restores canonical guide and refuses editing during solving", async () => {
+    const controller = await selectedPreferenceCase();
+    vi.spyOn(db, "saveTrainingAlgorithmPreference").mockResolvedValue();
+    const target = controller.training.state.get().target!;
+    await controller.useCanonicalTrainingAlgorithm(target.references[1].sourceAlg);
+    const key = controller.trainingAlgorithmPreferences.get()[0].key;
+    vi.spyOn(db, "deleteTrainingAlgorithmPreference").mockResolvedValue();
+    expect((await controller.removeTrainingAlgorithmPreference()).success).toBe(true);
+    expect(db.deleteTrainingAlgorithmPreference).toHaveBeenCalledWith(key);
+    expect(controller.training.state.get().preferredReference).toBeNull();
+    expect(controller.training.state.get().guide?.moves.join(" ")).toBe(target.references[0].alg);
+    controller.training.state.update(state => ({ ...state, phase: "solving" }));
+    expect((await controller.setTrainingAlgorithmPreference(target.references[0].sourceAlg)).success).toBe(false);
+    expect((await controller.removeTrainingAlgorithmPreference()).success).toBe(false);
+  });
+  it("loads preferences independently during initialization", async () => {
+    const controller = await selectedPreferenceCase();
+    vi.spyOn(db, "saveTrainingAlgorithmPreference").mockResolvedValue();
+    await controller.useCanonicalTrainingAlgorithm(controller.training.state.get().target!.references[0].sourceAlg);
+    const preferences = controller.trainingAlgorithmPreferences.get();
+    vi.mocked(db.loadTrainingAlgorithmPreferences).mockResolvedValue(preferences);
+    vi.spyOn(db, "loadSettings").mockResolvedValue({ ...DEFAULT_SETTINGS });
+    vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]); vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    const fresh = new Controller(); vi.spyOn(fresh, "newScramble").mockResolvedValue(); await fresh.init();
+    expect(fresh.trainingAlgorithmPreferences.get()).toEqual(preferences);
+    expect(fresh.trainingDrillPresets.get()).toEqual([]); expect(fresh.trainingAttempts.get()).toEqual([]);
+  });
+});
+
+
+it("canonical personal selection saves source notation rather than the randomized executable AUF", async () => {
+  const controller = readyController([session("1")], "1"); controller.setArea("training");
+  controller.setTrainingFamily("pll"); await controller.setTrainingMode("virtual");
+  vi.spyOn(Math, "random").mockReturnValue(0.75);
+  await controller.selectLastLayerCase("pll", "T");
+  const reference = controller.training.state.get().target!.references[0];
+  expect(reference.alg).not.toBe(reference.sourceAlg);
+  vi.spyOn(db, "saveTrainingAlgorithmPreference").mockResolvedValue();
+  expect((await controller.useCanonicalTrainingAlgorithm(reference.sourceAlg)).success).toBe(true);
+  expect(controller.trainingAlgorithmPreferences.get()[0].algorithm).toBe(reference.sourceAlg);
+  expect(db.saveTrainingAlgorithmPreference).toHaveBeenCalledWith(expect.objectContaining({ algorithm: reference.sourceAlg }));
+});
+it("an immediate backup waits for pending personal configuration writes", async () => {
+  const controller = readyController([session("1")], "1"); controller.setArea("training");
+  await controller.setTrainingMode("virtual"); await controller.selectF2lCase("F2L 1");
+  const pending = deferred<void>();
+  vi.spyOn(db, "saveTrainingAlgorithmPreference").mockImplementation(async preference => {
+    await pending.promise; vi.mocked(db.loadTrainingAlgorithmPreferences).mockResolvedValue([preference]);
+  });
+  vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]); vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+  const saving = controller.useCanonicalTrainingAlgorithm(controller.training.state.get().target!.references[0].sourceAlg);
+  const exporting = controller.exportData();
+  await Promise.resolve(); expect(db.loadTrainingAlgorithmPreferences).not.toHaveBeenCalled();
+  pending.resolve(); await saving;
+  expect(JSON.parse(await exporting).trainingAlgorithmPreferences).toEqual(controller.trainingAlgorithmPreferences.get());
 });

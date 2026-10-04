@@ -38,7 +38,7 @@ describe("Drill selection policy", () => {
     const history: TrainingAttempt[] = Array.from({ length: 3 }, (_, i) => ({
       id: String(i), createdAt: i, mode: "virtual", activity: "drill", caseTimeMs: 1000,
       target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 1", position: "FR" },
-      moves: ["R"], stm: 1, elapsedMs: 0, recommendedStm: 1, matchedReferenceRank: 1, delta: 0,
+      moves: ["R"], stm: 1, elapsedMs: 0, recommendedStm: 1, matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0,
     }));
     // Practised A = 1, unseen C = 4. B is never introduced.
     const pool = [cases[0], cases[2]];
@@ -105,7 +105,7 @@ it("finds slow first-run cases even after their solved attempts enter persisted 
   const history: TrainingAttempt[] = outcomes.map((o, i) => ({
     id: String(i), createdAt: i, mode: "virtual", activity: "drill", caseTimeMs: o.outcome === "solved" ? o.caseTimeMs : null,
     target: { family: "f2l", origin: "catalog", library: "basic", caseName: o.caseId, position: "FR" },
-    moves: ["R"], stm: 8, elapsedMs: 100, recommendedStm: 8, matchedReferenceRank: 1, delta: 0,
+    moves: ["R"], stm: 8, elapsedMs: 100, recommendedStm: 8, matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0,
   }));
   expect(weakDrillCases(cases, outcomes, history).map(c => c.caseId)).toEqual(["F2L 1"]);
 });

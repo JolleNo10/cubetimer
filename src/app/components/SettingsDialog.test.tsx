@@ -11,7 +11,7 @@ describe("Settings Training libraries", () => {
     const html = renderToStaticMarkup(<ControllerContext.Provider value={controller}>
       <SettingsDialog settings={DEFAULT_SETTINGS} onClose={() => {}} />
     </ControllerContext.Provider>);
-    expect(html).toContain("Solves, Training history and saved drills");
+    expect(html).toContain("Solves, Training history, saved drills and personal algorithms");
     expect(html).toContain("Full JSON backups");
     expect(html).toContain("Export JSON");
     expect(html).toContain("Export session CSV"); expect(html).toContain("Export all CSV");
