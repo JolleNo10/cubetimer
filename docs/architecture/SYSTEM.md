@@ -132,8 +132,8 @@ The following are current architectural rules.
     Every Training target carries an explicit `family` discriminator; runtime and
     presentation must not infer family from unrelated field presence.
     The lifecycle is generalized while F2L target/slot/protected-slot and last-layer
-    stage-completion semantics remain family-owned in the cube domain. Generic
-    Training reference/guide mechanics remain in `src/cube/training.ts`; shared
+    stage-completion semantics remain family-owned in the cube domain. Training
+    reference/checkpoint/progress mechanics remain in `src/cube/training.ts`; shared
     frame conversions belong to `src/cube/frames.ts` as described in [CUBE.md](CUBE.md).
     Remembered F2L library/position live in `f2lSelection`; OLL/PLL training-set
     preferences remain Settings-owned.
@@ -153,3 +153,13 @@ The following are current architectural rules.
 19. **PhysicalCubeRuntime owns physical/device/grip facts; TimerRuntime owns Timer/solve lifecycle.**
     TrainingRuntime owns Training lifecycle. Controller composes and coordinates
     them. There is exactly one physical CubeModel, consumed by both feature runtimes.
+
+20. **Generic move-visualization semantics are shared cube-domain behavior.**
+    `src/cube/moveGuide.ts` owns token kind, axis, layer interval, direction and
+    half-turn representation for Training and Replay. Training owns reference
+    checkpoints/progress; Replay owns recorded action/timestamp/grip reconstruction;
+    React only presents these facts through the shared arrow renderer and controlled
+    move sequence. Do not merge `TrainingGuide` and `ReplayAction` into a universal
+    timeline: expected checkpoints and recorded turns have different semantics and
+    no shared source of truth. Do not duplicate notation/frame interpretation in
+    Replay presentation, which would let arrows drift. See [CUBE.md](CUBE.md).

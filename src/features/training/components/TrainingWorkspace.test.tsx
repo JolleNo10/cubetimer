@@ -5,10 +5,10 @@ import { get3x3x3 } from "../../../cube/puzzle";
 import { ControllerContext } from "../../../app/useController";
 import { Controller } from "../../../app/Controller";
 import type { TrainingResult, TrainingState } from "../TrainingRuntime";
-import { type TrainingGuideMove } from "../../../cube/training";
+import { type MoveGuide } from "../../../cube/moveGuide";
 import { TrainingActions, TrainingAttemptResult, TrainingCubeStage, TrainingReferences, TrainingSetupPanel, TrainingWorkspace } from "./TrainingWorkspace";
 
-vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { displaySource: string; live: boolean; displayFacelets: string; physicalSyncAvailable: boolean; displayRevision: string | number; staticDisplay: boolean; guideMove?: TrainingGuideMove | null }) =>
+vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { displaySource: string; live: boolean; displayFacelets: string; physicalSyncAvailable: boolean; displayRevision: string | number; staticDisplay: boolean; guideMove?: MoveGuide | null }) =>
   <div data-source={props.displaySource} data-live={props.live} data-facelets={props.displayFacelets} data-sync={props.physicalSyncAvailable} data-revision={props.displayRevision} data-static={props.staticDisplay}
     data-guide-token={props.guideMove?.token} data-guide-axis={props.guideMove?.axis} /> }));
 const kpuzzle = await get3x3x3();

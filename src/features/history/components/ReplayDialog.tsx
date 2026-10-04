@@ -22,6 +22,9 @@ import {
   type ReplayAction,
 } from "./replayTimeline";
 import { effectiveMs, type Solve } from "../../../app/types";
+import { moveGuideForToken } from "../../../cube/moveGuide";
+import { CubeMoveGuide } from "../../../shared/ui/CubeMoveGuide";
+import { MoveSequence } from "../../../shared/ui/MoveSequence";
 
 const SPEEDS = [0.25, 0.5, 1, 2];
 
@@ -102,6 +105,10 @@ export function ReplayDialog({
     ),
     [asHeld, moves],
   );
+  const visibleMoves = useMemo(() => replayActions.map(action => action.move), [replayActions]);
+  const currentAction = replayActions[index];
+  // Actions are already in the visible held frame; do not apply grip again.
+  const guideMove = currentAction ? moveGuideForToken(currentAction.move) : null;
   const rawPosition = rawPositionAtReplayIndex(replayActions, index);
   const activeStep = steps ? stepAt(steps, rawPosition) : -1;
   const currentStep = steps?.[activeStep];
@@ -194,19 +201,39 @@ export function ReplayDialog({
     return () => cancelAnimationFrame(frame);
   }, [playing, replayActions, speed, seek]);
 
+  const navigate = useCallback((target: number) => {
+    setPlaying(false);
+    seek(target);
+  }, [seek]);
+
+  const togglePlaying = useCallback(() => {
+    if (!playing && appliedRef.current >= replayActions.length) seek(0);
+    setPlaying(p => !p);
+  }, [playing, replayActions.length, seek]);
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowRight") seek(index + 1);
-      if (e.key === "ArrowLeft") seek(index - 1);
-      if (e.key === " ") {
+      if (e.key === "Escape") { onClose(); return; }
+      const target = e.target;
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey ||
+          target instanceof HTMLElement && (target.isContentEditable ||
+            target.closest("input, select, textarea, [role='textbox'], [role='slider']") ||
+            e.key === " " && target.closest("button, [role='button']"))) return;
+      const destination = e.key === "ArrowRight" ? index + 1
+        : e.key === "ArrowLeft" ? index - 1
+        : e.key === "Home" ? 0
+        : e.key === "End" ? replayActions.length : null;
+      if (destination !== null) {
         e.preventDefault();
-        setPlaying((p) => !p);
+        navigate(destination);
+      } else if (e.key === " ") {
+        e.preventDefault();
+        togglePlaying();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [index, onClose, seek]);
+  }, [index, onClose, navigate, replayActions.length, togglePlaying]);
 
   const atMs = index === 0 ? 0 : replayActions[index - 1].playbackTimeMs;
 
@@ -236,28 +263,33 @@ export function ReplayDialog({
           <div className="mono small dim" style={{ wordBreak: "break-word" }}>
             {solve.scramble}
           </div>
-          <div ref={hostRef} className="replay-cube-host" />
+          <div className="replay-stage">
+            <div ref={hostRef} className="replay-cube-host" />
+            {guideMove ? <CubeMoveGuide move={guideMove} /> : null}
+          </div>
+          <MoveSequence moves={visibleMoves} currentIndex={index} completedCount={index}
+            onSelect={navigate} label="Replay moves" layout="scroll"
+            tokenKind={i => replayActions[i].source === "grip-rotation" ? "rotation" : undefined} />
 
           <div className="row replay-transport">
-            <button onClick={() => seek(0)} title="Back to start" aria-label="Back to start">
+            <button disabled={index === 0} onClick={() => navigate(0)} title="Back to start" aria-label="Back to start">
               ⏮
             </button>
-            <button onClick={() => seek(index - 1)} disabled={index === 0} aria-label="Previous move">
+            <button onClick={() => navigate(index - 1)} disabled={index === 0} aria-label="Previous move">
               ◀
             </button>
             <button
               className="primary"
-              onClick={() => {
-                // Starting again from the end replays the solve from the top.
-                if (!playing && appliedRef.current >= replayActions.length) seek(0);
-                setPlaying((p) => !p);
-              }}
+              onClick={togglePlaying}
+              disabled={!replayActions.length}
             >
               {playing ? "Pause" : "Play"}
             </button>
-            <button onClick={() => seek(index + 1)} disabled={index >= replayActions.length} aria-label="Next move">
+            <button onClick={() => navigate(index + 1)} disabled={index >= replayActions.length} aria-label="Next move">
               ▶
             </button>
+            <button onClick={() => navigate(replayActions.length)} disabled={index >= replayActions.length}
+              title="Jump to end" aria-label="Jump to end">⏭</button>
             <span className="grow" />
             <span className="mono small replay-time">{formatTime(atMs)}</span>
             <select
@@ -279,8 +311,7 @@ export function ReplayDialog({
             max={replayActions.length}
             value={index}
             onChange={(e) => {
-              setPlaying(false);
-              seek(Number(e.target.value));
+              navigate(Number(e.target.value));
             }}
             style={{ width: "100%", padding: 0 }}
             aria-label="Move position"
@@ -311,13 +342,6 @@ export function ReplayDialog({
                 Train this {currentStep.name.startsWith("F2L") ? "F2L" : currentStep.name}
               </button>
             ) : null}
-            <span className="grow" />
-            <span className="mono faint" style={{ wordBreak: "break-word" }}>
-              {replayActions
-                .slice(Math.max(0, index - 8), index)
-                .map((action) => action.move)
-                .join(" ")}
-            </span>
           </div>
           </div>
 
@@ -333,8 +357,7 @@ export function ReplayDialog({
                 // Jumping to a step means the state it started from: click F2L Slot 1
                 // and the cross is done with the first pair still to come.
                 onSelectStep={(step) => {
-                  setPlaying(false);
-                  seek(replayIndexForRawPosition(replayActions, step.fromMove));
+                  navigate(replayIndexForRawPosition(replayActions, step.fromMove));
                 }}
               />
               <div className="small faint" style={{ marginTop: 10 }}>

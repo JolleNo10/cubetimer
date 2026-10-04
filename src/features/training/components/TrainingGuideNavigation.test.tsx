@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Controller } from "../../../app/Controller";
 import { CubeModel } from "../../../cube/model";
 import { get3x3x3 } from "../../../cube/puzzle";
-import { buildTrainingGuide, trainingGuideProgress, type TrainingGuideMove } from "../../../cube/training";
+import type { MoveGuide } from "../../../cube/moveGuide";
+import { buildTrainingGuide, trainingGuideProgress } from "../../../cube/training";
 import { IDENTITY } from "../../../cube/orientation";
 import { TrainingWorkspace } from "./TrainingWorkspace";
 
@@ -12,11 +13,12 @@ import { TrainingWorkspace } from "./TrainingWorkspace";
 // context guard is also tested before its reset effect can run.
 const hooks = vi.hoisted(() => ({
   controller: null as Controller | null, workspace: false, selection: null as unknown,
-  cubeMove: null as TrainingGuideMove | null | undefined,
+  cubeMove: null as MoveGuide | null | undefined,
   cubeFacelets: "", cubeRevision: "", cubeStatic: false,
 }));
 vi.mock("react", async original => ({
   ...await original<typeof import("react")>(),
+  useRef: () => ({ current: null }),
   useMemo: (make: () => unknown) => make(), useEffect: () => {},
   useState: (initial: unknown) => hooks.workspace
     ? [hooks.selection, (value: unknown) => { hooks.selection = value; }]
@@ -30,7 +32,7 @@ vi.mock("../../../app/useController", () => ({
   useStoreValue: (store: { get(): unknown }, select: (value: unknown) => unknown) => select(store.get()),
 }));
 vi.mock("../../../shared/ui/ConnectionPanel", () => ({ ConnectionPanel: () => null }));
-vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { guideMove?: TrainingGuideMove | null; displayFacelets: string; displayRevision: string; staticDisplay: boolean }) => {
+vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { guideMove?: MoveGuide | null; displayFacelets: string; displayRevision: string; staticDisplay: boolean }) => {
   hooks.cubeMove = props.guideMove;
   hooks.cubeFacelets = props.displayFacelets;
   hooks.cubeRevision = props.displayRevision;

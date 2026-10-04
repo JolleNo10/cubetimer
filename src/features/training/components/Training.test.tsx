@@ -43,7 +43,7 @@ describe("Training area", () => {
     };
     const html = draw(result);
     const recommendation = html.split('class="f2l-reference"')[1].split('class="f2l-result-card"')[0];
-    const tokens = [...recommendation.matchAll(/<span class="training-algorithm-token[^\"]*"[^>]*>(.*?)<\/span>/g)].map((match) => match[1].replaceAll("&#x27;", "'"));
+    const tokens = [...recommendation.matchAll(/<span class="move-sequence-token[^\"]*"[^>]*>(.*?)<\/span>/g)].map((match) => match[1].replaceAll("&#x27;", "'"));
     expect(tokens).toEqual(expandedAlgorithmMoves(first.alg));
     expect(tokens).not.toEqual(expandedAlgorithmMoves(next.references[0].alg));
     expect(recommendation).toContain(`<strong>${first.stm} STM</strong>`);
@@ -84,7 +84,7 @@ describe("Training area", () => {
         guide: { ...ready.training.guide!, confirmed: 1, currentMove: null }
       }
     };
-    expect(draw(solving)).toContain('training-algorithm-token completed');
+    expect(draw(solving)).toContain('move-sequence-token completed');
     expect(draw(solving)).toContain('aria-current="step"');
     expect(draw(solving)).toContain(`Move 2 / ${ready.training.guide!.moves.length}`);
     expect(draw({ ...ready, settings: { ...ready.settings, visualization: "2D" } })).not.toContain("cube-move-guide");

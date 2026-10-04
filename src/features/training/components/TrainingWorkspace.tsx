@@ -2,7 +2,8 @@ import { formatTime } from "../../../shared/time";
 import { useEffect, useState, type ReactNode } from "react";
 import { useController, useSettings, useStore, useStoreValue, useTrainingState } from "../../../app/useController";
 import type { TrainingState } from "../TrainingRuntime";
-import type { TrainingGuideMove, TrainingGuideProgress } from "../../../cube/training";
+import type { MoveGuide } from "../../../cube/moveGuide";
+import type { TrainingGuideProgress } from "../../../cube/training";
 
 import { ConnectionPanel } from "../../../shared/ui/ConnectionPanel";
 import { CubeView } from "../../../shared/ui/CubeView";
@@ -10,7 +11,7 @@ import { TrainingAlgorithmGuide, type TrainingGuideNavigation } from "./Training
 
 export type TrainingStepPreview = {
   index: number;
-  move: TrainingGuideMove;
+  move: MoveGuide;
   facelets: string;
 };
 

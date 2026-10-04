@@ -8,6 +8,7 @@ These documents describe current state. Start at [SYSTEM.md](SYSTEM.md); load on
 | --- | --- |
 | Physical model/facelets | `src/cube/model.ts`, `facelets.ts` and matching tests |
 | Moves/notation | `src/cube/moves.ts`, `notation.ts` |
+| Shared move-arrow semantics | `src/cube/moveGuide.ts`; Training checkpoints in `training.ts`, Replay actions in `src/features/history/components/replayTimeline.ts` |
 | Physical/held/solver/display frame conversion | `src/cube/frames.ts`, `orientation.ts`, `recognise.ts` |
 | Grip facts/reconstruction | `src/cube/gyroGrip.ts`, `liveGrip.ts`, `gripTrack.ts` |
 | CFOP analysis/case recognition | `src/cube/analysis.ts`, `recognise.ts`, the relevant family module |
@@ -29,6 +30,7 @@ Important responsibilities include:
 - `facelets.ts` — facelet/KPattern conversion;
 - `scramble.ts` — event definitions, scramble generation and scramble progress;
 - `notation.ts` — move representation, timestamps and turn metrics;
+- `moveGuide.ts` — generic move-visualization semantics shared by Training and Replay;
 - `orientation.ts`, `gyroGrip.ts`, `liveGrip.ts`, `gripTrack.ts` — orientation and held-frame behavior;
 - `analysis.ts` — CFOP phase detection and solve metrics;
 - `recognise.ts` and related modules — case recognition;
@@ -144,7 +146,31 @@ before converting each move. Runtime recovery always converts an entire algorith
 Display rotation is a presentation projection; it must never replace the physical
 CubeModel or substitute for case recognition's `reframe` operation.
 
+## Shared move visualization
+
+Generic move-visualization semantics — token kind, axis, layer interval, direction,
+and half-turn representation — are cube-domain behavior shared by Training and
+Replay. `moveGuideForToken` interprets one supported visible token, optionally
+through an explicit orientation. Training owns reference checkpoints and
+confirmation progress, including the actual centre orientation at each checkpoint.
+Replay owns recorded physical turns, inserted grip rotations and timestamps;
+its already-rewritten visible actions must not have the solve grip applied again.
+React only presents these facts: `CubeMoveGuide` draws them and `MoveSequence`
+presents controlled tokens without owning either timeline.
+
 ## Rejected alternatives
+
+### A universal Training/Replay timeline
+
+Do not merge `TrainingGuide` and `ReplayAction` into one universal timeline
+abstraction. Their expected reference checkpoints/confirmation and recorded
+turns/rotations/timestamps have different meanings. Combining them would obscure
+those semantics and create a broad abstraction without a shared source of truth.
+
+### Interpret move arrows again inside Replay presentation
+
+Rejected because a second notation/frame implementation would allow Training and
+Replay arrows to drift. Both use the cube-domain move guide and shared SVG renderer.
 
 ### Treat display rotation and case reframing as the same operation
 

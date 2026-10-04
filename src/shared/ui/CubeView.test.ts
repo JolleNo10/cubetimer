@@ -11,7 +11,7 @@ import { ControllerContext } from "../../app/useController";
 import { Controller } from "../../app/Controller";
 import { CubeModel } from "../../cube/model";
 import { CubeView } from "./CubeView";
-import { trainingGuideMove } from "../../cube/training";
+import { moveGuideForToken } from "../../cube/moveGuide";
 
 const kpuzzle = await get3x3x3();
 const BASIC_CASES = F2L_TRAINING_CATALOGUES.basic.cases;
@@ -20,7 +20,7 @@ describe("CubeView training orientation", () => {
   it("only includes and locks the instructional overlay for a supplied 3D guide move", () => {
     const controller = new Controller(new CubeModel(kpuzzle));
     const state = controller.snapshot();
-    const markup = (visualization: "3D" | "2D" | "off", guideMove = null as ReturnType<typeof trainingGuideMove>) => renderToStaticMarkup(
+    const markup = (visualization: "3D" | "2D" | "off", guideMove = null as ReturnType<typeof moveGuideForToken>) => renderToStaticMarkup(
       createElement(ControllerContext.Provider, { value: controller }, createElement(CubeView, {
         settings: { ...state.settings, visualization }, facelets: state.cubeFacelets, gyroSupported: false,
         live: true, scramble: "", guideMove,
@@ -28,10 +28,10 @@ describe("CubeView training orientation", () => {
     );
     expect(markup("3D")).not.toContain("cube-move-guide");
     expect(markup("3D")).not.toContain("cube-player-host guided");
-    expect(markup("3D", trainingGuideMove("R"))).toContain("cube-move-guide outer");
-    expect(markup("3D", trainingGuideMove("R"))).toContain("cube-player-host guided");
-    expect(markup("2D", trainingGuideMove("R"))).not.toContain("cube-move-guide");
-    expect(markup("off", trainingGuideMove("R"))).toBe("");
+    expect(markup("3D", moveGuideForToken("R"))).toContain("cube-move-guide outer");
+    expect(markup("3D", moveGuideForToken("R"))).toContain("cube-player-host guided");
+    expect(markup("2D", moveGuideForToken("R"))).not.toContain("cube-move-guide");
+    expect(markup("off", moveGuideForToken("R"))).toBe("");
   });
   it("maps the standard white cross to the displayed bottom face", () => {
     const target = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0]);

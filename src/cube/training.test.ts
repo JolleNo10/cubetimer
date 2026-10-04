@@ -4,7 +4,8 @@ import { get3x3x3 } from "./puzzle";
 import { reframe, withCentresHome } from "./recognise";
 import { patternToFacelets } from "./facelets";
 import { rotationForGrip, IDENTITY } from "./orientation";
-import { algorithmStm, calculateTrainingEfficiency, referenceExecutionSignature, advanceTrainingGuide, buildTrainingGuide, standardTrainingRotation, trainingGuideMove, trainingGuideProgress } from "./training";
+import { moveGuideForToken } from "./moveGuide";
+import { algorithmStm, calculateTrainingEfficiency, referenceExecutionSignature, advanceTrainingGuide, buildTrainingGuide, standardTrainingRotation, trainingGuideProgress } from "./training";
 import { buildF2lCatalogueTarget } from "./f2lTraining";
 import { F2L_TRAINING_CATALOGUES } from "./f2lTrainingCases";
 import { buildLastLayerCatalogueTarget, isLastLayerTrainingComplete, lastLayerCaseIds } from "./lastLayerTraining";
@@ -105,7 +106,7 @@ describe("shared Training checkpoints", () => {
     const progress = trainingGuideProgress(guide);
     expect(progress.moves).toBe(guide.moves);
     expect(progress.guideMoves).toBe(guide.guideMoves);
-    expect(progress.guideMoves[1]).not.toEqual(trainingGuideMove("R"));
+    expect(progress.guideMoves[1]).not.toEqual(moveGuideForToken("R"));
   });
 
   it.each([
@@ -188,27 +189,6 @@ describe("shared Training checkpoints", () => {
     expect(buildTrainingGuide(start, { trainingRotation: identityRotation, references: [] })).toBeNull();
     expect(buildTrainingGuide(start, { trainingRotation: identityRotation, references: [{ alg: "", stm: 0 }] })).toBeNull();
     expect(buildTrainingGuide(start, { trainingRotation: identityRotation, references: [{ alg: "not an alg", stm: 0 }] })).toBeNull();
-  });
-});
-
-describe("guide move semantics", () => {
-  it("reverses prime direction and marks a half turn as direction-independent", () => {
-    expect(trainingGuideMove("R")?.direction).toBe(-1);
-    expect(trainingGuideMove("R'")?.direction).toBe(1);
-    for (const move of ["R2", "M2", "r2"]) expect(trainingGuideMove(move)?.halfTurn).toBe(true);
-  });
-
-  it.each(["r", "f", "Rw", "Fw"])("shows %s as two layers", (token) => {
-    expect(trainingGuideMove(token)).toMatchObject({ kind: "wide", layers: [-1 / 3, 1] });
-  });
-
-  it.each(["M", "E", "S"])("shows %s as the middle slice", (token) => {
-    expect(trainingGuideMove(token)).toMatchObject({ kind: "slice", layers: [-1 / 3, 1 / 3] });
-  });
-
-  it("shows an outer face and whole cube with distinct extents", () => {
-    expect(trainingGuideMove("R")).toMatchObject({ kind: "outer", layers: [1 / 3, 1] });
-    expect(trainingGuideMove("x")).toMatchObject({ kind: "rotation", layers: [-1, 1] });
   });
 });
 

@@ -16,71 +16,21 @@ import {
 } from "./orientation";
 import { reframe, withCentresHome } from "./recognise";
 import { expandedAlgorithmMoves } from "./frames";
-
-export type TrainingGuideMove = {
-  token: string;
-  kind: "outer" | "wide" | "slice" | "rotation";
-  axis: "x" | "y" | "z";
-  /** A layer interval in the fixed solver-facing cube, from -1 to 1. */
-  layers: readonly [number, number];
-  /** Right-hand rotation about the positive axis; half turns have no required direction. */
-  direction: -1 | 1;
-  halfTurn: boolean;
-};
-
-const GUIDE_FACES = {
-  R: { axis: "x", side: 1 }, L: { axis: "x", side: -1 },
-  U: { axis: "y", side: 1 }, D: { axis: "y", side: -1 },
-  F: { axis: "z", side: 1 }, B: { axis: "z", side: -1 },
-} as const;
-
-type GuideKind = TrainingGuideMove["kind"];
-const GUIDE_FAMILIES: Record<string, { face: Face; kind: GuideKind }> = {
-  ...Object.fromEntries(OUTER_FACES.flatMap((face) => [
-    [face, { face, kind: "outer" }],
-    [face.toLowerCase(), { face, kind: "wide" }],
-    [`${face}w`, { face, kind: "wide" }],
-  ])),
-  M: { face: "L", kind: "slice" }, E: { face: "D", kind: "slice" }, S: { face: "F", kind: "slice" },
-  x: { face: "R", kind: "rotation" }, y: { face: "U", kind: "rotation" }, z: { face: "F", kind: "rotation" },
-};
-
-function guideLayers(kind: GuideKind, side: number): readonly [number, number] {
-  if (kind === "rotation") return [-1, 1];
-  if (kind === "slice") return [-1 / 3, 1 / 3];
-  const inner = kind === "wide" ? -1 / 3 : 1 / 3;
-  return side === 1 ? [inner, 1] : [-1, -inner];
-}
-
-/** cubing.js owns notation parsing, including wide turns and expanded groups. */
-export function trainingGuideMove(token: string, orientation: Orientation = IDENTITY): TrainingGuideMove | null {
-  try {
-    const move = new Move(token);
-    const family = GUIDE_FAMILIES[move.quantum.family];
-    const turns = ((move.amount % 4) + 4) % 4;
-    if (!turns || !family) return null;
-    const { face, kind } = family;
-    const { axis, side } = GUIDE_FACES[orientation[face]];
-    const layers = guideLayers(kind, side);
-    return { token, kind, axis, layers, direction: (turns === 3 ? side : -side) as -1 | 1, halfTurn: turns === 2 };
-  } catch {
-    return null;
-  }
-}
+import { moveGuideForToken, type MoveGuide } from "./moveGuide";
 
 export type TrainingGuideProgress = {
   moves: readonly string[];
   /** Exact display instructions built against each reference checkpoint's frame. */
-  guideMoves: readonly TrainingGuideMove[];
+  guideMoves: readonly MoveGuide[];
   checkpointFacelets: readonly string[];
   confirmed: number;
-  currentMove: TrainingGuideMove | null;
+  currentMove: MoveGuide | null;
   finished: boolean;
 };
 
 export type TrainingGuide = {
   moves: readonly string[];
-  guideMoves: readonly TrainingGuideMove[];
+  guideMoves: readonly MoveGuide[];
   checkpoints: readonly KPattern[];
   checkpointKeys: readonly string[];
   /** Normal/input-frame states before each move, plus the final reference state. */
@@ -110,7 +60,7 @@ export function buildTrainingGuide(
     let checkpoint = reframe(kpuzzle, pattern, rotation);
     const checkpoints = [withCentresHome(kpuzzle, checkpoint)];
     const checkpointKeys = [guidePatternKey(checkpoint)];
-    const guideMoves: TrainingGuideMove[] = [];
+    const guideMoves: MoveGuide[] = [];
     for (const token of moves) {
       // Wide/slice turns and rotations change center locations. Reuse the existing
       // orientation group to express the next arrow in the fixed Training view.
@@ -119,7 +69,7 @@ export function buildTrainingGuide(
         .applyAlg(new Alg(candidate.tokens.join(" "))).patternData.CENTERS.pieces
         .every((piece, index) => piece === centers[index]));
       if (!held) return null;
-      const guideMove = trainingGuideMove(token, invert(held.orientation));
+      const guideMove = moveGuideForToken(token, invert(held.orientation));
       if (!guideMove) return null;
       guideMoves.push(guideMove);
       checkpoint = checkpoint.applyMove(token);
@@ -271,7 +221,7 @@ type TrainingReferenceContext = { pattern: KPattern; trainingRotation: Rotation 
 function referenceStepTransitions(guide: TrainingGuide, index: number): Map<string, Set<string>> {
   const transitions = new Map<string, Set<string>>();
   const instruction = guide.guideMoves[index];
-  const faces = OUTER_FACES.filter((face) => GUIDE_FACES[face].axis === instruction.axis);
+  const faces = OUTER_FACES.filter((face) => moveGuideForToken(face)!.axis === instruction.axis);
   const amounts = instruction.halfTurn ? [0, -2, 2] : [0, -1, 1];
   const start = guide.checkpoints[index];
   const endKey = guide.checkpointKeys[index + 1];

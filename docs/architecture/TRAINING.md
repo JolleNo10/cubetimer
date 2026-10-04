@@ -7,7 +7,7 @@ These documents describe current state. Start at [SYSTEM.md](SYSTEM.md); load on
 | Task | First sources |
 | --- | --- |
 | Training lifecycle, setup, virtual pattern, attempts, recovery, retry | `src/features/training/TrainingRuntime.ts` and its tests |
-| Shared frame/reference/guide mechanics | `src/cube/training.ts`; conversion boundary in `src/cube/frames.ts` |
+| Reference checkpoints/progress and frame handling | `src/cube/training.ts`; conversion boundary in `src/cube/frames.ts`; shared visual move semantics in `src/cube/moveGuide.ts` |
 | F2L targets, catalogue/exact history, slots/protected slots, completion | `src/cube/f2lTraining.ts`, `f2lTrainingCases.ts` |
 | Full/2-Look OLL/PLL targets, AUF, variants or stage completion | `src/cube/lastLayerTraining.ts`, `lastLayerCases.ts`, `lastLayerTwoLookCases.ts` |
 | Training presentation | `src/features/training/components/Training.tsx`, `F2LTraining.tsx`, `TrainingWorkspace.tsx` |
@@ -56,6 +56,21 @@ training preserves the solve's phase boundary and recorded grip where available;
 catalogue training may randomize AUF, but exact historical targets do not.
 
 ## Training lifecycle
+
+Training owns reference algorithms, exact checkpoints, checkpoint keys and
+confirmation progress. Guide construction finds each checkpoint's actual centre
+orientation before calling the shared cube-domain `moveGuideForToken`; rotations,
+wide turns and slices can change that frame. React previews exact checkpoint
+facelets separately from live progress and never mutates runtime or physical state.
+`TrainingAlgorithmGuide` maps confirmed/preview indices into the controlled shared
+`MoveSequence`, retaining Training navigation and Follow current behavior.
+
+Generic token kind, axis, layer interval, direction and half-turn representation
+belong to `src/cube/moveGuide.ts`, shared with Replay; React only presents those
+facts. Replay retains its recorded-action/timestamp/grip reconstruction ownership.
+Its cursor counts applied actions: the token/arrow show the next instruction,
+while phase move highlighting consumes the last applied action. Returning from
+Training restores that cursor and speed, paused, through the existing App contract.
 
 ### Shared Training lifecycle
 
@@ -163,6 +178,16 @@ The React renderer must not recreate Basic-versus-Advanced case logic that belon
 Generated thumbnail maps are data products, not general architecture discovery entrypoints.
 
 ## Rejected alternatives
+
+### One universal Training/Replay timeline or a second arrow interpreter
+
+Do not merge `TrainingGuide` and `ReplayAction`: expected reference checkpoints
+and confirmation progress differ from recorded physical turns, inserted grip
+rotations and timestamps. A universal timeline would obscure those meanings
+without a shared source of truth. Do not duplicate move-arrow interpretation in
+Replay React code either; it would create a second notation/frame implementation
+and allow arrows to drift. Share only cube-domain visualization and controlled
+token presentation, as described in [CUBE.md](CUBE.md).
 
 ### Mirror TrainingRuntime state into AppState
 

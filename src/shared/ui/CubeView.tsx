@@ -17,7 +17,7 @@ import type { Settings } from "../../app/types";
 import { FaceletNet } from "./FaceletNet";
 import { faceletsToPattern } from "../../cube/facelets";
 import { previewFacelets } from "../../cube/preview";
-import type { TrainingGuideMove } from "../../cube/training";
+import type { MoveGuide } from "../../cube/moveGuide";
 import { CubeMoveGuide } from "./CubeMoveGuide";
 import { orientFaceletsForDisplay } from "../../cube/frames";
 
@@ -45,7 +45,7 @@ type Props = {
   /** Explicit grip for training views; it overrides settings and gyro orientation. */
   orientationOverride?: Orientation;
   /** Presentation only; the caller owns instructional progress and visibility. */
-  guideMove?: TrainingGuideMove | null;
+  guideMove?: MoveGuide | null;
 };
 
 export function CubeView({

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { MoveSequence } from "../../../shared/ui/MoveSequence";
 import { expandedAlgorithmMoves } from "../../../cube/frames";
 import { type TrainingGuideProgress } from "../../../cube/training";
 
@@ -23,16 +24,9 @@ export function TrainingAlgorithmGuide({ algorithm, guide, active, previewIndex 
   const selectStep = (index: number) => onPreviewStep?.(index === confirmed ? null : index);
   return (
     <div className="training-algorithm-guide">
-      <div className="training-algorithm-tokens mono" aria-label="Recommended algorithm">
-        {moves.map((move, index) => {
-          const className = `training-algorithm-token ${index < confirmed ? "completed" : current && index === confirmed ? "current" : "upcoming"}${browsing && index === viewed ? " previewed" : ""}`;
-          return current ? (
-            <button key={index} type="button" className={className}
-              aria-current={index === confirmed ? "step" : undefined} aria-label={`View move ${index + 1}: ${move}`}
-              onClick={() => selectStep(index)}>{move}</button>
-          ) : <span key={index} className={className}>{move}</span>;
-        })}
-      </div>
+      <MoveSequence moves={moves} currentIndex={current ? confirmed : null}
+        completedCount={confirmed} selectedIndex={browsing ? viewed : null}
+        onSelect={current ? selectStep : undefined} label="Recommended algorithm" />
       {current ? <div className="training-algorithm-navigation" aria-label="Algorithm step navigation">
         <button type="button" className="ghost small" disabled={viewed === 0} onClick={() => selectStep(viewed - 1)}>Previous</button>
         <button type="button" className="ghost small" disabled={viewed === moves.length - 1} onClick={() => selectStep(viewed + 1)}>Next</button>

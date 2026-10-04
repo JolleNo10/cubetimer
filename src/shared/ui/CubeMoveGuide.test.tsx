@@ -1,15 +1,15 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { trainingGuideMove } from "../../cube/training";
+import { moveGuideForToken } from "../../cube/moveGuide";
 import { CubeMoveGuide } from "./CubeMoveGuide";
 
 function render(token: string) {
-  return renderToStaticMarkup(<CubeMoveGuide move={trainingGuideMove(token)!} />);
+  return renderToStaticMarkup(<CubeMoveGuide move={moveGuideForToken(token)!} />);
 }
 
 describe("Cube move surface guidance", () => {
   it.each(["M", "M'", "M2", "E", "E'", "E2", "S", "S'", "S2"])("draws only exterior middle bands for %s", token => {
-    const move = trainingGuideMove(token)!;
+    const move = moveGuideForToken(token)!;
     const html = render(token);
     expect(html).toContain(`cube-move-guide slice`);
     expect(html).toContain(`data-axis="${move.axis}"`);
@@ -22,7 +22,7 @@ describe("Cube move surface guidance", () => {
   });
 
   it.each(["R", "L", "U", "D", "F", "B", "r", "Rw", "l", "u", "f", "x", "y", "z"])("uses the domain-provided interval for %s", token => {
-    const move = trainingGuideMove(token)!;
+    const move = moveGuideForToken(token)!;
     const html = render(token);
     expect(html).toContain(`cube-move-guide ${move.kind}`);
     expect(html).toContain(`data-layer-min="${move.layers[0]}"`);
@@ -30,6 +30,13 @@ describe("Cube move surface guidance", () => {
     const surfaces = [...html.matchAll(/data-surface="([xyz])"/g)].map(match => match[1]);
     expect(surfaces.includes(move.axis)).toBe(move.layers[1] === 1);
     expect(html.match(/data-normal="1"/g)).toHaveLength(surfaces.length);
+  });
+
+  it.each(["R", "r", "M", "x"])("renders a layer, arc and one quarter-turn head for %s", token => {
+    const html = render(token);
+    expect(html).toContain("cube-guide-layer");
+    expect(html).toContain("cube-guide-arc");
+    expect(html.match(/class="cube-guide-arrowhead"/g)).toHaveLength(1);
   });
 
   it("reverses the same near-side arc for a prime move", () => {

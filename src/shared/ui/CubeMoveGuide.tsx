@@ -1,5 +1,5 @@
 import { useId } from "react";
-import type { TrainingGuideMove } from "../../cube/training";
+import type { MoveGuide } from "../../cube/moveGuide";
 
 type Point3 = readonly [number, number, number];
 type Point2 = readonly [number, number];
@@ -26,7 +26,7 @@ function path(points: readonly Point2[], close = false): string {
   return points.map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(2)},${y.toFixed(2)}`).join(" ") + (close ? " Z" : "");
 }
 
-function surfaceBands(move: TrainingGuideMove) {
+function surfaceBands(move: MoveGuide) {
   const bounds: [number, number][] = [[-1, 1], [-1, 1], [-1, 1]];
   bounds[AXIS_INDEX[move.axis]] = [...move.layers];
   // Highlight only exterior cubie surfaces, never a slice's internal cut plane.
@@ -45,7 +45,7 @@ function surfaceBands(move: TrainingGuideMove) {
   });
 }
 
-function ringPoint(move: TrainingGuideMove, angle: number): Point3 {
+function ringPoint(move: MoveGuide, angle: number): Point3 {
   const layer = (move.layers[0] + move.layers[1]) / 2;
   const radius = move.kind === "rotation" ? 1.55 : 1.3;
   const a = radius * Math.cos(angle);
@@ -53,7 +53,7 @@ function ringPoint(move: TrainingGuideMove, angle: number): Point3 {
   return move.axis === "x" ? [layer, a, b] : move.axis === "y" ? [b, layer, a] : [a, b, layer];
 }
 
-function nearSideAngle(move: TrainingGuideMove): number {
+function nearSideAngle(move: MoveGuide): number {
   let nearest = 0;
   for (let index = 1; index < 72; index++) {
     const angle = index / 72 * Math.PI * 2;
@@ -71,7 +71,7 @@ function arrowhead(tip: Point2, previous: Point2): string {
     [tip[0] - ux * 14 - uy * 6.5, tip[1] - uy * 14 + ux * 6.5]], true);
 }
 
-export function CubeMoveGuide({ move }: { move: TrainingGuideMove }) {
+export function CubeMoveGuide({ move }: { move: MoveGuide }) {
   const id = useId().replaceAll(":", "");
   // Half turns deliberately use a neutral direction and heads at both ends.
   const direction = move.halfTurn ? 1 : move.direction;

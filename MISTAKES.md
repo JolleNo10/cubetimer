@@ -1,5 +1,23 @@
 # Mistakes
 
+## 2026-10-04 — Staged whitespace check gating
+
+- What happened: the staged check caught a trailing blank line in a new file, but the commit ran before that result was inspected. The local commit was corrected before pushing.
+- Root cause: verification and the dependent commit were batched without checking the verification exit status.
+- Prevention: inspect the staged whitespace check before running the commit, including newly added files.
+
+## 2026-10-04 — Move-guide extraction and Replay test fixtures
+
+- What happened: the initial extraction missed two test consumers, and initial Replay assertions used the wrong visible face and turn-metric field names.
+- Root cause: a truncated consumer search and assumptions about fixture conventions replaced a complete scoped search and contract check.
+- Prevention: check all old-symbol consumers before verification and construct fixtures from the existing orientation and metric contracts.
+
+## 2026-10-04 — Current token hover contrast
+
+- What happened: desktop visual verification showed that hovering the current instruction removed its accent background, leaving dark text on a dark token.
+- Root cause: the existing global button hover selector outweighed the extracted current-token selector.
+- Prevention: explicitly retain current-token contrast on hover and inspect interactive states during browser verification.
+
 ## 2026-10-03 — Reference path zero-turn candidates
 
 - What happened: the first strict reference matcher rejected even ordinary outer-turn executions.
