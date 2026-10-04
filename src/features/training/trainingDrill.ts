@@ -1,13 +1,10 @@
-import type { TrainingAttempt } from "../../app/types";
-import type { F2lPosition } from "../../cube/f2lCases";
-import { f2lTrainingCatalogue, type F2lTrainingLibrary, type F2lTrainingCase } from "../../cube/f2lTrainingCases";
-import { lastLayerCaseCatalogue, type LastLayerTrainingSet } from "../../cube/lastLayerTraining";
+import type { TrainingAttempt, TrainingDrillPresetContext, TrainingDrillStrategy } from "../../app/types";
+import { f2lTrainingCatalogue, type F2lTrainingCase } from "../../cube/f2lTrainingCases";
+import { lastLayerCaseCatalogue } from "../../cube/lastLayerTraining";
 import { EMPTY_TRAINING_CASE_STATS, trainingCaseKey, trainingStatsByCase, trainingTimingRatio, type TrainingCaseStats, type TrainingCatalogueCase } from "./trainingPerformance";
 
-export type TrainingDrillStrategy = "sequence" | "random" | "weighted";
-export type TrainingDrillContext =
-  | { family: "f2l"; library: F2lTrainingLibrary; position: F2lPosition }
-  | { family: "oll" | "pll"; trainingSet: LastLayerTrainingSet };
+export type { TrainingDrillStrategy } from "../../app/types";
+export type TrainingDrillContext = TrainingDrillPresetContext;
 export type TrainingDrillState = {
   strategy: TrainingDrillStrategy;
   selectedCaseIds: string[];

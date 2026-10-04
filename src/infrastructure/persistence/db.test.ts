@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_EVENT_ID } from "../../cube/scramble";
-import { mergeSettings, migrateSession, migrateSolve, normalizeTrainingAttempt } from "./db";
-import type { Solve, TrainingAttempt } from "../../app/types";
+import { mergeSettings, migrateSession, migrateSolve, normalizeTrainingAttempt, normalizeTrainingDrillPreset } from "./db";
+import type { Solve, TrainingAttempt, TrainingDrillPreset } from "../../app/types";
+
+import { f2lTrainingCatalogue } from "../../cube/f2lTrainingCases";
+import { lastLayerCaseIds } from "../../cube/lastLayerTraining";
 
 const base = {
   id: "1",
@@ -216,8 +219,10 @@ describe("Training IndexedDB adapter", () => {
     vi.resetModules();
     const adapter = await import("./db");
     expect(await adapter.loadTrainingAttempts()).toEqual([]);
-    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 2);
-    expect(createObjectStore).toHaveBeenCalledExactlyOnceWith("trainingAttempts", { keyPath: "id" });
+    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 3);
+    expect(createObjectStore).toHaveBeenCalledWith("trainingAttempts", { keyPath: "id" });
+    expect(createObjectStore).toHaveBeenCalledWith("trainingDrillPresets", { keyPath: "id" });
+    expect(createObjectStore).toHaveBeenCalledTimes(2);
     expect([...stores.values()].slice(0, 3)).toEqual(existing);
     const a = trainingAttempt({ id: "a", createdAt: 20 });
     const b = trainingAttempt({ id: "b", createdAt: 20 });
@@ -227,5 +232,108 @@ describe("Training IndexedDB adapter", () => {
     expect(stores.get("trainingAttempts")!.size).toBe(3);
     expect(await adapter.loadTrainingAttempts()).toEqual([earlier, { ...a, elapsedMs: 200 }, b]);
     expect(put).toHaveBeenLastCalledWith("trainingAttempts", { ...a, elapsedMs: 200 });
+  });
+});
+
+const drillPreset = (values: Partial<TrainingDrillPreset> = {}): TrainingDrillPreset => ({
+  id: "preset", name: "Cases", createdAt: 10, updatedAt: 20,
+  context: { family: "f2l", library: "basic", position: "FR" }, caseIds: ["F2L 4", "F2L 5"], strategy: "sequence", ...values,
+});
+
+describe("TrainingDrillPreset normalization", () => {
+  it.each(["sequence", "random", "weighted"] as const)("accepts %s in Basic FR and Advanced BL", strategy => {
+    for (const library of ["basic", "advanced"] as const) {
+      const ids = f2lTrainingCatalogue(library).cases.slice(0, 3).map(c => c.name);
+      const preset = drillPreset({ strategy, context: { family: "f2l", library, position: library === "basic" ? "FR" : "BL" }, caseIds: ids });
+      expect(normalizeTrainingDrillPreset(preset)).toEqual(preset);
+    }
+  });
+  it.each(["oll", "pll"] as const)("accepts Full and 2-Look %s and normalizes catalogue order/duplicates", family => {
+    for (const trainingSet of ["full", "2look"] as const) {
+      const ids = lastLayerCaseIds(family, trainingSet).slice(0, 3);
+      const preset = drillPreset({ context: { family, trainingSet }, caseIds: [ids[2], ids[0], ids[2], ids[1]] });
+      expect(normalizeTrainingDrillPreset({ ...preset, name: "  Cases  ", outcomes: [] })).toEqual({ ...preset, caseIds: ids });
+    }
+  });
+  it("normalizes F2L order and rejects the whole list when any ID is unknown", () => {
+    expect(normalizeTrainingDrillPreset(drillPreset({ caseIds: ["F2L 5", "F2L 4", "F2L 5"] }))?.caseIds).toEqual(["F2L 4", "F2L 5"]);
+    expect(normalizeTrainingDrillPreset(drillPreset({ caseIds: ["F2L 4", "missing", "F2L 4"] }))).toBeNull();
+  });
+  it.each([
+    { id: "" }, { id: " " }, { name: " " }, { name: "a".repeat(81) },
+    { createdAt: -1 }, { createdAt: NaN }, { updatedAt: Infinity }, { updatedAt: 9 },
+    { strategy: "bad" }, { strategy: null }, { caseIds: [] }, { caseIds: [3] },
+    { context: { family: "bad" } }, { context: { family: "f2l", library: "full", position: "FR" } },
+    { context: { family: "f2l", library: "basic", position: "UF" } },
+    { context: { family: "f2l", library: "basic", position: "FR", trainingSet: "full" } },
+    { context: { family: "oll", trainingSet: "bad" } },
+    { context: { family: "pll", trainingSet: "full", library: "basic" }, caseIds: ["T"] },
+    { context: { family: "oll", trainingSet: "full" }, caseIds: ["missing"] },
+    { context: { family: "pll", trainingSet: "2look" }, caseIds: ["T"] },
+  ])("rejects malformed preset %j", invalid => {
+    expect(normalizeTrainingDrillPreset({ ...drillPreset(), ...invalid })).toBeNull();
+  });
+});
+
+describe("Saved Drill IndexedDB v3 adapter", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+  it("preserves all v2 stores, adds only presets, upserts/deletes after commit and skips malformed rows in deterministic order", async () => {
+    const stores = new Map<string, Map<string, unknown>>(["sessions", "solves", "settings", "trainingAttempts"].map(name => [name, new Map([["old", { id: "old" }]])]));
+    const originals = [...stores.values()];
+    const request = <T>(result: T) => {
+      const req = { result, onsuccess: null as null | (() => void) };
+      queueMicrotask(() => req.onsuccess?.()); return req;
+    };
+    const createObjectStore = vi.fn((name: string, options: unknown) => {
+      expect(options).toEqual({ keyPath: "id" }); stores.set(name, new Map());
+    });
+    let complete: (() => void) | undefined;
+    const database = {
+      objectStoreNames: { contains: (name: string) => stores.has(name) }, createObjectStore,
+      transaction: (name: string) => {
+        const tx = { oncomplete: null as null | (() => void), objectStore: () => ({
+          getAll: () => request([...stores.get(name)!.values()]),
+          put: (row: TrainingDrillPreset) => { stores.get(name)!.set(row.id, row); complete = () => tx.oncomplete?.(); },
+          delete: (id: string) => { stores.get(name)!.delete(id); complete = () => tx.oncomplete?.(); },
+        }) }; return tx;
+      },
+    };
+    const open = vi.fn(() => {
+      const req = { result: database, onupgradeneeded: null as null | (() => void), onsuccess: null as null | (() => void) };
+      queueMicrotask(() => { req.onupgradeneeded?.(); req.onsuccess?.(); }); return req;
+    });
+    vi.stubGlobal("indexedDB", { open }); vi.resetModules();
+    const adapter = await import("./db");
+    expect(await adapter.loadTrainingDrillPresets()).toEqual([]);
+    expect(open).toHaveBeenCalledExactlyOnceWith("cubetimer", 3);
+    expect(createObjectStore).toHaveBeenCalledExactlyOnceWith("trainingDrillPresets", { keyPath: "id" });
+    expect([...stores.values()].slice(0, 4)).toEqual(originals);
+    async function commit(write: Promise<void>) {
+      let resolved = false; void write.then(() => { resolved = true; });
+      await Promise.resolve(); await Promise.resolve();
+      expect(resolved).toBe(false); complete!(); await write;
+    }
+    const a = drillPreset({ id: "a" }), b = drillPreset({ id: "b" }), latest = drillPreset({ id: "latest", updatedAt: 30 });
+    await commit(adapter.saveTrainingDrillPreset(b)); await commit(adapter.saveTrainingDrillPreset(a));
+    await commit(adapter.saveTrainingDrillPreset(latest)); await commit(adapter.saveTrainingDrillPreset({ ...a, name: "Edited" }));
+    stores.get("trainingDrillPresets")!.set("bad", { ...a, id: "bad", caseIds: ["unknown"] });
+    expect(await adapter.loadTrainingDrillPresets()).toEqual([latest, { ...a, name: "Edited" }, b]);
+    expect(stores.get("trainingDrillPresets")!.size).toBe(4);
+    await commit(adapter.deleteTrainingDrillPreset("a"));
+    expect(await adapter.loadTrainingDrillPresets()).toEqual([latest, b]);
+  });
+  it.each(["save", "delete"])("reports %s transaction abort after a successful request", async action => {
+    const error = new Error("aborted");
+    const database = { transaction: () => {
+      const tx = { error, onabort: null as null | (() => void), objectStore: () => ({
+        put: () => queueMicrotask(() => tx.onabort?.()), delete: () => queueMicrotask(() => tx.onabort?.()),
+      }) }; return tx;
+    } };
+    vi.stubGlobal("indexedDB", { open: () => {
+      const req = { result: database, onsuccess: null as null | (() => void) };
+      queueMicrotask(() => req.onsuccess?.()); return req;
+    } }); vi.resetModules();
+    const adapter = await import("./db");
+    await expect(action === "save" ? adapter.saveTrainingDrillPreset(drillPreset()) : adapter.deleteTrainingDrillPreset("preset")).rejects.toBe(error);
   });
 });

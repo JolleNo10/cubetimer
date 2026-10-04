@@ -5,6 +5,21 @@ import type { LastLayerAuf, LastLayerTrainingSet } from "../cube/lastLayerTraini
 import type { F2lTrainingLibrary } from "../cube/f2lTrainingCases";
 import type { F2lPosition } from "../cube/f2lCases";
 
+/** User-authored reusable configuration, independent of live runs and Timer Sessions. */
+export type TrainingDrillPresetContext =
+  | { family: "f2l"; library: F2lTrainingLibrary; position: F2lPosition }
+  | { family: "oll" | "pll"; trainingSet: LastLayerTrainingSet };
+export type TrainingDrillStrategy = "sequence" | "random" | "weighted";
+export type TrainingDrillPreset = {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  context: TrainingDrillPresetContext;
+  strategy: TrainingDrillStrategy;
+  caseIds: string[];
+};
+
 /** Global Training history, independent of Timer Session/Event identity. */
 export type TrainingAttemptTarget =
   | { family: "f2l"; origin: "catalog"; library: F2lTrainingLibrary; caseName: string; position: F2lPosition }

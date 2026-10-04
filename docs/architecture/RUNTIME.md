@@ -63,6 +63,7 @@ Observable stores follow ownership:
 | `physical.state` | Device status, hardware, battery and physical facelets |
 | `timer.state` | Timer phase, scramble/progress/generation, recovery, live moves, source and penalty |
 | `training.state` | Training lifecycle only |
+| `Controller.trainingDrillPresets` | Global persisted named Drill configurations, separate from runtime, Settings and Sessions |
 | `Controller.trainingAttempts` | Global persisted completed Training facts, separate from live Training and Timer history |
 | `training.drillCountdown` | Remaining Drill countdown milliseconds; narrow RAF-frequency presentation only |
 | `Controller.elapsed`, `inspectionLeft` | Shared elapsed publication and Timer inspection remaining |
@@ -73,6 +74,12 @@ synchronous actions; it does not publish or store a second copy. React subscribe
 through ownership hooks. Timer/cube high-frequency subscriptions live below App
 navigation; Header selects stable phase/device facts. Training subscribes directly
 to TrainingRuntime. Presentation-only selection/dialog/hold state remains React-owned.
+
+Saved presets reach TrainingRuntime only as hydrated context, selected cases and
+strategy through a narrow configuration seam. Runtime owns no persistence or saved
+identity. Controller synchronizes applicable OLL/PLL Settings before hydration and
+refuses loads in running/summary state. Start remains explicit; RAF ownership and
+lifecycle are unchanged.
 
 High-frequency physical and Timer stores are subscribed at the smallest feature
 surface that consumes them. Navigation, history, statistics summaries, and case

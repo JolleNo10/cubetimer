@@ -5,14 +5,14 @@
  * more than `localStorage` will hold, hence IndexedDB.
  */
 import { DEFAULT_EVENT_ID, EVENTS, type EventId } from "../../cube/scramble";
-import { DEFAULT_SETTINGS, type Session, type Settings, type Solve, type TrainingAttempt, type TrainingAttemptTarget } from "../../app/types";
+import { DEFAULT_SETTINGS, type Session, type Settings, type Solve, type TrainingAttempt, type TrainingAttemptTarget, type TrainingDrillPreset, type TrainingDrillPresetContext } from "../../app/types";
 import { normaliseLastLayerTrainingSet } from "../../app/settings";
 import { F2L_POSITIONS } from "../../cube/f2lCases";
-import { findF2lTrainingCase } from "../../cube/f2lTrainingCases";
+import { findF2lTrainingCase, f2lTrainingCatalogue } from "../../cube/f2lTrainingCases";
 import { lastLayerCaseIds } from "../../cube/lastLayerTraining";
 
 const DB_NAME = "cubetimer";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -33,6 +33,9 @@ function openDatabase(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("trainingAttempts")) {
         db.createObjectStore("trainingAttempts", { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains("trainingDrillPresets")) {
+        db.createObjectStore("trainingDrillPresets", { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -237,5 +240,62 @@ export async function saveTrainingAttempt(attempt: TrainingAttempt): Promise<voi
     transaction.onabort = () => reject(transaction.error ?? new Error("Training history write aborted."));
     transaction.onerror = () => reject(transaction.error ?? new Error("Training history write failed."));
     transaction.objectStore("trainingAttempts").put(attempt);
+  });
+}
+
+/** Strict current configuration shape. Unknown cases invalidate the entire preset. */
+export function normalizeTrainingDrillPreset(value: unknown): TrainingDrillPreset | null {
+  if (!record(value) || !text(value.id) || !text(value.name) || value.name.trim().length > 80 ||
+      !nonnegative(value.createdAt) || !nonnegative(value.updatedAt) || value.updatedAt < value.createdAt ||
+      !["sequence", "random", "weighted"].includes(value.strategy as string) ||
+      !record(value.context) || !Array.isArray(value.caseIds) || !value.caseIds.length || !value.caseIds.every(text)) return null;
+  const c = value.context;
+  let context: TrainingDrillPresetContext;
+  let catalogue: readonly string[];
+  if (c.family === "f2l") {
+    const position = F2L_POSITIONS.find(p => p === c.position);
+    if (!position || (c.library !== "basic" && c.library !== "advanced") || "trainingSet" in c) return null;
+    context = { family: "f2l", library: c.library, position };
+    catalogue = f2lTrainingCatalogue(c.library).cases.map(c => c.name);
+  } else if (c.family === "oll" || c.family === "pll") {
+    if ((c.trainingSet !== "full" && c.trainingSet !== "2look") || "library" in c || "position" in c) return null;
+    context = { family: c.family, trainingSet: c.trainingSet };
+    catalogue = lastLayerCaseIds(c.family, c.trainingSet);
+  } else return null;
+  if (!value.caseIds.every(id => catalogue.includes(id))) return null;
+  return {
+    id: value.id, name: value.name.trim(), createdAt: value.createdAt, updatedAt: value.updatedAt,
+    context, strategy: value.strategy as TrainingDrillPreset["strategy"],
+    caseIds: catalogue.filter(id => (value.caseIds as string[]).includes(id)),
+  };
+}
+
+export function compareTrainingDrillPresets(a: TrainingDrillPreset, b: TrainingDrillPreset): number {
+  return b.updatedAt - a.updatedAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+export async function loadTrainingDrillPresets(): Promise<TrainingDrillPreset[]> {
+  const rows = await promisify((await store("trainingDrillPresets", "readonly")).getAll() as IDBRequest<unknown[]>);
+  return rows.map(normalizeTrainingDrillPreset).filter((row): row is TrainingDrillPreset => row !== null).sort(compareTrainingDrillPresets);
+}
+
+export async function saveTrainingDrillPreset(preset: TrainingDrillPreset): Promise<void> {
+  const normalized = normalizeTrainingDrillPreset(preset);
+  if (!normalized) throw new Error("Invalid saved Drill configuration.");
+  await writeTrainingDrillPreset(store => store.put(normalized));
+}
+
+export async function deleteTrainingDrillPreset(id: string): Promise<void> {
+  await writeTrainingDrillPreset(store => store.delete(id));
+}
+
+async function writeTrainingDrillPreset(write: (store: IDBObjectStore) => void): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction("trainingDrillPresets", "readwrite");
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error ?? new Error("Saved Drill write aborted."));
+    transaction.onerror = () => reject(transaction.error ?? new Error("Saved Drill write failed."));
+    write(transaction.objectStore("trainingDrillPresets"));
   });
 }

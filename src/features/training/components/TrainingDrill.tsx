@@ -1,3 +1,7 @@
+import { useState } from "react";
+import type { TrainingDrillPreset } from "../../../app/types";
+import { f2lPositionLabel } from "../../../cube/f2lCases";
+import { f2lTrainingCatalogue } from "../../../cube/f2lTrainingCases";
 import { useController, useStore, useTrainingState } from "../../../app/useController";
 import { formatTime } from "../../../shared/time";
 import { drillCatalogue, drillCaseId, trainingDrillSummary, weakDrillCases, type TrainingDrillStrategy } from "../trainingDrill";
@@ -36,7 +40,7 @@ export function TrainingDrillPanel() {
   const summary = trainingDrillSummary(drill.outcomes);
   return <section className="panel training-drill-panel" aria-label="Training drill">
     <div className="panel-head"><span className="panel-title">Drill</span>
-      {drill.running ? <span className="chip">Round {drill.round}</span> : null}
+      {drill.running ? <span className="chip">{drill.round === 0 ? "Starting" : `Round ${drill.round}`}</span> : null}
     </div>
     <div className="panel-body">
       <p className="small dim">Drills use Virtual case mode. The smart cube supplies turns; its real piece state is ignored.</p>
@@ -46,7 +50,8 @@ export function TrainingDrillPanel() {
         <div className="row wrap drill-actions">
           <button className="ghost" onClick={() => controller.stopTrainingDrill()}>Stop drill</button>
         </div>
-      </> : <>
+      </> : drill.status === "configuring" ? <>
+        <SavedDrills />
         <div className="drill-strategies" role="group" aria-label="Drill strategy">
           {DRILL_STRATEGIES.map(s => <button type="button" key={s.id} aria-pressed={s.id === drill.strategy}
             className={s.id === drill.strategy ? "selected" : ""} onClick={() => controller.setDrillStrategy(s.id)}>
@@ -56,8 +61,66 @@ export function TrainingDrillPanel() {
         <div className="row wrap drill-actions"><span className="small">{drill.selectedCaseIds.length} selected</span>
           <button className="primary" disabled={!drill.selectedCaseIds.length} onClick={() => controller.startTrainingDrill()}>Start drill</button>
         </div>
-      </>}
+      </> : null}
     </div>
+  </section>;
+}
+
+
+export function drillPresetDescription(preset: TrainingDrillPreset): string {
+  const context = preset.context;
+  const catalogue = context.family === "f2l"
+    ? `${f2lTrainingCatalogue(context.library).label} F2L · ${f2lPositionLabel(context.position)}`
+    : `${context.trainingSet === "full" ? "Full" : "2-Look"} ${context.family.toUpperCase()}`;
+  return `${catalogue} · ${preset.caseIds.length} ${preset.caseIds.length === 1 ? "case" : "cases"} · ${DRILL_STRATEGIES.find(s => s.id === preset.strategy)!.label}`;
+}
+
+/** Selection and inline editors are presentation state, never a live preset binding. */
+export function SavedDrills() {
+  const controller = useController();
+  const { activity, drill } = useTrainingState();
+  const presets = useStore(controller.trainingDrillPresets);
+  const [selectedId, setSelectedId] = useState("");
+  const [editor, setEditor] = useState<"save" | "rename" | null>(null);
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const selected = presets.find(p => p.id === selectedId) ?? presets[0];
+  if (activity !== "drill" || drill.status !== "configuring") return null;
+  const close = () => { setEditor(null); setName(""); };
+  const run = async (action: () => Promise<boolean>) => {
+    setBusy(true);
+    try { if (await action()) close(); } finally { setBusy(false); }
+  };
+  return <section className="saved-drills" aria-label="Saved drills">
+    <h3 className="small faint">Saved drills</h3>
+    {presets.length ? <>
+      <label className="saved-drill-selector"><span className="sr-only">Saved drill</span>
+        <select value={selected?.id ?? ""} disabled={busy} onChange={event => { setSelectedId(event.target.value); close(); }}>
+          {presets.map(p => <option key={p.id} value={p.id}>{p.name} · {drillPresetDescription(p)}</option>)}
+        </select>
+      </label>
+      {selected ? <p className="small dim saved-drill-context">{drillPresetDescription(selected)}</p> : null}
+      <div className="row wrap saved-drill-actions">
+        <button type="button" disabled={busy || !selected} onClick={() => void run(() => controller.applyTrainingDrillPreset(selected!.id))}>Load</button>
+        <button type="button" disabled={busy || !selected || !drill.selectedCaseIds.length} onClick={() => void run(() => controller.updateTrainingDrillPreset(selected!.id))}>Update</button>
+        <button type="button" disabled={busy || !selected} onClick={() => { setName(selected!.name); setEditor("rename"); }}>Rename</button>
+        <button type="button" className="danger ghost" disabled={busy || !selected} onClick={() => {
+          if (selected && confirm(`Delete saved drill "${selected.name}"?`)) void run(() => controller.deleteTrainingDrillPreset(selected.id));
+        }}>Delete</button>
+      </div>
+    </> : <p className="small dim">No saved drills yet.</p>}
+    {editor ? <form className="saved-drill-editor row wrap" onSubmit={event => {
+      event.preventDefault();
+      if (!name.trim() || busy) return;
+      void run(() => editor === "save" ? controller.createTrainingDrillPreset(name) : controller.renameTrainingDrillPreset(selected!.id, name));
+    }} onKeyDown={event => { if (event.key === "Escape" && !busy) { event.preventDefault(); close(); } }}>
+      <label><span className="sr-only">{editor === "save" ? "New drill name" : "Drill name"}</span>
+        <input autoFocus maxLength={80} value={name} disabled={busy} placeholder="Drill name" onChange={event => setName(event.target.value)} />
+      </label>
+      <button type="submit" disabled={busy || !name.trim() || (editor === "save" && !drill.selectedCaseIds.length)}>{editor === "save" ? "Save" : "Save name"}</button>
+      <button type="button" className="ghost" disabled={busy} onClick={close}>Cancel</button>
+    </form> : <button type="button" className="ghost" disabled={busy || !drill.selectedCaseIds.length}
+      onClick={() => { setName(""); setEditor("save"); }}>Save current as…</button>}
   </section>;
 }
 
@@ -90,7 +153,7 @@ export function TrainingDrillSummary() {
   return <section className="panel drill-summary" aria-label="Drill summary">
     <div className="panel-head"><span className="panel-title">Drill complete</span></div>
     <div className="panel-body">
-      <p>{summary.rounds} rounds · {summary.solved} solved · {summary.skipped} skipped</p>
+      <p>{summary.rounds} {summary.rounds === 1 ? "round" : "rounds"} · {summary.solved} solved · {summary.skipped} skipped</p>
       <DrillRunMetrics summary={summary} />
       {weak.length ? <><h3>Needs work</h3><ul className="drill-weak-cases">{weak.map(c => <li key={c.caseId}>
         <strong>{c.target.family === "f2l" ? c.caseId : `${c.target.family.toUpperCase()} ${c.caseId}`}</strong>
@@ -101,7 +164,6 @@ export function TrainingDrillSummary() {
       <div className="row wrap drill-actions">
         <button disabled={!weak.length} onClick={() => controller.finishTrainingDrillSummary(true)}>Drill weak cases</button>
         <button onClick={() => controller.finishTrainingDrillSummary()}>Repeat same set</button>
-        <button className="ghost" onClick={() => controller.finishTrainingDrillSummary()}>Done</button>
       </div>
     </div>
   </section>;

@@ -187,6 +187,18 @@ export class TrainingRuntime {
       { family, trainingSet: family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet };
   }
 
+  get drillConfigurationContext(): TrainingDrillContext { return this.#drillContext(); }
+
+  /** Hydrate configuration only; no target, countdown or saved-preset identity. */
+  applyDrillConfiguration(context: TrainingDrillContext, caseIds: readonly string[], strategy: TrainingDrillStrategy): void {
+    if (this.state.get().drill.status !== "configuring") return;
+    this.reset("virtual");
+    this.state.update(s => ({ ...s, activity: "drill", family: context.family,
+      f2lSelection: context.family === "f2l" ? { library: context.library, position: context.position } : s.f2lSelection,
+      drill: { ...s.drill, strategy, selectedCaseIds: drillCatalogue(context).map(drillCaseId).filter(id => caseIds.includes(id)) },
+    }));
+  }
+
   setDrillCases(caseIds: readonly string[]): void {
     if (this.state.get().activity !== "drill" || this.state.get().drill.status !== "configuring") return;
     const selectedCaseIds = drillCatalogue(this.#drillContext()).map(drillCaseId).filter(id => caseIds.includes(id));

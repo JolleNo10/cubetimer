@@ -182,7 +182,7 @@ reference matching and completed-attempt callback. Exact solve-step practice alw
 stops Drill and switches to Single. Single retains manual case selection,
 Random/Review, Again, guide previews and virtual auto-reload with result preservation.
 
-Drill configuration is ephemeral runtime state: one current catalogue family/context,
+Drill current configuration is ephemeral runtime state: one current catalogue family/context,
 selected case pool and Sequence/Random/Weighted worst strategy. F2L pools retain
 Basic/Advanced library and position; OLL/PLL pools retain Full/2-Look set. Cards toggle
 membership rather than loading targets. Select all/Clear operate on that catalogue.
@@ -249,14 +249,50 @@ then catalogue order. Display/action pools are bounded to five meaningful weak c
 Summary retains its captured family/library/position or family/set context even when
 Settings changes. Exiting resumes current catalogue rules and clears incompatible IDs.
 
-Drill weak cases configures those IDs with Weighted worst; Repeat same set and Done
-retain pool/strategy. These actions clear previous outcomes and return to configuration,
-requiring explicit Start. No persistent DrillSession, preset or skip record exists;
+Drill weak cases configures those IDs with Weighted worst; Repeat same set
+retains pool/strategy. These actions clear previous outcomes and return to configuration,
+requiring explicit Start. No persistent DrillSession or skip record exists;
 reload discards outcomes/summary, retaining only solved TrainingAttempt facts.
 
 Ready recognition with no countdown does not require continuous RAF. The reveal
 timestamp stays independent of ticks; first move restarts the shared clock, and case
 time includes the entire unticked wait. Solving and countdown require ticks.
+
+## Saved Drill presets
+
+```text
+Drill configuration
+  ephemeral current configuration
+  optional persisted named TrainingDrillPreset
+```
+
+`trainingDrillPresets.ts` constructs and edits configuration-only records; Controller
+owns their separate Store and delegates persistence to `db.ts`. Each record has a
+stable UUID, a trimmed name (1-80 characters), creation/modification timestamps,
+discriminated catalogue context, selected case IDs and strategy. Duplicate names
+are allowed; context metadata distinguishes entries. Presets remain single-family
+and single-catalogue. F2L owns Basic/Advanced library and position; OLL/PLL owns
+Full/2-Look. The durable context/strategy value contracts live in `app/types.ts`
+and are reused by `trainingDrill.ts`; selection policy stays in Training.
+
+Loading restores context and hydrates the existing TrainingRuntime configuration,
+without selecting/revealing a case or starting a countdown. OLL/PLL loads synchronize
+and persist the applicable Settings preference through Controller.updateSettings;
+there is no hidden preset catalogue preference alongside Settings. The other family's
+preference remains unchanged. F2L loads restore remembered library and position.
+
+The runtime owns no preset ID/name and has no link back to the record. Editing a
+loaded pool changes only current configuration; Update explicitly replaces context,
+cases and strategy while retaining ID/name/creation time. Rename changes only the
+name/modification time. Loading does not edit timestamps. Delete removes the record
+without changing current configuration. Record edits persist before Store publication;
+failed writes report through Controller's error path and retain the existing Store.
+
+Save/Update/Load require configuration, never a run or summary. Saved-drill controls
+subscribe once to Controller.trainingDrillPresets and manage only local presentation
+selection/inline editors. Weak-case summary actions and Repeat same set remain
+ephemeral; their configurations can subsequently be saved explicitly. Runs, outcomes,
+countdowns, targets, guides, patterns and summaries never enter preset records.
 
 ## Completed history and catalogue review
 
@@ -335,12 +371,34 @@ owns it through Controller's existing RAF, not a React timer or another RAF. Sho
 algorithms/arrows during a case would turn recognition practice into guided
 execution; answers appear only after solving or Skip.
 
-### Drill configuration in Settings or persisted DrillSession records
+### Saved drills in Settings or persisted DrillSession records
 
-Pools, strategy cursors and active rounds are ephemeral workflow state, not
-preferences. Presets have no persistence requirement yet. Completed rounds already
-produce TrainingAttempt records; a persistent DrillSession model adds no necessary
-source of truth for this flow.
+Settings owns singular application preferences. Saved drills are independently named
+CRUD records with stable IDs and backup/import merging; hiding the collection in
+Settings blurs ownership and worsens record-level merge semantics. Current pools,
+strategy cursors and rounds remain ephemeral. Completed rounds already produce
+TrainingAttempt records; presets store reusable configuration, never historical runs.
+
+### Preset identity in TrainingRuntime or automatic preset updates
+
+Loaded presets are templates, not live bindings. Runtime owns only hydrated
+configuration; retaining preset identity as source-of-truth or automatically saving
+selection changes would turn temporary experiments into unwanted persistent edits.
+Update is explicit.
+
+### Automatically starting preset loads
+
+Loading chooses configuration. Start drill is the explicit countdown/runtime boundary.
+
+### Reinterpreting saved IDs using the current catalogue
+
+Saved IDs mean cases within their own library/position or family/Training set.
+Restore that context first; current Settings/library must not reinterpret them.
+
+### Run outcomes in presets
+
+Preset means reusable configuration. Run outcomes remain ephemeral, with solved
+rounds independently persisted as TrainingAttempt facts.
 
 ### Reveal-to-first-move as pure recognition time
 

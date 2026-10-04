@@ -17,7 +17,7 @@ import * as drillPolicy from "../features/training/trainingDrill";
 import { Controller } from "./Controller";
 import * as db from "../infrastructure/persistence/db";
 import { formatSolveCsv } from "../features/data-transfer/solveCsv";
-import { DEFAULT_SETTINGS, type Session, type Solve, type TrainingAttempt } from "./types";
+import { DEFAULT_SETTINGS, type Session, type Solve, type TrainingAttempt, type TrainingDrillPreset } from "./types";
 
 const kpuzzle = await get3x3x3();
 const BASIC_CASES = F2L_TRAINING_CATALOGUES.basic.cases;
@@ -25,6 +25,7 @@ const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
 
 beforeEach(() => {
+  vi.spyOn(db, "loadTrainingDrillPresets").mockResolvedValue([]);
   vi.spyOn(db, "loadTrainingAttempts").mockResolvedValue([]);
   vi.spyOn(db, "saveTrainingAttempt").mockResolvedValue();
 });
@@ -1129,7 +1130,7 @@ describe("Controller Training history composition", () => {
     vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]);
     vi.spyOn(db, "loadAllSolves").mockResolvedValue([]); vi.spyOn(db, "loadSolves").mockResolvedValue([]);
     const result = await controller.importData(JSON.stringify({ version: 3, sessions: [], solves: [], trainingAttempts: [attempt] }));
-    expect(result).toEqual({ sessions: 0, solves: 0, trainingAttempts: 1 });
+    expect(result).toEqual({ sessions: 0, solves: 0, trainingAttempts: 1, trainingDrillPresets: 0 });
     expect(controller.trainingAttempts.get()).toEqual([attempt]);
     expect(controller.sessions.get().sessionId).toBe("1");
   });
@@ -1224,5 +1225,118 @@ describe("Controller Drill composition", () => {
     await controller.selectSession("2");
     expect(controller.training.state.get().drill).toBe(drill); expect(controller.trainingAttempts.get()).toBe(history);
     expect(controller.sessions.get().sessionId).toBe("2");
+  });
+});
+
+const savedDrill = (values: Partial<TrainingDrillPreset> = {}): TrainingDrillPreset => ({
+  id: "preset", name: "Cases", createdAt: 10, updatedAt: 20, context: { family: "f2l", library: "basic", position: "FR" },
+  caseIds: ["F2L 4", "F2L 5"], strategy: "weighted", ...values,
+});
+function presetController() {
+  stubTimerLoop();
+  const controller = readyController([session("1")], "1");
+  controller.setTrainingActivity("drill"); controller.setDrillCases(["F2L 4", "F2L 5"]);
+  return controller;
+}
+
+describe("Controller Saved Drill composition", () => {
+  it("initializes a separate Store without polluting runtime or Session state", async () => {
+    const preset = savedDrill();
+    vi.mocked(db.loadTrainingDrillPresets).mockResolvedValue([preset]);
+    vi.spyOn(db, "loadSettings").mockResolvedValue({ ...DEFAULT_SETTINGS });
+    vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]);
+    vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    const controller = new Controller(); vi.spyOn(controller, "newScramble").mockResolvedValue();
+    await controller.init();
+    expect(controller.trainingDrillPresets.get()).toEqual([preset]);
+    expect(JSON.stringify(controller.training.state.get())).not.toContain('"preset"');
+    expect(JSON.stringify(controller.sessions.get())).not.toContain('"preset"');
+    expect(controller.state.get()).not.toHaveProperty("trainingDrillPresets");
+  });
+  it("persists before publication and snapshots only current configuration", async () => {
+    const controller = presetController(); const pending = deferred<void>();
+    vi.spyOn(db, "saveTrainingDrillPreset").mockReturnValue(pending.promise);
+    const saving = controller.createTrainingDrillPreset("  New  ");
+    await Promise.resolve();
+    expect(controller.trainingDrillPresets.get()).toEqual([]);
+    controller.setDrillCases(["F2L 6"]);
+    pending.resolve(); expect(await saving).toBe(true);
+    const preset = controller.trainingDrillPresets.get()[0];
+    expect(preset).toMatchObject({ name: "New", context: { family: "f2l", library: "basic", position: "FR" }, caseIds: ["F2L 4", "F2L 5"] });
+    expect(preset).not.toHaveProperty("outcomes"); expect(preset).not.toHaveProperty("running");
+  });
+  it("does not create empty selections and reports failed persistence without phantom records", async () => {
+    const controller = presetController(); const original = [savedDrill()]; controller.trainingDrillPresets.set(original);
+    vi.spyOn(db, "saveTrainingDrillPreset").mockRejectedValue(new Error("storage failed"));
+    controller.setDrillCases([]); expect(await controller.createTrainingDrillPreset("Empty")).toBe(false);
+    expect(db.saveTrainingDrillPreset).not.toHaveBeenCalled();
+    controller.setDrillCases(["F2L 4"]); expect(await controller.createTrainingDrillPreset("New")).toBe(false);
+    expect(controller.trainingDrillPresets.get()).toBe(original); expect(controller.state.get().error).toContain("storage failed");
+  });
+  it("renames independently, explicitly updates latest configuration and deletes without changing it", async () => {
+    const controller = presetController(); const preset = savedDrill(); controller.trainingDrillPresets.set([preset]);
+    vi.spyOn(Date, "now").mockReturnValue(100);
+    vi.spyOn(db, "saveTrainingDrillPreset").mockResolvedValue(); vi.spyOn(db, "deleteTrainingDrillPreset").mockResolvedValue();
+    expect(await controller.renameTrainingDrillPreset(preset.id, " Renamed ")).toBe(true);
+    expect(controller.trainingDrillPresets.get()).toEqual([{ ...preset, name: "Renamed", updatedAt: 100 }]);
+    controller.setDrillCases(["F2L 6"]); controller.setDrillStrategy("random");
+    expect(controller.trainingDrillPresets.get()[0].caseIds).toEqual(preset.caseIds);
+    vi.mocked(Date.now).mockReturnValue(200);
+    expect(await controller.updateTrainingDrillPreset(preset.id)).toBe(true);
+    expect(controller.trainingDrillPresets.get()).toEqual([{ ...preset, name: "Renamed", updatedAt: 200, caseIds: ["F2L 6"], strategy: "random" }]);
+    const before = controller.training.state.get(); const sessions = controller.sessions.get();
+    expect(await controller.deleteTrainingDrillPreset(preset.id)).toBe(true);
+    expect(db.deleteTrainingDrillPreset).toHaveBeenCalledWith(preset.id);
+    expect(controller.trainingDrillPresets.get()).toEqual([]); expect(controller.training.state.get()).toBe(before);
+    expect(controller.sessions.get()).toBe(sessions);
+  });
+  it.each(["basic", "advanced"] as const)("restores complete %s F2L from another family, without target or countdown", async library => {
+    const controller = presetController(); controller.setTrainingFamily("pll");
+    const caseIds = F2L_TRAINING_CATALOGUES[library].cases.slice(0, 2).map(c => c.name);
+    const preset = savedDrill({ context: { family: "f2l", library, position: "BL" }, caseIds, strategy: "sequence" });
+    controller.trainingDrillPresets.set([preset]);
+    const physical = controller.pattern;
+    expect(await controller.applyTrainingDrillPreset(preset.id)).toBe(true);
+    expect(controller.training.state.get()).toMatchObject({ family: "f2l", activity: "drill", mode: "virtual", phase: "selecting", target: null,
+      f2lSelection: { library, position: "BL" }, drill: { status: "configuring", running: false, selectedCaseIds: caseIds, strategy: "sequence", round: 0 } });
+    expect(controller.training.drillCountdown.get()).toBeNull(); expect(controller.pattern).toBe(physical);
+    expect(controller.trainingDrillPresets.get()[0]).toBe(preset);
+    controller.startTrainingDrill(); expect(controller.training.drillCountdown.get()).toBe(2000);
+  });
+  it.each(["oll", "pll"] as const)("restores %s Full/2-Look and persists only that family's Settings preference", async family => {
+    const controller = readyController([session("1")], "1");
+    vi.spyOn(db, "saveSettings").mockResolvedValue();
+    for (const trainingSet of ["2look", "full"] as const) {
+      const ids = lastLayerCaseIds(family, trainingSet).slice(0, 2);
+      const preset = savedDrill({ context: { family, trainingSet }, caseIds: ids, strategy: "random" });
+      controller.trainingDrillPresets.set([preset]);
+      expect(await controller.applyTrainingDrillPreset(preset.id)).toBe(true);
+      expect(controller.state.get().area).toBe("training");
+      expect(controller.training.state.get()).toMatchObject({ family, activity: "drill", target: null,
+        drill: { status: "configuring", running: false, selectedCaseIds: ids, strategy: "random" } });
+      const key = family === "oll" ? "ollTrainingSet" : "pllTrainingSet";
+      const other = family === "oll" ? "pllTrainingSet" : "ollTrainingSet";
+      expect(controller.settings.get()[key]).toBe(trainingSet); expect(controller.settings.get()[other]).toBe("full");
+      expect(db.saveSettings).toHaveBeenLastCalledWith(expect.objectContaining({ [key]: trainingSet, [other]: "full" }));
+      expect(controller.training.drillCountdown.get()).toBeNull();
+    }
+  });
+  it.each(["running", "summary"] as const)("refuses create/update/load during %s without modifying run or saved data", async status => {
+    const controller = presetController(); const preset = savedDrill(); controller.trainingDrillPresets.set([preset]);
+    controller.training.state.update(s => ({ ...s, drill: { ...s.drill, status, running: status === "running" } }));
+    const before = controller.training.state.get(); const settings = controller.settings.get();
+    vi.spyOn(db, "saveTrainingDrillPreset").mockResolvedValue();
+    expect(await controller.applyTrainingDrillPreset(preset.id)).toBe(false);
+    expect(await controller.updateTrainingDrillPreset(preset.id)).toBe(false);
+    expect(await controller.createTrainingDrillPreset("New")).toBe(false);
+    expect(db.saveTrainingDrillPreset).not.toHaveBeenCalled(); expect(controller.training.state.get()).toBe(before); expect(controller.settings.get()).toBe(settings);
+  });
+  it("refreshes imported presets and returns their count", async () => {
+    const controller = presetController(); const preset = savedDrill();
+    vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]); vi.spyOn(db, "loadAllSolves").mockResolvedValue([]); vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    vi.spyOn(db, "saveTrainingDrillPreset").mockImplementation(async () => { vi.mocked(db.loadTrainingDrillPresets).mockResolvedValue([preset]); });
+    expect(await controller.importData(JSON.stringify({ version: 5, sessions: [], solves: [], trainingDrillPresets: [preset] })))
+      .toEqual({ sessions: 0, solves: 0, trainingAttempts: 0, trainingDrillPresets: 1 });
+    expect(controller.trainingDrillPresets.get()).toEqual([preset]);
   });
 });

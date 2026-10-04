@@ -4,15 +4,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Controller } from "../../../app/Controller";
 import { CubeModel } from "../../../cube/model";
 import { get3x3x3 } from "../../../cube/puzzle";
+import * as db from "../../../infrastructure/persistence/db";
+import type { TrainingDrillPreset } from "../../../app/types";
 import type { MoveGuide } from "../../../cube/moveGuide";
 import { Training } from "./Training";
-import { TrainingDrillPanel, TrainingDrillControls, TrainingDrillSummary } from "./TrainingDrill";
+import { TrainingDrillPanel, TrainingDrillControls, TrainingDrillSummary, SavedDrills } from "./TrainingDrill";
 import { TrainingWorkspace, TrainingCubeStage, TrainingActions, TrainingReferences, TrainingAttemptResult } from "./TrainingWorkspace";
 import { TrainingPersonalPerformance } from "./TrainingPerformance";
-const hooks = vi.hoisted(() => ({ controller: null as Controller | null }));
+const hooks = vi.hoisted(() => ({ controller: null as Controller | null, inlineState: null as unknown[] | null, cursor: 0 }));
 vi.mock("react", async original => ({ ...await original<typeof import("react")>(),
   useMemo: (make: () => unknown) => make(), useEffect: () => {},
-  useState: (initial: unknown) => [initial, () => {}], useRef: () => ({ current: null }),
+  useState: (initial: unknown) => {
+    if (!hooks.inlineState) return [initial, () => {}];
+    const index = hooks.cursor++;
+    if (!(index in hooks.inlineState)) hooks.inlineState[index] = initial;
+    return [hooks.inlineState[index], (next: unknown) => { hooks.inlineState![index] = next; }];
+  }, useRef: () => ({ current: null }),
   memo: (component: unknown) => component,
 }));
 vi.mock("../../../app/useController", () => ({
@@ -26,7 +33,7 @@ vi.mock("../../../shared/ui/ConnectionPanel", () => ({ ConnectionPanel: () => nu
 vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { guideMove?: MoveGuide | null }) => <div data-cube="visible" data-guide={props.guideMove?.token} /> }));
 const kpuzzle = await get3x3x3();
 beforeEach(() => { vi.stubGlobal("requestAnimationFrame", () => 1); vi.stubGlobal("cancelAnimationFrame", () => {}); });
-afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { hooks.inlineState = null; vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 type Button = { children?: ReactNode; onClick(): unknown; disabled?: boolean; "aria-label"?: string; "aria-pressed"?: boolean; className?: string };
 function buttons(node: ReactNode): Button[] {
   const found: Button[] = [];
@@ -41,7 +48,7 @@ function buttons(node: ReactNode): Button[] {
 }
 const text = (node: ReactNode): string => Array.isArray(node) ? node.map(text).join("") :
   typeof node === "string" || typeof node === "number" ? String(node) : node && typeof node === "object" && "props" in node ? text((node as ReactElement<{ children?: ReactNode }>).props.children) : "";
-function button(label: string, element = <Training />): Button { return buttons(element).find(b => b["aria-label"] === label || text(b.children) === label)!; }
+function button(label: string, element: ReactNode = <Training />): Button { return buttons(element).find(b => b["aria-label"] === label || text(b.children) === label)!; }
 function fixture(family: "f2l" | "oll" | "pll" = "f2l") {
   let now = 100; vi.spyOn(performance, "now").mockImplementation(() => now); vi.spyOn(Math, "random").mockReturnValue(0);
   const controller = new Controller(new CubeModel(kpuzzle)); hooks.controller = controller;
@@ -73,6 +80,8 @@ describe("Single and Drill presentation", () => {
   });
   it("shows a concealed initial countdown then hides answer, metrics, reference and arrow while ready/solving", () => {
     const { controller } = fixture(); controller.setDrillCases(["F2L 4", "F2L 5"]); controller.startTrainingDrill();
+    expect(renderToStaticMarkup(<TrainingDrillPanel />)).toContain("Starting");
+    expect(renderToStaticMarkup(<TrainingDrillPanel />)).not.toContain("Round 0");
     const initial = renderToStaticMarkup(<TrainingCubeStage />);
     expect(initial).toContain("Case starting"); expect(initial).toContain(">2</strong>"); expect(initial).not.toContain("data-cube");
     controller.training.tick(2100);
@@ -99,7 +108,7 @@ describe("Single and Drill presentation", () => {
     const { controller, reveal } = fixture(); controller.setDrillStrategy("random"); reveal();
     controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
     let html = renderToStaticMarkup(<Training />);
-    expect(html).toContain("Drill complete"); expect(html).toContain("1 rounds · 0 solved · 1 skipped");
+    expect(html).toContain("Drill complete"); expect(html).toContain("1 round · 0 solved · 1 skipped");
     expect(html).toContain("Needs work"); expect(html).toContain("1 skip");
     expect(html).not.toContain("Avg case time"); expect(button("Drill weak cases").disabled).toBe(false);
     button("Drill weak cases").onClick();
@@ -107,14 +116,15 @@ describe("Single and Drill presentation", () => {
     reveal(); controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
     button("Repeat same set").onClick(); expect(controller.training.state.get().drill).toMatchObject({ status: "configuring", running: false, strategy: "weighted", outcomes: [] });
     reveal(); controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
-    button("Done").onClick(); expect(controller.training.state.get().activity).toBe("drill");
+    expect(button("Done")).toBeUndefined();
+    expect(controller.training.state.get().activity).toBe("drill");
   });
   it("shows valid solved summary metrics and disables weak-case action for a clean run", () => {
     const { controller, reveal } = fixture(); reveal(); controller.stopTrainingDrill();
     controller.training.state.update(s => ({ ...s, drill: { ...s.drill, status: "summary", context: { family: "f2l", library: "basic", position: "FR" },
       outcomes: [{ caseId: "F2L 4", outcome: "solved", caseTimeMs: 2300, moveSpanMs: 1000, stm: 8, delta: 0, completedAt: 1 }] } }));
     const html = renderToStaticMarkup(<TrainingDrillSummary />);
-    expect(html).toContain("1 rounds · 1 solved · 0 skipped"); expect(html).toContain("Avg case time"); expect(html).toContain("Best case time");
+    expect(html).toContain("1 round · 1 solved · 0 skipped"); expect(html).toContain("Avg case time"); expect(html).toContain("Best case time");
     expect(html).toContain("2.30"); expect(html).toContain("Avg STM"); expect(html).toContain("8.0");
     expect(button("Drill weak cases", <TrainingDrillSummary />).disabled).toBe(true);
   });
@@ -124,5 +134,121 @@ describe("Single and Drill presentation", () => {
     expect(html).toContain("2.30"); expect(html).toContain("case time"); expect(html).toContain("Move span 0.00");
     expect(html).toContain("1 STM"); expect(html).toContain("Recommended solution");
     expect(html.indexOf("case time")).toBeLessThan(html.indexOf("Move span"));
+  });
+});
+
+type UiProps = { children?: ReactNode; disabled?: boolean; value?: string; onClick?: () => unknown;
+  onChange?: (event: { target: { value: string } }) => void; onSubmit?: (event: { preventDefault(): void }) => void;
+  onKeyDown?: (event: { key: string; preventDefault(): void }) => void };
+function nativeNodes(node: ReactNode, kind: string): UiProps[] {
+  if (Array.isArray(node)) return node.flatMap(child => nativeNodes(child, kind));
+  if (!node || typeof node !== "object" || !("props" in node)) return [];
+  const element = node as ReactElement<UiProps>;
+  return [...(element.type === kind ? [element.props] : []), ...nativeNodes(element.props.children, kind)];
+}
+function savedUi() { hooks.cursor = 0; return SavedDrills(); }
+const savedPreset = (values: Partial<TrainingDrillPreset> = {}): TrainingDrillPreset => ({
+  id: "preset", name: "Same name", createdAt: 10, updatedAt: 20, context: { family: "pll", trainingSet: "2look" },
+  caseIds: ["Headlights"], strategy: "weighted", ...values,
+});
+async function settleUi() { await new Promise<void>(resolve => setTimeout(resolve, 0)); }
+
+describe("Saved drills configuration presentation", () => {
+  it("shows an empty state and keeps normal manual configuration available", () => {
+    fixture();
+    expect(renderToStaticMarkup(<Training />)).toContain("No saved drills yet.");
+    expect(button("Save current as…", <TrainingDrillPanel />).disabled).toBe(true);
+    expect(button("Start drill").disabled).toBe(true);
+    button("Select all").onClick();
+    expect(button("Save current as…", <TrainingDrillPanel />).disabled).toBe(false);
+  });
+  it("saves with an inline form, rejects blank names, closes after success and preserves configuration", async () => {
+    const { controller } = fixture(); controller.setDrillCases(["F2L 4"]); hooks.inlineState = [];
+    vi.spyOn(db, "saveTrainingDrillPreset").mockResolvedValue();
+    const create = vi.spyOn(controller, "createTrainingDrillPreset");
+    const before = controller.training.state.get();
+    button("Save current as…", savedUi()).onClick();
+    expect(nativeNodes(savedUi(), "input")).toHaveLength(1);
+    expect(button("Save", savedUi()).disabled).toBe(true);
+    nativeNodes(savedUi(), "form")[0].onSubmit!({ preventDefault() {} }); expect(create).not.toHaveBeenCalled();
+    nativeNodes(savedUi(), "input")[0].onChange!({ target: { value: "  New drill  " } });
+    expect(button("Save", savedUi()).disabled).toBe(false);
+    nativeNodes(savedUi(), "form")[0].onSubmit!({ preventDefault() {} }); await settleUi();
+    expect(create).toHaveBeenCalledWith("  New drill  "); expect(controller.trainingDrillPresets.get()[0].name).toBe("New drill");
+    expect(nativeNodes(savedUi(), "input")).toHaveLength(0); expect(controller.training.state.get()).toBe(before);
+  });
+  it("keeps the editor open and existing list intact when saving fails", async () => {
+    const { controller } = fixture(); controller.setDrillCases(["F2L 4"]); hooks.inlineState = [];
+    vi.spyOn(db, "saveTrainingDrillPreset").mockRejectedValue(new Error("quota"));
+    button("Save current as…", savedUi()).onClick();
+    nativeNodes(savedUi(), "input")[0].onChange!({ target: { value: "New" } });
+    nativeNodes(savedUi(), "form")[0].onSubmit!({ preventDefault() {} }); await settleUi();
+    expect(nativeNodes(savedUi(), "input")[0].value).toBe("New");
+    expect(controller.trainingDrillPresets.get()).toEqual([]); expect(controller.state.get().error).toContain("quota");
+  });
+  it("renders all families and distinguishes duplicate names using context", () => {
+    const { controller } = fixture();
+    controller.trainingDrillPresets.set([savedPreset(), savedPreset({ id: "other", context: { family: "f2l", library: "advanced", position: "BL" }, caseIds: ["AF2L 1", "AF2L 2"], strategy: "sequence" })]);
+    const html = renderToStaticMarkup(<TrainingDrillPanel />);
+    expect(html.match(/Same name/g)).toHaveLength(2);
+    expect(html).toContain("2-Look PLL · 1 case · Weighted worst");
+    expect(html).toContain("Advanced F2L · Back Left · 2 cases · Sequence");
+  });
+  it("Load switches family, Settings and case-card selection while leaving Start explicit", async () => {
+    const { controller } = fixture(); const preset = savedPreset(); controller.trainingDrillPresets.set([preset]); hooks.inlineState = [];
+    vi.spyOn(db, "saveSettings").mockResolvedValue(); const apply = vi.spyOn(controller, "applyTrainingDrillPreset");
+    button("Load", savedUi()).onClick(); await settleUi();
+    expect(apply).toHaveBeenCalledWith(preset.id);
+    expect(controller.training.state.get()).toMatchObject({ family: "pll", drill: { strategy: "weighted", selectedCaseIds: ["Headlights"], running: false, status: "configuring" } });
+    const html = renderToStaticMarkup(<Training />);
+    expect(html).toContain("2-Look PLL cases"); expect(html).toContain("✓ Selected");
+    expect(controller.training.drillCountdown.get()).toBeNull(); expect(button("Start drill").disabled).toBe(false);
+  });
+  it("Update stays disabled for an empty pool and persists only after explicit action", async () => {
+    const { controller } = fixture(); const preset = savedPreset(); controller.trainingDrillPresets.set([preset]); hooks.inlineState = [];
+    vi.spyOn(db, "saveTrainingDrillPreset").mockResolvedValue();
+    expect(button("Update", savedUi()).disabled).toBe(true);
+    controller.setDrillCases(["F2L 4"]); controller.setDrillStrategy("random");
+    expect(controller.trainingDrillPresets.get()[0]).toBe(preset);
+    button("Update", savedUi()).onClick(); await settleUi();
+    expect(controller.trainingDrillPresets.get()[0]).toMatchObject({ id: preset.id, name: preset.name, context: { family: "f2l", library: "basic", position: "FR" }, caseIds: ["F2L 4"], strategy: "random" });
+  });
+  it("renames inline, Cancel/Escape leave records unchanged", async () => {
+    const { controller } = fixture(); const preset = savedPreset(); controller.trainingDrillPresets.set([preset]); hooks.inlineState = [];
+    vi.spyOn(db, "saveTrainingDrillPreset").mockResolvedValue();
+    button("Rename", savedUi()).onClick(); expect(nativeNodes(savedUi(), "input")[0].value).toBe(preset.name);
+    nativeNodes(savedUi(), "input")[0].onChange!({ target: { value: "Cancel me" } });
+    button("Cancel", savedUi()).onClick(); expect(controller.trainingDrillPresets.get()[0]).toBe(preset);
+    button("Rename", savedUi()).onClick();
+    nativeNodes(savedUi(), "form")[0].onKeyDown!({ key: "Escape", preventDefault() {} });
+    expect(nativeNodes(savedUi(), "form")).toHaveLength(0);
+    button("Rename", savedUi()).onClick();
+    nativeNodes(savedUi(), "input")[0].onChange!({ target: { value: " Renamed " } });
+    nativeNodes(savedUi(), "form")[0].onSubmit!({ preventDefault() {} }); await settleUi();
+    expect(controller.trainingDrillPresets.get()[0]).toEqual({ ...preset, name: "Renamed", updatedAt: expect.any(Number) });
+    expect(nativeNodes(savedUi(), "form")).toHaveLength(0);
+  });
+  it("delete confirms, selects the remaining record and leaves the selected case pool unchanged", async () => {
+    const { controller } = fixture(); controller.setDrillCases(["F2L 4"]);
+    controller.trainingDrillPresets.set([savedPreset(), savedPreset({ id: "other", name: "Other" })]); hooks.inlineState = [];
+    vi.spyOn(db, "deleteTrainingDrillPreset").mockResolvedValue(); vi.stubGlobal("confirm", vi.fn(() => false));
+    button("Delete", savedUi()).onClick(); expect(db.deleteTrainingDrillPreset).not.toHaveBeenCalled();
+    vi.stubGlobal("confirm", vi.fn(() => true)); const before = controller.training.state.get();
+    button("Delete", savedUi()).onClick(); await settleUi();
+    expect(nativeNodes(savedUi(), "select")[0].value).toBe("other"); expect(controller.training.state.get()).toBe(before);
+  });
+  it.each(["running", "summary"] as const)("hides all preset controls in %s, even if the configuration panel is mounted", status => {
+    const { controller } = fixture(); controller.trainingDrillPresets.set([savedPreset()]);
+    controller.training.state.update(s => ({ ...s, drill: { ...s.drill, status, running: status === "running" } }));
+    expect(SavedDrills()).toBeNull(); expect(renderToStaticMarkup(<TrainingDrillPanel />)).not.toContain("Saved drills");
+    expect(renderToStaticMarkup(<Training />)).not.toContain("Save current as");
+  });
+  it("renders multiple completed outcomes as rounds", () => {
+    const { controller } = fixture();
+    controller.training.state.update(s => ({ ...s, drill: { ...s.drill, status: "summary", outcomes: [
+      { caseId: "F2L 4", outcome: "skipped", completedAt: 1 }, { caseId: "F2L 5", outcome: "skipped", completedAt: 2 },
+    ] } }));
+    expect(renderToStaticMarkup(<TrainingDrillSummary />)).toContain("2 rounds");
+    expect(button("Done", <TrainingDrillSummary />)).toBeUndefined();
   });
 });

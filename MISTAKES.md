@@ -446,3 +446,12 @@ not independently invented states. The original entry is retained as history.
   reconcile captured context in the shared reset boundary and cover navigation
   and activity changes as well as summary buttons. Browser assertions must read
   the actual selected catalogue order rather than assuming input click order.
+
+## Saved Drill text encoding
+
+- What happened: a PowerShell pipe used to write new UI code replaced non-ASCII
+  punctuation with question marks; the selected-card UI test exposed the mismatch.
+- Root cause: the pipe encoded the Python source with the host console code page.
+- Prevention: send ASCII-only source with Unicode escapes through shell pipes, or
+  use apply_patch for Unicode text; verify rendered copy rather than matching two
+  equally corrupted literals.

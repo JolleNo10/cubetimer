@@ -160,19 +160,22 @@ The current database is:
 
 ```text
 name: cubetimer
-schema version: 2
+schema version: 3
 
 stores:
   sessions
   solves
   settings
   trainingAttempts
+  trainingDrillPresets
 ```
 
 The v1-to-v2 upgrade adds `trainingAttempts` with key path `id` without replacing
 Sessions, Solves or Settings. No speculative Training indexes are needed; startup
 loads all attempts in timestamp-then-ID order. Stable-ID `put()` upserts are
-idempotent, and Training writes wait for transaction completion.
+idempotent, and Training writes wait for transaction completion. The v2-to-v3
+upgrade adds only `trainingDrillPresets` with key path `id`; all four existing
+stores and their records survive.
 
 ### Persisted records
 
@@ -181,6 +184,7 @@ idempotent, and Training writes wait for transaction completion.
 - `Session`;
 - `Solve`;
 - `TrainingAttempt`;
+- `TrainingDrillPreset`;
 - `Settings`.
 
 Components do not write IndexedDB directly.
@@ -199,7 +203,7 @@ React
   v
 Controller public API
   |
-  +--> SessionService / SolveHistory / TrainingHistory / DataTransfer
+  +--> SessionService / SolveHistory / TrainingHistory / TrainingDrillPresets / DataTransfer
           |
           v
         db.ts
@@ -235,8 +239,28 @@ mastery; their source Solve need not still exist.
 discriminated target/catalogue combinations, result numbers and move array. It
 rebuilds the contract explicitly and skips malformed records on load/import. Missing
 additive activity/case-time fields in older records normalize to
-Single/null without discarding history. The store shape is unchanged and IndexedDB
-remains schema version 2.
+Single/null without discarding history. The TrainingAttempt store shape is unchanged.
+
+### Saved Drill configuration
+
+```text
+React -> Controller -> TrainingDrillPresets workflow -> db.ts
+-> IndexedDB trainingDrillPresets
+```
+
+TrainingAttempt is a historical completed practice fact. TrainingDrillPreset is
+user-authored reusable configuration. Neither is a Timer Session. Presets are global
+records with stable UUIDs, names (duplicates allowed), createdAt/updatedAt,
+discriminated catalogue context, selected cases and strategy. They contain no live
+run state, targets, outcomes, or summaries and are not a Settings collection.
+
+`normalizeTrainingDrillPreset` validates/rebuilds the current shape, including valid
+context and every supplied case ID. Unknown cases reject the entire preset. Valid
+duplicates collapse and cases normalize into catalogue order. Empty presets are
+invalid. Load/import skip malformed rows; save rejects invalid records. Loads order
+by updatedAt descending, then ID. Stable-ID put and delete await transaction completion.
+Controller serializes explicit edits and publishes only after successful persistence;
+loading/using a preset does not change modification time.
 
 ### Legacy normalization
 
@@ -261,18 +285,22 @@ The export writes:
 
 ```text
 format: cubetimer
-version: 4
+version: 5
 ```
 
 Event identity exists on Sessions in the exported model.
-Full v4 backups contain `sessions`, `solves` and global `trainingAttempts`, including
+Full v5 backups contain `sessions`, `solves`, global `trainingAttempts` and
+`trainingDrillPresets`. Training attempts include
 activity and case time. Version-3 attempts without those fields import as Single/null.
 Older v2 archives without Training history still import as an empty incoming attempt list,
 preserving existing local Training history. Current records normalize before
 stable-ID upsert; repeated import does not duplicate IDs. Training attempts do not
 participate in Session event compatibility checks or require a source Solve in the
-archive. JSON import counts include attempts and Controller refreshes its history
-Store after success. CSV remains Solve-only and its contract is unchanged.
+archive. v4/v3/v2 archives without presets contribute an empty incoming list,
+preserving existing saved drills. Presets normalize and stable-ID upsert independently
+of Session/Solve compatibility and TrainingAttempt source-Solve checks. Same-name,
+different-ID presets coexist. JSON import counts include attempts and presets;
+Controller refreshes both separate Stores after success. CSV remains Solve-only and its contract is unchanged.
 
 The JSON import path normalizes legacy Session/Solve shapes through the current persistence migrations before saving them.
 

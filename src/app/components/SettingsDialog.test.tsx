@@ -6,12 +6,12 @@ import { DEFAULT_SETTINGS } from "../types";
 import { SettingsDialog } from "./SettingsDialog";
 
 describe("Settings Training libraries", () => {
-  it("explains that full JSON backups include Training history while retaining Solve CSV actions", () => {
+  it("explains that full JSON backups include Training history and saved drills while retaining Solve CSV actions", () => {
     const controller = new Controller();
     const html = renderToStaticMarkup(<ControllerContext.Provider value={controller}>
       <SettingsDialog settings={DEFAULT_SETTINGS} onClose={() => {}} />
     </ControllerContext.Provider>);
-    expect(html).toContain("Solves and Training history");
+    expect(html).toContain("Solves, Training history and saved drills");
     expect(html).toContain("Full JSON backups");
     expect(html).toContain("Export JSON");
     expect(html).toContain("Export session CSV"); expect(html).toContain("Export all CSV");

@@ -31,7 +31,7 @@ SmartCube -> PhysicalCubeRuntime -> Controller routing <- Keyboard / UI
                                  |
                               React UI
 
-Controller -> SessionService / SolveHistory / TrainingHistory / DataTransfer -> db.ts
+Controller -> SessionService / SolveHistory / TrainingHistory / TrainingDrillPresets / DataTransfer -> db.ts
 ```
 
 The important ownership direction is:
@@ -57,7 +57,7 @@ src/
     useController.ts, types.ts, settings.ts, scrambleProvider.ts, components/
   features/
     timer/           TimerRuntime.ts, components/
-    training/        TrainingRuntime.ts, trainingHistory.ts, trainingPerformance.ts, trainingDrill.ts, components/
+    training/        TrainingRuntime.ts, trainingHistory.ts, trainingPerformance.ts, trainingDrill.ts, trainingDrillPresets.ts, components/
     sessions/        sessionService.ts
     history/         solveHistory.ts, repair.ts, components/
     data-transfer/   dataTransfer.ts, solveCsv.ts, csv.ts
@@ -142,6 +142,11 @@ The following are current architectural rules.
     only, with selected case pools, runtime-owned countdowns and ephemeral run outcomes/
     summaries. Skips affect only the active run, never persisted mastery. Completed solved Drill
     rounds are dedicated TrainingAttempt records, never Solves.
+    Named TrainingDrillPreset records persist reusable single-catalogue configuration,
+    independently of runtime/history/Settings. Controller owns their separate Store;
+    loading hydrates ordinary Drill configuration and keeps Start explicit. F2L
+    context owns library/position; OLL/PLL context synchronizes the applicable
+    Settings Full/2-Look preference. Loaded presets are templates with explicit edits.
     Live attempt state is ephemeral; completed facts may be persisted as dedicated
     `TrainingAttempt` records. Controller coordinates the completion callback with
     TrainingHistory and publishes a separate Training-attempt Store. These records
@@ -156,7 +161,7 @@ The following are current architectural rules.
     The application does not fetch either external source at runtime.
 
 18. **Persisted workflows are separate from live runtime orchestration.**
-    SessionService, SolveHistory, TrainingHistory, and DataTransfer own persisted application-data
+    SessionService, SolveHistory, TrainingHistory, TrainingDrillPresets, and DataTransfer own persisted application-data
     workflows and return explicit results. Controller owns Timer/Training runtime
     policy and applies the runtime consequences of those results.
 

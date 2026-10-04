@@ -2,6 +2,7 @@ import type { KPuzzle } from "cubing/kpuzzle";
 import * as db from "../../infrastructure/persistence/db";
 import * as sessionService from "../sessions/sessionService";
 import { saveSolve } from "../history/solveHistory";
+import * as drillPresets from "../training/trainingDrillPresets";
 import * as trainingHistory from "../training/trainingHistory";
 import { countSolveCsvRows, solveCsvBatches, formatSolveCsv } from "./solveCsv";
 import type { Session, Solve } from "../../app/types";
@@ -14,13 +15,14 @@ export type ImportResult = {
 };
 
 export async function exportData(): Promise<string> {
-  const [sessions, solves, trainingAttempts] = await Promise.all([
+  const [sessions, solves, trainingAttempts, trainingDrillPresets] = await Promise.all([
     db.loadSessions(),
     db.loadAllSolves(),
     trainingHistory.loadTrainingAttempts(),
+    drillPresets.loadTrainingDrillPresets(),
   ]);
   return JSON.stringify(
-    { format: "cubetimer", version: 4, exportedAt: Date.now(), sessions, solves, trainingAttempts },
+    { format: "cubetimer", version: 5, exportedAt: Date.now(), sessions, solves, trainingAttempts, trainingDrillPresets },
     null,
     2,
   );
@@ -31,11 +33,12 @@ export async function importData(
   kpuzzle: KPuzzle | undefined,
   previous: SessionContext,
   json: string,
-): Promise<ImportResult & { trainingAttempts: number }> {
+): Promise<ImportResult & { trainingAttempts: number; trainingDrillPresets: number }> {
   const data = JSON.parse(json) as {
     sessions?: Array<Omit<Session, "event"> & { event?: unknown }>;
     solves?: Array<Solve & { event?: unknown }>;
     trainingAttempts?: unknown[];
+    trainingDrillPresets?: unknown[];
   };
   if (!Array.isArray(data.sessions) || !Array.isArray(data.solves)) {
     throw new Error("This does not look like a cubetimer export.");
@@ -48,6 +51,8 @@ export async function importData(
   const importedSolves: Solve[] = [];
   const attempts = (Array.isArray(data.trainingAttempts) ? data.trainingAttempts : [])
     .map(db.normalizeTrainingAttempt).filter(attempt => attempt !== null);
+  const presets = (Array.isArray(data.trainingDrillPresets) ? data.trainingDrillPresets : [])
+    .map(db.normalizeTrainingDrillPreset).filter(preset => preset !== null);
   for (const rawSolve of data.solves) {
     if (!rawSolve?.id || !rawSolve.sessionId || typeof rawSolve.rawMs !== "number") continue;
     importedSolves.push(
@@ -62,8 +67,9 @@ export async function importData(
   for (const session of sessions) await db.saveSession(session);
   for (const solve of importedSolves) await saveSolve(solve);
   for (const attempt of attempts) await trainingHistory.saveTrainingAttempt(attempt);
+  for (const preset of presets) await drillPresets.saveTrainingDrillPreset(preset);
   const context = await sessionService.reloadContext(kpuzzle, previous);
-  return { sessions: sessions.length, solves: importedSolves.length, trainingAttempts: attempts.length, context };
+  return { sessions: sessions.length, solves: importedSolves.length, trainingAttempts: attempts.length, trainingDrillPresets: presets.length, context };
 }
 
 /** Validate before writing, then yield to the browser between CSV batches. */

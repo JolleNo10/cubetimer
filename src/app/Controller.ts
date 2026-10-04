@@ -27,6 +27,7 @@ import { Store } from "../shared/store";
 import { TimerRuntime, type TimerState } from "../features/timer/TimerRuntime";
 import { TrainingRuntime, type CompletedTrainingAttempt, type TrainingActivity, type TrainingFamily, type TrainingMode } from "../features/training/TrainingRuntime";
 import type { TrainingDrillStrategy } from "../features/training/trainingDrill";
+import * as trainingDrillPresets from "../features/training/trainingDrillPresets";
 import * as trainingHistory from "../features/training/trainingHistory";
 import { catalogueCaseForTarget, selectTrainingReview, type TrainingCatalogueCase } from "../features/training/trainingPerformance";
 import {
@@ -35,6 +36,7 @@ import {
   type Settings,
   type Solve,
   type TrainingAttempt,
+  type TrainingDrillPreset,
 } from "./types";
 
 export type AppArea = "timer" | "training" | "statistics";
@@ -53,6 +55,8 @@ export class Controller {
   readonly timer: TimerRuntime;
   readonly training: TrainingRuntime;
   readonly trainingAttempts = new Store<TrainingAttempt[]>([]);
+  readonly trainingDrillPresets = new Store<TrainingDrillPreset[]>([]);
+  #presetMutationQueue: Promise<void> = Promise.resolve();
   #pendingTrainingWrites = new Set<Promise<void>>();
   #rafHandle: number | null = null;
   #areaBeforeStatistics: "timer" | "training" | null = null;
@@ -179,6 +183,7 @@ export class Controller {
     this.settings.set(settings);
     this.sessions.set({ sessions, sessionId, solves, lastSolve: solves.at(-1) ?? null });
     this.trainingAttempts.set(await trainingHistory.loadTrainingAttempts());
+    this.trainingDrillPresets.set(await trainingDrillPresets.loadTrainingDrillPresets());
     this.state.update((state) => ({ ...state, ready: true }));
     await this.newScramble();
   }
@@ -250,6 +255,93 @@ export class Controller {
   stopTrainingDrill(): void { this.training.stopDrill(); }
   finishTrainingDrillSummary(weakOnly = false): void { this.training.finishDrillSummary(weakOnly); }
   skipTrainingDrillCase(): void { this.training.skipDrillCase(); }
+
+  #presetConfiguration(): trainingDrillPresets.DrillPresetConfiguration {
+    const { activity, drill } = this.training.state.get();
+    return { activity, status: drill.status, context: this.training.drillConfigurationContext,
+      caseIds: drill.selectedCaseIds, strategy: drill.strategy };
+  }
+
+  /** Serialize explicit record edits and publish only committed records. */
+  #editDrillPreset(edit: () => Promise<TrainingDrillPreset | string | null>): Promise<boolean> {
+    const pending = this.#presetMutationQueue.then(async () => {
+      try {
+        const result = await edit();
+        if (result === null) return false;
+        this.trainingDrillPresets.update(presets => {
+          const id = typeof result === "string" ? result : result.id;
+          return [...presets.filter(p => p.id !== id), ...(typeof result === "string" ? [] : [result])]
+            .sort(db.compareTrainingDrillPresets);
+        });
+        return true;
+      } catch (error) {
+        this.state.update(s => ({ ...s, error: `Could not edit saved Drill: ${String(error)}` }));
+        return false;
+      }
+    });
+    this.#presetMutationQueue = pending.then(() => {}, () => {});
+    return pending;
+  }
+
+  createTrainingDrillPreset(name: string): Promise<boolean> {
+    // Capture the visible configuration at the explicit action, before any await.
+    const config = this.#presetConfiguration();
+    return this.#editDrillPreset(async () => {
+      if (config.activity !== "drill" || config.status !== "configuring" || !config.caseIds.length) return null;
+      const preset = trainingDrillPresets.createTrainingDrillPreset(name, config);
+      await trainingDrillPresets.saveTrainingDrillPreset(preset);
+      return preset;
+    });
+  }
+
+  renameTrainingDrillPreset(id: string, name: string): Promise<boolean> {
+    return this.#editDrillPreset(async () => {
+      const preset = this.trainingDrillPresets.get().find(p => p.id === id);
+      if (!preset) return null;
+      const renamed = trainingDrillPresets.renameTrainingDrillPreset(preset, name);
+      await trainingDrillPresets.saveTrainingDrillPreset(renamed);
+      return renamed;
+    });
+  }
+
+  updateTrainingDrillPreset(id: string): Promise<boolean> {
+    const config = this.#presetConfiguration();
+    return this.#editDrillPreset(async () => {
+      const preset = this.trainingDrillPresets.get().find(p => p.id === id);
+      if (!preset || config.activity !== "drill" || config.status !== "configuring" || !config.caseIds.length) return null;
+      const updated = trainingDrillPresets.updateTrainingDrillPreset(preset, config);
+      await trainingDrillPresets.saveTrainingDrillPreset(updated);
+      return updated;
+    });
+  }
+
+  deleteTrainingDrillPreset(id: string): Promise<boolean> {
+    return this.#editDrillPreset(async () => {
+      if (!this.trainingDrillPresets.get().some(p => p.id === id)) return null;
+      await trainingDrillPresets.deleteTrainingDrillPreset(id);
+      return id;
+    });
+  }
+
+  async applyTrainingDrillPreset(id: string): Promise<boolean> {
+    const preset = this.trainingDrillPresets.get().find(p => p.id === id);
+    if (!preset || this.training.state.get().drill.status !== "configuring") return false;
+    try {
+      const context = preset.context;
+      if (context.family !== "f2l") {
+        const key = context.family === "oll" ? "ollTrainingSet" : "pllTrainingSet";
+        if (this.settings.get()[key] !== context.trainingSet) await this.updateSettings({ [key]: context.trainingSet });
+      }
+      // Persistence can yield; never overwrite a run/summary started meanwhile.
+      if (this.training.state.get().drill.status !== "configuring") return false;
+      this.setArea("training");
+      this.training.applyDrillConfiguration(preset.context, preset.caseIds, preset.strategy);
+      return true;
+    } catch (error) {
+      this.state.update(s => ({ ...s, error: `Could not load saved Drill: ${String(error)}` }));
+      return false;
+    }
+  }
 
   setTrainingFamily(family: TrainingFamily): void {
     if (this.training.state.get().family === family) return;
@@ -469,21 +561,24 @@ export class Controller {
 
   /** Everything the app has stored, as JSON, so a session is never trapped here. */
   async exportData(): Promise<string> {
+    await this.#presetMutationQueue;
     await Promise.all(this.#pendingTrainingWrites);
     return dataTransfer.exportData();
   }
 
-  async importData(json: string): Promise<{ sessions: number; solves: number; trainingAttempts: number }> {
+  async importData(json: string): Promise<{ sessions: number; solves: number; trainingAttempts: number; trainingDrillPresets: number }> {
     if (!this.#beginSessionContextMutation()) {
       throw new Error("Cannot import while the timer or another Session operation is active.");
     }
     try {
       return await this.#queueSessionMutation(async () => {
+        await this.#presetMutationQueue;
         await Promise.all(this.#pendingTrainingWrites);
         const result = await dataTransfer.importData(this.physical.model?.kpuzzle, this.snapshot(), json);
         await this.#applySessionContext(result.context);
         this.trainingAttempts.set(await trainingHistory.loadTrainingAttempts());
-        return { sessions: result.sessions, solves: result.solves, trainingAttempts: result.trainingAttempts };
+        this.trainingDrillPresets.set(await trainingDrillPresets.loadTrainingDrillPresets());
+        return { sessions: result.sessions, solves: result.solves, trainingAttempts: result.trainingAttempts, trainingDrillPresets: result.trainingDrillPresets };
       });
     } finally {
       this.#endSessionContextMutation();
