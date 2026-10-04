@@ -81,6 +81,7 @@ describe("generated last-layer catalogue", () => {
     const source = kpuzzle.defaultPattern();
     for (const auf of [0, 1, 2, 3] as const) {
       const target = buildLastLayerCatalogueTarget(kpuzzle, family, caseId, auf);
+      expectCentresHome(target);
       const setup = await algBetween(source, target.pattern);
       expect(patternToFacelets(source.applyAlg(setup)), `${family} ${caseId} AUF ${auf}`)
         .toBe(patternToFacelets(target.pattern));
