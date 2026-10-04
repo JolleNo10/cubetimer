@@ -16,8 +16,9 @@ export function trainingMedian(values: readonly number[]): number | null {
 export function recognitionPerformance(attempts: readonly TrainingRecognitionAttempt[]) {
   const sorted = [...attempts].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
   const recent = sorted.slice(-5), correct = sorted.filter(recognitionIsCorrect), recentCorrect = recent.filter(recognitionIsCorrect);
-  const times = correct.map(a => a.responseMs), bestCorrectResponseMs = times.length ? times.reduce((best, time) => Math.min(best, time)) : null;
-  const recentMedianCorrectResponseMs = trainingMedian(recentCorrect.map(a => a.responseMs));
+  const validResponse = (n: number) => Number.isFinite(n) && n >= 0;
+  const times = correct.map(a => a.responseMs).filter(validResponse), bestCorrectResponseMs = times.length ? times.reduce((best, time) => Math.min(best, time)) : null;
+  const recentMedianCorrectResponseMs = trainingMedian(recentCorrect.map(a => a.responseMs).filter(validResponse));
   const accuracy = sorted.length ? correct.length / sorted.length : null;
   const recentAccuracy = recent.length ? recentCorrect.length / recent.length : null;
   const needsReview = recentAccuracy !== null && recentAccuracy < 0.8 ||
@@ -30,6 +31,25 @@ export function recognitionPerformance(attempts: readonly TrainingRecognitionAtt
 }
 export type TrainingRecognitionStats = ReturnType<typeof recognitionPerformance>;
 export const EMPTY_RECOGNITION_STATS = recognitionPerformance([]);
+
+export function recognitionTimingRatio(stats: Pick<TrainingRecognitionStats, "bestCorrectResponseMs" | "recentMedianCorrectResponseMs">): number | null {
+  const best = stats.bestCorrectResponseMs, recent = stats.recentMedianCorrectResponseMs;
+  if (best === null || recent === null || !Number.isFinite(best) || !Number.isFinite(recent) || best <= 0 || recent <= 0) return null;
+  const ratio = recent / best;
+  return Number.isFinite(ratio) ? ratio : null;
+}
+
+/** Explicit wrong answers only; never infer confusions from execution or skips. */
+export function recognitionConfusions(attempts: readonly TrainingRecognitionAttempt[]) {
+  const counts = new Map<string, { target: TrainingRecognitionAttempt["target"]; answerCaseId: string; count: number }>();
+  for (const row of attempts.filter(a => !recognitionIsCorrect(a))) {
+    const key = JSON.stringify([trainingCatalogueKey(row.target), row.answerCaseId]);
+    const entry = counts.get(key) ?? { target: row.target, answerCaseId: row.answerCaseId, count: 0 };
+    entry.count++; counts.set(key, entry);
+  }
+  return [...counts.values()].sort((a, b) => b.count - a.count ||
+    trainingCatalogueKey(a.target).localeCompare(trainingCatalogueKey(b.target)) || a.answerCaseId.localeCompare(b.answerCaseId));
+}
 
 export function recognitionStatsByCase(attempts: readonly TrainingRecognitionAttempt[]): Map<string, TrainingRecognitionStats> {
   const grouped = new Map<string, TrainingRecognitionAttempt[]>();

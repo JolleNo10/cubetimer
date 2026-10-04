@@ -4,7 +4,7 @@ import { f2lPositionLabel } from "../../../cube/f2lCases";
 import { f2lTrainingCatalogue } from "../../../cube/f2lTrainingCases";
 import { useController, useStore, useTrainingState } from "../../../app/useController";
 import { formatTime } from "../../../shared/time";
-import { drillCatalogue, drillCaseId, trainingDrillSummary, weakDrillCases, recognitionDrillSummary, weakRecognitionDrillCases, drillCaseMetadata, type TrainingDrillStrategy } from "../trainingDrill";
+import { drillCatalogue, drillCaseId, trainingDrillSummary, weakDrillCases, recognitionDrillSummary, recognitionCasePool, weakRecognitionDrillCases, drillCaseMetadata, type TrainingDrillStrategy } from "../trainingDrill";
 
 export const DRILL_STRATEGIES: { id: TrainingDrillStrategy; label: string; description: string }[] = [
   { id: "sequence", label: "Sequence", description: "Cycle selected cases in catalogue order." },
@@ -36,7 +36,7 @@ export function DrillCountdown({ initial = false }: { initial?: boolean }) {
 export function TrainingDrillPanel() {
   const controller = useController();
   const { drill } = useTrainingState();
-  const applying = useStore(controller.trainingDrillPresetApplying);
+  const applying = useStore(controller.trainingDrillConfigurationApplying);
   const strategy = DRILL_STRATEGIES.find(s => s.id === drill.strategy)!;
   return <section className="panel training-drill-panel" aria-label="Training drill">
     <div className="panel-head"><span className="panel-title">Drill</span>
@@ -176,15 +176,22 @@ function RecognitionDrillSummary({ attempts }: { attempts: readonly TrainingReco
   const { drill } = useTrainingState();
   const cases = drill.context ? drillCatalogue(drill.context).filter(c => drill.selectedCaseIds.includes(drillCaseId(c))) : [];
   const summary = recognitionDrillSummary(drill.outcomes), weak = weakRecognitionDrillCases(cases, drill.outcomes, attempts);
+  const weakPool = recognitionCasePool(cases, weak.map(c => c.caseId));
   return <section className="panel drill-summary" aria-label="Drill summary">
     <div className="panel-head"><span className="panel-title">Recognition drill complete</span></div>
     <div className="panel-body"><p>{summary.rounds} {summary.rounds === 1 ? "round" : "rounds"}</p>
       <RecognitionMetrics summary={summary} />
       {weak.length ? <><h3>Needs work</h3><ul className="drill-weak-cases">{weak.map(c => <li key={c.caseId}>
-        <strong>{drillCaseMetadata(c.target).label}</strong><span>{c.incorrect ? `${c.incorrect} incorrect` :
-          c.skipped ? `${c.skipped} skipped` : c.timingRatio !== null && c.timingRatio > 1.2 ? "Slower correct recognition" : "Needs historical review"}</span>
+        <strong>{drillCaseMetadata(c.target).label}</strong><span>{[
+          c.runIncorrect ? `${c.runIncorrect} incorrect this drill` : null,
+          c.runSkipped ? `${c.runSkipped} skipped this drill` : null,
+          c.historicalRecentWrongCount ? `Recent history: ${c.historicalRecentWrongCount} incorrect` : null,
+          c.timingRatio !== null && c.timingRatio > 1.2 ? "Slower correct recognition" : null,
+          c.historicalReview ? "Needs historical review" : null,
+        ].filter(Boolean).join(" · ")}</span>
       </li>)}</ul></> : <p className="small dim">No weak cases identified this drill.</p>}
-      <DrillSummaryActions hasWeakCases={weak.length > 0} />
+      {weakPool?.supportCaseId ? <p className="small dim">1 weak case + 1 recognition support case ({weakPool.supportCaseId})</p> : null}
+      <DrillSummaryActions hasWeakCases={weakPool !== null} />
     </div>
   </section>;
 }

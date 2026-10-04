@@ -141,6 +141,20 @@ export function drillCaseMetadata(identity: TrainingCatalogueIdentity) {
   return { caseId: item.caseId, label: item.caseId, group: item.group };
 }
 
+/** A single recognition focus needs one distractor from this captured catalogue.
+ * Group affinity first, then authoritative catalogue order; never invent a weak case. */
+export function recognitionCasePool(cases: readonly TrainingCatalogueCase[], primaryIds: readonly string[]) {
+  const primary = cases.filter(c => primaryIds.includes(drillCaseId(c)));
+  if (!primary.length) return null;
+  if (primary.length >= 2) return { caseIds: primary.map(drillCaseId), supportCaseId: null };
+  const group = drillCaseMetadata(primary[0]).group;
+  const others = cases.filter(c => drillCaseId(c) !== drillCaseId(primary[0]));
+  const support = others.find(c => drillCaseMetadata(c).group === group) ?? others[0];
+  if (!support) return null;
+  const supportCaseId = drillCaseId(support);
+  return { caseIds: cases.map(drillCaseId).filter(id => id === drillCaseId(primary[0]) || id === supportCaseId), supportCaseId };
+}
+
 function shuffled<T>(values: readonly T[], rng: () => number): T[] {
   const result = [...values];
   for (let i = result.length - 1; i > 0; i--) {
@@ -201,10 +215,11 @@ export function weakRecognitionDrillCases(cases: readonly TrainingCatalogueCase[
     const stats = history.get(trainingCatalogueKey(target)) ?? EMPTY_RECOGNITION_STATS;
     const ratio = stats.bestCorrectResponseMs !== null && run.medianCorrectResponseMs !== null
       ? stats.bestCorrectResponseMs === 0 ? run.medianCorrectResponseMs > 0 ? 2 : 1 : run.medianCorrectResponseMs / stats.bestCorrectResponseMs : null;
-    return { target, caseId, order, ...run, incorrect: Math.max(run.incorrect, stats.recentWrongCount),
+    return { target, caseId, order, runIncorrect: run.incorrect, runSkipped: run.skipped,
+      historicalRecentWrongCount: stats.recentWrongCount, effectiveWrongSignal: Math.max(run.incorrect, stats.recentWrongCount),
       accuracy: run.accuracy ?? stats.recentAccuracy, timingRatio: ratio, historicalReview: stats.status === "review" };
-  }).filter(c => c.incorrect || c.skipped || c.timingRatio !== null && c.timingRatio > 1.2 || c.historicalReview)
-    .sort((a, b) => b.incorrect - a.incorrect || (a.accuracy ?? 1) - (b.accuracy ?? 1) || b.skipped - a.skipped ||
+  }).filter(c => c.effectiveWrongSignal || c.runSkipped || c.timingRatio !== null && c.timingRatio > 1.2 || c.historicalReview)
+    .sort((a, b) => b.effectiveWrongSignal - a.effectiveWrongSignal || (a.accuracy ?? 1) - (b.accuracy ?? 1) || b.runSkipped - a.runSkipped ||
       (b.timingRatio ?? 1) - (a.timingRatio ?? 1) || Number(b.historicalReview) - Number(a.historicalReview) || a.order - b.order)
     .slice(0, Math.max(0, limit));
 }

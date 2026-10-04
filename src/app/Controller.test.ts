@@ -14,6 +14,7 @@ import * as solver from "../cube/solver";
 import { cubeMove } from "../cube/frames";
 import { trainingGrip } from "../cube/training";
 import * as drillPolicy from "../features/training/trainingDrill";
+import type { TrainingPlanBlock } from "../features/training/trainingPlanner";
 import { Controller } from "./Controller";
 import * as db from "../infrastructure/persistence/db";
 import { formatSolveCsv } from "../features/data-transfer/solveCsv";
@@ -1357,7 +1358,7 @@ describe("Saved Drill atomic application", () => {
     expect(await controller.applyTrainingDrillPreset(preset.id)).toBe(false);
     expect(controller.settings.get()).toBe(settings); expect(controller.training.state.get()).toBe(runtime);
     expect(controller.training.drillCountdown.get()).toBeNull(); expect(controller.state.get().error).toContain("settings disk failure");
-    expect(controller.trainingDrillPresetApplying.get()).toBe(false);
+    expect(controller.trainingDrillConfigurationApplying.get()).toBe(false);
   });
   it("blocks Start while a Settings write is pending and publishes only after success", async () => {
     const controller = presetController(); controller.setTrainingFamily("pll"); controller.setTrainingActivity("drill"); controller.setDrillCases(["T"]);
@@ -1365,9 +1366,9 @@ describe("Saved Drill atomic application", () => {
     const settings = controller.settings.get(), runtime = controller.training.state.get();
     const pending = deferred<void>(); vi.spyOn(db, "saveSettings").mockReturnValue(pending.promise);
     const loading = controller.applyTrainingDrillPreset(preset.id);
-    expect(controller.trainingDrillPresetApplying.get()).toBe(true);
+    expect(controller.trainingDrillConfigurationApplying.get()).toBe(true);
     controller.startTrainingDrill(); expect(controller.training.state.get()).toBe(runtime); expect(controller.settings.get()).toBe(settings);
-    pending.resolve(); expect(await loading).toBe(true); expect(controller.trainingDrillPresetApplying.get()).toBe(false);
+    pending.resolve(); expect(await loading).toBe(true); expect(controller.trainingDrillConfigurationApplying.get()).toBe(false);
     expect(controller.settings.get().pllTrainingSet).toBe("2look");
     expect(controller.training.state.get().drill).toMatchObject({ status: "configuring", running: false, task: "recognition", selectedCaseIds: ["Diagonal", "Headlights"] });
     expect(controller.training.drillCountdown.get()).toBeNull();
@@ -1379,6 +1380,51 @@ describe("Saved Drill atomic application", () => {
       controller.trainingDrillPresets.set([preset]); expect(await controller.applyTrainingDrillPreset(preset.id)).toBe(true);
     }
     expect(db.saveSettings).not.toHaveBeenCalled();
+  });
+});
+
+describe("Guided ordinary Drill application", () => {
+  const block = (overrides: Partial<TrainingPlanBlock> = {}): TrainingPlanBlock => ({ id: "guided", label: "Learn", reason: "Active cohort",
+    context: { family: "f2l", library: "advanced", position: "BL" }, caseIds: ["AF2L 4", "AF2L 5"], task: "recognition", strategy: "sequence", ...overrides });
+  it("loads F2L without Settings, saved records, target or countdown", async () => {
+    const controller = presetController(), presets = [savedDrill()]; controller.trainingDrillPresets.set(presets);
+    const physical = controller.pattern;
+    vi.spyOn(db, "saveSettings").mockResolvedValue(); vi.spyOn(db, "saveTrainingDrillPreset").mockResolvedValue();
+    expect(await controller.applyGuidedTrainingBlock(block())).toBe(true);
+    expect(controller.training.state.get()).toMatchObject({ family: "f2l", f2lSelection: { library: "advanced", position: "BL" }, activity: "drill", target: null,
+      drill: { selectedCaseIds: ["AF2L 4", "AF2L 5"], task: "recognition", strategy: "sequence", status: "configuring", running: false } });
+    expect(controller.trainingDrillPresets.get()).toBe(presets); expect(db.saveTrainingDrillPreset).not.toHaveBeenCalled(); expect(db.saveSettings).not.toHaveBeenCalled();
+    expect(controller.training.drillCountdown.get()).toBeNull(); expect(controller.pattern).toBe(physical);
+  });
+  it.each(["oll", "pll"] as const)("same-set %s needs no Settings write", async family => {
+    const controller = presetController(); vi.spyOn(db, "saveSettings").mockResolvedValue();
+    expect(await controller.applyGuidedTrainingBlock(block({ context: { family, trainingSet: "full" }, caseIds: lastLayerCaseIds(family, "full").slice(0, 2) }))).toBe(true);
+    expect(db.saveSettings).not.toHaveBeenCalled(); expect(controller.training.drillCountdown.get()).toBeNull();
+  });
+  it.each(["oll", "pll"] as const)("different-set %s is persist-first, busy and explicit Start", async family => {
+    const controller = presetController(), settings = controller.settings.get(), runtime = controller.training.state.get();
+    const presets = controller.trainingDrillPresets.get(), pending = deferred<void>(); vi.spyOn(db, "saveSettings").mockReturnValue(pending.promise);
+    const caseIds = drillPolicy.drillCatalogue({ family, trainingSet: "2look" }).slice(0, 3).map(drillPolicy.drillCaseId);
+    const loading = controller.applyGuidedTrainingBlock(block({ context: { family, trainingSet: "2look" }, caseIds, task: "execution", strategy: "weighted" }));
+    expect(controller.trainingDrillConfigurationApplying.get()).toBe(true); controller.startTrainingDrill();
+    expect(controller.settings.get()).toBe(settings); expect(controller.training.state.get()).toBe(runtime); expect(controller.training.drillCountdown.get()).toBeNull();
+    pending.resolve(); expect(await loading).toBe(true); expect(controller.trainingDrillConfigurationApplying.get()).toBe(false);
+    expect(controller.settings.get()[family === "oll" ? "ollTrainingSet" : "pllTrainingSet"]).toBe("2look");
+    expect(controller.training.state.get()).toMatchObject({ family, activity: "drill", target: null,
+      drill: { selectedCaseIds: caseIds, task: "execution", strategy: "weighted", running: false, status: "configuring" } });
+    expect(controller.trainingDrillPresets.get()).toBe(presets); expect(controller.training.drillCountdown.get()).toBeNull();
+    controller.startTrainingDrill(); expect(controller.training.drillCountdown.get()).toBe(2000);
+  });
+  it.each(["oll", "pll"] as const)("failed %s load preserves every live fact", async family => {
+    const controller = presetController(), runtime = controller.training.state.get(), settings = controller.settings.get(), presets = controller.trainingDrillPresets.get();
+    vi.spyOn(db, "saveSettings").mockRejectedValue(new Error("Guided settings failed"));
+    expect(await controller.applyGuidedTrainingBlock(block({ context: { family, trainingSet: "2look" }, caseIds: lastLayerCaseIds(family, "2look").slice(0, 2) }))).toBe(false);
+    expect(controller.training.state.get()).toBe(runtime); expect(controller.settings.get()).toBe(settings); expect(controller.trainingDrillPresets.get()).toBe(presets);
+    expect(controller.training.drillCountdown.get()).toBeNull(); expect(controller.trainingDrillConfigurationApplying.get()).toBe(false); expect(controller.state.get().error).toContain("Guided settings failed");
+  });
+  it.each(["solving", "running", "summary"] as const)("refuses loading while %s", async phase => {
+    const controller = presetController(); controller.training.state.update(s => phase === "solving" ? { ...s, phase } : { ...s, drill: { ...s.drill, status: phase, running: phase === "running" } });
+    const before = controller.training.state.get(); expect(await controller.applyGuidedTrainingBlock(block())).toBe(false); expect(controller.training.state.get()).toBe(before);
   });
 });
 

@@ -1,4 +1,4 @@
-import { recognitionChoices, recognitionCaseWeight, recognitionDrillSummary, selectRecognitionDrillCase, weakRecognitionDrillCases, drillCaseMetadata } from "./trainingDrill";
+import { recognitionChoices, recognitionCasePool, recognitionCaseWeight, recognitionDrillSummary, selectRecognitionDrillCase, weakRecognitionDrillCases, drillCaseMetadata } from "./trainingDrill";
 import { recognitionPerformance } from "./trainingRecognitionPerformance";
 import type { TrainingRecognitionAttempt } from "../../app/types";
 import { describe, expect, it } from "vitest";
@@ -114,6 +114,25 @@ it("finds slow first-run cases even after their solved attempts enter persisted 
 });
 
 describe("Recognition Drill policy", () => {
+  it("adds one captured same-group support, falls back in catalogue order and leaves two weak cases alone", () => {
+    const catalogue = drillCatalogue({ family: "pll", trainingSet: "full" }), target = catalogue[0];
+    const same = catalogue.find(c => drillCaseId(c) !== drillCaseId(target) && drillCaseMetadata(c).group === drillCaseMetadata(target).group)!;
+    const other = catalogue.find(c => drillCaseMetadata(c).group !== drillCaseMetadata(target).group)!;
+    const captured = catalogue.filter(c => [target, same, other].includes(c));
+    expect(recognitionCasePool(captured, [drillCaseId(target)]))
+      .toMatchObject({ supportCaseId: drillCaseId(same), caseIds: captured.map(drillCaseId).filter(id => [drillCaseId(target), drillCaseId(same)].includes(id)) });
+    expect(recognitionCasePool([target, other], [drillCaseId(target)]))?.toMatchObject({ supportCaseId: drillCaseId(other) });
+    expect(recognitionCasePool(captured, [drillCaseId(target), drillCaseId(other)]))?.toMatchObject({ supportCaseId: null });
+    expect(recognitionCasePool([target], [drillCaseId(target)])).toBeNull();
+    expect(recognitionCasePool(captured, ["outside"])).toBeNull();
+  });
+  it("keeps run counts separate from stronger historical wrong ranking", () => {
+    const rows = Array.from({ length: 3 }, (_, i) => history(i));
+    const weak = weakRecognitionDrillCases(cases, [{ caseId: "F2L 1", outcome: "answered", answerCaseId: "F2L 1", correct: true, responseMs: 1000, completedAt: 10 },
+      { caseId: "F2L 2", outcome: "answered", answerCaseId: "F2L 1", correct: false, responseMs: 1000, completedAt: 11 }], rows);
+    expect(weak[0]).toMatchObject({ caseId: "F2L 1", runIncorrect: 0, runSkipped: 0, historicalRecentWrongCount: 3, historicalReview: true, effectiveWrongSignal: 3 });
+    expect(weak[1]).toMatchObject({ caseId: "F2L 2", runIncorrect: 1, historicalRecentWrongCount: 0 });
+  });
   const history = (i: number, wrong = true): TrainingRecognitionAttempt => ({ id: String(i), createdAt: i, drillRunId: "run", drillRound: i + 1,
     target: { family: "f2l", library: "basic", position: "FR", caseName: "F2L 1" }, answerCaseId: wrong ? "F2L 2" : "F2L 1", responseMs: 1000 });
   it("offers unique selected-pool choices, prefers authoritative groups and orders with injected RNG", () => {

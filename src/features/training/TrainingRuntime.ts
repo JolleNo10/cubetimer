@@ -16,7 +16,7 @@ import { handAlgorithm, handMove, handTimedMoves } from "../../cube/frames";
 import { advanceTrainingGuide, buildTrainingGuide, trainingGrip, trainingGuideProgress, type TrainingGuide, type TrainingGuideProgress, type TrainingResolvedReference, type TrainingAuf } from "../../cube/training";
 import { calculateRecovery, type Recovery } from "../../shared/recovery";
 import { Store } from "../../shared/store";
-import { drillCatalogue, drillCaseId, selectDrillCase, weakDrillCases, selectRecognitionDrillCase, recognitionChoices, weakRecognitionDrillCases, type TrainingDrillContext, type TrainingDrillState, type TrainingDrillStrategy } from "./trainingDrill";
+import { drillCatalogue, drillCaseId, selectDrillCase, weakDrillCases, selectRecognitionDrillCase, recognitionChoices, recognitionCasePool, weakRecognitionDrillCases, type TrainingDrillContext, type TrainingDrillState, type TrainingDrillStrategy } from "./trainingDrill";
 import { catalogueIdentityForTarget, trainingCatalogueKey } from "../../app/trainingCatalogue";
 import { recognitionIsCorrect } from "./trainingRecognitionPerformance";
 import type { CompletedTrainingRecognition } from "./trainingRecognitionHistory";
@@ -333,10 +333,15 @@ export class TrainingRuntime {
     const { drill } = this.state.get();
     if (drill.status !== "summary" || !drill.context) return;
     const cases = drillCatalogue(drill.context).filter(c => drill.selectedCaseIds.includes(drillCaseId(c)));
-    const weakIds = weakOnly ? (drill.task === "recognition"
+    let weakIds = weakOnly ? (drill.task === "recognition"
       ? weakRecognitionDrillCases(cases, drill.outcomes, this.#dependencies.getTrainingRecognitionAttempts?.() ?? [])
       : weakDrillCases(cases, drill.outcomes, this.#dependencies.getTrainingAttempts?.() ?? [])).map(c => c.caseId) : drill.selectedCaseIds;
     if (weakOnly && !weakIds.length) return;
+    if (drill.task === "recognition") {
+      const pool = recognitionCasePool(cases, weakIds);
+      if (!pool) return;
+      weakIds = pool.caseIds;
+    }
     const compatible = JSON.stringify(drill.context) === JSON.stringify(this.#drillContext());
     // Settings may change while a captured summary is open. Never reinterpret its pool.
     if (!compatible && drill.task === "recognition") return;

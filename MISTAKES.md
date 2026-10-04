@@ -476,3 +476,13 @@ and Controller tests limit mocked draws to Training selection. Validate concrete
 variation while keeping durable identity and exact historical behavior assertions.
 An already matching physical generated target is a valid zero-setup path: use an
 empty tracker and skip solver work, with a focused regression test.
+
+## Guided policy and captured-summary test fixtures
+
+The first policy draft made its inferred curriculum return type depend on a helper
+typed from that same return type, causing a circular TypeScript inference error.
+Use the independent stage contract for stage-only predicates. A new exact-history
+fixture omitted its required Full training set, and a manually fabricated summary
+context did not preserve the runtime's captured context representation. Prevention:
+typecheck new policy seams early and use the runtime's configuration context when
+testing captured-run actions rather than reconstructing lifecycle-owned snapshots.

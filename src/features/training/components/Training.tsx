@@ -1,3 +1,4 @@
+import { TrainingGuided } from "./TrainingGuided";
 import { TrainingInsights } from "./TrainingInsights";
 import { recognitionStatsByCase } from "../trainingRecognitionPerformance";
 import { trainingCatalogueKey } from "../../../app/trainingCatalogue";
@@ -20,9 +21,11 @@ export function Training() {
   const family = useStoreValue(controller.training.state, state => state.family);
   const activity = useStoreValue(controller.training.state, state => state.activity);
   const drillStatus = useStoreValue(controller.training.state, state => state.drill.status);
-  const [view, setView] = useState<"practice" | "insights">("practice");
-  const live = useStoreValue(controller.training.state, state => view === "insights" && (state.phase === "solving" || state.drill.running));
-  const insights = view === "insights" && !live;
+  const [view, setView] = useState<"practice" | "guided" | "insights">("practice");
+  const live = useStoreValue(controller.training.state, state => view !== "practice" && (state.phase === "solving" || state.drill.running));
+  // Latch presentation ownership when live Training begins; retain Practice afterward.
+  if (live && view !== "practice") setView("practice");
+  const visibleView = live ? "practice" : view;
   const screen = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (activity !== "drill" || drillStatus === "configuring") return;
@@ -36,8 +39,8 @@ export function Training() {
   }, [activity, drillStatus]);
   return (
     <div className="training-screen" ref={screen}>
-      <TrainingViewNavigation insights={insights} onSelect={setView} />
-      {insights ? <TrainingInsights /> : <>
+      <TrainingViewNavigation view={visibleView} onSelect={setView} />
+      {visibleView === "insights" ? <TrainingInsights /> : visibleView === "guided" ? <TrainingGuided onLoaded={() => setView("practice")} /> : <>
       <nav className="training-family-switch area-switch" aria-label="Training family">
         {(["f2l", "oll", "pll"] as const).map((option) => (
           <button
@@ -63,12 +66,13 @@ export function Training() {
 }
 
 /** A solve-phase change only rerenders this switch, never the Practice catalogue. */
-function TrainingViewNavigation({ insights, onSelect }: { insights: boolean; onSelect: (view: "practice" | "insights") => void }) {
+function TrainingViewNavigation({ view, onSelect }: { view: "practice" | "guided" | "insights"; onSelect: (view: "practice" | "guided" | "insights") => void }) {
   const controller = useController();
   const live = useStoreValue(controller.training.state, state => state.phase === "solving" || state.drill.running);
   return <nav className="area-switch" aria-label="Training views">
-    <button aria-pressed={!insights} onClick={() => onSelect("practice")}>Practice</button>
-    <button aria-pressed={insights} disabled={live} onClick={() => { if (!live) onSelect("insights"); }}>Insights</button>
+    <button aria-pressed={view === "practice"} onClick={() => onSelect("practice")}>Practice</button>
+    <button aria-pressed={view === "guided"} disabled={live} onClick={() => { if (!live) onSelect("guided"); }}>Guided</button>
+    <button aria-pressed={view === "insights"} disabled={live} onClick={() => { if (!live) onSelect("insights"); }}>Insights</button>
   </nav>;
 }
 

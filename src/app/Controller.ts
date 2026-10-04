@@ -26,6 +26,7 @@ import type { StatisticsSnapshot } from "../features/statistics/state/statistics
 import { Store } from "../shared/store";
 import { TimerRuntime, type TimerState } from "../features/timer/TimerRuntime";
 import { TrainingRuntime, type CompletedTrainingAttempt, type TrainingActivity, type TrainingFamily, type TrainingMode } from "../features/training/TrainingRuntime";
+import type { TrainingPlanBlock } from "../features/training/trainingPlanner";
 import type { TrainingDrillStrategy } from "../features/training/trainingDrill";
 import { catalogueIdentityForTarget, trainingCatalogueKey } from "./trainingCatalogue";
 import * as trainingAlgorithmPreferences from "../features/training/trainingAlgorithmPreferences";
@@ -41,6 +42,7 @@ import {
   type TrainingAttempt,
   type TrainingRecognitionAttempt,
   type TrainingDrillTask,
+  type TrainingDrillPresetContext,
   type TrainingDrillPreset,
   type TrainingAlgorithmPreference,
 } from "./types";
@@ -63,7 +65,7 @@ export class Controller {
   readonly trainingRecognitionAttempts = new Store<TrainingRecognitionAttempt[]>([]);
   readonly trainingAttempts = new Store<TrainingAttempt[]>([]);
   readonly trainingAlgorithmPreferences = new Store<TrainingAlgorithmPreference[]>([]);
-  readonly trainingDrillPresetApplying = new Store(false);
+  readonly trainingDrillConfigurationApplying = new Store(false);
   readonly trainingDrillPresets = new Store<TrainingDrillPreset[]>([]);
   #trainingConfigurationMutationQueue: Promise<void> = Promise.resolve();
   #pendingTrainingWrites = new Set<Promise<void>>();
@@ -281,7 +283,7 @@ export class Controller {
   setDrillTask(task: TrainingDrillTask): void { this.training.setDrillTask(task); }
   submitTrainingRecognition(caseId: string): void { this.training.submitTrainingRecognition(caseId); }
   setDrillStrategy(strategy: TrainingDrillStrategy): void { this.training.setDrillStrategy(strategy); }
-  startTrainingDrill(): void { if (this.trainingDrillPresetApplying.get()) return; this.setArea("training"); this.training.startDrill(); }
+  startTrainingDrill(): void { if (this.trainingDrillConfigurationApplying.get()) return; this.setArea("training"); this.training.startDrill(); }
   stopTrainingDrill(): void { this.training.stopDrill(); }
   finishTrainingDrillSummary(weakOnly = false): void { this.training.finishDrillSummary(weakOnly); }
   skipTrainingDrillCase(): void { this.training.skipDrillCase(); }
@@ -416,10 +418,20 @@ export class Controller {
 
   async applyTrainingDrillPreset(id: string): Promise<boolean> {
     const preset = this.trainingDrillPresets.get().find(p => p.id === id);
-    if (!preset || this.training.state.get().drill.status !== "configuring" || this.trainingDrillPresetApplying.get()) return false;
-    this.trainingDrillPresetApplying.set(true);
+    return preset ? this.#applyTrainingDrillConfiguration(preset.context, preset.caseIds, preset.strategy, preset.task) : false;
+  }
+
+  applyGuidedTrainingBlock(block: TrainingPlanBlock): Promise<boolean> {
+    return this.#applyTrainingDrillConfiguration(block.context, block.caseIds, block.strategy, block.task);
+  }
+
+  async #applyTrainingDrillConfiguration(context: TrainingDrillPresetContext, caseIds: readonly string[],
+    strategy: TrainingDrillStrategy, task: TrainingDrillTask): Promise<boolean> {
+    if (this.training.state.get().drill.status !== "configuring" || this.training.state.get().phase === "solving" ||
+        this.timer.state.get().phase === "solving" || this.timer.state.get().phase === "inspection" || this.trainingDrillConfigurationApplying.get()) return false;
+    this.trainingDrillConfigurationApplying.set(true);
     try {
-      const context = preset.context;
+
       if (context.family !== "f2l") {
         const key = context.family === "oll" ? "ollTrainingSet" : "pllTrainingSet";
         if (this.settings.get()[key] !== context.trainingSet) {
@@ -431,13 +443,13 @@ export class Controller {
         }
       }
       this.setArea("training");
-      this.training.applyDrillConfiguration(preset.context, preset.caseIds, preset.strategy, preset.task);
+      this.training.applyDrillConfiguration(context, caseIds, strategy, task);
       return true;
     } catch (error) {
-      this.state.update(s => ({ ...s, error: `Could not load saved Drill: ${String(error)}` }));
+      this.state.update(s => ({ ...s, error: `Could not load Drill configuration: ${String(error)}` }));
       return false;
     } finally {
-      this.trainingDrillPresetApplying.set(false);
+      this.trainingDrillConfigurationApplying.set(false);
     }
   }
 

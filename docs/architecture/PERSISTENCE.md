@@ -241,6 +241,9 @@ errors leave the completed result intact. TrainingRuntime and React do not acces
 IndexedDB. Catalogue performance is derived in the Training feature, not stored in
 Settings or Statistics. Exact solve-step facts persist but do not affect catalogue
 mastery; their source Solve need not still exist.
+Curriculum stages, due state, active learning cohorts, adaptive recommendations and
+Guided plans are derived from Execution/Recognition history and catalogue metadata,
+never persisted. IndexedDB remains schema 5 and JSON backup remains version 7.
 
 `normalizeTrainingAttempt` validates only the current shape: ID, timestamp, mode,
 discriminated target/catalogue combinations, result numbers and move array. It

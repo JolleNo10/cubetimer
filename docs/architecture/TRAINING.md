@@ -13,6 +13,7 @@ These documents describe current state. Start at [SYSTEM.md](SYSTEM.md); load on
 | F2L targets, catalogue/exact history, slots/protected slots, completion | `src/cube/f2lTraining.ts`, `f2lTrainingCases.ts` |
 | Full/2-Look OLL/PLL targets, AUF, variants or stage completion | `src/cube/lastLayerTraining.ts`, `lastLayerCases.ts`, `lastLayerTwoLookCases.ts` |
 | Training presentation | `src/features/training/components/Training.tsx`, `F2LTraining.tsx`, `TrainingWorkspace.tsx` |
+| Guided curriculum/planning and independent context browsing | `trainingCurriculum.ts`, `trainingPlanner.ts`, `trainingBrowseContext.ts`, `components/TrainingGuided.tsx`, `TrainingInsights.tsx` |
 | F2L thumbnails | `src/cube/f2lThumbnail.ts`, `src/features/training/components/F2lCaseThumbnail.tsx` |
 | Generated OLL/PLL authority | `scripts/speedcubedb.ts`, `scripts/fetchAlgs.ts`, relevant domain tests; generated data only when needed |
 | Advanced F2L source authority | Relevant authority/generator module and its tests; generated data only when needed |
@@ -360,11 +361,22 @@ prioritizes incorrect/poor accuracy, skips, timing regression and historical rev
 with catalogue-order ties. Summary shows rounds/answered/correct/incorrect/skipped,
 accuracy and correct-only median/best time. Weak-case/Repeat actions retain task and
 context and return to configuration without Start.
+Weak rows keep current-run incorrect/skipped counts separate from recent historical
+wrong counts; the stronger error signal affects ranking only. When only one case is
+weak, Recognition adds exactly one support case from the captured selected catalogue,
+preferring the same authoritative group, then catalogue order. It is labelled support,
+never weak. A captured pool without two valid cases cannot configure Recognition.
 
 ## Training Insights
 
-Practice/Insights is local React presentation, default Practice. Live Single solving
-or any running Drill blocks Insights; opening it never resets runtime or Timer context.
+Practice/Guided/Insights is local React presentation, default Practice. Live Single
+solving or any running Drill latches the view to Practice, which remains selected
+after result/stop/summary. The user must explicitly navigate again. Browsing never
+resets runtime or Timer context.
+Insights owns independent All/F2L/OLL/PLL filters and exact Basic/Advanced plus
+position or Full/2-Look context. Filtering happens before case/group/confusion,
+trend-window and later-round derivation. Overall includes exact execution history;
+Selected context includes only matching catalogue history, consistently across surfaces.
 Training-owned pure analytics reuse execution performance and derive Recognition,
 personal benchmark match-rate/delta snapshots, case/group dimensions, explicit wrong-
 answer confusion pairs and chronological task-specific windows (25/50/100/All).
@@ -374,7 +386,8 @@ contribute to overview but not catalogue case metrics. Historical efficiency rem
 `preferredDelta ?? delta`; today's preference Store is never an analytics input.
 
 Runs with six or more completions support chronological-half comparisons. Execution
-compares median case time (and effective STM where available); Recognition compares
+compares median case time with at least two finite positive observations per half
+(and effective STM where available); Recognition compares
 accuracy and correct-only speed, requiring two correct answers per half for speed.
 Across qualifying runs report median later-round differences, not physiological
 fatigue or causal training effectiveness. Unavailable values remain null. Timer
@@ -404,7 +417,7 @@ without selecting/revealing a case or starting a countdown. OLL/PLL loads synchr
 the applicable Settings preference through a narrow Controller boundary. The prospective
 Settings record persists before Settings/catalogue/runtime publication. A failed write
 leaves Settings and the exact current runtime context/pool/strategy/task unchanged. Controller exposes a preset-application
-busy Store and refuses Drill Start until loading finishes;
+`trainingDrillConfigurationApplying` busy Store and refuses Drill Start until loading finishes;
 there is no hidden preset catalogue preference alongside Settings. The other family's
 preference remains unchanged. F2L loads restore remembered library and position.
 
@@ -420,6 +433,69 @@ subscribe once to Controller.trainingDrillPresets and manage only local presenta
 selection/inline editors. Weak-case summary actions and Repeat same set remain
 ephemeral; their configurations can subsequently be saved explicitly. Runs, outcomes,
 countdowns, targets, guides, patterns and summaries never enter preset records.
+
+## Guided curriculum and adaptive planning
+
+`trainingCurriculum.ts` derives exact-catalogue per-case facts from the existing
+Execution and Recognition histories, reusing their performance aggregations.
+`trainingPlanner.ts` consumes these facts and catalogue metadata; neither module
+interprets cube state. AUF/variants aggregate within the existing catalogue key.
+Historical execution efficiency remains `preferredDelta ?? delta`, never today's
+algorithm preference applied retroactively. Shared Training helpers own meaningful
+execution duration eligibility, recognition timing ratios and explicit confusions.
+
+Stages describe current evidence and can regress:
+
+| Stage | Evidence |
+| --- | --- |
+| New | Neither history contains an attempt |
+| Learning | Any history, fewer than three Recognition attempts |
+| Recall | At least three Recognition attempts, but Recognition is not Practised or Execution has fewer than three |
+| Reliable | Established counts and Practised Recognition, without all Fast conditions; Execution review remains an explicit weakness here |
+| Fast | Both dimensions Practised, at least five attempts each, perfect latest-five Recognition accuracy, available timing ratios at most 1.15, available recent effective STM delta at most zero |
+| Maintenance | Fast plus at least ten attempts each and combined first-to-last practice span at least seven elapsed days |
+
+Unavailable timing/efficiency remains null and does not alone block Fast. Review due
+time derives from last practice plus one day for Reliable, three for Fast, seven for
+Maintenance. New/Learning/Recall need practice now. Pure functions receive explicit
+`now`; there are no timezone/calendar-day buckets. The review count covers timed
+established stages. The active learning cohort contains at most four cases: introduced
+Learning/Recall cases ordered by need then catalogue order, filled with earliest New
+cases. Manual out-of-order practice introduces only that case, never a frontier.
+
+Guided owns local context/mode controls. Its modes produce deterministic ordinary
+Drill blocks with reasons, cases, task, strategy and category composition:
+
+- Learn: Recognition Sequence for the active cohort, then Execution Sequence for
+  Recall cases with established Recognition and missing execution.
+- Review: up to twelve unique cases, targeting five weak, three due, two slow,
+  two retention. Shortages flow to later eligible categories without duplicates.
+  Separate Weighted worst blocks reflect independent Recognition/Execution needs;
+  duplication across tasks requires independent weakness, apart from explicit support.
+- Speed: Weighted worst Execution, at most eight Reliable/Fast/Maintenance cases,
+  ordered by personal timing regression, effective efficiency and oldest execution.
+- Weaknesses: at most eight cases per task; Recognition prioritizes explicit
+  confusions/errors, Execution prioritizes review/effective delta/timing.
+- Competition prep: established due/weak/least-recent coverage, up to twelve
+  Execution cases and an optional four-case Recognition warm-up. Recognition support
+  is also established; New/Learning do not enter. Recall appears as attention items.
+
+Each Recognition block needs at least two cases; the same captured-pool group/order
+support helper used by summary actions ensures validity. Equal signals use oldest
+practice, catalogue order and catalogue key. Drill alone owns subsequent weighted
+round selection and live execution.
+
+Explicit Load calls Controller's shared atomic Drill-configuration operation, used
+by Saved Drill and Guided. Prospective OLL/PLL Settings persist before publication;
+failure preserves exact Settings and runtime state. One general busy Store blocks
+Start, and configuration applies context/pool/task/strategy together. Load returns to
+Practice without countdown or target and creates/updates no saved preset. Explicit
+Start remains the live boundary. There is no observable curriculum Store.
+
+Chosen: derive stages, due state, cohorts and plans from immutable histories.
+Rejected: persist mastery/stage/due/progress or an adaptive session as another source
+of truth. Histories already retain the evidence; a second persisted projection could
+disagree and require synchronization/migrations. No schema or backup version changes.
 
 ## Completed history and catalogue review
 

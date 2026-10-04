@@ -1,5 +1,7 @@
 import { TrainingRecognition } from "./TrainingRecognition";
 import { TrainingInsights } from "./TrainingInsights";
+import { TrainingGuided } from "./TrainingGuided";
+import { executionEvidence, recognitionEvidence, policyTargets } from "../trainingPolicy.testFixtures";
 import type { ReactElement, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -51,6 +53,17 @@ function buttons(node: ReactNode): Button[] {
 const text = (node: ReactNode): string => Array.isArray(node) ? node.map(text).join("") :
   typeof node === "string" || typeof node === "number" ? String(node) : node && typeof node === "object" && "props" in node ? text((node as ReactElement<{ children?: ReactNode }>).props.children) : "";
 function button(label: string, element: ReactNode = <Training />): Button { return buttons(element).find(b => b["aria-label"] === label || text(b.children) === label)!; }
+function browseControl(label: string, element: ReactElement): { onChange(event: { target: { value: string } }): void } {
+  const found: ReactElement[] = [];
+  function visit(node: ReactNode): void {
+    if (Array.isArray(node)) { node.forEach(visit); return; }
+    if (!node || typeof node !== "object" || !("props" in node)) return;
+    const e = node as ReactElement<{ children?: ReactNode; "aria-label"?: string }>;
+    if (typeof e.type === "function") visit((e.type as (props: unknown) => ReactNode)(e.props));
+    else { if (e.type === "select" && e.props["aria-label"] === label) found.push(e); visit(e.props.children); }
+  }
+  visit(element); return found[0].props as { onChange(event: { target: { value: string } }): void };
+}
 function fixture(family: "f2l" | "oll" | "pll" = "f2l") {
   let now = 100; vi.spyOn(performance, "now").mockImplementation(() => now); vi.spyOn(Math, "random").mockReturnValue(0);
   const controller = new Controller(new CubeModel(kpuzzle)); hooks.controller = controller;
@@ -259,7 +272,7 @@ describe("Saved drills configuration presentation", () => {
 it("visibly disables Start while a saved Drill load is applying", () => {
   const { controller } = fixture(); controller.setDrillCases(["F2L 4"]);
   expect(button("Start drill").disabled).toBe(false);
-  controller.trainingDrillPresetApplying.set(true);
+  controller.trainingDrillConfigurationApplying.set(true);
   expect(button("Start drill").disabled).toBe(true);
 });
 
@@ -310,5 +323,77 @@ describe("Recognition task and Training Insights presentation", () => {
     fixture(); const html = renderToStaticMarkup(<TrainingInsights />);
     expect(html).toContain("New"); expect(html).toContain("Basic F2L"); expect(html).toContain("My Algorithm match rate");
     expect(html).toContain("Speed includes correct answers only"); expect(html).toContain("Chronological trends"); expect(html).toContain("Window");
+  });
+  it.each(["Guided", "Insights"])("latches %s to Practice when Single solves and retains the result", async view => {
+    const { controller } = fixture(); controller.setTrainingActivity("single"); await controller.setTrainingMode("virtual"); await controller.selectF2lCase("F2L 4");
+    hooks.inlineState = []; const tree = () => { hooks.cursor = 0; return Training(); };
+    button(view, tree()).onClick(); expect(hooks.inlineState[0]).toBe(view.toLowerCase());
+    controller.injectMove("B"); expect(controller.training.state.get().phase).toBe("solving");
+    expect(button("Practice", tree())["aria-pressed"]).toBe(true);
+    controller.training.state.update(s => ({ ...s, phase: "result" }));
+    expect(button("Practice", tree())["aria-pressed"]).toBe(true); expect(hooks.inlineState[0]).toBe("practice");
+  });
+  it.each(["Guided", "Insights"])("latches %s to Practice for countdown and remains after stop/summary", view => {
+    const { controller } = fixture(); controller.setDrillCases(["F2L 4", "F2L 5"]);
+    hooks.inlineState = []; const tree = () => { hooks.cursor = 0; return Training(); };
+    button(view, tree()).onClick(); controller.startTrainingDrill();
+    expect(button("Practice", tree())["aria-pressed"]).toBe(true);
+    controller.training.tick(2100); controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
+    expect(controller.training.state.get().drill.status).toBe("summary");
+    expect(button("Practice", tree())["aria-pressed"]).toBe(true);
+  });
+  it("shows Guided stages, modes and reasons, and Load returns to Practice without starting", async () => {
+    const { controller } = fixture(); hooks.inlineState = []; const tree = () => { hooks.cursor = 0; return Training(); };
+    const settings = controller.settings.get(), before = controller.training.state.get();
+    button("Guided", tree()).onClick(); hooks.inlineState = ["guided", { family: "pll", trainingSet: "full" }, "learn"];
+    const html = renderToStaticMarkup(tree());
+    expect(html).toContain("21 cases"); expect(html).toContain("Maintenance"); expect(html).toContain("Due for review: 0"); expect(html).toContain("Active learning cohort: 4");
+    expect(html).toContain("Active learning cohort: introduce a few cases"); expect(html).toContain("Competition prep"); expect(html).toContain("Sequence");
+    expect(controller.training.state.get()).toBe(before); expect(controller.settings.get()).toBe(settings);
+    const load = vi.spyOn(controller, "applyGuidedTrainingBlock"); await button("Load block", tree()).onClick();
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({ context: { family: "pll", trainingSet: "full" }, task: "recognition", strategy: "sequence" }));
+    expect(hooks.inlineState[0]).toBe("practice"); expect(controller.training.state.get().drill).toMatchObject({ status: "configuring", running: false }); expect(controller.training.drillCountdown.get()).toBeNull();
+  });
+  it("Guided context/mode controls remain local, show fallback and shared application busy state", () => {
+    const { controller } = fixture(); const before = controller.training.state.get(), settings = controller.settings.get();
+    hooks.inlineState = []; const tree = () => { hooks.cursor = 0; return TrainingGuided({ onLoaded: () => {} }); };
+    browseControl("Browse family", tree()).onChange({ target: { value: "f2l" } });
+    browseControl("Browse F2L library", tree()).onChange({ target: { value: "advanced" } });
+    browseControl("Browse F2L position", tree()).onChange({ target: { value: "BL" } });
+    expect(renderToStaticMarkup(tree())).toContain("Advanced F2L");
+    const speed = buttons(tree()).find(b => text(b.children).startsWith("Speed"))!; speed.onClick();
+    expect(renderToStaticMarkup(tree())).toContain("Build reliable recognition and execution first.");
+    expect(buttons(tree()).filter(b => text(b.children) === "Load block")).toEqual([]);
+    hooks.inlineState[1] = "learn"; controller.trainingDrillConfigurationApplying.set(true);
+    expect(button("Load block", tree()).disabled).toBe(true);
+    expect(controller.training.state.get()).toBe(before); expect(controller.settings.get()).toBe(settings);
+  });
+  it("Insights filters cases/groups/confusions/trends without changing Practice or Settings", () => {
+    const { controller } = fixture(), before = controller.training.state.get(), settings = controller.settings.get();
+    controller.trainingAttempts.set([...executionEvidence(policyTargets[0], 1, { elapsedMs: 0, caseTimeMs: 0 }),
+      ...executionEvidence({ family: "oll", trainingSet: "full", caseId: "27" }, 1)]);
+    controller.trainingRecognitionAttempts.set(recognitionEvidence({ family: "oll", trainingSet: "full", caseId: "27" }, 1, { answerCaseId: "26" }));
+    hooks.inlineState = []; const tree = () => { hooks.cursor = 0; return TrainingInsights(); };
+    browseControl("Browse family", tree()).onChange({ target: { value: "oll" } });
+    expect(renderToStaticMarkup(tree())).toContain("Selected context: Full OLL"); expect(renderToStaticMarkup(tree())).not.toContain("Full PLL");
+    expect(renderToStaticMarkup(tree())).toContain("27 → 26");
+    browseControl("Browse Training set", tree()).onChange({ target: { value: "2look" } });
+    const scoped = renderToStaticMarkup(tree()); expect(scoped).toContain("Selected context: 2-Look OLL"); expect(scoped).not.toContain("27 → 26"); expect(scoped).toContain("Execution trend · 0 attempts");
+    expect(controller.training.state.get()).toBe(before); expect(controller.settings.get()).toBe(settings);
+    hooks.inlineState[1] = { family: "pll", trainingSet: "full" }; const zero = renderToStaticMarkup(tree());
+    expect(zero).not.toContain("0.00"); expect(zero).toContain("Execution trend · 1 attempts");
+  });
+  it("labels historical weakness separately and explains recognition support", () => {
+    const { controller } = fixture(); controller.setDrillTask("recognition"); controller.setDrillCases(["F2L 4", "F2L 5"]);
+    controller.trainingRecognitionAttempts.set(recognitionEvidence({ family: "f2l", library: "basic", position: "FR", caseName: "F2L 4" }, 3, { answerCaseId: "F2L 5" }));
+    const capturedContext = controller.training.drillConfigurationContext;
+    controller.training.state.update(s => ({ ...s, drill: { ...s.drill, status: "summary", context: capturedContext,
+      outcomes: [{ caseId: "F2L 4", outcome: "answered", answerCaseId: "F2L 4", correct: true, responseMs: 1000, completedAt: 10 }] } }));
+    const html = renderToStaticMarkup(<TrainingDrillSummary />);
+    expect(html).toContain("Recent history: 3 incorrect"); expect(html).not.toContain("3 incorrect this drill"); expect(html).toContain("Needs historical review"); expect(html).toContain("1 weak case + 1 recognition support case");
+    controller.training.state.update(s => ({ ...s, drill: { ...s.drill, outcomes: [...s.drill.outcomes, { caseId: "F2L 4", outcome: "answered", answerCaseId: "F2L 5", correct: false, responseMs: 1000, completedAt: 11 }] } }));
+    expect(renderToStaticMarkup(<TrainingDrillSummary />)).toContain("1 incorrect this drill");
+    button("Drill weak cases", <TrainingDrillSummary />).onClick();
+    expect(controller.training.state.get().drill).toMatchObject({ selectedCaseIds: ["F2L 4", "F2L 5"], task: "recognition", strategy: "weighted", status: "configuring", running: false });
   });
 });

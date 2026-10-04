@@ -148,6 +148,10 @@ The following are current architectural rules.
     Variation never changes durable identity or stable personal source algorithms.
     Training-local Insights derives separate execution/recognition dimensions from
     historical facts, isolated from normal Solve Statistics.
+    Training-local Guided derives curriculum and adaptive plans purely from the same
+    Execution/Recognition histories and feeds ordinary Drill configuration. It adds
+    neither another runtime nor a persisted mastery source. Practice/Guided/Insights
+    are local presentation views; live Training latches navigation to Practice.
     Named TrainingDrillPreset records persist reusable single-catalogue configuration,
     independently of runtime/history/Settings. Controller owns their separate Store;
     loading atomically hydrates context/pool/strategy/task in ordinary Drill configuration and keeps Start explicit. F2L

@@ -32,20 +32,21 @@ function median(values: number[]): number | null {
   const sorted = values.sort((a, b) => a - b), middle = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
 }
-const positive = (n: number) => Number.isFinite(n) && n > 0;
+export const trainingDurationIsValid = (n: number | null): n is number => n !== null && Number.isFinite(n) && n > 0;
+export const effectiveTrainingDelta = (attempt: Pick<TrainingAttempt, "preferredDelta" | "delta">) => attempt.preferredDelta ?? attempt.delta;
 
 export function trainingExecutionPerformance(attempts: readonly TrainingAttempt[]): TrainingCaseStats {
   const sorted = [...attempts].sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   const recent = sorted.slice(-5);
-  const times = sorted.map(a => a.elapsedMs).filter(positive);
+  const times = sorted.map(a => a.elapsedMs).filter(trainingDurationIsValid);
   const stms = sorted.map(a => a.stm).filter(n => Number.isFinite(n) && n >= 0);
-  const recentMoveSpansMs = recent.map(a => a.elapsedMs).filter(positive);
+  const recentMoveSpansMs = recent.map(a => a.elapsedMs).filter(trainingDurationIsValid);
   const bestMoveSpanMs = times.length ? times.reduce((best, time) => Math.min(best, time)) : null;
   const recentMedianMoveSpanMs = median([...recentMoveSpansMs]);
-  const recentMedianDelta = median(recent.map(a => a.preferredDelta ?? a.delta).filter((n): n is number => n !== null && Number.isFinite(n)));
-  const caseTimes = sorted.filter(a => a.activity === "drill").map(a => a.caseTimeMs).filter((n): n is number => n !== null && positive(n));
+  const recentMedianDelta = median(recent.map(effectiveTrainingDelta).filter((n): n is number => n !== null && Number.isFinite(n)));
+  const caseTimes = sorted.filter(a => a.activity === "drill").map(a => a.caseTimeMs).filter(trainingDurationIsValid);
   const bestCaseTimeMs = caseTimes.length ? caseTimes.reduce((best, time) => Math.min(best, time)) : null;
-  const recentMedianCaseTimeMs = median(recent.filter(a => a.activity === "drill").map(a => a.caseTimeMs).filter((n): n is number => n !== null && positive(n)));
+  const recentMedianCaseTimeMs = median(recent.filter(a => a.activity === "drill").map(a => a.caseTimeMs).filter(trainingDurationIsValid));
   const timingRatio = trainingTimingRatio({ bestCaseTimeMs, recentMedianCaseTimeMs, bestMoveSpanMs, recentMedianMoveSpanMs });
   const needsReview = recentMedianDelta !== null && recentMedianDelta > 0 ||
     timingRatio !== null && timingRatio > 1.2;
@@ -104,6 +105,9 @@ export function selectTrainingReview(
 
 /** Prefer complete Drill case timing when both metrics are available. */
 export function trainingTimingRatio(stats: Pick<TrainingCaseStats, "bestCaseTimeMs" | "recentMedianCaseTimeMs" | "bestMoveSpanMs" | "recentMedianMoveSpanMs">): number | null {
-  if (stats.bestCaseTimeMs !== null && stats.bestCaseTimeMs > 0 && stats.recentMedianCaseTimeMs !== null) return stats.recentMedianCaseTimeMs / stats.bestCaseTimeMs;
-  return stats.bestMoveSpanMs !== null && stats.bestMoveSpanMs > 0 && stats.recentMedianMoveSpanMs !== null ? stats.recentMedianMoveSpanMs / stats.bestMoveSpanMs : null;
+  const ratio = trainingDurationIsValid(stats.bestCaseTimeMs) && trainingDurationIsValid(stats.recentMedianCaseTimeMs)
+    ? stats.recentMedianCaseTimeMs / stats.bestCaseTimeMs :
+    trainingDurationIsValid(stats.bestMoveSpanMs) && trainingDurationIsValid(stats.recentMedianMoveSpanMs)
+      ? stats.recentMedianMoveSpanMs / stats.bestMoveSpanMs : null;
+  return ratio !== null && Number.isFinite(ratio) ? ratio : null;
 }

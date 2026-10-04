@@ -995,7 +995,7 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     const summary = runtime.state.get(); runtime.finishDrillSummary(true);
     expect(runtime.state.get()).toBe(summary);
     configureInputs(runtime, s => ({ ...s, settings: { ...s.settings, ollTrainingSet: "full" } }));
-    runtime.finishDrillSummary(true); expect(runtime.state.get().drill).toMatchObject({ task: "recognition", status: "configuring", selectedCaseIds: ["26"] });
+    runtime.finishDrillSummary(true); expect(runtime.state.get().drill).toMatchObject({ task: "recognition", status: "configuring", selectedCaseIds: ["26", "27"] });
   });
   it.each(["leave", "activity"])("reconciles changed catalogue IDs when exiting summary through %s", exit => {
     const { runtime, advance } = drill("oll"); runtime.setDrillCases(["27"]); runtime.startDrill(); advance(2000);
@@ -1261,7 +1261,7 @@ describe("Recognition Drill lifecycle and shared smart generation", () => {
   it("weak-case action retains Recognition task and context cancellation clears answer state", () => {
     const { runtime, advance } = recognitionRuntime(); runtime.startDrill(); advance(2000);
     runtime.submitTrainingRecognition("F2L 5"); runtime.stopDrill(); runtime.finishDrillSummary(true);
-    expect(runtime.state.get().drill).toMatchObject({ task: "recognition", selectedCaseIds: ["F2L 4"], status: "configuring" });
+    expect(runtime.state.get().drill).toMatchObject({ task: "recognition", selectedCaseIds: ["F2L 4", "F2L 5"], strategy: "weighted", status: "configuring" });
     runtime.setDrillCases(["F2L 4", "F2L 5"]); runtime.startDrill(); advance(2000);
     const ready = runtime.state.get(); runtime.setF2lLibrary("advanced"); expect(runtime.state.get()).toBe(ready);
     runtime.setTrainingFamily("oll"); expect(runtime.state.get()).toMatchObject({ recognition: null, target: null, drill: { running: false, selectedCaseIds: [] } });

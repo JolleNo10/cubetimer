@@ -2,8 +2,8 @@ import type { TrainingAttempt, TrainingCatalogueIdentity, TrainingDrillPresetCon
 import { normalizeTrainingCatalogueIdentity, trainingCatalogueCaseIds, trainingCatalogueKey } from "../../app/trainingCatalogue";
 import { F2L_POSITIONS } from "../../cube/f2lCases";
 import { drillCaseMetadata } from "./trainingDrill";
-import { trainingExecutionPerformance, trainingStatsByCase } from "./trainingPerformance";
-import { recognitionIsCorrect, recognitionPerformance, recognitionStatsByCase, trainingMedian } from "./trainingRecognitionPerformance";
+import { effectiveTrainingDelta, trainingDurationIsValid, trainingExecutionPerformance, trainingStatsByCase } from "./trainingPerformance";
+import { recognitionConfusions, recognitionIsCorrect, recognitionPerformance, recognitionStatsByCase, trainingMedian } from "./trainingRecognitionPerformance";
 
 const chronological = <T extends { createdAt: number; id: string }>(rows: readonly T[]) =>
   [...rows].sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
@@ -33,8 +33,8 @@ export function personalBenchmarkPerformance(attempts: readonly TrainingAttempt[
 
 export function executionAnalytics(attempts: readonly TrainingAttempt[]) {
   const stats = trainingExecutionPerformance(attempts);
-  const spans = attempts.map(a => a.elapsedMs), caseTimes = attempts.filter(a => a.activity === "drill")
-    .map(a => a.caseTimeMs).filter((n): n is number => n !== null);
+  const spans = attempts.map(a => a.elapsedMs).filter(trainingDurationIsValid), caseTimes = attempts.filter(a => a.activity === "drill")
+    .map(a => a.caseTimeMs).filter(trainingDurationIsValid);
   const comparable = attempts.filter(a => a.recommendedStm !== null);
   return { ...stats, medianMoveSpanMs: trainingMedian(spans), bestMoveSpanMs: bestOf(spans),
     medianCaseTimeMs: trainingMedian(caseTimes), bestCaseTimeMs: bestOf(caseTimes),
@@ -52,13 +52,14 @@ function byRun<T extends { drillRunId: string | null; drillRound: number | null;
 }
 
 export function trainingRunProgression(execution: readonly TrainingAttempt[], recognition: readonly TrainingRecognitionAttempt[]) {
-  const executionRuns = byRun(execution.filter(a => a.activity === "drill" && a.caseTimeMs !== null))
+  const executionRuns = byRun(execution.filter(a => a.activity === "drill"))
     .filter(run => run.rows.length >= 6).map(run => {
       const middle = Math.floor(run.rows.length / 2), first = run.rows.slice(0, middle), second = run.rows.slice(middle);
-      const firstMs = medianOf(first.map(a => a.caseTimeMs))!, secondMs = medianOf(second.map(a => a.caseTimeMs))!;
-      const firstStmDelta = medianOf(first.map(a => a.preferredDelta ?? a.delta));
-      const secondStmDelta = medianOf(second.map(a => a.preferredDelta ?? a.delta));
-      return { id: run.id, rounds: run.rows.length, firstMs, secondMs, deltaMs: secondMs - firstMs,
+      const firstTimes = first.map(a => a.caseTimeMs).filter(trainingDurationIsValid), secondTimes = second.map(a => a.caseTimeMs).filter(trainingDurationIsValid);
+      const firstMs = firstTimes.length >= 2 ? trainingMedian(firstTimes) : null, secondMs = secondTimes.length >= 2 ? trainingMedian(secondTimes) : null;
+      const firstStmDelta = medianOf(first.map(effectiveTrainingDelta));
+      const secondStmDelta = medianOf(second.map(effectiveTrainingDelta));
+      return { id: run.id, rounds: run.rows.length, firstMs, secondMs, deltaMs: firstMs !== null && secondMs !== null ? secondMs - firstMs : null,
         stmDelta: firstStmDelta !== null && secondStmDelta !== null ? secondStmDelta - firstStmDelta : null };
     });
   const recognitionRuns = byRun(recognition).filter(run => run.rows.length >= 6).map(run => {
@@ -70,7 +71,7 @@ export function trainingRunProgression(execution: readonly TrainingAttempt[], re
       secondMs: second.correct >= 2 ? second.medianCorrectResponseMs : null,
       deltaMs: first.correct >= 2 && second.correct >= 2 ? second.medianCorrectResponseMs! - first.medianCorrectResponseMs! : null };
   });
-  return { executionRuns, recognitionRuns, medianExecutionDeltaMs: trainingMedian(executionRuns.map(r => r.deltaMs)),
+  return { executionRuns, recognitionRuns, medianExecutionDeltaMs: medianOf(executionRuns.map(r => r.deltaMs)),
     medianRecognitionDeltaMs: medianOf(recognitionRuns.map(r => r.deltaMs)),
     medianRecognitionAccuracyDelta: trainingMedian(recognitionRuns.map(r => r.accuracyDelta)) };
 }
@@ -105,14 +106,7 @@ export function trainingAnalytics(execution: readonly TrainingAttempt[], recogni
     return { key, target: members[0].target, group: members[0].group, execution: executionAnalytics(executions),
       recognition: recognitionPerformance(recognition.filter(a => keys.has(trainingCatalogueKey(a.target)))) };
   });
-  const confusionCounts = new Map<string, { target: TrainingCatalogueIdentity; answerCaseId: string; count: number }>();
-  for (const row of recognition.filter(a => !recognitionIsCorrect(a))) {
-    const key = JSON.stringify([trainingCatalogueKey(row.target), row.answerCaseId]);
-    const entry = confusionCounts.get(key) ?? { target: row.target, answerCaseId: row.answerCaseId, count: 0 };
-    entry.count++; confusionCounts.set(key, entry);
-  }
-  const confusions = [...confusionCounts.values()].sort((a, b) => b.count - a.count ||
-    trainingCatalogueKey(a.target).localeCompare(trainingCatalogueKey(b.target)) || a.answerCaseId.localeCompare(b.answerCaseId));
+  const confusions = recognitionConfusions(recognition);
   return { execution: executionAnalytics(execution), recognition: recognitionPerformance(recognition), cases, groups, confusions,
     progression: trainingRunProgression(execution, recognition) };
 }
@@ -120,7 +114,8 @@ export function trainingAnalytics(execution: readonly TrainingAttempt[], recogni
 export function trainingTrends(execution: readonly TrainingAttempt[], recognition: readonly TrainingRecognitionAttempt[], window: 25 | 50 | 100 | "all") {
   const limit = <T,>(rows: T[]) => window === "all" ? rows : rows.slice(-window);
   return { execution: limit(chronological(execution)).map(a => ({ id: a.id, createdAt: a.createdAt,
-    elapsedMs: a.elapsedMs, caseTimeMs: a.caseTimeMs, effectiveDelta: a.preferredDelta ?? a.delta, matchedPreferred: a.matchedPreferred })),
+    elapsedMs: trainingDurationIsValid(a.elapsedMs) ? a.elapsedMs : null,
+    caseTimeMs: trainingDurationIsValid(a.caseTimeMs) ? a.caseTimeMs : null, effectiveDelta: effectiveTrainingDelta(a), matchedPreferred: a.matchedPreferred })),
     recognition: limit(chronological(recognition)).map(a => ({ id: a.id, createdAt: a.createdAt,
       correct: recognitionIsCorrect(a), correctResponseMs: recognitionIsCorrect(a) ? a.responseMs : null })) };
 }

@@ -64,7 +64,7 @@ Observable stores follow ownership:
 | `timer.state` | Timer phase, scramble/progress/generation, recovery, live moves, source and penalty |
 | `training.state` | Training lifecycle only |
 | `Controller.trainingDrillPresets` | Global persisted named Drill configurations, separate from runtime, Settings and Sessions |
-| `Controller.trainingDrillPresetApplying` | Narrow application busy fact; blocks Drill Start during atomic preset loading |
+| `Controller.trainingDrillConfigurationApplying` | Narrow application busy fact; blocks Drill Start during atomic Saved Drill or Guided configuration loading |
 | `Controller.trainingAlgorithmPreferences` | Global user-owned catalogue algorithm preferences, independent of Sessions/Settings/runtime |
 | `Controller.trainingRecognitionAttempts` | Global persisted Recognition answers, separate from Execution and runtime |
 | `Controller.trainingAttempts` | Global persisted completed Training facts, separate from live Training and Timer history |
@@ -83,6 +83,14 @@ strategy through a narrow configuration seam. Runtime owns no persistence or sav
 identity. Controller persists prospective OLL/PLL Settings before publishing/hydrating and
 refuses loads in running/summary state. Start remains explicit; RAF ownership and
 lifecycle are unchanged.
+
+Saved Drill and Guided reuse one Controller atomic external-configuration operation.
+Guided/Insights are local presentation views, never runtimes. Browsing context reads
+historical facts without modifying Practice or Settings; explicit Guided Load crosses
+into Controller, hydrates ordinary Drill configuration and returns to Practice without
+starting. Guided loading never edits Saved Drill records. Live Single solving or a
+running Drill latches local navigation to Practice, retained after result/stop/summary.
+There is no curriculum Store or persistent adaptive session.
 
 TrainingRuntime receives only a narrow preference lookup and resolves a target-specific
 preferred executable reference, separate from canonical references. It owns neither

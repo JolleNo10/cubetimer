@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
-import type { TrainingCatalogueIdentity } from "../../../app/types";
+import { trainingContextHistory } from "../trainingBrowseContext";
+import { TrainingContextSelector } from "./TrainingContextSelector";
+import type { TrainingCatalogueIdentity, TrainingDrillPresetContext } from "../../../app/types";
 import { useController, useStore } from "../../../app/useController";
 import { f2lPositionLabel } from "../../../cube/f2lCases";
 import { formatTime } from "../../../shared/time";
@@ -28,10 +30,14 @@ function Metrics({ values }: { values: [string, string | number][] }) {
 export function TrainingInsights() {
   const controller = useController(), execution = useStore(controller.trainingAttempts), recognition = useStore(controller.trainingRecognitionAttempts);
   const [window, setWindow] = useState<25 | 50 | 100 | "all">(50);
-  const analytics = useMemo(() => trainingAnalytics(execution, recognition, catalogue), [execution, recognition]);
-  const trends = useMemo(() => trainingTrends(execution, recognition, window), [execution, recognition, window]);
+  const [context, setContext] = useState<TrainingDrillPresetContext | null>(null);
+  const scoped = useMemo(() => trainingContextHistory(execution, recognition, context), [execution, recognition, context]);
+  const analytics = useMemo(() => trainingAnalytics(scoped.execution, scoped.recognition, scoped.catalogue ?? catalogue), [scoped]);
+  const trends = useMemo(() => trainingTrends(scoped.execution, scoped.recognition, window), [scoped, window]);
   const e = analytics.execution, r = analytics.recognition, progression = analytics.progression;
   return <div className="training-insights">
+    <section className="panel"><div className="panel-body"><TrainingContextSelector context={context} onChange={setContext} all />
+      <p>{context ? `Selected context: ${catalogueContextLabel(scoped.catalogue![0])}` : "Overall: all Training contexts"}</p></div></section>
     <section className="panel"><div className="panel-head"><h2 className="panel-title">Execution</h2></div><div className="panel-body">
       <Metrics values={[["Attempts", e.attempts], ["Median move span", formatTime(e.medianMoveSpanMs)], ["Best move span", formatTime(e.bestMoveSpanMs)],
         ["Median Drill case time", formatTime(e.medianCaseTimeMs)], ["Best Drill case time", formatTime(e.bestCaseTimeMs)],
@@ -70,7 +76,7 @@ export function TrainingInsights() {
       <Metrics values={[["Qualifying Execution runs", progression.executionRuns.length], ["Median later-round case-time difference", timeDelta(progression.medianExecutionDeltaMs)],
         ["Qualifying Recognition runs", progression.recognitionRuns.length], ["Median later-round accuracy difference", progression.medianRecognitionAccuracyDelta === null ? "—" : `${(progression.medianRecognitionAccuracyDelta * 100).toFixed(1)} percentage points`],
         ["Median later-round correct-response difference", timeDelta(progression.medianRecognitionDeltaMs)]]} />
-      <p className="small dim">Runs need at least six completed rounds. Compare chronological halves; response speed needs at least two correct answers in each half.</p>
+      <p className="small dim">Runs need at least six completed rounds. Compare chronological halves; Execution timing needs two positive observations per half; response speed needs at least two correct answers in each half.</p>
       <details><summary>Run comparisons</summary><ul>{progression.executionRuns.map(run => <li key={run.id}>Execution · {run.rounds} rounds · {formatTime(run.firstMs)} → {formatTime(run.secondMs)} · {timeDelta(run.deltaMs)}</li>)}
         {progression.recognitionRuns.map(run => <li key={run.id}>Recognition · {run.rounds} rounds · {percent(run.firstAccuracy)} → {percent(run.secondAccuracy)} · correct response {formatTime(run.firstMs)} → {formatTime(run.secondMs)}</li>)}</ul></details>
     </div></section>
