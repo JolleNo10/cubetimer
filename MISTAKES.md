@@ -433,3 +433,16 @@ not independently invented states. The original entry is retained as history.
 - What happened: a native touch stopped manual timing on pointer-down, then its release clicked the newly rendered Result's Delete button and removed the solve.
 - Root cause: the Timer card disappeared during the active gesture, allowing release/click to target an action at the same screen coordinates. Synthetic events and layout checks did not exercise browser retargeting.
 - Prevention: suppress only the stopping gesture's click on the stable stage container, clean up on release/cancellation, and verify native touch-down/up retains the recorded solve, including the inspection path.
+
+
+## Drill summary edge cases
+
+- What happened: initial summary policy preferred the just-persisted per-case PB,
+  hiding slow first-run cases relative to the overall run. Navigation exits also
+  retained incompatible Full IDs after Settings changed during a finished summary.
+- Root cause: policy tests initially used empty history and tested only explicit
+  summary actions, missing immediate persistence and alternate exit paths.
+- Prevention: test summary ranking with completed attempts already in history;
+  reconcile captured context in the shared reset boundary and cover navigation
+  and activity changes as well as summary buttons. Browser assertions must read
+  the actual selected catalogue order rather than assuming input click order.

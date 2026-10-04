@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { LastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
 import { getLastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
 import { buildLastLayerCatalogueTarget, lastLayerCaseCatalogue, lastLayerCaseName, type LastLayerFamily } from "../../../cube/lastLayerTraining";
@@ -15,8 +15,20 @@ export function Training() {
   const controller = useController();
   const family = useStoreValue(controller.training.state, state => state.family);
   const activity = useStoreValue(controller.training.state, state => state.activity);
+  const drillStatus = useStoreValue(controller.training.state, state => state.drill.status);
+  const screen = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (activity !== "drill" || drillStatus === "configuring") return;
+    // Collapsing a long catalogue must not leave the run controls/summary above
+    // the old scroll position. This changes presentation only and never focus.
+    if (screen.current) {
+      screen.current.scrollTop = 0;
+      const body = screen.current.querySelector<HTMLElement>(".app-body");
+      if (body) body.scrollTop = 0;
+    }
+  }, [activity, drillStatus]);
   return (
-    <div className="training-screen">
+    <div className="training-screen" ref={screen}>
       <nav className="training-family-switch area-switch" aria-label="Training family">
         {(["f2l", "oll", "pll"] as const).map((option) => (
           <button
@@ -50,7 +62,8 @@ function LastLayerCaseLibrary({ family }: { family: LastLayerFamily }) {
   const selectedTarget = useStoreValue(controller.training.state, state => state.target);
   const activity = useStoreValue(controller.training.state, state => state.activity);
   const drill = useStoreValue(controller.training.state, state => state.drill);
-  const trainingSet = useStoreValue(controller.settings, settings => family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet);
+  const selectedSet = useStoreValue(controller.settings, settings => family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet);
+  const trainingSet = drill.status === "summary" && drill.context?.family === family ? drill.context.trainingSet : selectedSet;
   const target = selectedTarget?.family === family
     ? selectedTarget
     : null;
@@ -100,7 +113,7 @@ function LastLayerCaseLibrary({ family }: { family: LastLayerFamily }) {
                   const stats = statsByCase.get(trainingCaseKey({ family, origin: "catalog", trainingSet, caseId })!);
                   const performance = trainingPerformanceLabel(stats);
                   return (
-                    <button type="button" className={`last-layer-case-button${selected ? " selected" : ""}`} key={item.id} disabled={drill.running} aria-pressed={selected} aria-label={`${item.id}${performance ? `, ${performance}` : ""}`} onClick={() => activity === "drill" ? controller.toggleDrillCase(caseId) : void controller.selectLastLayerCase(family, caseId)}>
+                    <button type="button" className={`last-layer-case-button${selected ? " selected" : ""}`} key={item.id} disabled={drill.status !== "configuring"} aria-pressed={selected} aria-label={`${item.id}${performance ? `, ${performance}` : ""}`} onClick={() => activity === "drill" ? controller.toggleDrillCase(caseId) : void controller.selectLastLayerCase(family, caseId)}>
                       {thumbnailModels.get(item.id) ? <LastLayerCaseThumbnail model={thumbnailModels.get(item.id)!} /> : null}
                       <span>{family === "oll" && trainingSet === "full" ? `#${caseId}` : item.name}</span>
                       {activity === "drill" && selected ? <span className="drill-pool-marker">✓ Selected</span> : null}

@@ -8,7 +8,7 @@ import type { TrainingGuideProgress } from "../../../cube/training";
 import { ConnectionPanel } from "../../../shared/ui/ConnectionPanel";
 import { CubeView } from "../../../shared/ui/CubeView";
 import { TrainingAlgorithmGuide, type TrainingGuideNavigation } from "./TrainingAlgorithmGuide";
-import { DrillCountdown, TrainingDrillPanel } from "./TrainingDrill";
+import { DrillCountdown, TrainingDrillPanel, TrainingDrillControls, TrainingDrillSummary } from "./TrainingDrill";
 import { TrainingPersonalPerformance } from "./TrainingPerformance";
 
 export type TrainingStepPreview = {
@@ -23,6 +23,7 @@ export function TrainingWorkspace({ library, details, emptyMessage }: {
   const controller = useController();
   const family = useStoreValue(controller.training.state, state => state.family);
   const activity = useStoreValue(controller.training.state, state => state.activity);
+  const drill = useStoreValue(controller.training.state, state => state.drill);
   const error = useStoreValue(controller.state, state => state.error);
   const target = useStoreValue(controller.training.state, state => state.target);
   const guide = useStoreValue(controller.training.state, state => state.guide);
@@ -39,15 +40,17 @@ export function TrainingWorkspace({ library, details, emptyMessage }: {
   };
   const f2l = family === "f2l";
   return (
-    <div className={`app-body ${f2l ? "f2l-training" : "training"}-layout`}>
-      <div className="column left training-library-column">{library}<ConnectionPanel /></div>
+    <div className={`app-body ${f2l ? "f2l-training" : "training"}-layout${drill.running ? " drill-running-layout" : drill.status === "summary" ? " drill-summary-layout" : ""}`}>
+      <div className="column left training-library-column">{drill.running ? <TrainingDrillPanel /> : <>{library}<ConnectionPanel /></>}</div>
       <div className="column training-workspace-column">
         {error ? <div className="notice error"><span className="grow">{error}</span><button className="ghost" onClick={() => controller.dismissError()}>Dismiss</button></div> : null}
-        {activity === "drill" ? <TrainingDrillPanel /> : <TrainingSetupPanel />}
-        <TrainingCubeStage preview={stepPreview} />
+        {drill.status === "summary" ? <TrainingDrillSummary /> : <>
+          {activity === "drill" ? drill.running ? <TrainingDrillControls /> : <TrainingDrillPanel /> : <TrainingSetupPanel />}
+          <TrainingCubeStage preview={stepPreview} />
+        </>}
       </div>
       <div className="column right training-target-column">
-        <TrainingTargetPanel details={details} emptyMessage={emptyMessage} previewIndex={previewIndex} onPreviewStep={onPreviewStep} />
+        {drill.status !== "summary" ? <TrainingTargetPanel details={details} emptyMessage={emptyMessage} previewIndex={previewIndex} onPreviewStep={onPreviewStep} /> : null}
       </div>
     </div>
   );

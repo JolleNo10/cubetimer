@@ -88,7 +88,10 @@ publication and initial/inter-round Drill countdown progression/expiry. The narr
 `drillCountdown` Store keeps RAF updates out of aggregate TrainingState and case
 libraries; React only presents the remaining milliseconds. There is no React timer
 or second RAF. The runtimes own their timestamps and request shared
-clock start/stop through injected callbacks. Timer and Training own independent
+clock start/stop through injected callbacks. Training tick continues only while an
+attempt is solving or a Drill countdown has a deadline. Revealed ready Drill cases
+stop RAF until the first move starts the clock again. The separately retained reveal
+timestamp preserves full case timing through this recognition wait. Timer and Training own independent
 recovery cancellation tokens and share the pure `calculateRecovery()` solver path.
 
 `src/app/useController.ts` connects stores to React through `useSyncExternalStore`.
@@ -175,8 +178,10 @@ for historical analytics. It gates live Timer/Training input while visible but
 does not create a third solve or training state machine. The Controller refuses
 to enter Statistics while Timer inspection/solving, a Single solving attempt, or
 any running Drill phase (including countdown and ready) is active.
-Entering Statistics remembers the prior runtime area without resetting its idle
-state; returning to it reconciles progress against the physical cube.
+Entering Statistics remembers the prior runtime area without resetting idle Single
+state; finished Drill outcomes/summary are discarded through the Training leave
+boundary while pool/strategy remain configured. Returning reconciles progress
+against the physical cube.
 
 Within Training, one shared lifecycle serves these families:
 

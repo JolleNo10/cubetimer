@@ -334,6 +334,14 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .drill-countdown { margin-top: 12px; font-weight: 600; }
 .drill-countdown.initial { display: flex; flex-direction: column; align-items: center; gap: 12px; }
 .drill-countdown.initial strong { font-size: 72px; line-height: 1; }
+.drill-run-metrics { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+.drill-run-metrics > div { min-width: 0; }
+.drill-run-metrics dt { font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
+.drill-run-metrics dd { margin: 4px 0 0; font-size: 20px; font-variant-numeric: tabular-nums; }
+.drill-weak-cases { list-style: none; padding: 0; margin: 12px 0; }
+.drill-weak-cases li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; padding: 10px 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+.drill-stage-controls { flex: none; }
+.drill-actions button { min-height: 44px; white-space: normal; }
 .drill-result-time { font-size: 28px; margin: 8px 0; }
 .phase-practice { margin-left: auto; padding: 2px 6px; color: var(--accent); }
 .solve-result { min-height: 0; overflow: hidden; }
@@ -1111,6 +1119,8 @@ button.icon { display: inline-grid; place-items: center; padding: 8px; }
 
 /* Narrower screens keep every panel — they stack rather than disappear, with the
    timer always first. */
+.training-layout.drill-running-layout, .f2l-training-layout.drill-running-layout { grid-template-columns: minmax(190px, 240px) minmax(0, 1fr) minmax(260px, 330px); }
+
 @media (max-width: 1180px) {
   .header { flex-wrap: wrap; }
   .header-context { flex-wrap: wrap; max-width: 100%; }
@@ -1292,4 +1302,28 @@ button.icon { display: inline-grid; place-items: center; padding: 8px; }
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+@media (max-width: 1180px) {
+  .training-layout.drill-running-layout, .f2l-training-layout.drill-running-layout { grid-template-columns: minmax(0, 1fr) minmax(260px, 330px); }
+  .drill-running-layout .training-library-column { grid-column: 1 / -1; }
+  .drill-running-layout .training-drill-panel .panel-body { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 18px; }
+  .drill-running-layout .training-drill-panel .panel-body > p { display: none; }
+  .drill-running-layout .drill-run-metrics { display: flex; flex-wrap: wrap; gap: 8px 18px; }
+}
+@media (max-width: 820px) {
+  .training-layout.drill-running-layout, .f2l-training-layout.drill-running-layout { grid-template-columns: minmax(0, 1fr); }
+  .drill-running-layout .training-library-column { grid-column: auto; }
+  .drill-summary .drill-actions > button { flex: 1 1 130px; }
+}
+
+.training-layout.drill-summary-layout, .f2l-training-layout.drill-summary-layout { grid-template-columns: minmax(280px, 400px) minmax(0, 1fr); }
+.drill-summary-layout .training-target-column { display: none; }
+@media (max-width: 1180px) {
+  .drill-summary-layout .column.training-library-column { grid-column: auto; }
+}
+@media (max-width: 820px) {
+  .training-layout.drill-summary-layout, .f2l-training-layout.drill-summary-layout { grid-template-columns: minmax(0, 1fr); }
+  .drill-summary-layout .column.training-workspace-column { order: 1; }
+  .drill-summary-layout .column.training-library-column { order: 2; }
 }

@@ -16,7 +16,7 @@ import { handAlgorithm, handMove, handTimedMoves } from "../../cube/frames";
 import { advanceTrainingGuide, buildTrainingGuide, trainingGrip, trainingGuideProgress, type TrainingGuide, type TrainingGuideProgress } from "../../cube/training";
 import { calculateRecovery, type Recovery } from "../../shared/recovery";
 import { Store } from "../../shared/store";
-import { drillCatalogue, drillCaseId, selectDrillCase, type TrainingDrillContext, type TrainingDrillState, type TrainingDrillStrategy } from "./trainingDrill";
+import { drillCatalogue, drillCaseId, selectDrillCase, weakDrillCases, type TrainingDrillContext, type TrainingDrillState, type TrainingDrillStrategy } from "./trainingDrill";
 import type { Settings, Solve, TrainingAttempt } from "../../app/types";
 
 export type TrainingFamily = "f2l" | "oll" | "pll";
@@ -90,7 +90,7 @@ export type TrainingState = {
 function emptyTrainingState(): TrainingState {
   return {
     activity: "single",
-    drill: { strategy: "sequence", selectedCaseIds: [], running: false, round: 0, context: null, lastCaseId: null, lastOutcome: null },
+    drill: { strategy: "sequence", selectedCaseIds: [], running: false, status: "configuring", outcomes: [], round: 0, context: null, lastCaseId: null, lastOutcome: null },
     family: "f2l",
     mode: "setup",
     f2lSelection: { library: "basic", position: "FR" },
@@ -165,13 +165,13 @@ export class TrainingRuntime {
       }
     }
     const current = this.state.get();
-    if (current.drill.running && this.#caseRevealedAt !== null && (current.phase === "ready" || current.phase === "solving")) {
+    if (current.drill.running && this.#caseRevealedAt !== null && current.phase === "solving") {
       this.#dependencies.elapsed.set(Math.max(0, now - this.#caseRevealedAt));
     } else {
       const elapsed = this.elapsedAt(now);
       if (elapsed !== null) this.#dependencies.elapsed.set(elapsed);
     }
-    return current.drill.running || current.phase === "solving";
+    return this.#drillCountdownUntil !== null || current.phase === "solving";
   }
 
   setTrainingActivity(activity: TrainingActivity): void {
@@ -188,7 +188,7 @@ export class TrainingRuntime {
   }
 
   setDrillCases(caseIds: readonly string[]): void {
-    if (this.state.get().activity !== "drill" || this.state.get().drill.running) return;
+    if (this.state.get().activity !== "drill" || this.state.get().drill.status !== "configuring") return;
     const selectedCaseIds = drillCatalogue(this.#drillContext()).map(drillCaseId).filter(id => caseIds.includes(id));
     this.state.update(s => ({ ...s, drill: { ...s.drill, selectedCaseIds } }));
   }
@@ -199,16 +199,16 @@ export class TrainingRuntime {
   }
 
   setDrillStrategy(strategy: TrainingDrillStrategy): void {
-    if (this.state.get().drill.running) return;
+    if (this.state.get().drill.status !== "configuring") return;
     this.state.update(s => ({ ...s, drill: { ...s.drill, strategy } }));
   }
 
   startDrill(): void {
     const state = this.state.get();
-    if (state.activity !== "drill" || state.drill.running || !state.drill.selectedCaseIds.length || !this.#model) return;
+    if (state.activity !== "drill" || state.drill.status !== "configuring" || !state.drill.selectedCaseIds.length || !this.#model) return;
     const context = this.#drillContext();
     this.reset("virtual");
-    this.state.update(s => ({ ...s, drill: { ...s.drill, running: true, context } }));
+    this.state.update(s => ({ ...s, drill: { ...s.drill, running: true, status: "running", context } }));
     this.#beginDrillCountdown();
   }
 
@@ -223,7 +223,7 @@ export class TrainingRuntime {
     if (!drill.running || !drill.context || !this.#model) return;
     const cases = drillCatalogue(drill.context).filter(c => drill.selectedCaseIds.includes(drillCaseId(c)));
     const selected = selectDrillCase(cases, drill.strategy, drill.round, drill.lastCaseId,
-      this.#dependencies.getTrainingAttempts?.() ?? [], this.#dependencies.rng ?? Math.random);
+      this.#dependencies.getTrainingAttempts?.() ?? [], this.#dependencies.rng ?? Math.random, drill.outcomes);
     if (!selected) { this.stopDrill(); return; }
     try {
       let target: TrainingTarget;
@@ -246,14 +246,34 @@ export class TrainingRuntime {
     const state = this.state.get();
     if (!state.drill.running || state.phase !== "ready" || state.liveMoves.length) return;
     this.#dependencies.stopClock();
-    this.state.update(s => ({ ...s, phase: "result", drill: { ...s.drill, lastOutcome: "skipped" },
+    this.state.update(s => ({ ...s, phase: "result", drill: { ...s.drill, lastOutcome: "skipped", outcomes: [...s.drill.outcomes,
+        { caseId: s.drill.lastCaseId!, outcome: "skipped", completedAt: this.#now() }] },
       guide: s.guide ? { ...s.guide, currentMove: null } : null }));
     this.#beginDrillCountdown();
   }
 
-  stopDrill(): void { if (this.state.get().activity === "drill") this.reset("virtual"); }
+  stopDrill(): void {
+    const { activity, drill } = this.state.get();
+    if (activity !== "drill" || !drill.running) return;
+    this.reset("virtual");
+    if (drill.outcomes.length) this.state.update(s => ({ ...s, drill: { ...drill, running: false, status: "summary" } }));
+  }
+
+  /** Summary actions configure the next run; only Start begins its countdown. */
+  finishDrillSummary(weakOnly = false): void {
+    const { drill } = this.state.get();
+    if (drill.status !== "summary" || !drill.context) return;
+    const cases = drillCatalogue(drill.context).filter(c => drill.selectedCaseIds.includes(drillCaseId(c)));
+    const weakIds = weakOnly ? weakDrillCases(cases, drill.outcomes, this.#dependencies.getTrainingAttempts?.() ?? []).map(c => c.caseId) : drill.selectedCaseIds;
+    if (weakOnly && !weakIds.length) return;
+    const compatible = JSON.stringify(drill.context) === JSON.stringify(this.#drillContext());
+    this.reset("virtual");
+    this.state.update(s => ({ ...s, drill: { ...s.drill,
+      selectedCaseIds: compatible ? cases.map(drillCaseId).filter(id => weakIds.includes(id)) : [], strategy: weakOnly ? "weighted" : drill.strategy } }));
+  }
 
   catalogueContextChanged(): void {
+    if (this.state.get().drill.status === "summary") return; // Captured run context remains authoritative.
     this.reset();
     this.state.update(s => ({ ...s, drill: { ...s.drill, selectedCaseIds: [] } }));
   }
@@ -266,7 +286,7 @@ export class TrainingRuntime {
   }
 
   leave(): void {
-    if (this.state.get().activity === "drill") { this.stopDrill(); return; }
+    if (this.state.get().activity === "drill") { this.reset("virtual"); return; }
     const family = this.state.get().family;
     this.reset();
     this.state.set({ ...emptyTrainingState(), family });
@@ -356,7 +376,7 @@ export class TrainingRuntime {
   }
 
   async selectF2lPosition(position: F2lPosition): Promise<void> {
-    if (this.state.get().drill.running) return;
+    if (this.state.get().drill.status !== "configuring") return;
     if (this.state.get().target?.origin.kind === "solve-step") return;
     this.state.update((s) => ({ ...s, family: "f2l", f2lSelection: { ...s.f2lSelection, position } }));
     if (this.state.get().activity === "drill" || !this.#f2lCase || !this.#model) return;
@@ -364,7 +384,7 @@ export class TrainingRuntime {
   }
 
   setF2lLibrary(selectedLibrary: F2lTrainingLibrary): void {
-    if (this.state.get().drill.running) return;
+    if (this.state.get().drill.status !== "configuring") return;
     this.setTrainingFamily("f2l");
     if (this.state.get().f2lSelection.library === selectedLibrary) return;
     this.catalogueContextChanged();
@@ -450,6 +470,8 @@ export class TrainingRuntime {
     this.#caseRevealedAt = null;
     this.drillCountdown.set(null);
     const selectedPosition = current.f2lSelection.position;
+    const selectedCaseIds = current.drill.status === "summary" && current.drill.context &&
+      JSON.stringify(current.drill.context) !== JSON.stringify(this.#drillContext()) ? [] : current.drill.selectedCaseIds;
     this.#trainingSelectionToken++;
     this.#recoveryToken++;
     this.#f2lCase = null;
@@ -461,7 +483,7 @@ export class TrainingRuntime {
     this.#f2lAgainTurns = [];
     this.#dependencies.stopClock();
     this.#dependencies.elapsed.set(0);
-    this.state.update((s) => ({ ...emptyTrainingState(), activity: s.activity, drill: { ...s.drill, running: false, round: 0, context: null, lastCaseId: null, lastOutcome: null }, family: s.family, mode, f2lSelection: { position: selectedPosition, library: s.f2lSelection.library } }));
+    this.state.update((s) => ({ ...emptyTrainingState(), activity: s.activity, drill: { ...s.drill, selectedCaseIds, running: false, status: "configuring", outcomes: [], round: 0, context: null, lastCaseId: null, lastOutcome: null }, family: s.family, mode, f2lSelection: { position: selectedPosition, library: s.f2lSelection.library } }));
   }
 
   #buildF2lCatalogueTarget(
@@ -727,7 +749,8 @@ export class TrainingRuntime {
   #finishTrainingAttempt(): void {
     if (this.state.get().phase !== "solving") return;
     const { mode, activity } = this.state.get();
-    const caseTimeMs = activity === "drill" && this.#caseRevealedAt !== null ? Math.max(0, this.#now() - this.#caseRevealedAt) : null;
+    const completedAt = this.#now();
+    const caseTimeMs = activity === "drill" && this.#caseRevealedAt !== null ? Math.max(0, completedAt - this.#caseRevealedAt) : null;
     this.#dependencies.stopClock();
     const offsets = fitMoveTimestamps(this.#trainingRawMoves);
     const timed: TimedMove[] = this.#trainingRawMoves.map((move, index) => ({
@@ -751,7 +774,9 @@ export class TrainingRuntime {
     };
     this.state.update((s) => ({
       ...s, phase: "result", result,
-      drill: activity === "drill" ? { ...s.drill, lastOutcome: "solved" } : s.drill,
+      drill: activity === "drill" ? { ...s.drill, lastOutcome: "solved", outcomes: [...s.drill.outcomes,
+        { caseId: s.drill.lastCaseId!, outcome: "solved", caseTimeMs: caseTimeMs!, moveSpanMs: result.elapsedMs,
+          stm: result.stm, delta: result.delta, completedAt }] } : s.drill,
       guide: s.guide ? { ...s.guide, currentMove: null } : null
     }));
     if (target) this.#dependencies.onAttemptCompleted?.({ activity, mode, target: target.info, result });

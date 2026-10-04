@@ -139,7 +139,8 @@ The following are current architectural rules.
     preferences remain Settings-owned.
     Single and Drill activities share this one runtime and target/move/completion
     engine. Single supports setup and virtual modes; catalogue-only Drill is virtual
-    only, with selected case pools and runtime-owned countdowns. Completed Drill
+    only, with selected case pools, runtime-owned countdowns and ephemeral run outcomes/
+    summaries. Skips affect only the active run, never persisted mastery. Completed solved Drill
     rounds are dedicated TrainingAttempt records, never Solves.
     Live attempt state is ephemeral; completed facts may be persisted as dedicated
     `TrainingAttempt` records. Controller coordinates the completion callback with

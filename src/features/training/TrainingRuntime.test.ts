@@ -913,8 +913,63 @@ describe("TrainingRuntime continuous virtual Drill", () => {
         feedMove(runtime, cubeMove(token, trainingGrip(target)));
       }
     };
-    return { runtime, model, completed, advance, solve };
+    return { runtime, model, completed, advance, solve, wait: (ms: number) => { now += ms; } };
   }
+  it("stops RAF while recognizing, restarts on the first move, and includes the unticked wait in case time", () => {
+    const startClock = vi.fn(), elapsed = new Store(0);
+    const { runtime, advance, wait, solve, completed } = drill("f2l", { startClock, elapsed });
+    runtime.setDrillCases(["F2L 4"]); runtime.startDrill();
+    expect(advance(1000)).toBe(true); expect(advance(1000)).toBe(false);
+    const publish = vi.spyOn(elapsed, "set");
+    expect(advance(0)).toBe(false); expect(publish).not.toHaveBeenCalled();
+    startClock.mockClear(); wait(1500);
+    // A harmless quarter turn starts solving; undo it then execute the reference.
+    feedMove(runtime, "B"); expect(startClock).toHaveBeenCalledOnce();
+    expect(advance(100)).toBe(true); feedMove(runtime, "B'"); solve();
+    expect(completed).toHaveBeenCalledOnce(); expect(completed.mock.calls[0][0].result.caseTimeMs).toBeGreaterThan(1500);
+    expect(advance(1000)).toBe(true); expect(advance(1000)).toBe(false);
+    expect(runtime.state.get().phase).toBe("ready");
+  });
+  it("records solved/skip outcomes once and discards only incomplete work on Stop", () => {
+    const { runtime, advance, solve, completed } = drill();
+    runtime.setDrillCases(["F2L 4", "F2L 5"]); runtime.setDrillStrategy("weighted"); runtime.startDrill(); advance(2000); solve();
+    const result = runtime.state.get().result!;
+    expect(runtime.state.get().drill.outcomes).toEqual([expect.objectContaining({ caseId: "F2L 4", outcome: "solved",
+      caseTimeMs: result.caseTimeMs, moveSpanMs: result.elapsedMs, stm: result.stm, delta: result.delta, completedAt: expect.any(Number) })]);
+    advance(2000); runtime.skipDrillCase(); runtime.skipDrillCase();
+    expect(runtime.state.get().drill.outcomes).toHaveLength(2);
+    expect(runtime.state.get().drill.outcomes[1]).toMatchObject({ caseId: "F2L 5", outcome: "skipped" });
+    advance(2000); feedMove(runtime, "B"); runtime.stopDrill();
+    expect(completed).toHaveBeenCalledOnce(); expect(runtime.state.get().drill).toMatchObject({ status: "summary", outcomes: expect.any(Array) });
+    expect(runtime.state.get().drill.outcomes).toHaveLength(2);
+    runtime.startDrill(); expect(runtime.state.get().drill.running).toBe(false);
+    runtime.finishDrillSummary();
+    expect(runtime.state.get().drill).toMatchObject({ status: "configuring", selectedCaseIds: ["F2L 4", "F2L 5"], strategy: "weighted", outcomes: [], round: 0 });
+    runtime.startDrill(); expect(runtime.state.get().drill.outcomes).toEqual([]);
+  });
+  it("weak-case action configures only weak selected IDs and leave cancels summary/run state", () => {
+    const { runtime, advance } = drill(); runtime.setDrillCases(["F2L 4", "F2L 5"]); runtime.startDrill(); advance(2000);
+    runtime.skipDrillCase(); runtime.stopDrill(); runtime.finishDrillSummary(true);
+    expect(runtime.state.get().drill).toMatchObject({ status: "configuring", running: false, selectedCaseIds: ["F2L 4"], strategy: "weighted", outcomes: [] });
+    runtime.startDrill(); advance(2000); runtime.skipDrillCase(); runtime.stopDrill(); runtime.leave();
+    expect(runtime.state.get().drill).toMatchObject({ status: "configuring", outcomes: [], selectedCaseIds: ["F2L 4"] });
+  });
+  it("keeps captured summary context through Settings edits and clears incompatible configuration on exit", () => {
+    const { runtime, advance } = drill("oll"); runtime.setDrillCases(["27"]); runtime.startDrill(); advance(2000);
+    runtime.skipDrillCase(); runtime.stopDrill();
+    configureInputs(runtime, s => ({ ...s, settings: { ...s.settings, ollTrainingSet: "2look" } }));
+    runtime.catalogueContextChanged();
+    expect(runtime.state.get().drill).toMatchObject({ status: "summary", context: { family: "oll", trainingSet: "full" }, selectedCaseIds: ["27"] });
+    runtime.finishDrillSummary(); expect(runtime.state.get().drill).toMatchObject({ status: "configuring", selectedCaseIds: [] });
+  });
+  it.each(["leave", "activity"])("reconciles changed catalogue IDs when exiting summary through %s", exit => {
+    const { runtime, advance } = drill("oll"); runtime.setDrillCases(["27"]); runtime.startDrill(); advance(2000);
+    runtime.skipDrillCase(); runtime.stopDrill();
+    configureInputs(runtime, s => ({ ...s, settings: { ...s.settings, ollTrainingSet: "2look" } }));
+    runtime.catalogueContextChanged();
+    if (exit === "leave") runtime.leave(); else { runtime.setTrainingActivity("single"); runtime.setTrainingActivity("drill"); }
+    expect(runtime.state.get().drill).toMatchObject({ status: "configuring", selectedCaseIds: [], outcomes: [] });
+  });
   it("starts empty, rejects an empty pool, and conceals targets throughout the initial countdown", () => {
     const { runtime, model, advance } = drill();
     expect(runtime.state.get().drill.selectedCaseIds).toEqual([]);
@@ -975,7 +1030,7 @@ describe("TrainingRuntime continuous virtual Drill", () => {
       runtime.skipDrillCase();
     }
     runtime.stopDrill(); expect(runtime.state.get().drill.selectedCaseIds).toEqual(["F2L 4", "F2L 5"]);
-    runtime.startDrill(); advance(2000); expect(runtime.state.get().drill.lastCaseId).toBe("F2L 4");
+    runtime.finishDrillSummary(); runtime.startDrill(); advance(2000); expect(runtime.state.get().drill.lastCaseId).toBe("F2L 4");
   });
   it("Random avoids the previous case and reads current history for each weighted round", () => {
     const history = vi.fn(() => []);
@@ -983,7 +1038,7 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     runtime.setDrillCases(["F2L 4", "F2L 5"]); runtime.setDrillStrategy("random"); runtime.startDrill();
     advance(2000); expect(runtime.state.get().drill.lastCaseId).toBe("F2L 4");
     runtime.skipDrillCase(); advance(2000); expect(runtime.state.get().drill.lastCaseId).toBe("F2L 5");
-    runtime.stopDrill(); runtime.setDrillStrategy("weighted"); runtime.startDrill();
+    runtime.stopDrill(); runtime.finishDrillSummary(); runtime.setDrillStrategy("weighted"); runtime.startDrill();
     advance(2000); runtime.skipDrillCase(); advance(2000);
     expect(history).toHaveBeenCalledTimes(4);
     expect(runtime.state.get().drill.lastCaseId).toBe("F2L 5");
@@ -1008,7 +1063,7 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     if (phase === "skipped") runtime.skipDrillCase();
     runtime.stopDrill();
     expect(runtime.state.get()).toMatchObject({ activity: "drill", phase: "selecting", target: null, result: null,
-      drill: { running: false, selectedCaseIds: ["F2L 4"], strategy: "weighted" } });
+      drill: { running: false, status: phase === "solved" || phase === "skipped" ? "summary" : "configuring", selectedCaseIds: ["F2L 4"], strategy: "weighted" } });
     expect(runtime.drillCountdown.get()).toBeNull(); expect(advance(5000)).toBe(false);
     expect(completed).toHaveBeenCalledTimes(phase === "solved" ? 1 : 0);
   });

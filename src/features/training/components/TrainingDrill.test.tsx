@@ -6,7 +6,7 @@ import { CubeModel } from "../../../cube/model";
 import { get3x3x3 } from "../../../cube/puzzle";
 import type { MoveGuide } from "../../../cube/moveGuide";
 import { Training } from "./Training";
-import { TrainingDrillPanel } from "./TrainingDrill";
+import { TrainingDrillPanel, TrainingDrillControls, TrainingDrillSummary } from "./TrainingDrill";
 import { TrainingWorkspace, TrainingCubeStage, TrainingActions, TrainingReferences, TrainingAttemptResult } from "./TrainingWorkspace";
 import { TrainingPersonalPerformance } from "./TrainingPerformance";
 const hooks = vi.hoisted(() => ({ controller: null as Controller | null }));
@@ -81,17 +81,42 @@ describe("Single and Drill presentation", () => {
     expect(active).not.toContain("RECOMMENDED"); expect(active).not.toContain("Personal performance"); expect(active).not.toContain("data-guide=");
     expect(renderToStaticMarkup(<TrainingReferences />)).toBe(""); expect(renderToStaticMarkup(<TrainingPersonalPerformance />)).toBe("");
     const cards = buttons(<Training />).filter(b => b["aria-label"]?.startsWith("F2L "));
-    expect(cards.filter(b => b["aria-pressed"])).toHaveLength(2); // Pool membership only, no answer highlight.
+    expect(cards).toHaveLength(0); // Active run suppresses the full catalogue.
+    const run = renderToStaticMarkup(<Training />);
+    expect(run).toContain("Round 1"); expect(run).toContain("Solved"); expect(run).toContain("Skipped"); expect(run).toContain("2 selected");
     controller.injectMove("B"); expect(controller.training.state.get().phase).toBe("solving");
     expect(renderToStaticMarkup(workspace)).not.toContain("Skip case"); expect(renderToStaticMarkup(<TrainingActions />)).toBe("");
   });
   it("reveals skipped-case identity/reference during countdown with Stop and no Single actions", () => {
-    const { controller, reveal } = fixture(); reveal(); button("Skip case", <TrainingDrillPanel />).onClick();
+    const { controller, reveal } = fixture(); reveal(); button("Skip case", <TrainingDrillControls />).onClick();
     const html = renderToStaticMarkup(workspace);
     expect(html).toContain("Skipped"); expect(html).toContain("ANSWER ID AND GROUP"); expect(html).toContain("RECOMMENDED");
     expect(html).toContain("Personal performance"); expect(html).toContain("Next case in 2"); expect(html).toContain("Stop drill");
     for (const label of ["Again", "Next review", "Clear case", "Skip case"]) expect(html).not.toContain(label);
     button("Stop drill", <TrainingDrillPanel />).onClick(); expect(controller.training.state.get().target).toBeNull();
+  });
+  it("shows run summary and weak-case/repeat actions without automatically starting", () => {
+    const { controller, reveal } = fixture(); controller.setDrillStrategy("random"); reveal();
+    controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
+    let html = renderToStaticMarkup(<Training />);
+    expect(html).toContain("Drill complete"); expect(html).toContain("1 rounds · 0 solved · 1 skipped");
+    expect(html).toContain("Needs work"); expect(html).toContain("1 skip");
+    expect(html).not.toContain("Avg case time"); expect(button("Drill weak cases").disabled).toBe(false);
+    button("Drill weak cases").onClick();
+    expect(controller.training.state.get().drill).toMatchObject({ status: "configuring", running: false, strategy: "weighted", selectedCaseIds: ["F2L 4"], outcomes: [] });
+    reveal(); controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
+    button("Repeat same set").onClick(); expect(controller.training.state.get().drill).toMatchObject({ status: "configuring", running: false, strategy: "weighted", outcomes: [] });
+    reveal(); controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
+    button("Done").onClick(); expect(controller.training.state.get().activity).toBe("drill");
+  });
+  it("shows valid solved summary metrics and disables weak-case action for a clean run", () => {
+    const { controller, reveal } = fixture(); reveal(); controller.stopTrainingDrill();
+    controller.training.state.update(s => ({ ...s, drill: { ...s.drill, status: "summary", context: { family: "f2l", library: "basic", position: "FR" },
+      outcomes: [{ caseId: "F2L 4", outcome: "solved", caseTimeMs: 2300, moveSpanMs: 1000, stm: 8, delta: 0, completedAt: 1 }] } }));
+    const html = renderToStaticMarkup(<TrainingDrillSummary />);
+    expect(html).toContain("1 rounds · 1 solved · 0 skipped"); expect(html).toContain("Avg case time"); expect(html).toContain("Best case time");
+    expect(html).toContain("2.30"); expect(html).toContain("Avg STM"); expect(html).toContain("8.0");
+    expect(button("Drill weak cases", <TrainingDrillSummary />).disabled).toBe(true);
   });
   it("shows complete Drill case time more prominently than registered move span, including zero spans", () => {
     const result = { moves: ["R"], stm: 1, elapsedMs: 0, caseTimeMs: 2300, recommendedStm: 1, recommendedAlg: "R", matchedReferenceRank: 1, delta: 0 };

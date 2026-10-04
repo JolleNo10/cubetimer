@@ -1139,22 +1139,37 @@ describe("Controller Drill composition", () => {
   function running() {
     let now = 100;
     let frame: FrameRequestCallback | undefined;
-    globalThis.requestAnimationFrame = callback => { frame = callback; return 1; };
-    globalThis.cancelAnimationFrame = vi.fn();
+    const raf = vi.fn((callback: FrameRequestCallback) => { frame = callback; return 1; });
+    globalThis.requestAnimationFrame = raf;
+    globalThis.cancelAnimationFrame = vi.fn(() => { frame = undefined; });
     vi.spyOn(performance, "now").mockImplementation(() => now);
     vi.spyOn(Math, "random").mockReturnValue(0);
     const controller = readyController([session("1"), session("2")], "1");
     controller.setArea("training"); controller.setTrainingActivity("drill");
     controller.setDrillCases(["F2L 4", "F2L 5"]); controller.setDrillStrategy("weighted"); controller.startTrainingDrill();
-    const advance = (ms: number) => { now += ms; frame!(now); };
+    const advance = (ms: number) => { now += ms; const next = frame; frame = undefined; next?.(now); };
     const solve = () => {
       const target = controller.training.state.get().target!;
       for (const token of referenceExecutionSignature(target.references[0].alg)!) {
         now += 100; controller.injectMove(cubeMove(token, trainingGrip(target)));
       }
     };
-    return { controller, advance, solve };
+    return { controller, advance, solve, raf, hasFrame: () => frame !== undefined };
   }
+  it("stops scheduling during recognition and restarts on turns without losing the waiting time", () => {
+    const { controller, advance, solve, raf, hasFrame } = running();
+    expect(hasFrame()).toBe(true); advance(2000); expect(hasFrame()).toBe(false);
+    const count = raf.mock.calls.length; advance(1500); expect(raf).toHaveBeenCalledTimes(count);
+    controller.injectMove("B"); expect(hasFrame()).toBe(true);
+    controller.injectMove("B'"); solve();
+    expect(controller.trainingAttempts.get()[0].caseTimeMs).toBeGreaterThan(1500);
+    expect(hasFrame()).toBe(true); advance(2000); expect(hasFrame()).toBe(false);
+    controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
+    expect(controller.training.state.get().drill.status).toBe("summary");
+    controller.finishTrainingDrillSummary(true);
+    expect(controller.training.state.get().drill).toMatchObject({ status: "configuring", running: false, strategy: "weighted" });
+    expect(hasFrame()).toBe(false);
+  });
   it("uses the existing RAF for countdown and gives each weighted draw the latest immediately appended history", async () => {
     const select = vi.spyOn(drillPolicy, "selectDrillCase");
     const { controller, advance, solve } = running();
@@ -1169,6 +1184,7 @@ describe("Controller Drill composition", () => {
     expect(history[0].caseTimeMs).toBeGreaterThan(500); expect(db.saveTrainingAttempt).toHaveBeenCalledOnce();
     const saved = vi.spyOn(db, "saveSolve"); expect(saved).not.toHaveBeenCalled();
     advance(2000); expect(select).toHaveBeenCalledTimes(2); expect(select.mock.calls[1][4]).toBe(history);
+    expect(select.mock.calls[1][6]).toEqual(controller.training.state.get().drill.outcomes);
     expect(controller.training.state.get().drill.lastCaseId).toBe("F2L 5");
     controller.stopTrainingDrill(); expect(globalThis.cancelAnimationFrame).toHaveBeenCalled();
   });
@@ -1182,7 +1198,7 @@ describe("Controller Drill composition", () => {
     const history = controller.trainingAttempts.get();
     vi.spyOn(controller.timer, "useCubeStateAsScramble").mockResolvedValue("applied");
     controller.setArea("timer");
-    expect(controller.training.state.get()).toMatchObject({ target: null, result: null, drill: { running: false } });
+    expect(controller.training.state.get()).toMatchObject({ target: null, result: null, drill: { running: false, status: "configuring", outcomes: [] } });
     expect(controller.training.drillCountdown.get()).toBeNull(); expect(controller.trainingAttempts.get()).toBe(history);
   });
   it.each(["oll", "pll"] as const)("set changes cancel %s Drill during initial countdown and clear Full IDs", async family => {
@@ -1191,6 +1207,14 @@ describe("Controller Drill composition", () => {
     vi.spyOn(db, "saveSettings").mockResolvedValue();
     await controller.updateSettings(family === "oll" ? { ollTrainingSet: "2look" } : { pllTrainingSet: "2look" });
     expect(controller.training.state.get()).toMatchObject({ activity: "drill", family, target: null, drill: { running: false, selectedCaseIds: [] } });
+  });
+  it("discards completed Drill summaries on top-level Statistics navigation while retaining configuration", () => {
+    const { controller, advance } = running(); advance(2000);
+    controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
+    expect(controller.training.state.get().drill.status).toBe("summary");
+    controller.setArea("statistics"); expect(controller.state.get().area).toBe("statistics");
+    expect(controller.training.state.get().drill).toMatchObject({ status: "configuring", outcomes: [], selectedCaseIds: ["F2L 4", "F2L 5"], strategy: "weighted" });
+    controller.setArea("training"); expect(controller.training.state.get().drill.running).toBe(false);
   });
   it("Session switching leaves Drill configuration and global history independent", async () => {
     const { controller } = running(); controller.stopTrainingDrill();

@@ -194,8 +194,11 @@ construction, UI clocks or persistence.
 
 Weights start at Practised 1, Learning 3, New 4, Needs review 6. Positive median STM
 delta adds at most 4. Timing regression adds at most 4 using `(ratio - 1) * 5`,
-preferentially from Drill case time, otherwise registered move span. The draw walks
-cumulative positive weights using an injected RNG.
+preferentially from Drill case time, otherwise registered move span. Current-run solved weakness uses the same capped delta/timing adjustments, taking
+the stronger historical/run signal to avoid double-counting completed attempts that
+already entered history. Each skip in a case's last five run outcomes adds 6, capped
+at 12. Neither skips nor run signals alter persisted case status. The draw walks
+cumulative positive weights using an injected RNG, still excluding immediate repeats.
 
 Start captures the catalogue context, forces virtual mode, clears Single state and
 begins a fixed 2-second countdown. No target is prepared or revealed early. Expiry
@@ -209,12 +212,13 @@ Completion publishes/persists one Drill fact and keeps the completed target, res
 and references visible during the next 2-second countdown. The next expiry replaces
 the virtual target and clears the result. Skip is available only before any turn;
 it reveals identity/references and begins the same countdown without persisting an
-attempt. Stop cancels every phase, abandons incomplete work, clears target/result and
-retains pool/strategy for configuration. Family changes stop and clear incompatible
+attempt. Stop cancels every phase, abandons incomplete work and clears target/result. It
+retains pool/strategy and enters an explicit ephemeral summary when outcomes exist;
+otherwise it returns to configuration. Family changes stop and clear incompatible
 pools. F2L library changes clear pools; position changes preserve case names during
 configuration. Neither can change during a run. Changes to the active last-layer set
-stop/clear Drill, even during initial countdown. Leaving Training stops it; an active
-Drill cannot detour into Statistics.
+stop/clear Drill, even during initial countdown. Leaving Training cancels the run/summary entirely while retaining configuration; an
+active Drill cannot detour into Statistics.
 
 `TrainingResult.caseTimeMs` measures case reveal to detected completion, including
 recognition and registered turns. It is null for Single. Persisted attempts record
@@ -222,6 +226,37 @@ recognition and registered turns. It is null for Single. Persisted attempts reco
 means registered move span (first registered cube move to last), not full case time
 or pure recognition time; a one-move span is zero. Derived metrics and UI use
 Move span/Best move span/Recent move span. Drill result case time is primary.
+
+### Current run feedback and summary
+
+Drill distinguishes configuration, running and completed summary explicitly within
+TrainingRuntime. Start resets ephemeral outcomes and the sequence cursor while
+retaining pool/strategy. Solved outcomes retain case ID, case time, move span, STM,
+delta and completion timestamp, and also emit the existing persisted TrainingAttempt.
+Skip appends only an ephemeral skipped outcome; it remains outside persisted mastery.
+Selection reads both current outcomes and Controller's latest history each round.
+
+Pure `trainingDrillSummary` derives completed round/solved/skipped counts and solved-only
+average/best case time and average STM. The active round counter includes the revealed
+case; completed counts exclude incomplete work. While running, presentation replaces
+the full catalogue with compact run context without changing the selected pool.
+Answers remain concealed until completion/skip, and the cube remains prominent.
+
+Stopping after outcomes enters summary. Weak-case ranking remains restricted to the
+selected catalogue: most skips, largest run time regression (both historical best case time
+and run average, taking the larger regression), positive recent median STM delta, historical review status,
+then catalogue order. Display/action pools are bounded to five meaningful weak cases.
+Summary retains its captured family/library/position or family/set context even when
+Settings changes. Exiting resumes current catalogue rules and clears incompatible IDs.
+
+Drill weak cases configures those IDs with Weighted worst; Repeat same set and Done
+retain pool/strategy. These actions clear previous outcomes and return to configuration,
+requiring explicit Start. No persistent DrillSession, preset or skip record exists;
+reload discards outcomes/summary, retaining only solved TrainingAttempt facts.
+
+Ready recognition with no countdown does not require continuous RAF. The reveal
+timestamp stays independent of ticks; first move restarts the shared clock, and case
+time includes the entire unticked wait. Solving and countdown require ticks.
 
 ## Completed history and catalogue review
 
@@ -402,3 +437,22 @@ state with training state.
 ```
 
 Virtual Training keeps separate ephemeral state instead.
+
+### Persist skipped attempts or a persistent DrillSession
+
+Rejected for this pass: TrainingAttempt means a completed Training solve. Skip affects
+active practice but cannot silently change that historical/mastery contract. Solved
+rounds already persist independently; a durable session model needs an explicit
+historical-session browsing requirement. Ephemeral outcomes satisfy current feedback.
+
+### Continuous recognition RAF or React-calculated session policy
+
+A reveal timestamp is sufficient for full case time; frame publication while merely
+looking at a case adds work without correctness. Controller's existing RAF ticks only
+solving/countdown. Summary and weak-case ranking are pure Training policy, reusable by
+runtime selection and tests, not a second React state machine.
+
+### Automatically start weak-case/repeat drills
+
+Rejected: summary actions configure the next set. Explicit Start keeps the user in
+control of when the next countdown begins.

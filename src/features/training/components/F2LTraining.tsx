@@ -40,7 +40,7 @@ function F2lLibraryPanel() {
                 key={option.library}
                 className={selection.library === option.library ? "active" : ""}
                 aria-pressed={selection.library === option.library}
-                disabled={drill.running}
+                disabled={drill.status !== "configuring"}
                 onClick={() => controller.setF2lLibrary(option.library)}
               >
                 {option.label}
@@ -65,7 +65,7 @@ function F2lLibraryPanel() {
                 key={position}
                 className={selected ? "active" : ""}
                 aria-pressed={selected}
-                disabled={fixed || drill.running}
+                disabled={fixed || drill.status !== "configuring"}
                 onClick={() => void controller.selectF2lPosition(position)}
               >
                 {f2lPositionLabel(position)}
@@ -127,7 +127,7 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
                   className={`f2l-case-button${selected ? " selected" : ""}`}
                   aria-label={`${f2lCase.name}, ${f2lPositionLabel(selectedPosition)}${performance ? `, ${performance}` : ""}`}
                   aria-pressed={selected}
-                  disabled={drill.running}
+                  disabled={drill.status !== "configuring"}
                   onClick={() => activity === "drill" ? controller.toggleDrillCase(f2lCase.name) : void controller.selectF2lCase(f2lCase.name)}
                 >
                   {model ? <F2lCaseThumbnail

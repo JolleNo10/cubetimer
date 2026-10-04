@@ -193,6 +193,7 @@ export class Controller {
     if (area === "statistics") {
       if (current.phase === "inspection" || current.phase === "solving" || liveTraining) return;
       this.#areaBeforeStatistics = current.area === "training" ? "training" : "timer";
+      if (current.area === "training" && this.training.state.get().activity === "drill") this.training.leave();
       this.state.update((s) => ({ ...s, area: "statistics" }));
       return;
     }
@@ -247,6 +248,7 @@ export class Controller {
   setDrillStrategy(strategy: TrainingDrillStrategy): void { this.training.setDrillStrategy(strategy); }
   startTrainingDrill(): void { this.setArea("training"); this.training.startDrill(); }
   stopTrainingDrill(): void { this.training.stopDrill(); }
+  finishTrainingDrillSummary(weakOnly = false): void { this.training.finishDrillSummary(weakOnly); }
   skipTrainingDrillCase(): void { this.training.skipDrillCase(); }
 
   setTrainingFamily(family: TrainingFamily): void {
