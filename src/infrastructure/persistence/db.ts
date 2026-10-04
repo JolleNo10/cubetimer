@@ -1,15 +1,18 @@
 /**
- * Small IndexedDB wrapper for sessions, solves and settings.
+ * Small IndexedDB wrapper for sessions, solves, settings and Training attempts.
  *
  * Solves carry their whole move stream, so a long session can run to a few megabytes —
  * more than `localStorage` will hold, hence IndexedDB.
  */
 import { DEFAULT_EVENT_ID, EVENTS, type EventId } from "../../cube/scramble";
-import { DEFAULT_SETTINGS, type Session, type Settings, type Solve } from "../../app/types";
+import { DEFAULT_SETTINGS, type Session, type Settings, type Solve, type TrainingAttempt, type TrainingAttemptTarget } from "../../app/types";
 import { normaliseLastLayerTrainingSet } from "../../app/settings";
+import { F2L_POSITIONS } from "../../cube/f2lCases";
+import { findF2lTrainingCase } from "../../cube/f2lTrainingCases";
+import { lastLayerCaseIds } from "../../cube/lastLayerTraining";
 
 const DB_NAME = "cubetimer";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
 
@@ -27,6 +30,9 @@ function openDatabase(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("settings")) {
         db.createObjectStore("settings");
+      }
+      if (!db.objectStoreNames.contains("trainingAttempts")) {
+        db.createObjectStore("trainingAttempts", { keyPath: "id" });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -157,4 +163,73 @@ export async function saveSettings(settings: Settings): Promise<void> {
   await promisify(
     (await store("settings", "readwrite")).put(settings, "settings"),
   );
+}
+
+const record = (value: unknown): value is Record<string, unknown> =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+const text = (value: unknown): value is string => typeof value === "string" && value.trim().length > 0;
+const nonnegative = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0;
+const integer = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value);
+
+/** Current shape only. Rebuild the contract explicitly; never import extra fields. */
+export function normalizeTrainingAttempt(value: unknown): TrainingAttempt | null {
+  if (!record(value) || !text(value.id) || !nonnegative(value.createdAt) ||
+      (value.mode !== "setup" && value.mode !== "virtual") || !record(value.target) ||
+      !Array.isArray(value.moves) || !value.moves.every(text) ||
+      !integer(value.stm) || value.stm < 0 || !nonnegative(value.elapsedMs) ||
+      !(value.recommendedStm === null || integer(value.recommendedStm) && value.recommendedStm >= 0) ||
+      !(value.matchedReferenceRank === null || integer(value.matchedReferenceRank) && value.matchedReferenceRank > 0) ||
+      !(value.delta === null || integer(value.delta))) return null;
+  const t = value.target;
+  let target: TrainingAttemptTarget;
+  if (t.family === "f2l") {
+    const position = F2L_POSITIONS.find(p => p === t.position);
+    if (!position) return null;
+    if (t.origin === "catalog") {
+      if ((t.library !== "basic" && t.library !== "advanced") || !text(t.caseName) ||
+          !findF2lTrainingCase(t.library, t.caseName)) return null;
+      target = { family: "f2l", origin: "catalog", library: t.library, caseName: t.caseName, position };
+    } else if (t.origin === "solve-step" && text(t.solveId) && text(t.stepName) &&
+        (t.recognizedCaseName === undefined || text(t.recognizedCaseName))) {
+      target = { family: "f2l", origin: "solve-step", solveId: t.solveId, stepName: t.stepName, position,
+        ...(t.recognizedCaseName === undefined ? {} : { recognizedCaseName: t.recognizedCaseName }) };
+    } else return null;
+  } else if (t.family === "oll" || t.family === "pll") {
+    if ((t.trainingSet !== "full" && t.trainingSet !== "2look") || !text(t.caseId) ||
+        !lastLayerCaseIds(t.family, t.trainingSet).includes(t.caseId) ||
+        (t.auf !== 0 && t.auf !== 1 && t.auf !== 2 && t.auf !== 3)) return null;
+    if (t.origin === "catalog") {
+      target = { family: t.family, origin: "catalog", trainingSet: t.trainingSet, caseId: t.caseId, auf: t.auf };
+    } else if (t.origin === "solve-step" && t.trainingSet === "full" && text(t.solveId) &&
+        t.stepName === t.family.toUpperCase()) {
+      target = { family: t.family, origin: "solve-step", trainingSet: "full", caseId: t.caseId, auf: t.auf,
+        solveId: t.solveId, stepName: t.family === "oll" ? "OLL" : "PLL" };
+    } else return null;
+  } else return null;
+  return {
+    id: value.id, createdAt: value.createdAt, mode: value.mode, target, moves: [...value.moves] as string[],
+    stm: value.stm, elapsedMs: value.elapsedMs, recommendedStm: value.recommendedStm,
+    matchedReferenceRank: value.matchedReferenceRank, delta: value.delta,
+  };
+}
+
+export function compareTrainingAttempts(a: TrainingAttempt, b: TrainingAttempt): number {
+  return a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+}
+
+export async function loadTrainingAttempts(): Promise<TrainingAttempt[]> {
+  const rows = await promisify((await store("trainingAttempts", "readonly")).getAll() as IDBRequest<unknown[]>);
+  return rows.map(normalizeTrainingAttempt).filter((row): row is TrainingAttempt => row !== null).sort(compareTrainingAttempts);
+}
+
+export async function saveTrainingAttempt(attempt: TrainingAttempt): Promise<void> {
+  const db = await openDatabase();
+  // Wait for transaction commit, so an abort after a successful put still reports failure.
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction("trainingAttempts", "readwrite");
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error ?? new Error("Training history write aborted."));
+    transaction.onerror = () => reject(transaction.error ?? new Error("Training history write failed."));
+    transaction.objectStore("trainingAttempts").put(attempt);
+  });
 }

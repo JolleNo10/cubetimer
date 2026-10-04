@@ -18,7 +18,9 @@ export function MoveSequence({
   useEffect(() => {
     if (layout !== "scroll") return;
     const sequence = sequenceRef.current;
-    const token = sequence?.querySelector<HTMLElement>('[aria-current="step"]');
+    const terminal = currentIndex != null && currentIndex >= moves.length && moves.length > 0;
+    const token = sequence?.querySelector<HTMLElement>(terminal
+      ? '.move-sequence-token:last-child' : '[aria-current="step"]');
     if (!sequence || !token) return;
     // Scroll only this strip; never move the dialog/page or steal keyboard focus.
     const stripBounds = sequence.getBoundingClientRect();
@@ -27,7 +29,7 @@ export function MoveSequence({
     else if (tokenBounds.right > stripBounds.right) sequence.scrollLeft += tokenBounds.right - stripBounds.right + 8;
   }, [currentIndex, layout, moves]);
 
-  return <div ref={sequenceRef} className={`move-sequence ${layout} mono`} aria-label={label}>
+  return <div ref={sequenceRef} className={`move-sequence ${layout} mono`} role="group" aria-label={label}>
     {moves.map((move, index) => {
       const kind = tokenKind?.(index);
       const className = `move-sequence-token ${index === currentIndex ? "current" : index < completedCount ? "completed" : "upcoming"}${index === selectedIndex ? " previewed" : ""}${kind ? ` ${kind}` : ""}`;

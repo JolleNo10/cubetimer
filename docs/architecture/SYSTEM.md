@@ -31,7 +31,7 @@ SmartCube -> PhysicalCubeRuntime -> Controller routing <- Keyboard / UI
                                  |
                               React UI
 
-Controller -> SessionService / SolveHistory / DataTransfer -> db.ts
+Controller -> SessionService / SolveHistory / TrainingHistory / DataTransfer -> db.ts
 ```
 
 The important ownership direction is:
@@ -57,7 +57,7 @@ src/
     useController.ts, types.ts, settings.ts, scrambleProvider.ts, components/
   features/
     timer/           TimerRuntime.ts, components/
-    training/        TrainingRuntime.ts, components/
+    training/        TrainingRuntime.ts, trainingHistory.ts, trainingPerformance.ts, components/
     sessions/        sessionService.ts
     history/         solveHistory.ts, repair.ts, components/
     data-transfer/   dataTransfer.ts, solveCsv.ts, csv.ts
@@ -137,6 +137,11 @@ The following are current architectural rules.
     frame conversions belong to `src/cube/frames.ts` as described in [CUBE.md](CUBE.md).
     Remembered F2L library/position live in `f2lSelection`; OLL/PLL training-set
     preferences remain Settings-owned.
+    Live attempt state is ephemeral; completed facts may be persisted as dedicated
+    `TrainingAttempt` records. Controller coordinates the completion callback with
+    TrainingHistory and publishes a separate Training-attempt Store. These records
+    never enter normal Solve history or Statistics. Catalogue mastery uses Training
+    library/position or family/set/case identity, independent of Timer Session/EventId.
 
 17. **Last-layer catalogue authority is offline and explicit.**
     Full OLL/PLL catalogue data is generated and validated ahead of time from
@@ -146,7 +151,7 @@ The following are current architectural rules.
     The application does not fetch either external source at runtime.
 
 18. **Persisted workflows are separate from live runtime orchestration.**
-    SessionService, SolveHistory, and DataTransfer own persisted application-data
+    SessionService, SolveHistory, TrainingHistory, and DataTransfer own persisted application-data
     workflows and return explicit results. Controller owns Timer/Training runtime
     policy and applies the runtime consequences of those results.
 

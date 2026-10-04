@@ -3,9 +3,11 @@ import { faceColour, slotColours } from "../../../cube/colours";
 import { F2L_POSITIONS, f2lPositionLabel } from "../../../cube/f2lCases";
 import { getF2lThumbnailModel } from "../../../cube/f2lThumbnail";
 import { F2L_TRAINING_CATALOGUES, f2lTrainingCatalogue, shortF2lCaseLabel, type F2lTrainingCase, type F2lTrainingLibrary } from "../../../cube/f2lTrainingCases";
-import { useController, useStoreValue } from "../../../app/useController";
+import { useController, useStore, useStoreValue } from "../../../app/useController";
 import { F2lCaseThumbnail } from "./F2lCaseThumbnail";
 import { TrainingWorkspace } from "./TrainingWorkspace";
+import { trainingCaseKey, trainingStatsByCase, type TrainingCaseStats } from "../trainingPerformance";
+import { TrainingCaseMarker, trainingPerformanceLabel } from "./TrainingPerformance";
 
 export function F2LTraining() {
   const controller = useController();
@@ -20,6 +22,8 @@ function F2lLibraryPanel() {
   const selection = useStoreValue(controller.training.state, state => state.f2lSelection);
   const selectedTarget = useStoreValue(controller.training.state, state => state.target);
   const catalogue = f2lTrainingCatalogue(selection.library);
+  const attempts = useStore(controller.trainingAttempts);
+  const statsByCase = useMemo(() => trainingStatsByCase(attempts), [attempts]);
   const target = selectedTarget?.family === "f2l" ? selectedTarget : null;
   return (
     <div className="panel f2l-library">
@@ -40,6 +44,8 @@ function F2lLibraryPanel() {
             ))}
           </nav>
           <span className="chip small">{catalogue.cases.length} cases</span>
+          <button className="ghost small" onClick={() => controller.randomTrainingCase("f2l")}>Random case</button>
+          <button className="ghost small" onClick={() => void controller.reviewTrainingCase("f2l")}>Review next</button>
         </div>
       </div>
       <div className="panel-body">
@@ -66,6 +72,7 @@ function F2lLibraryPanel() {
           library={selection.library}
           cases={catalogue.cases}
           selectedPosition={selection.position}
+          statsByCase={statsByCase}
           selectedCaseName={target?.origin.kind === "catalog" && target.origin.library === selection.library
             ? target.origin.caseName
             : null}
@@ -80,11 +87,13 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
   cases,
   selectedPosition,
   selectedCaseName,
+  statsByCase,
 }: {
   library: F2lTrainingLibrary;
   cases: readonly F2lTrainingCase[];
   selectedPosition: (typeof F2L_POSITIONS)[number];
   selectedCaseName: string | null;
+  statsByCase: ReadonlyMap<string, TrainingCaseStats>;
 }) {
   const controller = useController();
   const groups = useMemo(() => [...new Set(cases.map((f2lCase) => f2lCase.group))], [cases]);
@@ -102,12 +111,14 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
             {cases.filter((f2lCase) => f2lCase.group === group).map((f2lCase) => {
               const selected = selectedCaseName === f2lCase.name;
               const model = thumbnailModels.get(f2lCase.name);
+              const stats = statsByCase.get(trainingCaseKey({ family: "f2l", origin: "catalog", library, caseName: f2lCase.name, position: selectedPosition })!);
+              const performance = trainingPerformanceLabel(stats);
               return (
                 <button
                   type="button"
                   key={f2lCase.name}
                   className={`f2l-case-button${selected ? " selected" : ""}`}
-                  aria-label={`${f2lCase.name}, ${f2lPositionLabel(selectedPosition)}`}
+                  aria-label={`${f2lCase.name}, ${f2lPositionLabel(selectedPosition)}${performance ? `, ${performance}` : ""}`}
                   aria-pressed={selected}
                   onClick={() => void controller.selectF2lCase(f2lCase.name)}
                 >
@@ -115,6 +126,7 @@ const F2lCaseLibrary = memo(function F2lCaseLibrary({
                     model={model}
                   /> : null}
                   <span className="f2l-case-number">{shortF2lCaseLabel(f2lCase.name)}</span>
+                  <TrainingCaseMarker stats={stats} />
                 </button>
               );
             })}

@@ -63,6 +63,7 @@ Observable stores follow ownership:
 | `physical.state` | Device status, hardware, battery and physical facelets |
 | `timer.state` | Timer phase, scramble/progress/generation, recovery, live moves, source and penalty |
 | `training.state` | Training lifecycle only |
+| `Controller.trainingAttempts` | Global persisted completed Training facts, separate from live Training and Timer history |
 | `Controller.elapsed`, `inspectionLeft` | Shared elapsed publication and Timer inspection remaining |
 
 `AppState` contains neither Timer nor Training nor physical cube state. There is no

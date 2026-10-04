@@ -1,0 +1,104 @@
+import type { TrainingAttempt, TrainingAttemptTarget } from "../../app/types";
+import type { TrainingTargetInfo } from "./TrainingRuntime";
+
+export type TrainingCatalogueCase =
+  | Extract<TrainingAttemptTarget, { family: "f2l"; origin: "catalog" }>
+  | Omit<Extract<TrainingAttemptTarget, { family: "oll" | "pll"; origin: "catalog" }>, "auf">;
+
+export function catalogueCaseForTarget(target: TrainingTargetInfo | null): TrainingCatalogueCase | null {
+  if (!target || target.origin.kind !== "catalog") return null;
+  return target.family === "f2l"
+    ? { family: "f2l", origin: "catalog", library: target.origin.library, caseName: target.origin.caseName, position: target.position }
+    : { family: target.family, origin: "catalog", trainingSet: target.trainingSet, caseId: target.caseId };
+}
+
+/** JSON tuples avoid delimiter collisions; AUF deliberately does not split a case. */
+export function trainingCaseKey(target: TrainingAttemptTarget | TrainingCatalogueCase): string | null {
+  if (target.origin !== "catalog") return null;
+  return JSON.stringify(target.family === "f2l"
+    ? [target.family, target.library, target.caseName, target.position]
+    : [target.family, target.trainingSet, target.caseId]);
+}
+
+export type TrainingCaseStats = {
+  attempts: number;
+  bestElapsedMs: number | null;
+  recentMedianElapsedMs: number | null;
+  bestStm: number | null;
+  recentMedianDelta: number | null;
+  lastPracticedAt: number | null;
+  status: "new" | "learning" | "review" | "practiced";
+  recentElapsedMs: readonly number[];
+};
+
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = values.sort((a, b) => a - b), middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+const positive = (n: number) => Number.isFinite(n) && n > 0;
+
+function aggregate(attempts: readonly TrainingAttempt[]): TrainingCaseStats {
+  const sorted = [...attempts].sort((a, b) => a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  const recent = sorted.slice(-5);
+  const times = sorted.map(a => a.elapsedMs).filter(positive);
+  const stms = sorted.map(a => a.stm).filter(n => Number.isFinite(n) && n >= 0);
+  const recentElapsedMs = recent.map(a => a.elapsedMs).filter(positive);
+  const bestElapsedMs = times.length ? times.reduce((best, time) => Math.min(best, time)) : null;
+  const recentMedianElapsedMs = median([...recentElapsedMs]);
+  const recentMedianDelta = median(recent.map(a => a.delta).filter((n): n is number => n !== null && Number.isFinite(n)));
+  const needsReview = recentMedianDelta !== null && recentMedianDelta > 0 ||
+    bestElapsedMs !== null && recentMedianElapsedMs !== null && recentMedianElapsedMs > bestElapsedMs * 1.2;
+  return { attempts: sorted.length, bestElapsedMs, recentMedianElapsedMs,
+    bestStm: stms.length ? stms.reduce((best, stm) => Math.min(best, stm)) : null, recentMedianDelta,
+    lastPracticedAt: sorted.at(-1)?.createdAt ?? null,
+    status: !sorted.length ? "new" : sorted.length < 3 ? "learning" : needsReview ? "review" : "practiced",
+    recentElapsedMs };
+}
+
+export const EMPTY_TRAINING_CASE_STATS: TrainingCaseStats = aggregate([]);
+
+export function trainingStatsByCase(attempts: readonly TrainingAttempt[]): Map<string, TrainingCaseStats> {
+  const grouped = new Map<string, TrainingAttempt[]>();
+  for (const attempt of attempts) {
+    const key = trainingCaseKey(attempt.target);
+    if (key === null) continue;
+    const group = grouped.get(key) ?? [];
+    group.push(attempt); grouped.set(key, group);
+  }
+  return new Map([...grouped].map(([key, rows]) => [key, aggregate(rows)]));
+}
+
+/** Review tiers are feature policy; selection never constructs a Training target. */
+export function selectTrainingReview(
+  cases: readonly TrainingCatalogueCase[], current: TrainingCatalogueCase | null,
+  attempts: readonly TrainingAttempt[], rng: () => number = Math.random,
+): TrainingCatalogueCase | null {
+  const stats = trainingStatsByCase(attempts);
+  const entries = cases.map((target, order) => ({ target, order, key: trainingCaseKey(target)!,
+    stats: stats.get(trainingCaseKey(target)!) ?? EMPTY_TRAINING_CASE_STATS }));
+  const currentKey = current ? trainingCaseKey(current) : null;
+  const avoidCurrent = (pool: typeof entries) => pool.length > 1 ? pool.filter(e => e.key !== currentKey) : pool;
+  const unseen = entries.filter(e => !e.stats.attempts);
+  if (unseen.length) {
+    const pool = avoidCurrent(unseen);
+    return pool[Math.min(pool.length - 1, Math.max(0, Math.floor(rng() * pool.length)))].target;
+  }
+  const learning = entries.filter(e => e.stats.attempts < 3);
+  const oldest = (a: typeof entries[number], b: typeof entries[number]) =>
+    (a.stats.lastPracticedAt ?? -Infinity) - (b.stats.lastPracticedAt ?? -Infinity) || a.order - b.order;
+  if (learning.length) {
+    const count = Math.min(...learning.map(e => e.stats.attempts));
+    return avoidCurrent(learning.filter(e => e.stats.attempts === count)).sort(oldest)[0].target;
+  }
+  const review = entries.filter(e => e.stats.status === "review");
+  const ratio = (s: TrainingCaseStats) => s.bestElapsedMs && s.recentMedianElapsedMs !== null
+    ? s.recentMedianElapsedMs / s.bestElapsedMs : null;
+  // Null ranks after real metrics, including zero or negative deltas.
+  const worseFirst = (a: number | null, b: number | null) =>
+    a === null ? b === null ? 0 : 1 : b === null ? -1 : b - a;
+  const pool = review.length ? avoidCurrent(review).sort((a, b) =>
+    worseFirst(a.stats.recentMedianDelta, b.stats.recentMedianDelta) ||
+    worseFirst(ratio(a.stats), ratio(b.stats)) || oldest(a, b)) : avoidCurrent(entries).sort(oldest);
+  return pool[0]?.target ?? null;
+}

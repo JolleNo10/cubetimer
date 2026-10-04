@@ -8,6 +8,7 @@ import type { TrainingGuideProgress } from "../../../cube/training";
 import { ConnectionPanel } from "../../../shared/ui/ConnectionPanel";
 import { CubeView } from "../../../shared/ui/CubeView";
 import { TrainingAlgorithmGuide, type TrainingGuideNavigation } from "./TrainingAlgorithmGuide";
+import { TrainingPersonalPerformance } from "./TrainingPerformance";
 
 export type TrainingStepPreview = {
   index: number;
@@ -62,6 +63,7 @@ function TrainingTargetPanel({ details, emptyMessage, previewIndex, onPreviewSte
       <div className="panel-body">
         {!target ? <div className="empty">{emptyMessage}</div> : <>
           {details}
+          <TrainingPersonalPerformance />
           <TrainingReferences previewIndex={previewIndex} onPreviewStep={onPreviewStep} />
           <TrainingAttempt />
           <TrainingActions />
@@ -104,9 +106,10 @@ export function TrainingCubeStage({ preview }: { preview?: TrainingStepPreview }
 export function TrainingActions() {
   const controller = useController();
   const training = useTrainingState();
-  const again = training.phase === "result" || (training.family !== "f2l" && Boolean(training.result));
+  const again = Boolean(training.result);
   return <div className="row wrap f2l-actions">
     {again ? <button className="primary" onClick={() => controller.againTraining()}>Again</button> : null}
+    {again && training.target?.origin.kind === "catalog" ? <button onClick={() => void controller.reviewTrainingCase(training.family)}>Next review</button> : null}
     <button className="ghost" onClick={() => controller.resetTraining()}>Clear case</button>
   </div>;
 }

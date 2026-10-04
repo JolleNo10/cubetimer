@@ -1,11 +1,11 @@
 import { Alg } from "cubing/alg";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildF2lCatalogueTarget,
-  f2lTrainingGrip
+  f2lTrainingGrip, referenceExecutionSignature
 } from "../cube/f2lTraining";
 import { F2L_TRAINING_CATALOGUES } from "../cube/f2lTrainingCases";
-import { buildLastLayerCatalogueTarget, isLastLayerTrainingComplete } from "../cube/lastLayerTraining";
+import { buildLastLayerCatalogueTarget, isLastLayerTrainingComplete, lastLayerCaseIds } from "../cube/lastLayerTraining";
 import { CubeModel, patternToFacelets } from "../cube/model";
 import { invert, reorientMove } from "../cube/orientation";
 import { get3x3x3 } from "../cube/puzzle";
@@ -16,12 +16,17 @@ import { trainingGrip } from "../cube/training";
 import { Controller } from "./Controller";
 import * as db from "../infrastructure/persistence/db";
 import { formatSolveCsv } from "../features/data-transfer/solveCsv";
-import type { Session, Solve } from "./types";
+import { DEFAULT_SETTINGS, type Session, type Solve, type TrainingAttempt } from "./types";
 
 const kpuzzle = await get3x3x3();
 const BASIC_CASES = F2L_TRAINING_CATALOGUES.basic.cases;
 const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
+
+beforeEach(() => {
+  vi.spyOn(db, "loadTrainingAttempts").mockResolvedValue([]);
+  vi.spyOn(db, "saveTrainingAttempt").mockResolvedValue();
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -1015,5 +1020,116 @@ describe("Controller store ownership", () => {
     expect(cube).toHaveBeenCalled(); expect(timer).toHaveBeenCalled();
     expect(app).not.toHaveBeenCalled(); expect(sessions).not.toHaveBeenCalled(); expect(settings).not.toHaveBeenCalled(); expect(training).not.toHaveBeenCalled();
     expect(controller.state.get()).toEqual({ ready: true, area: "timer", error: null });
+  });
+});
+
+const persistedTrainingAttempt = (): TrainingAttempt => ({
+  id: "training-history", createdAt: 10, mode: "virtual",
+  target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 4", position: "FR" },
+  moves: ["R"], stm: 1, elapsedMs: 800, recommendedStm: 1, matchedReferenceRank: 1, delta: 0,
+});
+async function completeControllerTraining() {
+  stubTimerLoop();
+  const controller = readyController([session("1"), session("2")], "1");
+  controller.setArea("training"); await controller.setTrainingMode("virtual");
+  await controller.selectF2lCase("F2L 4");
+  const target = controller.training.state.get().target!;
+  for (const move of referenceExecutionSignature(target.references[0].alg)!) controller.injectMove(cubeMove(move, trainingGrip(target)));
+  return controller;
+}
+
+describe("Controller Training history composition", () => {
+  it("loads global history during init into its own Store", async () => {
+    const attempt = persistedTrainingAttempt();
+    vi.spyOn(db, "loadTrainingAttempts").mockResolvedValue([attempt]);
+    vi.spyOn(db, "loadSettings").mockResolvedValue(DEFAULT_SETTINGS);
+    vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]);
+    vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    vi.spyOn(CubeModel, "create").mockResolvedValue(new CubeModel(kpuzzle));
+    const controller = new Controller(); vi.spyOn(controller, "newScramble").mockResolvedValue();
+    await controller.init();
+    expect(controller.trainingAttempts.get()).toEqual([attempt]);
+    expect(controller.state.get().ready).toBe(true);
+    expect(controller.sessions.get()).not.toHaveProperty("trainingAttempts");
+    expect(controller.training.state.get()).not.toHaveProperty("trainingAttempts");
+    expect(controller.snapshot().solves).toEqual([]);
+  });
+
+  it("publishes completion immediately, saves once, and waits for the write before JSON backup", async () => {
+    const writing = deferred<void>();
+    const save = vi.spyOn(db, "saveTrainingAttempt").mockReturnValue(writing.promise);
+    const saveSolve = vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const controller = await completeControllerTraining();
+    const [attempt] = controller.trainingAttempts.get();
+    const result = controller.training.state.get().result;
+    expect(attempt).toMatchObject({ mode: "virtual", target: { family: "f2l", origin: "catalog", caseName: "F2L 4" }, moves: result!.moves });
+    expect(save).toHaveBeenCalledExactlyOnceWith(attempt);
+    expect(saveSolve).not.toHaveBeenCalled();
+    expect(controller.sessions.get().solves).toEqual([]);
+    vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]);
+    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+    const load = vi.spyOn(db, "loadTrainingAttempts").mockResolvedValue([attempt]);
+    const exporting = controller.exportData();
+    await Promise.resolve(); expect(load).not.toHaveBeenCalled();
+    writing.resolve();
+    expect(JSON.parse(await exporting).trainingAttempts).toEqual([attempt]);
+    controller.againTraining(); await Promise.resolve();
+    expect(save).toHaveBeenCalledOnce();
+  });
+
+  it("reports write failure without discarding the result or in-memory history", async () => {
+    vi.spyOn(db, "saveTrainingAttempt").mockRejectedValue(new Error("quota exceeded"));
+    const controller = await completeControllerTraining();
+    const result = controller.training.state.get().result;
+    await vi.waitFor(() => expect(controller.state.get().error).toContain("quota exceeded"));
+    expect(controller.training.state.get().result).toBe(result);
+    expect(result).not.toBeNull();
+    expect(controller.trainingAttempts.get()).toHaveLength(1);
+    expect(controller.sessions.get().solves).toEqual([]);
+  });
+
+  it("does not replace global Training history when Timer Sessions change", async () => {
+    const controller = readyController([session("1"), session("2")], "1");
+    const attempts = [persistedTrainingAttempt()]; controller.trainingAttempts.set(attempts);
+    stubPersistence(); vi.spyOn(controller, "newScramble").mockResolvedValue();
+    await controller.selectSession("2");
+    expect(controller.trainingAttempts.get()).toBe(attempts);
+    expect(controller.sessions.get().sessionId).toBe("2");
+  });
+
+  it("F2L review delegates to selection while retaining library, position and mode", async () => {
+    const controller = new Controller(new CubeModel(kpuzzle)); controller.setArea("training");
+    controller.setF2lLibrary("advanced"); await controller.selectF2lPosition("FL");
+    await controller.setTrainingMode("virtual");
+    const select = vi.spyOn(controller.training, "selectF2lCase").mockResolvedValue();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    await controller.reviewTrainingCase("f2l");
+    expect(select).toHaveBeenCalledExactlyOnceWith(F2L_TRAINING_CATALOGUES.advanced.cases[0].name);
+    expect(controller.training.state.get()).toMatchObject({ mode: "virtual", f2lSelection: { library: "advanced", position: "FL" } });
+  });
+
+  it.each(["oll", "pll"] as const)("%s review delegates to the selected Full/2-Look set", async family => {
+    const controller = new Controller(new CubeModel(kpuzzle)); controller.setArea("training");
+    const select = vi.spyOn(controller.training, "selectLastLayerCase").mockResolvedValue();
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    for (const set of ["full", "2look"] as const) {
+      controller.settings.set({ ...controller.settings.get(), [family === "oll" ? "ollTrainingSet" : "pllTrainingSet"]: set });
+      await controller.reviewTrainingCase(family);
+      expect(select).toHaveBeenLastCalledWith(family, lastLayerCaseIds(family, set)[0], set);
+    }
+  });
+
+  it("JSON import refreshes the history Store and returns Training counts independently of Sessions", async () => {
+    const controller = readyController([session("1")], "1");
+    const attempt = persistedTrainingAttempt();
+    let stored: TrainingAttempt[] = [];
+    vi.spyOn(db, "saveTrainingAttempt").mockImplementation(async row => { stored = [row]; });
+    vi.spyOn(db, "loadTrainingAttempts").mockImplementation(async () => stored);
+    vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]);
+    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]); vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    const result = await controller.importData(JSON.stringify({ version: 3, sessions: [], solves: [], trainingAttempts: [attempt] }));
+    expect(result).toEqual({ sessions: 0, solves: 0, trainingAttempts: 1 });
+    expect(controller.trainingAttempts.get()).toEqual([attempt]);
+    expect(controller.sessions.get().sessionId).toBe("1");
   });
 });

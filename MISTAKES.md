@@ -1,5 +1,11 @@
 # Mistakes
 
+## 2026-10-04 — Training history test boundaries
+
+- What happened: initial Controller import tests reached the new history adapter without a mock; an exact-completion fixture omitted its required cross-face analysis, and a timing formatter was initially passed directly as an array callback.
+- Root cause: existing fixtures had not been extended to the new persistence boundary, and callback/domain-input contracts were assumed instead of checked.
+- Prevention: stub each new adapter dependency in integration fixtures, assert exact-target preparation succeeds before feeding moves, and wrap formatters whose second argument differs from Array.map's index.
+
 ## 2026-10-04 — Staged whitespace check gating
 
 - What happened: the staged check caught a trailing blank line in a new file, but the commit ran before that result was inspected. The local commit was corrected before pushing.

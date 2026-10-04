@@ -4,7 +4,7 @@ import { fitMoveTimestamps } from "../../infrastructure/bluetooth/smartCube";
 import type { SolveStep, TimedMove } from "../../cube/analysis";
 import type { F2lPosition } from "../../cube/f2lCases";
 import { buildExactF2lTarget, buildF2lCatalogueTarget, calculateTrainingEfficiency, f2lCatalogueSetupMoves, f2lCubeAlgorithm, f2lHandAlgorithm, f2lTrainingGrip, isF2lTrainingComplete, isStandardF2lBase, type F2lTrainingTarget, type F2lTrainingTargetInfo } from "../../cube/f2lTraining";
-import { findF2lTrainingCase, type F2lTrainingCase, type F2lTrainingLibrary } from "../../cube/f2lTrainingCases";
+import { findF2lTrainingCase, f2lTrainingCatalogue, type F2lTrainingCase, type F2lTrainingLibrary } from "../../cube/f2lTrainingCases";
 import { F2L_AGAIN_GESTURE_TURNS, isF2lAgainGesture } from "../../cube/gestures";
 import { buildExactLastLayerTarget, buildLastLayerCatalogueTarget, isLastLayerTrainingComplete, lastLayerCaseIds, lastLayerTrainingVariants, type LastLayerFamily, type LastLayerTrainingSet, type LastLayerTrainingTarget, type LastLayerTrainingTargetInfo } from "../../cube/lastLayerTraining";
 import { CubeModel, patternToFacelets } from "../../cube/model";
@@ -42,6 +42,12 @@ export type TrainingResult = {
 export type TrainingTargetInfo = F2lTrainingTargetInfo | LastLayerTrainingTargetInfo;
 
 export type TrainingTarget = F2lTrainingTarget | LastLayerTrainingTarget;
+
+export type CompletedTrainingAttempt = {
+  mode: TrainingMode;
+  target: TrainingTargetInfo;
+  result: TrainingResult;
+};
 
 function isLastLayerTarget(target: TrainingTarget): target is LastLayerTrainingTarget {
   return target.info.family !== "f2l";
@@ -94,6 +100,7 @@ export type TrainingDependencies = {
   startClock: () => void;
   stopClock: () => void;
   reportError: (error: string) => void;
+  onAttemptCompleted?: (attempt: CompletedTrainingAttempt) => void;
 };
 
 /** The single observable owner of the ephemeral Training lifecycle. */
@@ -187,7 +194,13 @@ export class TrainingRuntime {
     }
   }
 
-  randomTrainingCase(family: LastLayerFamily): void {
+  randomTrainingCase(family: TrainingFamily): void {
+    if (family === "f2l") {
+      const cases = f2lTrainingCatalogue(this.state.get().f2lSelection.library).cases;
+      const selected = cases[Math.floor(Math.random() * cases.length)];
+      if (selected) void this.selectF2lCase(selected.name);
+      return;
+    }
     const settings = this.#dependencies.getSettings();
     const cases = lastLayerCaseIds(family, family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet);
     const caseId = cases[Math.floor(Math.random() * cases.length)];
@@ -569,6 +582,8 @@ export class TrainingRuntime {
   }
 
   #finishTrainingAttempt(): void {
+    if (this.state.get().phase !== "solving") return;
+    const mode = this.state.get().mode;
     this.#dependencies.stopClock();
     const offsets = fitMoveTimestamps(this.#trainingRawMoves);
     const timed: TimedMove[] = this.#trainingRawMoves.map((move, index) => ({
@@ -593,6 +608,7 @@ export class TrainingRuntime {
       ...s, phase: "result", result,
       guide: s.guide ? { ...s.guide, currentMove: null } : null
     }));
+    if (target) this.#dependencies.onAttemptCompleted?.({ mode, target: target.info, result });
     if (this.state.get().mode === "virtual") {
       if (target && isLastLayerTarget(target)) void this.#reloadLastLayerTraining(true);
       else void this.#reloadF2lTraining(true);

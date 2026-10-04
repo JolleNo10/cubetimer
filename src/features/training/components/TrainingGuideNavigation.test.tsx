@@ -152,6 +152,20 @@ describe("manual Training instruction preview", () => {
     expect(hooks.cubeRevision).toBe(`${controller.training.state.get().displayRevision}:live`);
   });
 
+  it("routes a completed catalogue Next review through the family action while keeping Again", async () => {
+    const { controller, render } = await fixture();
+    controller.training.state.update(state => ({ ...state, result: { moves: ["R"], stm: 1, elapsedMs: 500,
+      recommendedStm: 1, recommendedAlg: "R", matchedReferenceRank: 1, delta: 0 } }));
+    const review = vi.spyOn(controller, "reviewTrainingCase").mockResolvedValue();
+    const again = vi.spyOn(controller, "againTraining");
+    let view = render();
+    view.button("Next review").onClick(); expect(review).toHaveBeenCalledExactlyOnceWith("f2l");
+    view.button("Again").onClick(); expect(again).toHaveBeenCalledOnce();
+    view = render();
+    expect(controller.training.state.get().target?.origin).toMatchObject({ kind: "catalog", caseName: "F2L 1" });
+    expect(view.hasButton("Next review")).toBe(false);
+  });
+
   it("keeps a preview through a real deviating turn without changing confirmation", async () => {
     const { controller, render } = await fixture();
     render().button("View move 3: U").onClick();

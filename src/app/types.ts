@@ -1,7 +1,29 @@
 import type { SolveAnalysis, TimedMove } from "../cube/analysis";
 import type { WhiteCrossMoves } from "../cube/crossScramble";
 import type { EventId } from "../cube/scramble";
-import type { LastLayerTrainingSet } from "../cube/lastLayerTraining";
+import type { LastLayerAuf, LastLayerTrainingSet } from "../cube/lastLayerTraining";
+import type { F2lTrainingLibrary } from "../cube/f2lTrainingCases";
+import type { F2lPosition } from "../cube/f2lCases";
+
+/** Global Training history, independent of Timer Session/Event identity. */
+export type TrainingAttemptTarget =
+  | { family: "f2l"; origin: "catalog"; library: F2lTrainingLibrary; caseName: string; position: F2lPosition }
+  | { family: "f2l"; origin: "solve-step"; solveId: string; stepName: string; position: F2lPosition; recognizedCaseName?: string }
+  | { family: "oll" | "pll"; origin: "catalog"; trainingSet: LastLayerTrainingSet; caseId: string; auf: LastLayerAuf }
+  | { family: "oll" | "pll"; origin: "solve-step"; solveId: string; stepName: "OLL" | "PLL"; trainingSet: "full"; caseId: string; auf: LastLayerAuf };
+
+export type TrainingAttempt = {
+  id: string;
+  createdAt: number;
+  mode: "setup" | "virtual";
+  target: TrainingAttemptTarget;
+  moves: string[];
+  stm: number;
+  elapsedMs: number;
+  recommendedStm: number | null;
+  matchedReferenceRank: number | null;
+  delta: number | null;
+};
 
 export type { WhiteCrossMoves } from "../cube/crossScramble";
 

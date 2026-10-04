@@ -7,6 +7,7 @@ These documents describe current state. Start at [SYSTEM.md](SYSTEM.md); load on
 | Task | First sources |
 | --- | --- |
 | Training lifecycle, setup, virtual pattern, attempts, recovery, retry | `src/features/training/TrainingRuntime.ts` and its tests |
+| Completed Training history, catalogue performance and Random/Review | `src/features/training/trainingHistory.ts`, `trainingPerformance.ts`; composition in `src/app/Controller.ts` |
 | Reference checkpoints/progress and frame handling | `src/cube/training.ts`; conversion boundary in `src/cube/frames.ts`; shared visual move semantics in `src/cube/moveGuide.ts` |
 | F2L targets, catalogue/exact history, slots/protected slots, completion | `src/cube/f2lTraining.ts`, `f2lTrainingCases.ts` |
 | Full/2-Look OLL/PLL targets, AUF, variants or stage completion | `src/cube/lastLayerTraining.ts`, `lastLayerCases.ts`, `lastLayerTwoLookCases.ts` |
@@ -91,7 +92,8 @@ centre normalization, with F2L required to remain solved.
 
 Training targets loaded virtually use a separate ephemeral pattern. The normal
 `CubeModel` remains the application's belief about the physical/normal cube.
-Training attempts are ephemeral and never become normal `Solve` records or
+Training live state is ephemeral. Completed attempts may be persisted as dedicated
+`TrainingAttempt` records, but never become normal `Solve` records or normal solve
 statistics.
 
 Full OLL/PLL catalogue data is generated from SpeedCubeDB, behaviourally validated
@@ -158,7 +160,52 @@ A historical F2L, OLL, or PLL step may be turned into an exact training target.
 
 That operation consumes the narrow historical-solve facts described by `F2lTrainingSolveInput`; it does not redefine the persisted Solve model or normal solve-analysis ownership.
 
-Training attempts remain outside ordinary timer history and statistics.
+Completed exact solve-step attempts retain their source Solve/step identity in
+Training history, independently of whether that Solve is still present. They
+remain outside ordinary Timer history/statistics and do not affect catalogue mastery.
+
+## Completed history and catalogue review
+
+TrainingRuntime emits one `CompletedTrainingAttempt` callback containing the
+completed target, mode and result, before virtual auto-reload can replace or
+randomize the target. Again, resets and abandoned attempts do not emit completion.
+Runtime does not write IndexedDB. Controller asks `trainingHistory.ts` to construct
+a UUID/timestamped `TrainingAttempt`, appends it immediately to its separate
+`trainingAttempts` Store, and saves it asynchronously. Persistence errors use the
+application error path without discarding the completed result. Backup/import wait
+for pending writes; JSON import refreshes the history Store. Session switching does
+not replace that Store. Actual moves/results are retained; recommended algorithms
+remain catalogue authority rather than duplicated historical data.
+
+Catalogue keys in `trainingPerformance.ts` encode F2L library, case name and
+position, or OLL/PLL family, Full/2-Look set and case ID. AUF/variant changes do not
+split a last-layer identity. Exact solve-step targets have no catalogue key and
+never silently update catalogue mastery, even for recognizable Full OLL/PLL cases.
+
+Per-case performance uses all catalogue attempts for count and best positive time/
+best STM, and the latest five (timestamp then ID) for recent median time and delta.
+Invalid/nonpositive times and null deltas do not become zero-valued PBs/efficiency.
+New means no attempts; Learning means fewer than three. With at least three,
+Needs review means positive recent median delta or recent median time exceeding
+best time by more than 20%; otherwise the label is Practised. These are transparent
+practice guidance, not a formal mastery percentage.
+
+The pure Review selector chooses uniformly among unseen cases, then lowest-count
+under-practised cases (oldest first), then review cases ordered by larger median
+delta, larger time-regression ratio and oldest practice. Missing metrics rank
+behind available poor performance; stable catalogue order breaks remaining ties.
+Maintenance chooses the least recently practised case. The current case is avoided
+within the selected tier/minimum-count pool when alternatives exist, without
+skipping higher-priority coverage tiers. Controller delegates the selected identity
+to existing runtime selectors; performance policy never builds targets.
+
+Random case supports all families uniformly within the selected catalogue.
+F2L Random/Review retain Basic/Advanced library and position; OLL/PLL retain Settings'
+Full/2-Look choice. Explicit Next review is available after catalogue completion;
+Again repeats the same identity and mode. Exact practice keeps Again and its return
+to Solve review, with no catalogue metrics or result-level Next review. Libraries
+subscribe once to history and pass memoized metrics to cards. Review remains Training
+feature logic, separate from Statistics; it adds no automatic case advancement.
 
 ## F2L catalogue thumbnails
 
@@ -178,6 +225,25 @@ The React renderer must not recreate Basic-versus-Advanced case logic that belon
 Generated thumbnail maps are data products, not general architecture discovery entrypoints.
 
 ## Rejected alternatives
+
+### Persist preferences, Timer solves or Session-scoped mastery for Training history
+
+Settings is preference state, not historical user activity. Training attempts have
+different lifecycle/meaning from Solve records and must not contaminate Timer
+history/statistics. Catalogue identity is independent of Timer Session/Event
+ownership, so switching Sessions cannot reset mastery. Dedicated global
+`TrainingAttempt` records are the persisted boundary.
+
+### TrainingRuntime writes IndexedDB
+
+Rejected because live runtime orchestration must remain separate from persisted
+workflows. Runtime emits completion; Controller composes TrainingHistory and storage.
+
+### Exact solve-step practice silently updates catalogue mastery
+
+Rejected because exact targets preserve solve-specific state/grip/slot, and F2L
+targets do not necessarily identify the selected catalogue/library. All completed
+exact attempts persist, but only catalogue-origin records contribute to review.
 
 ### One universal Training/Replay timeline or a second arrow interpreter
 

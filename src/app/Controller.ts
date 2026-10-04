@@ -3,7 +3,7 @@ import type { GanCubeMove } from "gan-web-bluetooth";
 import type { MacPrompt } from "../infrastructure/bluetooth/smartCube";
 import type { SolveStep } from "../cube/analysis";
 import type { F2lPosition } from "../cube/f2lCases";
-import { type F2lTrainingLibrary } from "../cube/f2lTrainingCases";
+import { f2lTrainingCatalogue, type F2lTrainingLibrary } from "../cube/f2lTrainingCases";
 import {
   lastLayerCaseIds,
   type LastLayerFamily,
@@ -25,12 +25,15 @@ import * as solveHistory from "../features/history/solveHistory";
 import type { StatisticsSnapshot } from "../features/statistics/state/statistics";
 import { Store } from "../shared/store";
 import { TimerRuntime, type TimerState } from "../features/timer/TimerRuntime";
-import { TrainingRuntime, type TrainingFamily, type TrainingMode } from "../features/training/TrainingRuntime";
+import { TrainingRuntime, type CompletedTrainingAttempt, type TrainingFamily, type TrainingMode } from "../features/training/TrainingRuntime";
+import * as trainingHistory from "../features/training/trainingHistory";
+import { catalogueCaseForTarget, selectTrainingReview, type TrainingCatalogueCase } from "../features/training/trainingPerformance";
 import {
   DEFAULT_SETTINGS,
   type Session,
   type Settings,
   type Solve,
+  type TrainingAttempt,
 } from "./types";
 
 export type AppArea = "timer" | "training" | "statistics";
@@ -48,6 +51,8 @@ export class Controller {
   readonly physical: PhysicalCubeRuntime;
   readonly timer: TimerRuntime;
   readonly training: TrainingRuntime;
+  readonly trainingAttempts = new Store<TrainingAttempt[]>([]);
+  #pendingTrainingWrites = new Set<Promise<void>>();
   #rafHandle: number | null = null;
   #areaBeforeStatistics: "timer" | "training" | null = null;
   #solveRecordedListeners = new Set<(solve: Solve) => void>();
@@ -84,7 +89,21 @@ export class Controller {
       isActive: () => this.state.get().area === "training", elapsed: this.elapsed,
       startClock: () => this.#startLoop(), stopClock: () => this.#stopLoop(),
       reportError: error => this.state.update((state) => ({ ...state, error })),
+      onAttemptCompleted: attempt => this.#recordTrainingAttempt(attempt),
     });
+  }
+
+  #recordTrainingAttempt(completed: CompletedTrainingAttempt): void {
+    try {
+      const attempt = trainingHistory.createTrainingAttempt(completed);
+      this.trainingAttempts.update(attempts => [...attempts, attempt]);
+      const saving = trainingHistory.saveTrainingAttempt(attempt)
+        .catch(error => this.state.update(state => ({ ...state, error: `Could not save Training attempt: ${String(error)}` })))
+        .finally(() => this.#pendingTrainingWrites.delete(saving));
+      this.#pendingTrainingWrites.add(saving);
+    } catch (error) {
+      this.state.update(state => ({ ...state, error: `Could not record Training attempt: ${String(error)}` }));
+    }
   }
 
   /** Read-only composition for synchronous actions; it is not an observable state mirror. */
@@ -157,6 +176,7 @@ export class Controller {
     const { sessions, sessionId, solves } = await sessionService.loadInitialContext(model.kpuzzle);
     this.settings.set(settings);
     this.sessions.set({ sessions, sessionId, solves, lastSolve: solves.at(-1) ?? null });
+    this.trainingAttempts.set(await trainingHistory.loadTrainingAttempts());
     this.state.update((state) => ({ ...state, ready: true }));
     await this.newScramble();
   }
@@ -239,9 +259,26 @@ export class Controller {
     await this.training.selectLastLayerCase(family, caseId, catalogue);
   }
 
-  randomTrainingCase(family: LastLayerFamily): void {
+  randomTrainingCase(family: TrainingFamily): void {
     this.setArea("training");
     this.training.randomTrainingCase(family);
+  }
+
+  async reviewTrainingCase(family: TrainingFamily): Promise<void> {
+    const state = this.training.state.get();
+    let cases: TrainingCatalogueCase[];
+    if (family === "f2l") {
+      const { library, position } = state.f2lSelection;
+      cases = f2lTrainingCatalogue(library).cases.map(c => ({ family, origin: "catalog", library, position, caseName: c.name }));
+    } else {
+      const settings = this.settings.get();
+      const trainingSet = family === "oll" ? settings.ollTrainingSet : settings.pllTrainingSet;
+      cases = lastLayerCaseIds(family, trainingSet).map(caseId => ({ family, origin: "catalog", trainingSet, caseId }));
+    }
+    const selected = selectTrainingReview(cases, catalogueCaseForTarget(state.target), this.trainingAttempts.get());
+    if (!selected) return;
+    if (selected.family === "f2l") await this.selectF2lCase(selected.caseName);
+    else await this.selectLastLayerCase(selected.family, selected.caseId, selected.trainingSet);
   }
 
   selectF2lPosition(position: F2lPosition): Promise<void> { return this.training.selectF2lPosition(position); }
@@ -422,18 +459,21 @@ export class Controller {
 
   /** Everything the app has stored, as JSON, so a session is never trapped here. */
   async exportData(): Promise<string> {
+    await Promise.all(this.#pendingTrainingWrites);
     return dataTransfer.exportData();
   }
 
-  async importData(json: string): Promise<{ sessions: number; solves: number }> {
+  async importData(json: string): Promise<{ sessions: number; solves: number; trainingAttempts: number }> {
     if (!this.#beginSessionContextMutation()) {
       throw new Error("Cannot import while the timer or another Session operation is active.");
     }
     try {
       return await this.#queueSessionMutation(async () => {
+        await Promise.all(this.#pendingTrainingWrites);
         const result = await dataTransfer.importData(this.physical.model?.kpuzzle, this.snapshot(), json);
         await this.#applySessionContext(result.context);
-        return { sessions: result.sessions, solves: result.solves };
+        this.trainingAttempts.set(await trainingHistory.loadTrainingAttempts());
+        return { sessions: result.sessions, solves: result.solves, trainingAttempts: result.trainingAttempts };
       });
     } finally {
       this.#endSessionContextMutation();

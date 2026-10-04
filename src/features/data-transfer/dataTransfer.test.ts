@@ -5,7 +5,7 @@ import * as db from "../../infrastructure/persistence/db";
 import * as transfer from "./dataTransfer";
 import { formatSolveCsv, parseSolveCsv } from "./solveCsv";
 import type { SessionContext } from "../sessions/sessionService";
-import type { Session, Solve } from "../../app/types";
+import type { Session, Solve, TrainingAttempt } from "../../app/types";
 
 const kpuzzle = await get3x3x3();
 const session = (id: string, event: Session["event"] = DEFAULT_EVENT_ID): Session =>
@@ -18,27 +18,30 @@ const jsonExport = (sessions: unknown[], solves: unknown[] = []) =>
   JSON.stringify({ format: "cubetimer", version: 2, sessions, solves });
 
 /** Model adapter upserts so repeat-import tests exercise stable persisted identities. */
-function storage(sessions: Session[] = previous.sessions, solves: Solve[] = []) {
+function storage(sessions: Session[] = previous.sessions, solves: Solve[] = [], attempts: TrainingAttempt[] = []) {
   const sessionStore = new Map(sessions.map((value) => [value.id, value]));
   const solveStore = new Map(solves.map((value) => [value.id, value]));
+  const attemptStore = new Map(attempts.map(value => [value.id, value]));
+  vi.spyOn(db, "loadTrainingAttempts").mockImplementation(async () => [...attemptStore.values()]);
+  vi.spyOn(db, "saveTrainingAttempt").mockImplementation(async value => { attemptStore.set(value.id, value); });
   vi.spyOn(db, "loadSessions").mockImplementation(async () => [...sessionStore.values()]);
   vi.spyOn(db, "loadAllSolves").mockImplementation(async () => [...solveStore.values()]);
   vi.spyOn(db, "loadSolves").mockImplementation(async (id) => [...solveStore.values()].filter((value) => value.sessionId === id));
   vi.spyOn(db, "saveSession").mockImplementation(async (value) => { sessionStore.set(value.id, value); });
   vi.spyOn(db, "saveSolve").mockImplementation(async (value) => { solveStore.set(value.id, value); });
-  return { sessionStore, solveStore };
+  return { sessionStore, solveStore, attemptStore };
 }
 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("JSON backup workflow", () => {
-  it("exports the unchanged version 2 contract and persisted records", async () => {
+  it("exports version 3 with solve and Training records", async () => {
     const sessions = [session("A", "222")];
     const solves = [solveFor("A")];
     storage(sessions, solves);
     vi.spyOn(Date, "now").mockReturnValue(1234);
     expect(JSON.parse(await transfer.exportData())).toEqual({
-      format: "cubetimer", version: 2, exportedAt: 1234, sessions, solves,
+      format: "cubetimer", version: 3, exportedAt: 1234, sessions, solves, trainingAttempts: [],
     });
   });
 
@@ -52,7 +55,7 @@ describe("JSON backup workflow", () => {
     ]);
     const result = await transfer.importData(kpuzzle, previous, archive);
     expect(result).toEqual({
-      sessions: 1, solves: 1,
+      sessions: 1, solves: 1, trainingAttempts: 0,
       context: { sessions: [sessionStore.get("legacy")], sessionId: "legacy", solves: [solveStore.get("solve-legacy")], eventChanged: false },
     });
     expect(sessionStore.get("legacy")).toMatchObject({ event: DEFAULT_EVENT_ID });
@@ -88,6 +91,36 @@ describe("JSON backup workflow", () => {
     expect(result.context.sessionId).toBe("A");
     expect(result.context.eventChanged).toBe(true);
     expect(result.context.solves).toEqual([]);
+  });
+
+  it("imports current Training facts, skips malformed records and upserts IDs even without their source Solve", async () => {
+    const attempt: TrainingAttempt = { id: "attempt", createdAt: 10, mode: "virtual",
+      target: { family: "oll", origin: "solve-step", solveId: "missing", stepName: "OLL", trainingSet: "full", caseId: "27", auf: 2 },
+      moves: ["R", "U"], stm: 2, elapsedMs: 700, recommendedStm: 2, matchedReferenceRank: 1, delta: 0 };
+    const { attemptStore } = storage();
+    const archive = JSON.stringify({ format: "cubetimer", version: 3, sessions: previous.sessions, solves: [], trainingAttempts: [
+      attempt, null, { ...attempt, id: "bad", stm: "2" }, { ...attempt, id: "bad-mode", mode: "timer" },
+    ] });
+    const result = await transfer.importData(kpuzzle, previous, archive);
+    expect(result).toMatchObject({ trainingAttempts: 1, solves: 0, sessions: 1 });
+    expect(attemptStore.get("attempt")).toEqual(attempt);
+    await transfer.importData(kpuzzle, result.context, archive);
+    expect(attemptStore.size).toBe(1);
+    expect(JSON.parse(await transfer.exportData()).trainingAttempts).toEqual([attempt]);
+  });
+
+  it("keeps Training independent of Session compatibility and leaves existing Training history on v2 import", async () => {
+    const attempt: TrainingAttempt = { id: "global", createdAt: 0, mode: "setup",
+      target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 1", position: "FR" },
+      moves: ["R"], stm: 1, elapsedMs: 0, recommendedStm: null, matchedReferenceRank: null, delta: null };
+    const { attemptStore } = storage(previous.sessions, [], [attempt]);
+    expect(await transfer.importData(kpuzzle, previous, jsonExport([]))).toMatchObject({ trainingAttempts: 0 });
+    expect(attemptStore.size).toBe(1);
+    // No source Solve or Session is required for an exact historical attempt.
+    const exact = { ...attempt, target: { family: "f2l", origin: "solve-step", solveId: "absent", stepName: "F2L Slot 1", position: "FR" } };
+    const result = await transfer.importData(kpuzzle, previous, JSON.stringify({ sessions: [], solves: [], trainingAttempts: [exact] }));
+    expect(result.trainingAttempts).toBe(1);
+    expect(attemptStore.get("global")?.target.origin).toBe("solve-step");
   });
 
   it("retains malformed-export error semantics without writes", async () => {

@@ -1,11 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import type { ReactElement } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { MoveSequence } from "./MoveSequence";
 
+const scrolling = vi.hoisted(() => ({ host: null as unknown, effects: [] as (() => void)[] }));
+beforeEach(() => { scrolling.host = null; scrolling.effects = []; });
 vi.mock("react", async original => ({
   ...await original<typeof import("react")>(),
-  useRef: () => ({ current: null }), useEffect: () => {},
+  useRef: () => ({ current: scrolling.host }), useEffect: (effect: () => void) => { scrolling.effects.push(effect); },
 }));
 
 describe("controlled move sequence", () => {
@@ -17,7 +19,29 @@ describe("controlled move sequence", () => {
     expect(html).toContain('class="move-sequence-token current" aria-current="step"');
     expect(html).toContain('class="move-sequence-token upcoming previewed"');
     expect(html.match(/aria-current/g)).toHaveLength(1);
-    expect(html).toContain('aria-label="Instructions"');
+    expect(html).toContain('role="group" aria-label="Instructions"');
+  });
+
+  it.each([3, 10])("reveals only the final token at terminal cursor %s without changing focus or state", currentIndex => {
+    const token = { getBoundingClientRect: () => ({ left: 900, right: 944 }), focus: vi.fn() };
+    const host = { querySelector: vi.fn(() => token), getBoundingClientRect: () => ({ left: 0, right: 200 }), scrollLeft: 0 };
+    scrolling.host = host;
+    const onSelect = vi.fn();
+    MoveSequence({ moves, label: "Replay moves", layout: "scroll", currentIndex, completedCount: 3, onSelect });
+    scrolling.effects.forEach(effect => effect());
+    expect(host.querySelector).toHaveBeenCalledWith('.move-sequence-token:last-child');
+    expect(host.scrollLeft).toBe(752);
+    expect(token.focus).not.toHaveBeenCalled();
+    expect(onSelect).not.toHaveBeenCalled();
+  });
+
+  it("does not attempt terminal scrolling for an empty sequence", () => {
+    const host = { querySelector: vi.fn(() => null), getBoundingClientRect: vi.fn(), scrollLeft: 0 };
+    scrolling.host = host;
+    MoveSequence({ moves: [], label: "Replay moves", layout: "scroll", currentIndex: 0 });
+    scrolling.effects.forEach(effect => effect());
+    expect(host.querySelector).not.toHaveBeenCalledWith('.move-sequence-token:last-child');
+    expect(host.scrollLeft).toBe(0);
   });
 
   it("sends the exact array index on click", () => {

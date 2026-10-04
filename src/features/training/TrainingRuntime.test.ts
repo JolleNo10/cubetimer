@@ -20,7 +20,7 @@ import { cubeMove, handAlgorithm } from "../../cube/frames";
 import { trainingGrip } from "../../cube/training";
 import * as db from "../../infrastructure/persistence/db";
 import { Store } from "../../shared/store";
-import { TrainingRuntime } from "./TrainingRuntime";
+import { TrainingRuntime, type CompletedTrainingAttempt } from "./TrainingRuntime";
 import type { Solve } from "../../app/types";
 import { DEFAULT_SETTINGS, type Settings } from "../../app/types";
 
@@ -36,10 +36,11 @@ type Inputs = { model: CubeModel; settings: Settings; virtualCube: boolean; erro
 const fixtures = new WeakMap<TrainingRuntime, Inputs>();
 function inputs(runtime: TrainingRuntime): Inputs { return fixtures.get(runtime)!; }
 function configureInputs(runtime: TrainingRuntime, update: (input: Inputs) => Inputs): void { fixtures.set(runtime, update(inputs(runtime))); }
-function createRuntime(model: CubeModel): TrainingRuntime {
+function createRuntime(model: CubeModel, onAttemptCompleted?: (attempt: CompletedTrainingAttempt) => void): TrainingRuntime {
   const runtime: TrainingRuntime = new TrainingRuntime({
     getModel: () => inputs(runtime).model, getSettings: () => inputs(runtime).settings,
     hasCube: () => inputs(runtime).virtualCube, isActive: () => true, elapsed: new Store(0), startClock: vi.fn(), stopClock: vi.fn(),
+    onAttemptCompleted,
     reportError: error => { inputs(runtime).error = error; }
   });
   fixtures.set(runtime, { model, settings: DEFAULT_SETTINGS, virtualCube: false, error: null });
@@ -224,7 +225,8 @@ describe("TrainingRuntime last-layer sets", () => {
     const nextIndex = targets.findIndex((target) => target.info.references[0].alg !== first.info.references[0].alg);
     expect(nextIndex).toBeGreaterThan(0);
     const next = targets[nextIndex];
-    const runtime = createRuntime(new CubeModel(kpuzzle));
+    const completed = vi.fn();
+    const runtime = createRuntime(new CubeModel(kpuzzle), completed);
     configureInputs(runtime, (state) => ({ ...state, virtualCube: true, settings: { ...state.settings, pllTrainingSet: "2look" } }));
     runtime.setTrainingFamily("pll");
     await runtime.setTrainingMode("virtual");
@@ -246,6 +248,7 @@ describe("TrainingRuntime last-layer sets", () => {
     expect(training.displayFacelets).toBe(patternToFacelets(next.pattern));
     expect(training.displayFacelets).not.toBe(patternToFacelets(first.pattern));
     expect(random).toHaveBeenCalledTimes(4);
+    expect(completed).toHaveBeenCalledExactlyOnceWith({ mode: "virtual", target: first.info, result: training.result });
 
     expect(saveSolve).not.toHaveBeenCalled();
     const nextMove = referenceExecutionSignature(next.info.references[0].alg)![0];
@@ -817,6 +820,76 @@ describe("TrainingRuntime family reset", () => {
       const reset = runtime.state.get();
       feedMove(runtime, "R");
       expect(runtime.state.get()).toBe(reset);
+    }
+  });
+});
+
+describe("Training completed-attempt boundary", () => {
+  it.each(["setup", "virtual"] as const)("emits one completed %s F2L fact before reload and never re-emits on Again", async mode => {
+    const completed = vi.fn();
+    const saveSolve = vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const runtime = createRuntime(new CubeModel(kpuzzle), completed);
+    configureInputs(runtime, state => ({ ...state, virtualCube: true }));
+    await runtime.setTrainingMode(mode);
+    await runtime.selectF2lCase("F2L 4");
+    const target = runtime.state.get().target!;
+    const setup = runtime.state.get().setup;
+    for (const token of setup.split(/\s+/).filter(Boolean)) feedMove(runtime, cubeMove(token, trainingGrip(target)));
+    expect(completed).not.toHaveBeenCalled();
+    expect(runtime.state.get().phase).toBe("ready");
+    for (const token of referenceExecutionSignature(target.references[0].alg)!) feedMove(runtime, cubeMove(token, trainingGrip(target)));
+    const result = runtime.state.get().result;
+    expect(completed).toHaveBeenCalledExactlyOnceWith({ mode, target, result });
+    expect(result).not.toBeNull();
+    runtime.physicalStateChanged();
+    runtime.againTraining(); await Promise.resolve();
+    expect(completed).toHaveBeenCalledOnce();
+    expect(saveSolve).not.toHaveBeenCalled();
+  });
+
+  it.each(["reset", "family", "mode", "leave"])("does not record abandoned attempts on %s", async action => {
+    const completed = vi.fn();
+    const runtime = createRuntime(new CubeModel(kpuzzle), completed);
+    await runtime.setTrainingMode("virtual"); await runtime.selectF2lCase("F2L 4");
+    feedMove(runtime, "R");
+    if (action === "reset") runtime.resetTraining();
+    if (action === "family") runtime.setTrainingFamily("oll");
+    if (action === "mode") await runtime.setTrainingMode("setup");
+    if (action === "leave") runtime.leave();
+    expect(completed).not.toHaveBeenCalled();
+  });
+
+  it("emits the exact solve-step identity rather than the remembered F2L catalogue", async () => {
+    const completed = vi.fn();
+    const runtime = createRuntime(new CubeModel(kpuzzle), completed);
+    await runtime.setTrainingMode("virtual");
+    const built = buildF2lCatalogueTarget(kpuzzle, BASIC_CASES[0]);
+    const execution = f2lCubeAlgorithm(BASIC_CASES[0].algorithms.FR[0], f2lTrainingGrip(built.info)).split(" ");
+    const solve: Solve = { ...solveFor("timer"), scrambledFacelets: patternToFacelets(built.pattern),
+      moves: execution.map((move, i) => ({ move, t: (i + 1) * 100 })),
+      analysis: { method: "CFOP", crossFace: built.info.crossFace, rotation: "", steps: [], solvingMs: 1000,
+        tps: 3, totalRecognitionMs: 0, totalExecutionMs: 1000, stepsSkipped: 0, turnsAfterSolution: 0, pauses: [],
+        sliceTurns: execution.length, faceTurns: execution.length, quarterTurns: execution.length } };
+    await runtime.practiceSolveStep(solve, { name: "F2L Slot 1", slot: built.info.slot, fromMove: 0, toMove: execution.length, skipped: false } as SolveStep);
+    const target = runtime.state.get().target!;
+    expect(target?.origin.kind).toBe("solve-step");
+    for (const token of execution) feedMove(runtime, token);
+    expect(completed).toHaveBeenCalledOnce();
+    expect(completed.mock.calls[0][0].target).toBe(target);
+    expect(completed.mock.calls[0][0].target.origin).toMatchObject({ kind: "solve-step", solveId: solve.id, stepName: "F2L Slot 1" });
+  });
+
+  it.each(["basic", "advanced"] as const)("random F2L delegates within the %s library and keeps position", async library => {
+    const runtime = createRuntime(new CubeModel(kpuzzle));
+    runtime.setF2lLibrary(library); await runtime.selectF2lPosition("FL");
+    const select = vi.spyOn(runtime, "selectF2lCase").mockResolvedValue();
+    const cases = F2L_TRAINING_CATALOGUES[library].cases;
+    const random = vi.spyOn(Math, "random");
+    for (const index of [0, cases.length - 1]) {
+      random.mockReturnValue((index + 0.5) / cases.length);
+      runtime.randomTrainingCase("f2l");
+      expect(select).toHaveBeenLastCalledWith(cases[index].name);
+      expect(runtime.state.get().f2lSelection).toEqual({ library, position: "FL" });
     }
   });
 });

@@ -172,8 +172,8 @@ export function SettingsDialog({
 
           <Section title="Your data">
             <div className="small faint" style={{ margin: "6px 0 10px" }}>
-              Solves are stored in this browser only. Everything here merges by solve
-              id, so importing the same file twice will not duplicate anything.
+              Solves and Training history are stored in this browser only. Full JSON backups
+              include both and merge by stable ID, so importing twice does not duplicate records.
             </div>
             <div className="row wrap">
               <button onClick={() => void exportSolves(controller)}>Export JSON</button>
@@ -293,7 +293,7 @@ async function importSolves(
 ) {
   try {
     const result = await controller.importData(await file.text());
-    alert(`Imported ${result.solves} solves across ${result.sessions} sessions.`);
+    alert(`Imported ${result.solves} solves, ${result.trainingAttempts} training attempts across ${result.sessions} sessions.`);
   } catch (error) {
     alert(`Could not import that file: ${String(error)}`);
   }

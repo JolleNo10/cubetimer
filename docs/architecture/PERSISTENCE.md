@@ -8,6 +8,7 @@ These documents describe current state. Start at [SYSTEM.md](SYSTEM.md); load on
 | --- | --- |
 | Session/EventId rules and transitions | `src/features/sessions/sessionService.ts`, `src/app/types.ts`; runtime queue/lock in `src/app/Controller.ts` |
 | Stored Solve history, repair or snapshots | `src/features/history/solveHistory.ts`, `repair.ts` |
+| Completed Training history and normalization | `src/features/training/trainingHistory.ts`, `src/app/types.ts`, `src/infrastructure/persistence/db.ts` |
 | IndexedDB CRUD/migration | `src/infrastructure/persistence/db.ts` and its tests |
 | Settings | `src/app/types.ts`, `settings.ts`, Controller persistence |
 | JSON backup/import | `src/features/data-transfer/dataTransfer.ts`, Session merge rules in `sessionService.ts` |
@@ -159,15 +160,19 @@ The current database is:
 
 ```text
 name: cubetimer
-schema version: 1
+schema version: 2
 
 stores:
   sessions
   solves
   settings
+  trainingAttempts
 ```
 
-The current ownership model does not require an IndexedDB schema-version bump because the existing stores can hold the changed record shapes.
+The v1-to-v2 upgrade adds `trainingAttempts` with key path `id` without replacing
+Sessions, Solves or Settings. No speculative Training indexes are needed; startup
+loads all attempts in timestamp-then-ID order. Stable-ID `put()` upserts are
+idempotent, and Training writes wait for transaction completion.
 
 ### Persisted records
 
@@ -175,6 +180,7 @@ The current ownership model does not require an IndexedDB schema-version bump be
 
 - `Session`;
 - `Solve`;
+- `TrainingAttempt`;
 - `Settings`.
 
 Components do not write IndexedDB directly.
@@ -193,7 +199,7 @@ React
   v
 Controller public API
   |
-  +--> SessionService / SolveHistory / DataTransfer
+  +--> SessionService / SolveHistory / TrainingHistory / DataTransfer
           |
           v
         db.ts
@@ -205,6 +211,28 @@ Controller public API
 Controller retains Settings persistence in this phase. `db.ts` owns low-level
 storage and migration, rather than Session event-change policy, active selection,
 import compatibility, or runtime permission to change context.
+
+### Training history
+
+```text
+TrainingRuntime completion -> Controller -> TrainingHistory -> db.ts
+-> IndexedDB trainingAttempts
+```
+
+Live Training state remains ephemeral. Completed attempts are independent global
+application records, with UUID, timestamp, setup/virtual mode, discriminated target,
+actual moves and measured performance. They carry no Session/Event ownership and
+never enter normal Solve/Statistics collections. Controller owns a separate
+Training-attempt Store and appends immediately before asynchronous persistence;
+errors leave the completed result intact. TrainingRuntime and React do not access
+IndexedDB. Catalogue performance is derived in the Training feature, not stored in
+Settings or Statistics. Exact solve-step facts persist but do not affect catalogue
+mastery; their source Solve need not still exist.
+
+`normalizeTrainingAttempt` validates only the current shape: ID, timestamp, mode,
+discriminated target/catalogue combinations, result numbers and move array. It
+rebuilds the contract explicitly and skips malformed records on load/import. There
+is no legacy Training shape or fabricated Training migration.
 
 ### Legacy normalization
 
@@ -229,10 +257,17 @@ The export writes:
 
 ```text
 format: cubetimer
-version: 2
+version: 3
 ```
 
 Event identity exists on Sessions in the exported model.
+Full backups contain `sessions`, `solves` and global `trainingAttempts`. Older v2
+archives without Training history still import as an empty incoming attempt list,
+preserving existing local Training history. Current records normalize before
+stable-ID upsert; repeated import does not duplicate IDs. Training attempts do not
+participate in Session event compatibility checks or require a source Solve in the
+archive. JSON import counts include attempts and Controller refreshes its history
+Store after success. CSV remains Solve-only and its contract is unchanged.
 
 The JSON import path normalizes legacy Session/Solve shapes through the current persistence migrations before saving them.
 
@@ -306,6 +341,20 @@ Chart windows affect visible charts only, not rankings or summaries.
 Solve-result comparison uses prior compatible solves from the same `sessionId`, rather than attempting to recover event compatibility from a duplicated field on each Solve.
 
 ## Rejected alternatives
+
+### Training mastery in Settings or Timer Session/Solve records
+
+Rejected because Settings stores preferences, whereas attempts are historical user
+activity. Training lifecycle/meaning differs from Timer solves and cannot feed
+normal solve statistics. Catalogue identity is global and independent of Timer
+Session/Event ownership, so Session changes must not reset mastery.
+
+### TrainingRuntime writes IndexedDB or exact practice silently updates mastery
+
+Runtime persistence would conflate live orchestration with persisted workflows.
+Exact historical targets preserve solve-specific state and F2L targets may not
+identify any selected catalogue/library. Keep the completion workflow behind
+Controller and include only catalogue-origin attempts in mastery/review derivation.
 
 ### Merge/reconcile stale Session snapshots after concurrent writes
 

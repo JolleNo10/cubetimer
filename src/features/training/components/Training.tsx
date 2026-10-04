@@ -3,10 +3,12 @@ import type { LastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
 import { getLastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
 import { buildLastLayerCatalogueTarget, lastLayerCaseCatalogue, lastLayerCaseName, type LastLayerFamily } from "../../../cube/lastLayerTraining";
 import { get3x3x3 } from "../../../cube/puzzle";
-import { useController, useStoreValue } from "../../../app/useController";
+import { useController, useStore, useStoreValue } from "../../../app/useController";
 import { F2LTraining } from "./F2LTraining";
 import { LastLayerCaseThumbnail } from "./LastLayerCaseThumbnail";
 import { TrainingWorkspace } from "./TrainingWorkspace";
+import { trainingCaseKey, trainingStatsByCase } from "../trainingPerformance";
+import { TrainingCaseMarker, trainingPerformanceLabel } from "./TrainingPerformance";
 
 export function Training() {
   const controller = useController();
@@ -45,6 +47,8 @@ function LastLayerCaseLibrary({ family }: { family: LastLayerFamily }) {
     : null;
   const [thumbnailModels, setThumbnailModels] = useState<Map<string, LastLayerThumbnailModel>>(new Map());
   const catalogue = useMemo(() => lastLayerCaseCatalogue(family, trainingSet), [family, trainingSet]);
+  const attempts = useStore(controller.trainingAttempts);
+  const statsByCase = useMemo(() => trainingStatsByCase(attempts), [attempts]);
 
   useEffect(() => {
     let active = true;
@@ -69,7 +73,9 @@ function LastLayerCaseLibrary({ family }: { family: LastLayerFamily }) {
     <div className="panel training-library">
       <div className="panel-head">
         <span className="panel-title">{trainingSet === "2look" ? "2-Look " : ""}{family.toUpperCase()} cases</span>
-        <div className="row wrap"><span className="chip small">{catalogue.length} cases</span><button className="ghost small" onClick={() => controller.randomTrainingCase(family)}>Random case</button></div>
+        <div className="row wrap"><span className="chip small">{catalogue.length} cases</span>
+          <button className="ghost small" onClick={() => controller.randomTrainingCase(family)}>Random case</button>
+          <button className="ghost small" onClick={() => void controller.reviewTrainingCase(family)}>Review next</button></div>
       </div>
       <div className="panel-body">
         {groups.map((sourceGroup) => {
@@ -81,10 +87,13 @@ function LastLayerCaseLibrary({ family }: { family: LastLayerFamily }) {
                 {cases.map((item) => {
                   const caseId = item.caseId;
                   const selected = target?.trainingSet === trainingSet && target.caseId === caseId;
+                  const stats = statsByCase.get(trainingCaseKey({ family, origin: "catalog", trainingSet, caseId })!);
+                  const performance = trainingPerformanceLabel(stats);
                   return (
-                    <button type="button" className={`last-layer-case-button${selected ? " selected" : ""}`} key={item.id} aria-pressed={selected} aria-label={item.id} onClick={() => void controller.selectLastLayerCase(family, caseId)}>
+                    <button type="button" className={`last-layer-case-button${selected ? " selected" : ""}`} key={item.id} aria-pressed={selected} aria-label={`${item.id}${performance ? `, ${performance}` : ""}`} onClick={() => void controller.selectLastLayerCase(family, caseId)}>
                       {thumbnailModels.get(item.id) ? <LastLayerCaseThumbnail model={thumbnailModels.get(item.id)!} /> : null}
                       <span>{family === "oll" && trainingSet === "full" ? `#${caseId}` : item.name}</span>
+                      <TrainingCaseMarker stats={stats} />
                     </button>
                   );
                 })}
