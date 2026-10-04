@@ -2,11 +2,17 @@ import { formatTime } from "../../../shared/time";
 import { useEffect, useState, type ReactNode } from "react";
 import { useController, useSettings, useStore, useStoreValue, useTrainingState } from "../../../app/useController";
 import type { TrainingState } from "../TrainingRuntime";
-import type { TrainingGuideMove } from "../../../cube/training";
+import type { TrainingGuideMove, TrainingGuideProgress } from "../../../cube/training";
 
 import { ConnectionPanel } from "../../../shared/ui/ConnectionPanel";
 import { CubeView } from "../../../shared/ui/CubeView";
 import { TrainingAlgorithmGuide, type TrainingGuideNavigation } from "./TrainingAlgorithmGuide";
+
+export type TrainingStepPreview = {
+  index: number;
+  move: TrainingGuideMove;
+  facelets: string;
+};
 
 export function TrainingWorkspace({ library, details, emptyMessage }: {
   library: ReactNode; details: ReactNode; emptyMessage: ReactNode;
@@ -15,15 +21,18 @@ export function TrainingWorkspace({ library, details, emptyMessage }: {
   const family = useStoreValue(controller.training.state, state => state.family);
   const error = useStoreValue(controller.state, state => state.error);
   const target = useStoreValue(controller.training.state, state => state.target);
-  const guideMoves = useStoreValue(controller.training.state, state => state.guide?.guideMoves);
-  const confirmed = useStoreValue(controller.training.state, state => state.guide?.confirmed);
+  const guide = useStoreValue(controller.training.state, state => state.guide);
   const [preview, setPreview] = useState<{
-    index: number; target: TrainingState["target"]; guideMoves: readonly TrainingGuideMove[]; confirmed: number | undefined;
+    index: number; target: TrainingState["target"]; guide: TrainingGuideProgress;
   } | null>(null);
   // Scope the selection to this guide/progress even before the reset effect runs.
-  const previewIndex = preview && preview.target === target && preview.guideMoves === guideMoves && preview.confirmed === confirmed ? preview.index : null;
-  useEffect(() => { setPreview(null); }, [target, guideMoves, confirmed]);
-  const onPreviewStep = (index: number | null) => setPreview(index === null || !guideMoves ? null : { index, target, guideMoves, confirmed });
+  const previewIndex = preview && preview.target === target && preview.guide === guide ? preview.index : null;
+  useEffect(() => { setPreview(null); }, [target, guide]);
+  const onPreviewStep = (index: number | null) => setPreview(
+    index === null || !guide || index === guide.confirmed ? null : { index, target, guide });
+  const stepPreview = previewIndex === null || !guide ? undefined : {
+    index: previewIndex, move: guide.guideMoves[previewIndex], facelets: guide.checkpointFacelets[previewIndex],
+  };
   const f2l = family === "f2l";
   return (
     <div className={`app-body ${f2l ? "f2l-training" : "training"}-layout`}>
@@ -31,7 +40,7 @@ export function TrainingWorkspace({ library, details, emptyMessage }: {
       <div className="column training-workspace-column">
         {error ? <div className="notice error"><span className="grow">{error}</span><button className="ghost" onClick={() => controller.dismissError()}>Dismiss</button></div> : null}
         <TrainingSetupPanel />
-        <TrainingCubeStage previewMove={previewIndex === null ? undefined : guideMoves?.[previewIndex]} />
+        <TrainingCubeStage preview={stepPreview} />
       </div>
       <div className="column right training-target-column">
         <TrainingTargetPanel details={details} emptyMessage={emptyMessage} previewIndex={previewIndex} onPreviewStep={onPreviewStep} />
@@ -68,7 +77,7 @@ function TrainingAttempt() {
   return <TrainingAttemptResult result={training.result} phase={training.phase} liveMoveCount={training.liveMoves.length} elapsed={elapsed} />;
 }
 
-export function TrainingCubeStage({ previewMove }: { previewMove?: TrainingGuideMove } = {}) {
+export function TrainingCubeStage({ preview }: { preview?: TrainingStepPreview } = {}) {
   const controller = useController();
   const settings = useSettings();
   const cubeFacelets = useStoreValue(controller.physical.state, state => state.cubeFacelets);
@@ -78,13 +87,16 @@ export function TrainingCubeStage({ previewMove }: { previewMove?: TrainingGuide
   const training = useTrainingState();
   const target = training.target;
   const physicalLive = cubeStatus === "connected" || virtualCube;
+  const guideActive = Boolean(target && target.references.length > 0 && (training.phase === "ready" || training.phase === "solving") && !training.result);
+  const viewed = guideActive ? preview : undefined;
   return <div className={`stage ${training.family === "f2l" ? "f2l" : "training"}-stage`}>
     <CubeView settings={settings} facelets={cubeFacelets} gyroSupported={gyroSupported}
       live={training.mode === "virtual" ? Boolean(target) : physicalLive} scramble=""
-      displayFacelets={training.displayFacelets || cubeFacelets} displayRevision={training.displayRevision}
+      displayFacelets={viewed?.facelets ?? (training.displayFacelets || cubeFacelets)}
+      displayRevision={`${training.displayRevision}:${viewed ? `preview:${viewed.index}` : "live"}`} staticDisplay={Boolean(viewed)}
       displaySource={training.mode === "virtual" ? "virtual" : "physical"} orientationOverride={target?.trainingRotation.orientation}
       physicalSyncAvailable={cubeStatus === "connected"}
-      guideMove={target && target.references.length > 0 && (training.phase === "ready" || training.phase === "solving") && !training.result ? previewMove ?? training.guide?.currentMove : null} />
+      guideMove={guideActive ? viewed?.move ?? training.guide?.currentMove : null} />
   </div>;
 }
 

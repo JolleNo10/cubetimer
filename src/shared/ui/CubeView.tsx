@@ -34,8 +34,10 @@ type Props = {
   scramble: string;
   /** Optional alternate pattern for F2L virtual practice or a target preview. */
   displayFacelets?: string;
-  /** Incremented when the alternate pattern should reset the 3D player. */
-  displayRevision?: number;
+  /** Opaque reset key; changing it reloads the alternate pattern in 3D. */
+  displayRevision?: string | number;
+  /** Show a hypothetical pattern without appending live moves or pattern resets. */
+  staticDisplay?: boolean;
   /** Identifies whether incoming move/reset events belong to the displayed pattern. */
   displaySource?: "physical" | "virtual";
   /** Whether a Sync action can read a physical cube; defaults to the live source. */
@@ -54,6 +56,7 @@ export function CubeView({
   scramble,
   displayFacelets,
   displayRevision = 0,
+  staticDisplay = false,
   displaySource = "physical",
   physicalSyncAvailable,
   orientationOverride,
@@ -162,7 +165,7 @@ export function CubeView({
       }
     };
 
-    if (!live) {
+    if (!live || staticDisplay) {
       // A training target can still be previewed without a connected cube.
       const initial = displayedPattern();
       if (initial) void resync(initial);
@@ -231,20 +234,21 @@ export function CubeView({
     displayRevision,
     displaySource,
     guiding,
+    staticDisplay,
   ]);
 
   // The gyroscope no longer turns the drawn cube directly — the grip it settles into
   // does, through the rotations added above. All that is left here is knowing whether
   // there is a grip being followed at all, which is what the centring button acts on.
   useEffect(() => {
-    if (!use3D || !live || !gyroDriven) {
+    if (!use3D || !live || !gyroDriven || staticDisplay) {
       setGyroActive(false);
       return;
     }
     resetGyroRef.current = () => controller.recentreGrip();
     setGyroActive(true);
     return () => setGyroActive(false);
-  }, [controller, use3D, live, gyroDriven]);
+  }, [controller, use3D, live, gyroDriven, staticDisplay]);
 
   // Turning U three times lines the view up with however the cube is being held, so
   // the solver never has to put it down to reach the button.

@@ -2,6 +2,7 @@ import { Alg, Move } from "cubing/alg";
 import { describe, expect, it } from "vitest";
 import { get3x3x3 } from "./puzzle";
 import { reframe, withCentresHome } from "./recognise";
+import { patternToFacelets } from "./facelets";
 import { rotationForGrip, IDENTITY } from "./orientation";
 import { algorithmStm, calculateTrainingEfficiency, referenceExecutionSignature, advanceTrainingGuide, buildTrainingGuide, standardTrainingRotation, trainingGuideMove, trainingGuideProgress } from "./training";
 import { buildF2lCatalogueTarget } from "./f2lTraining";
@@ -19,6 +20,39 @@ function guideFor(algorithm: string) {
 }
 
 describe("shared Training checkpoints", () => {
+  it("projects checkpoints back to the normal input frame, including a non-identity Training grip", () => {
+    const trainingRotation = rotationForGrip("R", "B")!;
+    const guide = buildTrainingGuide(start, { trainingRotation, references: [{ alg: "R U", stm: 2 }] })!;
+    expect(guide.checkpointFacelets).toHaveLength(guide.moves.length + 1);
+    expect(guide.checkpointFacelets[0]).toBe(patternToFacelets(start));
+    expect(guide.checkpointFacelets[0]).not.toBe(patternToFacelets(guide.checkpoints[0]));
+    for (const confirmed of [0, 1, 2]) {
+      const progress = trainingGuideProgress(guide, confirmed);
+      expect(progress.checkpointFacelets).toBe(guide.checkpointFacelets);
+      expect(progress.guideMoves).toBe(guide.guideMoves);
+    }
+  });
+
+  it("shows the state before each ordinary instruction, plus the final reference state", () => {
+    expect(guideFor("R U").checkpointFacelets).toEqual([
+      patternToFacelets(start), patternToFacelets(start.applyMove("R")), patternToFacelets(start.applyAlg("R U")),
+    ]);
+  });
+
+  it.each(["M", "M'", "E", "S", "r"])("projects %s through normalized checkpoint semantics", token => {
+    const guide = guideFor(`${token} U`);
+    expect(guide.checkpointFacelets[1]).not.toBe(guide.checkpointFacelets[0]);
+    expect(guide.checkpointFacelets[1]).toBe(patternToFacelets(withCentresHome(kpuzzle, start.applyMove(token))));
+  });
+
+  it("keeps rotation checkpoints and subsequent arrows in one fixed display frame", () => {
+    const guide = guideFor("y R U");
+    expect(guide.checkpointFacelets[1]).toBe(guide.checkpointFacelets[0]);
+    expect(guide.guideMoves[1]).toMatchObject({ token: "R", axis: "z", layers: [-1, -1 / 3] });
+    expect(guide.checkpointFacelets[2]).toBe(patternToFacelets(start.applyMove("B")));
+    expect(guide.checkpointFacelets[2]).toBe(patternToFacelets(withCentresHome(kpuzzle, start.applyAlg("y R"))));
+  });
+
   it("advances outer turns one checkpoint at a time, expanding cubing notation", () => {
     const guide = guideFor("(R U)2 R' U2");
     expect(guide.moves).toEqual(["R", "U", "R", "U", "R'", "U2"]);

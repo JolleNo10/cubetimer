@@ -501,7 +501,9 @@ export class TrainingRuntime {
     const attemptPattern = training.mode === "virtual" ? this.#trainingVirtualPattern : this.#model?.pattern;
     if (this.#trainingGuide && attemptPattern) {
       const guide = advanceTrainingGuide(this.#trainingGuide, attemptPattern, training.guide?.confirmed ?? 0);
-      this.state.update((s) => ({ ...s, guide }));
+      if (guide.confirmed !== training.guide?.confirmed) {
+        this.state.update((s) => ({ ...s, guide }));
+      }
     }
 
     if (

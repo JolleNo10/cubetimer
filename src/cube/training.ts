@@ -1,6 +1,6 @@
 import { Alg, Move } from "cubing/alg";
 import type { KPattern, KPuzzle } from "cubing/kpuzzle";
-import { faceletsToPattern } from "./facelets";
+import { faceletsToPattern, patternToFacelets } from "./facelets";
 import { countTurns, joinMoves, mergeSameFaceTurns, isRotation, parseMove, OUTER_FACES, type TimedMove } from "./notation";
 import type { Face } from "./moves";
 import {
@@ -72,6 +72,7 @@ export type TrainingGuideProgress = {
   moves: readonly string[];
   /** Exact display instructions built against each reference checkpoint's frame. */
   guideMoves: readonly TrainingGuideMove[];
+  checkpointFacelets: readonly string[];
   confirmed: number;
   currentMove: TrainingGuideMove | null;
   finished: boolean;
@@ -82,6 +83,8 @@ export type TrainingGuide = {
   guideMoves: readonly TrainingGuideMove[];
   checkpoints: readonly KPattern[];
   checkpointKeys: readonly string[];
+  /** Normal/input-frame states before each move, plus the final reference state. */
+  checkpointFacelets: readonly string[];
   rotation: Alg;
 };
 
@@ -123,7 +126,12 @@ export function buildTrainingGuide(
       checkpoints.push(withCentresHome(kpuzzle, checkpoint));
       checkpointKeys.push(guidePatternKey(checkpoint));
     }
-    return { moves, guideMoves, checkpoints, checkpointKeys, rotation };
+    // CubeView owns display orientation. Undo the guide frame on normalized
+    // checkpoints so preview and live facelets share the same input frame.
+    const inverseRotation = rotation.invert();
+    const checkpointFacelets = checkpoints.map(state =>
+      patternToFacelets(reframe(kpuzzle, state, inverseRotation)));
+    return { moves, guideMoves, checkpoints, checkpointKeys, checkpointFacelets, rotation };
   } catch {
     // An unavailable/unsupported reference must never prevent an attempt.
     return null;
@@ -131,7 +139,7 @@ export function buildTrainingGuide(
 }
 
 export function trainingGuideProgress(guide: TrainingGuide, confirmed = 0): TrainingGuideProgress {
-  return { moves: guide.moves, guideMoves: guide.guideMoves, confirmed, currentMove: guide.guideMoves[confirmed] ?? null, finished: confirmed >= guide.moves.length };
+  return { moves: guide.moves, guideMoves: guide.guideMoves, checkpointFacelets: guide.checkpointFacelets, confirmed, currentMove: guide.guideMoves[confirmed] ?? null, finished: confirmed >= guide.moves.length };
 }
 
 /** Monotonic confirmation: deviations retain progress and later checkpoints rejoin. */

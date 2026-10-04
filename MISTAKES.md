@@ -387,3 +387,7 @@ not independently invented states. The original entry is retained as history.
 - What happened: the first mobile Replay layout assertion compared positions captured before and after selecting a step scrolled the dialog.
 - Root cause: the cube's cached viewport coordinates no longer shared the breakdown's scroll position.
 - Prevention: compare layout geometry at the same moment, before interactions that can scroll it.
+
+- What happened: manual Training algorithm browsing changed the instruction arrow but left the cube at its live state; selecting the actual current instruction could retain an invisible manual override.
+- Root cause: the preview seam carried only the move, omitted its guide checkpoint state, and tests asserted only the arrow. Current-step navigation stored an index instead of returning to live display.
+- Prevention: bind the exact move and normal-frame checkpoint facelets as one preview, use opaque revision keys for hypothetical 3D resets, suspend incremental display events while browsing, and test both cube and arrow. Normalize current-step selection to follow-current and retain guide identity until confirmation changes.

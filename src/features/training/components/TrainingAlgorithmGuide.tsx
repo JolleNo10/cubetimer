@@ -20,6 +20,7 @@ export function TrainingAlgorithmGuide({ algorithm, guide, active, previewIndex 
   const current = Boolean(active && guide && !guide.finished && moves.length);
   const viewed = current ? previewIndex ?? confirmed : confirmed;
   const browsing = current && viewed !== confirmed;
+  const selectStep = (index: number) => onPreviewStep?.(index === confirmed ? null : index);
   return (
     <div className="training-algorithm-guide">
       <div className="training-algorithm-tokens mono" aria-label="Recommended algorithm">
@@ -28,13 +29,13 @@ export function TrainingAlgorithmGuide({ algorithm, guide, active, previewIndex 
           return current ? (
             <button key={index} type="button" className={className}
               aria-current={index === confirmed ? "step" : undefined} aria-label={`View move ${index + 1}: ${move}`}
-              onClick={() => onPreviewStep?.(index)}>{move}</button>
+              onClick={() => selectStep(index)}>{move}</button>
           ) : <span key={index} className={className}>{move}</span>;
         })}
       </div>
       {current ? <div className="training-algorithm-navigation" aria-label="Algorithm step navigation">
-        <button type="button" className="ghost small" disabled={viewed === 0} onClick={() => onPreviewStep?.(viewed - 1)}>Previous</button>
-        <button type="button" className="ghost small" disabled={viewed === moves.length - 1} onClick={() => onPreviewStep?.(viewed + 1)}>Next</button>
+        <button type="button" className="ghost small" disabled={viewed === 0} onClick={() => selectStep(viewed - 1)}>Previous</button>
+        <button type="button" className="ghost small" disabled={viewed === moves.length - 1} onClick={() => selectStep(viewed + 1)}>Next</button>
         {browsing ? <button type="button" className="ghost small" onClick={() => onPreviewStep?.(null)}>Follow current</button> : null}
       </div> : null}
       {active && guide ? <div className="small dim training-algorithm-progress">

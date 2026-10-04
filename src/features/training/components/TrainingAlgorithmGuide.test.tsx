@@ -5,7 +5,7 @@ import { TrainingAlgorithmGuide } from "./TrainingAlgorithmGuide";
 import { CubeMoveGuide } from "../../../shared/ui/CubeMoveGuide";
 
 describe("Training algorithm presentation", () => {
-  const guide = { moves: ["R", "U", "R'"], guideMoves: ["R", "U", "R'"].map(token => trainingGuideMove(token)!), confirmed: 1, currentMove: trainingGuideMove("U"), finished: false };
+  const guide = { moves: ["R", "U", "R'"], guideMoves: ["R", "U", "R'"].map(token => trainingGuideMove(token)!), checkpointFacelets: ["start", "after R", "after U", "end"], confirmed: 1, currentMove: trainingGuideMove("U"), finished: false };
 
   it("marks a preview separately from actual current and completed progress", () => {
     const html = renderToStaticMarkup(<TrainingAlgorithmGuide algorithm="R U R'" guide={guide} active previewIndex={2} />);
@@ -32,7 +32,7 @@ describe("Training algorithm presentation", () => {
   });
 
   it("distinguishes completed, accessible current, and upcoming tokens", () => {
-    const guide = { moves: ["R", "U", "R'"], guideMoves: ["R", "U", "R'"].map(token => trainingGuideMove(token)!), confirmed: 1, currentMove: trainingGuideMove("U"), finished: false };
+    const guide = { moves: ["R", "U", "R'"], guideMoves: ["R", "U", "R'"].map(token => trainingGuideMove(token)!), checkpointFacelets: ["start", "after R", "after U", "end"], confirmed: 1, currentMove: trainingGuideMove("U"), finished: false };
     const html = renderToStaticMarkup(<TrainingAlgorithmGuide algorithm="R U R'" guide={guide} active />);
     expect(html).toMatch(/<button[^>]*class="training-algorithm-token completed"[^>]*>R<\/button>/);
     expect(html).toMatch(/<button[^>]*class="training-algorithm-token current" aria-current="step"[^>]*>U<\/button>/);
@@ -48,7 +48,7 @@ describe("Training algorithm presentation", () => {
   });
 
   it.each([false, true])("hides progress and completed styling for an inactive guide (finished=%s)", (finished) => {
-    const guide = { moves: ["R", "U", "R'"], guideMoves: ["R", "U", "R'"].map(token => trainingGuideMove(token)!), confirmed: finished ? 3 : 1, currentMove: trainingGuideMove("U"), finished };
+    const guide = { moves: ["R", "U", "R'"], guideMoves: ["R", "U", "R'"].map(token => trainingGuideMove(token)!), checkpointFacelets: ["start", "after R", "after U", "end"], confirmed: finished ? 3 : 1, currentMove: trainingGuideMove("U"), finished };
     const html = renderToStaticMarkup(<TrainingAlgorithmGuide algorithm="R U R'" guide={guide} active={false} />);
     expect(html.match(/training-algorithm-token upcoming/g)).toHaveLength(3);
     expect(html).not.toContain("aria-current");

@@ -13,6 +13,7 @@ import { TrainingWorkspace } from "./TrainingWorkspace";
 const hooks = vi.hoisted(() => ({
   controller: null as Controller | null, workspace: false, selection: null as unknown,
   cubeMove: null as TrainingGuideMove | null | undefined,
+  cubeFacelets: "", cubeRevision: "", cubeStatic: false,
 }));
 vi.mock("react", async original => ({
   ...await original<typeof import("react")>(),
@@ -29,14 +30,22 @@ vi.mock("../../../app/useController", () => ({
   useStoreValue: (store: { get(): unknown }, select: (value: unknown) => unknown) => select(store.get()),
 }));
 vi.mock("../../../shared/ui/ConnectionPanel", () => ({ ConnectionPanel: () => null }));
-vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { guideMove?: TrainingGuideMove | null }) => {
-  hooks.cubeMove = props.guideMove; return <div />;
+vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { guideMove?: TrainingGuideMove | null; displayFacelets: string; displayRevision: string; staticDisplay: boolean }) => {
+  hooks.cubeMove = props.guideMove;
+  hooks.cubeFacelets = props.displayFacelets;
+  hooks.cubeRevision = props.displayRevision;
+  hooks.cubeStatic = props.staticDisplay;
+  return <div />;
 } }));
 
 const kpuzzle = await get3x3x3();
 type ButtonProps = { children: string; onClick(): void; disabled?: boolean; "aria-label"?: string; "aria-current"?: string; className: string };
-beforeEach(() => { hooks.selection = null; });
-afterEach(() => { vi.restoreAllMocks(); });
+beforeEach(() => {
+  hooks.selection = null;
+  vi.stubGlobal("requestAnimationFrame", vi.fn(() => 1));
+  vi.stubGlobal("cancelAnimationFrame", vi.fn());
+});
+afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 async function fixture() {
   const controller = new Controller(new CubeModel(kpuzzle));
@@ -87,11 +96,17 @@ describe("manual Training instruction preview", () => {
     const elapsed = controller.elapsed.get();
     let view = render();
     expect(hooks.cubeMove).toBe(training.guide!.currentMove);
+    expect(hooks.cubeFacelets).toBe(training.displayFacelets);
+    expect(hooks.cubeStatic).toBe(false);
+    expect(hooks.cubeRevision).toBe(`${training.displayRevision}:live`);
     expect(view.button("Previous").disabled).toBe(true);
     expect(view.hasButton("Follow current")).toBe(false);
     view.button("View move 2: R").onClick();
     view = render();
     expect(hooks.cubeMove).toBe(guide.guideMoves[1]);
+    expect(hooks.cubeFacelets).toBe(guide.checkpointFacelets[1]);
+    expect(hooks.cubeStatic).toBe(true);
+    expect(hooks.cubeRevision).toBe(`${training.displayRevision}:preview:1`);
     expect(hooks.cubeMove!.axis).toBe("z"); // R remapped by the preceding y.
     expect(view.button("View move 1: y")["aria-current"]).toBe("step");
     expect(view.button("View move 2: R")["aria-current"]).toBeUndefined();
@@ -99,6 +114,8 @@ describe("manual Training instruction preview", () => {
     view.button("Next").onClick();
     view = render();
     expect(hooks.cubeMove).toBe(guide.guideMoves[2]);
+    expect(hooks.cubeFacelets).toBe(guide.checkpointFacelets[2]);
+    expect(hooks.cubeRevision).toBe(`${training.displayRevision}:preview:2`);
     expect(view.button("Next").disabled).toBe(true);
     view.button("Previous").onClick();
     view = render();
@@ -106,11 +123,42 @@ describe("manual Training instruction preview", () => {
     view.button("Follow current").onClick();
     view = render();
     expect(hooks.cubeMove).toBe(training.guide!.currentMove);
+    expect(hooks.cubeFacelets).toBe(training.displayFacelets);
+    expect(hooks.cubeStatic).toBe(false);
+    expect(hooks.cubeRevision).toBe(`${training.displayRevision}:live`);
     expect(view.hasButton("Follow current")).toBe(false);
     expect(controller.training.state.get()).toBe(training);
     expect(controller.pattern).toBe(physical);
     expect(controller.training.state.get().displayFacelets).toBe(training.displayFacelets);
     expect(controller.elapsed.get()).toBe(elapsed);
+  });
+
+  it.each(["token", "Previous", "Next"])("collapses %s selection of the actual current instruction back to live state", async action => {
+    const { controller, guide, render } = await fixture();
+    controller.training.state.update(state => ({ ...state, guide: trainingGuideProgress(guide, 1) }));
+    let view = render();
+    view.button(action === "Next" ? "View move 1: y" : "View move 3: U").onClick();
+    view = render();
+    expect(hooks.cubeStatic).toBe(true);
+    view.button(action === "token" ? "View move 2: R" : action).onClick();
+    view = render();
+    expect(hooks.selection).toBeNull();
+    expect(view.hasButton("Follow current")).toBe(false);
+    expect(hooks.cubeStatic).toBe(false);
+    expect(hooks.cubeFacelets).toBe(controller.training.state.get().displayFacelets);
+    expect(hooks.cubeMove).toBe(guide.guideMoves[1]);
+    expect(hooks.cubeRevision).toBe(`${controller.training.state.get().displayRevision}:live`);
+  });
+
+  it("keeps a preview through a real deviating turn without changing confirmation", async () => {
+    const { controller, render } = await fixture();
+    render().button("View move 3: U").onClick();
+    render();
+    const guide = controller.training.state.get().guide;
+    controller.injectMove("B");
+    expect(controller.training.state.get().guide).toBe(guide);
+    expect(render().hasButton("Follow current")).toBe(true);
+    expect(hooks.cubeStatic).toBe(true);
   });
 
   it("resumes automatic display as soon as confirmed progress advances", async () => {
@@ -120,6 +168,8 @@ describe("manual Training instruction preview", () => {
     controller.training.state.update(state => ({ ...state, guide: trainingGuideProgress(guide, 1) }));
     const view = render();
     expect(hooks.cubeMove).toBe(guide.guideMoves[1]);
+    expect(hooks.cubeFacelets).toBe(controller.training.state.get().displayFacelets);
+    expect(hooks.cubeStatic).toBe(false);
     expect(view.hasButton("Follow current")).toBe(false);
   });
 

@@ -5,11 +5,11 @@ import { get3x3x3 } from "../../../cube/puzzle";
 import { ControllerContext } from "../../../app/useController";
 import { Controller } from "../../../app/Controller";
 import type { TrainingResult, TrainingState } from "../TrainingRuntime";
-import { trainingGuideMove, type TrainingGuideMove } from "../../../cube/training";
+import { type TrainingGuideMove } from "../../../cube/training";
 import { TrainingActions, TrainingAttemptResult, TrainingCubeStage, TrainingReferences, TrainingSetupPanel } from "./TrainingWorkspace";
 
-vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { displaySource: string; live: boolean; displayFacelets: string; physicalSyncAvailable: boolean; guideMove?: TrainingGuideMove | null }) =>
-  <div data-source={props.displaySource} data-live={props.live} data-facelets={props.displayFacelets} data-sync={props.physicalSyncAvailable}
+vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { displaySource: string; live: boolean; displayFacelets: string; physicalSyncAvailable: boolean; displayRevision: string | number; staticDisplay: boolean; guideMove?: TrainingGuideMove | null }) =>
+  <div data-source={props.displaySource} data-live={props.live} data-facelets={props.displayFacelets} data-sync={props.physicalSyncAvailable} data-revision={props.displayRevision} data-static={props.staticDisplay}
     data-guide-token={props.guideMove?.token} data-guide-axis={props.guideMove?.axis} /> }));
 const kpuzzle = await get3x3x3();
 function render(controller: Controller, element: React.ReactElement) {
@@ -26,22 +26,38 @@ const result: TrainingResult = { moves: ["R", "U", "R'"], stm: 3, elapsedMs: 125
   recommendedAlg: "R U R'", matchedReferenceRank: 1, delta: 0 };
 
 describe("shared Training presentation", () => {
-  it("uses the current instruction by default and an explicit preview when supplied", async () => {
+  it("uses live state by default, and binds each preview move to its checkpoint and reset key", async () => {
     const controller = await selected();
-    const current = controller.training.state.get().guide!.currentMove!;
-    const html = render(controller, <TrainingCubeStage />);
-    expect(html).toContain(`data-guide-token="${current.token.replaceAll("'", "&#x27;")}"`);
-    expect(html).toContain(`data-guide-axis="${current.axis}"`);
-    const preview = trainingGuideMove("M")!;
-    const previewed = render(controller, <TrainingCubeStage previewMove={preview} />);
-    expect(previewed).toContain('data-guide-token="M"');
-    expect(previewed).toContain('data-guide-axis="x"');
+    const training = controller.training.state.get(), guide = training.guide!;
+    const live = render(controller, <TrainingCubeStage />);
+    expect(live).toContain(`data-facelets="${training.displayFacelets}"`);
+    expect(live).toContain(`data-guide-axis="${guide.currentMove!.axis}"`);
+    expect(live).toContain(`data-revision="${training.displayRevision}:live"`);
+    expect(live).toContain('data-static="false"');
+    for (const index of [1, 2]) {
+      const preview = { index, move: guide.guideMoves[index], facelets: guide.checkpointFacelets[index] };
+      const html = render(controller, <TrainingCubeStage preview={preview} />);
+      expect(html).toContain(`data-guide-token="${preview.move.token.replaceAll("'", "&#x27;")}"`);
+      expect(html).toContain(`data-guide-axis="${preview.move.axis}"`);
+      expect(html).toContain(`data-facelets="${preview.facelets}"`);
+      expect(html).toContain(`data-revision="${training.displayRevision}:preview:${index}"`);
+      expect(html).toContain('data-static="true"');
+    }
+    expect(guide.checkpointFacelets[2]).not.toBe(guide.checkpointFacelets[1]);
+    expect(render(controller, <TrainingCubeStage />)).toBe(live);
+    controller.training.state.update(state => ({ ...state, displayRevision: state.displayRevision + 1 }));
+    expect(render(controller, <TrainingCubeStage />)).toContain(`data-revision="${training.displayRevision + 1}:live"`);
   });
 
-  it.each(["preparing", "result", "ready"] as const)("cannot revive an inactive guide with a preview (%s)", async phase => {
+  it.each(["preparing", "result", "ready"] as const)("cannot revive an inactive guide or hypothetical cube with a preview (%s)", async phase => {
     const controller = await selected();
+    const guide = controller.training.state.get().guide!;
+    const preview = { index: 1, move: guide.guideMoves[1], facelets: guide.checkpointFacelets[1] };
     controller.training.state.update(state => ({ ...state, phase, result: phase === "ready" ? result : null }));
-    expect(render(controller, <TrainingCubeStage previewMove={trainingGuideMove("M")!} />)).not.toContain("data-guide-token");
+    const html = render(controller, <TrainingCubeStage preview={preview} />);
+    expect(html).not.toContain("data-guide-token");
+    expect(html).toContain('data-static="false"');
+    expect(html).toContain(`data-facelets="${controller.training.state.get().displayFacelets}"`);
   });
 
   it.each([
