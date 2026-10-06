@@ -19,7 +19,9 @@ import type { KPattern, KPuzzle } from "cubing/kpuzzle";
 import { F2L_CASES, F2L_POSITIONS, F2L_POSITION_TO_FRONT_RIGHT, type F2lPosition } from "./f2lCases";
 import { f2lSlotsForCrossFace } from "./moves";
 import { joinMoves } from "./notation";
-import { reframe } from "./recognise";
+import { reframe, withCentresHome } from "./recognise";
+import { ADVANCED_F2L_CASES } from "./advancedF2lCases.generated";
+import { f2lTrainingCaseInput } from "./f2lTrainingCases";
 
 /**
  * The four slots beside a cross on `D`, in the order a `y` rotation carries them
@@ -151,6 +153,59 @@ export function recognizeF2lSlot(
         match: { name: entry.name, group: entry.group, auf: entry.auf },
       }
     : { position, status: "buried", match: null };
+}
+
+/** Where the front-right pair's pieces are, wherever that is. */
+function pairKeyAnywhere(pattern: KPattern): string {
+  const { CORNERS, EDGES } = pattern.patternData;
+  const corner = CORNERS.pieces.indexOf(FRONT_RIGHT.corner);
+  const edge = EDGES.pieces.indexOf(FRONT_RIGHT.edge);
+  return `${corner}.${CORNERS.orientation[corner]}|${edge}.${EDGES.orientation[edge]}`;
+}
+
+const advancedTables = new WeakMap<KPuzzle, Map<string, F2lCaseMatch>>();
+
+/**
+ * The advanced cases, keyed like the basic ones but with the pair allowed anywhere.
+ *
+ * These are the states the 41 cases leave out: a piece of the pair stuck in another
+ * slot, or the pair in its own slot the wrong way round. Only the pair is keyed, so two
+ * advanced cases that differ in what else is in the way read as the first one listed;
+ * a state that is one of the 41 is never answered from here.
+ */
+export function advancedF2lTable(kpuzzle: KPuzzle): Map<string, F2lCaseMatch> {
+  const existing = advancedTables.get(kpuzzle);
+  if (existing) return existing;
+  const table = new Map<string, F2lCaseMatch>();
+  for (const f2lCase of ADVANCED_F2L_CASES) {
+    const { setup } = f2lTrainingCaseInput({ ...f2lCase, library: "advanced" }, "FR");
+    const state = withCentresHome(kpuzzle, kpuzzle.defaultPattern().applyAlg(new Alg(setup)));
+    for (let auf = 0; auf < 4; auf++) {
+      const turned = state.applyAlg(new Alg(AUF[auf]));
+      if (pairKey(turned) !== null) continue;
+      const key = pairKeyAnywhere(turned);
+      if (!table.has(key)) table.set(key, { name: f2lCase.name, group: f2lCase.group, auf });
+    }
+  }
+  advancedTables.set(kpuzzle, table);
+  return table;
+}
+
+/**
+ * Name the case a pair is in, basic or advanced. `null` only for a solved pair or a
+ * state neither catalogue has.
+ */
+export function recognizeAnyF2lSlot(
+  kpuzzle: KPuzzle,
+  pattern: KPattern,
+  position: F2lPosition,
+): F2lCaseMatch | null {
+  const basic = recognizeF2lSlot(kpuzzle, pattern, position);
+  if (basic.status === "case") return basic.match;
+  if (basic.status === "solved") return null;
+  const rotation = TO_FRONT_RIGHT[F2L_POSITIONS.indexOf(position)];
+  const framed = rotation ? reframe(kpuzzle, pattern, new Alg(rotation)) : pattern;
+  return advancedF2lTable(kpuzzle).get(pairKeyAnywhere(framed)) ?? null;
 }
 
 export type F2lSolution = {

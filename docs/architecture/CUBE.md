@@ -33,6 +33,9 @@ Important responsibilities include:
 - `moveGuide.ts` — generic move-visualization semantics shared by Training and Replay;
 - `orientation.ts`, `gyroGrip.ts`, `liveGrip.ts`, `gripTrack.ts` — orientation and held-frame behavior;
 - `analysis.ts` — CFOP phase detection and solve metrics;
+- `stepExecution.ts` — what was executed within a step: the catalogue algorithm a
+  step ended with, and the looks of a last-layer step;
+- `physicalTurns.ts` — an algorithm as the face turns a smart cube reports;
 - `recognise.ts` and related modules — case recognition;
 - cross modules — cross solving, planning and targeted scramble generation;
 - F2L modules — case authority, recognition, training targets and training metrics;
@@ -92,8 +95,9 @@ analysis; raw scramble/move facts remain authoritative. Current analysis with qu
 is left untouched, and successful repairs are persisted once. Missing quality also
 triggers repair when raw facts remain available.
 
-Version 3 introduced derived CFOP quality; version 4 refines complete candidate
-coherence and orientation provenance: `trusted` or `suspect` with machine-readable
+Version 3 introduced derived CFOP quality; version 4 refined candidate coherence and
+orientation provenance; version 5 dates milestones by when they stick, chooses among
+coherent candidates by progress and records what was executed. Quality is `trusted` or `suspect` with machine-readable
 issues. `isTrustedCfopAnalysis` is the shared boundary for current, explicitly trusted
 CFOP analysis. Legacy analysis without quality remains readable but is untrusted.
 Suspect analysis stays inspectable in History, Result and Replay; it is excluded from
@@ -113,17 +117,17 @@ initial XCross/XXCross, four prepared pairs completed with the Cross, and LL
 skips remain valid. There are no maximum Cross move/time limits or penalties for slow,
 inefficient turning, transient Cross disruption, rotations or null F2L catalogue cases.
 
-Coherent candidates compete by deterministic dominance, not a probability score. An
-interpretation with no worse slot/LL evidence and earlier Cross/F2L/OLL checkpoints is
-stronger. A later candidate first reaching full F2L after the stronger interpretation's
-OLL completion is accidental evidence, not an equivalent CFOP explanation. Otherwise,
-interpretations with different strengths remain genuinely competing. Restored intermediate
-pair milestones strengthen otherwise equal state-only interpretations; physical evidence
-can still support legitimate shared pair checkpoints. Independent bottom
-evidence resolves those competitors; disagreement with clearly stronger state progression
-is suspect, with provenance on the conflict. Only one sufficiently coherent interpretation
-after considering physical evidence is trusted. Structurally collapsed interpretations
-and unresolved competitors remain inspectable but suspect.
+Coherent candidates are first reduced by dominance: an interpretation with every
+Cross/F2L/OLL checkpoint no later and no worse last-layer recognition beats the other.
+The rest are compared by progress: each face's cross edges and pairs in place, summed
+over every state of the solve. The face really being solved is in place for most of
+the solve, where a coincidence lasts a move or two. A face whose first two layers were
+done before the first turn wins outright (a last-layer-only solve). Faces within 5% of
+the best are genuinely competing. Independent bottom evidence resolves them; evidence
+for a face that is clearly behind is a conflict, with provenance on the issue, and
+competitors with no evidence are ambiguous. Only one sufficiently coherent
+interpretation after considering physical evidence is trusted. Structurally collapsed
+interpretations and unresolved competitors remain inspectable but suspect.
 
 Timer captures `solveStartBottomFace` before `holdBottom`; this exact observation is the
 strongest physical evidence. Without it, `trackGrip.bottomFace` exposes the independently
@@ -138,6 +142,13 @@ Rejected: using `Settings.crossColour` as ground truth (preference, not a per-so
 or inferred `analysis.crossFace` as independent truth (circular validation). Also rejected:
 treating every face that reaches pre-solution full F2L as equally plausible. Late accidental
 cube states create false ambiguity and do not represent equivalent CFOP explanations.
+Rejected as well: choosing the face whose F2L completes first, and dismissing a face as
+accidental because another oriented its last layer before it finished F2L. One turn
+before the end of any solve, the face opposite the last turn shows a finished F2L under
+a uniform face. The first rule read a Jb with an AUF as OLL 5 on another face, and the
+second handed every full last-layer skip to the wrong face. A 2026 audit of every bank
+OLL/PLL algorithm on all six cross colours found the earlier rules naming a wrong case
+or marking a clean solve suspect for over a third of them.
 
 History quality badges are limited to counted SmartCube solves, using ordinary eligibility;
 Slow Solve and Replay/practice rows keep their existing badges. Detailed warnings remain
@@ -163,9 +174,15 @@ Per-step analysis includes information such as:
 - cumulative timing;
 - turn metrics;
 - TPS;
-- case: the OLL number, the PLL name, or for an F2L pair the catalogue case
-  (`"F2L n"`) it started as, recognised with `recognizeF2lSlot` (null when the
-  pair was already solved or buried);
+- case: the OLL number or PLL name of the state the step began from, or for an F2L
+  pair the catalogue case (`"F2L n"`, or `"AF2L n"` for a pair stuck in a slot) it
+  was solved from (null when the pair was already solved);
+- `executedAlg`, `caseAt`, `setupMoves` (since version 5): the catalogue algorithm
+  the step ended with, where its case was read, and the turns spent before it;
+- `looks` (since version 5): an OLL or PLL step split into the looks it was done
+  in — one for a one-look step, two for 2-look OLL or PLL;
+- `solvedDuring` (since version 5): a pair that went in with the cross (xcross) or
+  with the pair before it. It has no moves but is not a skip;
 - F2L slot (in the scrambled cube's own frame);
 - F2L insertion position (`insertedAt`, since analysis version 3): where the pair
   went in relative to the solver's hands, after any rotations. It is read from the
@@ -173,6 +190,25 @@ Per-step analysis includes information such as:
   (the slot face turned most, or on a tie last, is the solver's R or L, so the pair
   is a front-right or front-left insert) and marked `insertedAtSource: "inferred"`;
 - move-stream boundaries.
+
+Once the face is chosen, milestones are dated by when they were reached for good. The
+cross and each pair count from the first state after which they stay in place, apart
+from short disturbances (a trigger knocking an edge out and back). The steps are the
+pairs in the order those times fall. A pair step runs on to the end of the catalogue
+algorithm it was part of when the algorithm drops the pair in before it finishes
+(`R' F R F'`).
+Rejected: dating each milestone by the first state in which it is true. An accidental
+early cross gets the credit, and a pair that is broken and rebuilt gets the wrong slot.
+
+Cases are read where the solver began executing, not where the step began. A step
+is matched from its end against the algorithm bank, held in any `y`. The case is
+read where the matched algorithm starts. Turns before it are setup, and U turns
+inside it are execution rather than recognition. Last-layer steps are split into
+looks wherever the first two layers are intact and either a catalogue algorithm
+has just finished or the solver paused.
+Rejected: reading the case from the state at the start of the step. That names a
+2-look last layer by its one-look case, and it misreads a pair that was set up
+first.
 
 Solver-facing F2L statistics group pairs by insertion position, not by cube slot.
 Rejected: grouping by the cube-frame slot mapped through the starting grip. Every

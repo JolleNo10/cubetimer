@@ -19,8 +19,8 @@ afterEach(() => vi.restoreAllMocks());
 describe("CFOP quality", () => {
   it("keeps textbook CFOP trusted with explicit current quality", () => {
     const analysis = textbook();
-    expect(ANALYSIS_VERSION).toBe(4);
-    expect(analysis).toMatchObject({ crossFace: "D", analysisVersion: 4, quality: { status: "trusted", issues: [] } });
+    expect(ANALYSIS_VERSION).toBe(5);
+    expect(analysis).toMatchObject({ crossFace: "D", analysisVersion: 5, quality: { status: "trusted", issues: [] } });
     expect(isTrustedCfopAnalysis(analysis)).toBe(true);
     expect(isTrustedCfopAnalysis({ ...analysis, quality: undefined })).toBe(false);
     expect(isTrustedCfopAnalysis({ ...analysis, analysisVersion: 2 })).toBe(false);
