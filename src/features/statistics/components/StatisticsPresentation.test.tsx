@@ -26,7 +26,7 @@ describe("Statistics presentation", () => {
     const html = renderToStaticMarkup(<StatisticsSolveDetail solve={reviewed} solves={[reviewed]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
     expect(html).toContain("4.10+"); expect(html).toContain("History Session");
     expect(html).toContain("Read-only note"); expect(html).toContain("STM"); expect(html).toContain("Whole-solve TPS");
-    expect(html).toContain("Measured recognition"); expect(html).toContain("Execution"); expect(html).toContain("Pauses ≥250 ms");
+    expect(html).toContain("Measured recognition"); expect(html).toContain("Execution"); expect(html).toContain("Pauses ≥250\u00a0ms");
     for (const phase of ["Cross", "F2L Slot 1", "F2L Slot 2", "F2L Slot 3", "F2L Slot 4", "OLL", "PLL"]) expect(html).toContain(phase);
     for (const column of ["Total", "Cumulative", "Recognition", "Execution", "Moves", "TPS"]) expect(html).toContain(column);
     expect(html).toContain("Raw time"); expect(html).toContain("2.10"); expect(html).toContain("Penalty"); expect(html).toContain("+2");

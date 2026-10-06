@@ -388,6 +388,23 @@ function TimeScaleAxis({ scale }: { scale: StepTimeScale }) {
   );
 }
 
+/** Faint vertical lines at each tick, running down behind every step row. */
+function ScaleGuides({ scale }: { scale: StepTimeScale }) {
+  return (
+    <span className="phase-scale-guides" aria-hidden="true">
+      {scale.ticks.map((tick, index) => (
+        <i
+          key={tick}
+          style={{
+            left: `${scalePositionPercent(tick, scale)}%`,
+            transform: index === scale.ticks.length - 1 ? "translateX(-100%)" : undefined,
+          }}
+        />
+      ))}
+    </span>
+  );
+}
+
 function Solution({ solution }: { solution: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -541,24 +558,26 @@ export function StepBreakdown({
         <span>{analysis.tps.toFixed(2)} tps</span>
       </div>
 
-      {timeScale ? <TimeScaleAxis scale={timeScale} /> : null}
-
-      {analysis.steps.map((step, i) => (
-        <StepRow
-          key={step.name}
-          step={step}
-          total={total}
-          active={activeStep === i}
-          showMoves={showMoves}
-          showCumulativeTime={showCumulativeTime}
-          showSplitTimes={showSplitTimes}
-          timeScale={timeScale}
-          activeReplayAction={activeReplayAction}
-          comparison={comparison?.steps[i]}
-          onSelect={onSelectStep ? () => onSelectStep(step) : undefined}
-          onPractice={onPracticeStep ? () => onPracticeStep(step) : undefined}
-        />
-      ))}
+      <div className={timeScale ? "phase-scale-area" : undefined}>
+        {timeScale ? <TimeScaleAxis scale={timeScale} /> : null}
+        {timeScale ? <ScaleGuides scale={timeScale} /> : null}
+        {analysis.steps.map((step, i) => (
+          <StepRow
+            key={step.name}
+            step={step}
+            total={total}
+            active={activeStep === i}
+            showMoves={showMoves}
+            showCumulativeTime={showCumulativeTime}
+            showSplitTimes={showSplitTimes}
+            timeScale={timeScale}
+            activeReplayAction={activeReplayAction}
+            comparison={comparison?.steps[i]}
+            onSelect={onSelectStep ? () => onSelectStep(step) : undefined}
+            onPractice={onPracticeStep ? () => onPracticeStep(step) : undefined}
+          />
+        ))}
+      </div>
 
       <div className="legend">
         <span>

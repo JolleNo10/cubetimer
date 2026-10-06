@@ -383,7 +383,7 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .result-note-input { width: 100%; min-width: 0; }
 .result-metrics {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 1px;
   background: var(--border);
   border: 1px solid var(--border);
@@ -392,7 +392,10 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
   margin-bottom: 14px;
 }
 .result-metric { background: var(--panel-2); padding: 9px 10px; min-width: 0; }
-.result-metric-label, .result-metric-detail { display: block; color: var(--text-faint); font-size: 10.5px; white-space: nowrap; }
+.result-metric-label, .result-metric-detail { display: block; color: var(--text-faint); font-size: 10.5px; }
+/* Six metrics share one row, so long labels wrap rather than forcing a second row. */
+.result-metric-label { line-height: 1.25; min-height: 2.5em; }
+.result-metric-detail { white-space: nowrap; }
 .result-metric strong { display: block; margin-top: 3px; font-size: 16px; white-space: nowrap; }
 .result-metric-detail { margin-top: 1px; }
 .result-badge { display: inline-block; margin: 0 0 10px; padding: 2px 7px; border-radius: 999px; background: var(--panel-2); color: var(--text-faint); font-size: 11px; }
@@ -460,6 +463,11 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
   white-space: nowrap;
 }
 .phase-time-axis-label.last { transform: translateX(-100%); }
+/* Tick guides run from under the axis to the last step, behind the rows' content. */
+.phase-scale-area { position: relative; }
+.phase-scale-area > .phase-row { position: relative; z-index: 1; }
+.phase-scale-guides { position: absolute; top: 20px; bottom: 0; left: 0; right: 0; pointer-events: none; z-index: 0; }
+.phase-scale-guides i { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in oklab, var(--border-strong) 45%, transparent); }
 .result-note { margin: 12px 0 0; color: var(--text-faint); font-size: 11px; line-height: 1.45; }
 .result-no-analysis { padding: 30px 10px; }
 

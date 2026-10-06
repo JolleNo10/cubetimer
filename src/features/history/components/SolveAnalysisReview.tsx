@@ -17,7 +17,7 @@ export function SolveAnalysisReview({ solve, solves, analysis, onPracticeStep }:
       <ReviewMetric label="Execution" value={formatTime(analysis.totalExecutionMs)} />
       <ReviewMetric label="Moves / STM" value={String(analysis.sliceTurns)} />
       <ReviewMetric label="Whole-solve TPS" value={analysis.tps.toFixed(2)} />
-      <ReviewMetric label="Pauses ≥250 ms" value={`${analysis.pauses.length} pause${analysis.pauses.length === 1 ? "" : "s"} · ${formatTime(pauseMs)}s`} />
+      <ReviewMetric label={"Pauses ≥250\u00a0ms"} value={String(analysis.pauses.length)} detail={`${formatTime(pauseMs)}s total`} />
       <ReviewMetric label="Longest pause" value={formatTime(analysis.pauses.length ? Math.max(...analysis.pauses.map((pause) => pause.durationMs)) : undefined)} />
     </div>
     {analysis.stepsSkipped > 0 ? <div className="result-badge">{analysis.stepsSkipped} {analysis.stepsSkipped === 1 ? "step" : "steps"} skipped</div> : null}
@@ -28,6 +28,10 @@ export function SolveAnalysisReview({ solve, solves, analysis, onPracticeStep }:
   </>;
 }
 
-function ReviewMetric({ label, value }: { label: string; value: string }) {
-  return <div className="result-metric"><span className="result-metric-label">{label}</span><strong className="mono">{value}</strong></div>;
+function ReviewMetric({ label, value, detail }: { label: string; value: string; detail?: string }) {
+  return <div className="result-metric">
+    <span className="result-metric-label">{label}</span>
+    <strong className="mono">{value}</strong>
+    {detail ? <span className="result-metric-detail">{detail}</span> : null}
+  </div>;
 }
