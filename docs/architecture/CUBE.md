@@ -92,7 +92,8 @@ analysis; raw scramble/move facts remain authoritative. Current analysis with qu
 is left untouched, and successful repairs are persisted once. Missing quality also
 triggers repair when raw facts remain available.
 
-Version 3 carries derived CFOP quality: `trusted` or `suspect` with machine-readable
+Version 3 introduced derived CFOP quality; version 4 refines complete candidate
+coherence and orientation provenance: `trusted` or `suspect` with machine-readable
 issues. `isTrustedCfopAnalysis` is the shared boundary for current, explicitly trusted
 CFOP analysis. Legacy analysis without quality remains readable but is untrusted.
 Suspect analysis stays inspectable in History, Result and Replay; it is excluded from
@@ -104,18 +105,45 @@ Cross edges solved; each F2L milestone also has Cross plus the required solved p
 OLL completion also retains full F2L and a uniform opposite face; PLL ends at solution.
 Shared XCross checkpoints are valid. Missing slot assignment or non-skipped last-layer
 recognition adds a quality issue; a null F2L catalogue case alone does not.
-Without independent evidence, a unique pre-solution full-F2L candidate establishes the
-Cross; multiple candidates or only final-state F2L are ambiguous. Meaningful progression
-on the observed bottom resolves ambiguity; disagreement with meaningful state-derived
-progression is suspect.
+Candidate selection evaluates complete phase coherence: canonical checkpoint order,
+concrete slot assignment and non-skipped OLL/PLL state recognition in each candidate
+frame. A candidate whose Cross/F2L/OLL all first collapse into one later state without
+already prepared pairs lacks reliable phase progression; local shared checkpoints,
+initial XCross/XXCross, four prepared pairs completed with the Cross, and LL
+skips remain valid. There are no maximum Cross move/time limits or penalties for slow,
+inefficient turning, transient Cross disruption, rotations or null F2L catalogue cases.
 
-Timer captures `solveStartBottomFace` before `holdBottom`. It supplies that observation
-to grip reconstruction and analysis when available; otherwise grip uses its gyroscope
-fallback. Only trusted preliminary boundaries may anchor drift correction. Old grip
-tracks must not be promoted to independent observations: they used inferred Cross priors.
-An analysis conclusion must never become the evidence validating that same conclusion.
-Rejected: using `Settings.crossColour` as ground truth (it is preference, not a per-solve
-fact), or feeding inferred `analysis.crossFace` back as independent truth (circular validation).
+Coherent candidates compete by deterministic dominance, not a probability score. An
+interpretation with no worse slot/LL evidence and earlier Cross/F2L/OLL checkpoints is
+stronger. A later candidate first reaching full F2L after the stronger interpretation's
+OLL completion is accidental evidence, not an equivalent CFOP explanation. Otherwise,
+interpretations with different strengths remain genuinely competing. Restored intermediate
+pair milestones strengthen otherwise equal state-only interpretations; physical evidence
+can still support legitimate shared pair checkpoints. Independent bottom
+evidence resolves those competitors; disagreement with clearly stronger state progression
+is suspect, with provenance on the conflict. Only one sufficiently coherent interpretation
+after considering physical evidence is trusted. Structurally collapsed interpretations
+and unresolved competitors remain inspectable but suspect.
+
+Timer captures `solveStartBottomFace` before `holdBottom`; this exact observation is the
+strongest physical evidence. Without it, `trackGrip.bottomFace` exposes the independently
+inferred whole-solve gyro bottom and supplies it to final analysis. `CfopAnalysisEvidence`
+keeps observed-start and tracked-bottom provenance separate. The gyro fallback is not
+persisted as `solveStartBottomFace`. Only trusted preliminary boundaries may anchor drift
+correction, and an unaided CFOP Cross is never supplied as the grip prior. Old persisted
+grip tracks must not become independent historical observations: they may have used an
+inferred Cross prior. An analysis conclusion must never become evidence validating itself.
+
+Rejected: using `Settings.crossColour` as ground truth (preference, not a per-solve fact),
+or inferred `analysis.crossFace` as independent truth (circular validation). Also rejected:
+treating every face that reaches pre-solution full F2L as equally plausible. Late accidental
+cube states create false ambiguity and do not represent equivalent CFOP explanations.
+
+History quality badges are limited to counted SmartCube solves, using ordinary eligibility;
+Slow Solve and Replay/practice rows keep their existing badges. Detailed warnings remain
+available on those solves. Replay always prefers a recorded grip track; absent one, only
+trusted CFOP may supply the Cross-frame fallback. Untrusted analyses replay raw cube-frame
+moves, without silently relabelling them by the suspect Cross.
 
 Native CFOP analysis consists of:
 

@@ -111,6 +111,8 @@ export type SolveGrip = {
 };
 
 export type GripTrack = SolveGrip & {
+  /** Independent face kept underneath: supplied start observation or whole-solve gyro vote. */
+  bottomFace: Face;
   /** 0 when the readings settled nothing, 1 when every move was unambiguous. */
   confidence: number;
   warnings: string[];
@@ -216,10 +218,10 @@ export function trackGrip(input: GripTrackInput): GripTrack {
   const states = ALL_ORIENTATIONS.length;
   const warnings: string[] = [];
 
-  if (moves.length === 0) {
-    return { orientations: [], inspection: [], confidence: 0, warnings };
-  }
   const crossFace = input.crossFace ?? steadiestBottom(readings, reference);
+  if (moves.length === 0) {
+    return { orientations: [], inspection: [], bottomFace: crossFace, confidence: 0, warnings };
+  }
 
   const anchors = new Set(
     (input.boundaries ?? []).filter((i) => i >= 0 && i < moves.length),
@@ -313,6 +315,7 @@ export function trackGrip(input: GripTrackInput): GripTrack {
 
   return {
     orientations,
+    bottomFace: crossFace,
     inspection: rotationTokensBetween(IDENTITY, orientations[0]),
     confidence: confidenceOf(emission, path),
     warnings,
@@ -427,7 +430,7 @@ export function rewriteWithRotations(
  * Two letters per move, the faces at the bottom and the back, after the turn made
  * during inspection. `z2 y|UBUBUR` and so on.
  */
-export function encodeGripTrack(track: GripTrack): string {
+export function encodeGripTrack(track: SolveGrip & Partial<GripTrack>): string {
   return `${track.inspection.join(" ")}|${track.orientations.map(describeGrip).join("")}`;
 }
 

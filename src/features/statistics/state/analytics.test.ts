@@ -20,7 +20,7 @@ function buildSolve(solution: string, scramble: string, bottom: import("../../..
   return {
     id: "x", sessionId: "s", createdAt: 0, rawMs: moves.at(-1)!.t, penalty: "none",
     scramble, source: "smartcube", moves,
-    solveStartBottomFace: bottom, analysis: analyseSolve(scrambled, moves, null, bottom),
+    solveStartBottomFace: bottom, analysis: analyseSolve(scrambled, moves, null, { observedStartBottomFace: bottom }),
   } as Solve;
 }
 

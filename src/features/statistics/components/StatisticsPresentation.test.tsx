@@ -17,7 +17,7 @@ import { Controller } from "../../../app/Controller";
 const kpuzzle = await get3x3x3();
 const alg = new Alg("R U R' U R U2 R'");
 const moves = Array.from(alg.childAlgNodes()).map((node, index) => ({ move: node.toString(), t: (index + 1) * 300 }));
-const solve: Solve = { id: "historical", sessionId: "history", createdAt: 1, rawMs: 2100, penalty: "+2", scramble: alg.invert().toString(), source: "smartcube", moves, comment: "Read-only note", analysis: analyseSolve(kpuzzle.defaultPattern().applyAlg(alg.invert()), moves, null, "D") };
+const solve: Solve = { id: "historical", sessionId: "history", createdAt: 1, rawMs: 2100, penalty: "+2", scramble: alg.invert().toString(), source: "smartcube", moves, comment: "Read-only note", analysis: analyseSolve(kpuzzle.defaultPattern().applyAlg(alg.invert()), moves, null, { observedStartBottomFace: "D" }) };
 const sessions = [{ id: "history", name: "History Session", event: "333" as const, createdAt: 1 }];
 
 describe("Statistics presentation", () => {

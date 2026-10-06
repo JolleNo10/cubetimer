@@ -5,11 +5,30 @@ import type { Solve } from "../../../app/types";
 import type { SolveAnalysis } from "../../../cube/analysis";
 const analysis = { method: "CFOP", analysisVersion: 3, quality: { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }, { code: "unassigned-f2l-slot", step: "F2L Slot 2" }, { code: "unrecognized-oll" }, { code: "unrecognized-pll" }] } } as SolveAnalysis;
 it("shows a compact independent badge for suspect and unavailable CFOP analysis", () => {
-  expect(renderToStaticMarkup(<CfopAnalysisBadge solve={{ analysis } as Solve} />)).toContain("CFOP uncertain");
+  expect(renderToStaticMarkup(<CfopAnalysisBadge solve={{ analysis, source: "smartcube" } as Solve} />)).toContain("CFOP uncertain");
   expect(renderToStaticMarkup(<CfopAnalysisBadge solve={{ source: "smartcube", moves: [{ move: "R", t: 0 }] } as Solve} />)).toContain("no CFOP");
   expect(renderToStaticMarkup(<CfopAnalysisBadge solve={{ source: "keyboard", moves: [] } as unknown as Solve} />)).toBe("");
 });
 it("translates structured quality issues into inspectable reasons", () => {
   const html = renderToStaticMarkup(<CfopAnalysisWarning analysis={analysis} />);
   for (const reason of ["CFOP analysis uncertain", "F2L Slot 2", "OLL", "PLL"]) expect(html).toContain(reason);
+});
+
+
+it.each([{ slowSolve: true }, { replay: true }, { practice: true }, { statisticsOutlier: { action: "exclude", baselineMs: 10000, multiplier: 3 } }])("hides compact CFOP badges for non-counting solves %j without hiding detailed warnings", flags => {
+  for (const stored of [analysis, null]) {
+    const solve = { source: "smartcube", moves: [{ move: "R", t: 0 }], analysis: stored, ...flags } as Solve;
+    expect(renderToStaticMarkup(<CfopAnalysisBadge solve={solve} />)).toBe("");
+  }
+  expect(renderToStaticMarkup(<CfopAnalysisWarning analysis={analysis} />)).toContain("CFOP analysis uncertain");
+});
+it("presents colours, gyro provenance and generic incoherence without candidate internals", () => {
+  const varied = { ...analysis, quality: { status: "suspect" as const, issues: [
+    { code: "ambiguous-cross" as const, candidates: ["U", "L"] as const },
+    { code: "cross-face-conflict" as const, observed: "U" as const, inferred: "L" as const, source: "whole-solve-gyro" as const },
+    { code: "incoherent-cfop-progression" as const },
+  ] } };
+  const html = renderToStaticMarkup(<CfopAnalysisWarning analysis={varied as SolveAnalysis} />);
+  expect(html).toContain("white (U) and orange (L)"); expect(html).toContain("Whole-solve gyro bottom");
+  expect(html).toContain("reliable CFOP phase progression");
 });

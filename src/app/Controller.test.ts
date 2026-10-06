@@ -1578,6 +1578,7 @@ it("rejects untrusted solve-specific Training before changing area or delegating
   const alg = new Alg("R U R' U R U2 R'");
   const moves = Array.from(alg.childAlgNodes()).map((node, i) => ({ move: node.toString(), t: (i + 1) * 200 }));
   const analysis = analyseSolve(kpuzzle.defaultPattern().applyAlg(alg.invert()), moves)!;
+  analysis.quality = { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }] };
   const practice = vi.spyOn(controller.training, "practiceSolveStep").mockResolvedValue();
   await controller.practiceSolveStep({ ...solveFor("A"), analysis }, analysis.steps[5]);
   expect(practice).not.toHaveBeenCalled(); expect(controller.snapshot().area).toBe("timer");

@@ -70,7 +70,7 @@ export function ReplayDialog({
   // Replay the solve the way it was held. With a recorded grip track that is exactly
   // how it was held, rotations and all; without one, all that is known is which face
   // the cross went on, so the cube is turned once and left there.
-  const crossFace = solve.analysis?.crossFace;
+  const crossFace = isTrustedCfopAnalysis(solve.analysis) ? solve.analysis.crossFace : undefined;
   const track = useMemo(
     () => (solve.gripTrack ? decodeGripTrack(solve.gripTrack) : null),
     [solve.gripTrack],

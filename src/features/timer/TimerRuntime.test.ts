@@ -237,9 +237,9 @@ describe("TimerRuntime", () => {
 
 
 describe("independent solve-start evidence", () => {
-  it.each(["D", "U", null] as const)("captures %s without feeding inferred Cross back into grip tracking", async bottom => {
+  it.each(["D", "L", null] as const)("captures %s without feeding inferred Cross back into grip tracking", async bottom => {
     const f = fixture();
-    const solution = new Alg("R U R' U R U2 R'");
+    const solution = new Alg("R2 F2 R2 F2");
     f.physical.setVirtualCube(true);
     f.timer.setScramble(solution.invert().toString());
     for (const node of solution.invert().childAlgNodes()) f.physical.injectMove(node.toString());
@@ -260,7 +260,14 @@ describe("independent solve-start evidence", () => {
     expect(saved.solveStartBottomFace).toBe(bottom ?? undefined);
     expect(track).toHaveBeenCalledOnce();
     expect(track.mock.calls[0][0].crossFace).toBe(bottom ?? undefined);
-    expect(analyse.mock.calls.every(call => call[3] === (bottom ?? undefined))).toBe(true);
+    expect(analyse.mock.calls.every(call => call[3]?.observedStartBottomFace === (bottom ?? undefined))).toBe(true);
+    expect(analyse.mock.calls[0][3]?.trackedBottomFace).toBeUndefined();
+    expect(analyse.mock.calls.at(-1)![3]?.trackedBottomFace).toBe(bottom === null ? "D" : undefined);
+    if (bottom === null) {
+      expect(track.mock.results[0].value.bottomFace).toBe("D");
+      expect(saved.analysis).toMatchObject({ crossFace: "D", quality: { status: "trusted", issues: [] } });
+      expect(analyse.mock.results[0].value.quality.status).toBe("suspect");
+    }
     expect(track.mock.calls[0][0].boundaries === undefined).toBe(bottom !== "D");
     if (bottom === null) expect(track.mock.calls[0][0]).not.toHaveProperty("crossFace");
   });

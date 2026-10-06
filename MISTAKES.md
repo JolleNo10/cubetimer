@@ -521,3 +521,13 @@ and current quality rather than weakening the trust rule. A timing assertion ass
 export owner and omitted the average window size; inspect existing imports/signatures
 before adding assertions. A nullable-analysis helper also needed a type predicate so
 trusted branches narrow safely without repeated assertions.
+
+
+## CFOP refinement fixtures and grip serialization contract
+
+A late-alternative regression guessed a specific move boundary instead of locating the
+actual canonical state, and a repair fixture used its solution as its scramble. Locate
+physical witnesses from state invariants and invert solutions for starting patterns.
+Adding bottom evidence to GripTrack exposed that the encoder's input unnecessarily
+required complete reconstruction metadata; it serializes only SolveGrip, so accept that
+projection with optional tracking metadata rather than fabricate raw evidence in callers.

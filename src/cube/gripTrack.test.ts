@@ -485,3 +485,10 @@ describe("drift", () => {
     expect(tracked.orientations[11]).toEqual(grip("z2 y").orientation);
   });
 });
+
+
+it("exposes the independently selected bottom separately from replay orientations", () => {
+  const input = solve([["R", "z2", 0], ["U", "z2", 150], ["R", "z2 y", 800]]);
+  expect(trackGrip({ ...input, reference: REFERENCE }).bottomFace).toBe("U");
+  expect(trackGrip({ ...input, reference: REFERENCE, crossFace: "D" }).bottomFace).toBe("D");
+});

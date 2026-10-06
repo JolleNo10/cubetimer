@@ -590,7 +590,7 @@ export class TimerRuntime {
     if (!reference || !this.#dependencies.physical.gripLocked) return null;
     if (!this.#solveReadings.some(Boolean)) return null;
 
-    const unaided = analyseSolve(scrambled, moves, null, solveStartBottomFace);
+    const unaided = analyseSolve(scrambled, moves, null, { observedStartBottomFace: solveStartBottomFace });
     const track = trackGrip({
       moves,
       readings: this.#solveReadings,
@@ -656,7 +656,7 @@ export class TimerRuntime {
       gripTrack: grip ? encodeGripTrack(grip) : undefined,
       analysis:
         source === "smartcube"
-          ? analyseSolve(scrambledPattern, moves, grip, solveStartBottomFace)
+          ? analyseSolve(scrambledPattern, moves, grip, { observedStartBottomFace: solveStartBottomFace, trackedBottomFace: !solveStartBottomFace ? grip?.bottomFace : undefined })
           : null,
     };
 

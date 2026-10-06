@@ -32,8 +32,9 @@ export type { TimedMove };
  *
  * 2: F2L steps carry the catalogue case they started from.
  * 3: Canonical CFOP checkpoints and explicit evidence-based quality.
+ * 4: Complete candidate coherence and independent gyro evidence.
  */
-export const ANALYSIS_VERSION = 3;
+export const ANALYSIS_VERSION = 4;
 
 export const STEP_NAMES = [
   "Cross",
@@ -97,11 +98,18 @@ export type SolveStep = TurnMetrics & {
 };
 
 export type CfopAnalysisIssue =
-  | { code: "cross-face-conflict"; observed: Face; inferred: Face }
+  | { code: "cross-face-conflict"; observed: Face; inferred: Face; source?: "solve-start" | "whole-solve-gyro" }
+  | { code: "incoherent-cfop-progression" }
   | { code: "ambiguous-cross"; candidates: Face[] }
   | { code: "unassigned-f2l-slot"; step: StepName }
   | { code: "unrecognized-oll" }
   | { code: "unrecognized-pll" };
+
+/** Independent orientation evidence, never reconstructed CFOP conclusions. */
+export type CfopAnalysisEvidence = {
+  observedStartBottomFace?: Face;
+  trackedBottomFace?: Face;
+};
 
 export type CfopAnalysisQuality = {
   status: "trusted" | "suspect";
@@ -250,7 +258,7 @@ export function analyseSolve(
   scrambledState: KPattern,
   moves: TimedMove[],
   grip?: SolveGrip | null,
-  solveStartBottomFace?: Face,
+  evidence: CfopAnalysisEvidence = {},
 ): SolveAnalysis | null {
   if (moves.length === 0) return null;
 
@@ -266,7 +274,7 @@ export function analyseSolve(
   const endIdx = solvedAt;
   const turnsAfterSolution = moves.length - solvedAt;
 
-  const boundaries = findPhaseBoundaries(states, endIdx, solveStartBottomFace);
+  const boundaries = findPhaseBoundaries(states, patterns, endIdx, evidence);
   if (!boundaries) return null;
 
   const { crossFace, cuts, slots, issues } = boundaries;
@@ -339,7 +347,6 @@ export function analyseSolve(
       index === 0 ? 0 : recognitionTime(turning, previousCumulative, timeMs);
     const metrics = countTurns(recorded.map((m) => m.move));
     // A case is whatever the solver was looking at when the step began.
-    const kpuzzle = scrambledState.kpuzzle;
     const slot = index >= 1 && index <= 4 ? (slots[index - 1] ?? null) : null;
     const insertion = slot && to > from
       ? grip
@@ -348,9 +355,9 @@ export function analyseSolve(
       : {};
     const caseName =
       name === "OLL"
-        ? recogniseOll(kpuzzle, stateFacing(from))
+        ? boundaries.ollCase
         : name === "PLL"
-          ? recognisePll(kpuzzle, stateFacing(from))
+          ? boundaries.pllCase
           : slot
             ? f2lCase(stateFacing(from), slot)
             : null;
@@ -438,11 +445,22 @@ type CfopCandidate = {
   crossFace: Face;
   cuts: number[];
   slots: (string | null)[];
+  crossIdx: number;
   f2lIdx: number;
+  ollIdx: number;
+  endIdx: number;
+  ollCase: string | null;
+  pllCase: string | null;
+  /** Distinct restored pair milestones between Cross and full F2L (shared checkpoints counted once). */
+  pairCheckpoints: number;
+  unassignedSlots: number;
+  unrecognizedLastLayer: number;
+  /** No independent phase progression or prepared pairs before the last-layer state appeared. */
+  collapsedProgression: boolean;
 };
 
 /** Canonical checkpoints require the accumulated CFOP invariants, not transient pair counts. */
-function candidateForFace(states: StateFlags[], endIdx: number, face: Face): CfopCandidate | null {
+function candidateForFace(states: StateFlags[], patterns: KPattern[], endIdx: number, face: Face): CfopCandidate | null {
   const slotDefs = f2lSlotsForCrossFace(face);
   const crossSolved = (state: StateFlags) => EDGES_OF_FACE[face].every(edge => state.edgeSolved[edge]);
   const isSlotSolved = (state: StateFlags, slot: (typeof slotDefs)[number]) => state.cornerSolved[slot.corner] && state.edgeSolved[slot.edge];
@@ -468,25 +486,63 @@ function candidateForFace(states: StateFlags[], endIdx: number, face: Face): Cfo
   }
   const llFaceIndex = FACES.indexOf(OPPOSITE[face]);
   const ollIdx = firstFrom(states, f2lIdx, state => fullF2l(state) && state.faceUniform[llFaceIndex]);
-  return { crossFace: face, f2lIdx, slots: slotNames, cuts: [crossIdx, ...slotCuts, ollIdx === -1 ? endIdx : ollIdx, endIdx] };
+  if (ollIdx === -1 || ollIdx > endIdx) return null;
+  const rotation = new Alg(rotationForCrossFace(face).tokens.join(" "));
+  const facing = (index: number) => reframe(patterns[0].kpuzzle, patterns[index], rotation);
+  const ollCase = recogniseOll(patterns[0].kpuzzle, facing(f2lIdx));
+  const pllCase = recognisePll(patterns[0].kpuzzle, facing(ollIdx));
+  return {
+    crossFace: face, crossIdx, f2lIdx, ollIdx, endIdx, slots: slotNames,
+    cuts: [crossIdx, ...slotCuts, ollIdx, endIdx], ollCase, pllCase,
+    pairCheckpoints: new Set(slotCuts.filter(cut => cut > crossIdx && cut < f2lIdx)).size,
+    unassignedSlots: slotNames.filter(slot => slot === null).length,
+    unrecognizedLastLayer: Number(ollIdx > f2lIdx && ollCase === null) + Number(endIdx > ollIdx && pllCase === null),
+    // Local/shared checkpoints and initial skips are fine. What lacks state support
+    // is the entire Cross/F2L/OLL interpretation first appearing at one later state,
+    // without initially solved pairs supporting a legitimate four-pair Cross skip.
+    collapsedProgression: crossIdx > 0 && crossIdx === f2lIdx && f2lIdx === ollIdx
+      && !slotDefs.every(slot => isSlotSolved(states[0], slot)),
+  };
 }
 
-/** State-derived selection and independent solve-start evidence have separate provenance. */
-function findPhaseBoundaries(states: StateFlags[], endIdx: number, observed?: Face): (CfopCandidate & { issues: CfopAnalysisIssue[] }) | null {
+/** A complete interpretation must be no worse in structural/case evidence to dominate. */
+function strongerCandidate(a: CfopCandidate, b: CfopCandidate): boolean {
+  if (a.unassignedSlots > b.unassignedSlots || a.unrecognizedLastLayer > b.unrecognizedLastLayer) return false;
+  // Once A has reached its last-layer permutation, B's first full F2L is a later
+  // accidental explanation, not an equally supported interpretation of the solve.
+  if (a.f2lIdx < b.f2lIdx && a.ollIdx <= b.f2lIdx) return true;
+  // Otherwise retain competing interpretations with genuinely different strengths.
+  const left = [a.crossIdx, a.f2lIdx, a.ollIdx, a.unassignedSlots, a.unrecognizedLastLayer];
+  const right = [b.crossIdx, b.f2lIdx, b.ollIdx, b.unassignedSlots, b.unrecognizedLastLayer];
+  return left.every((value, index) => value <= right[index]) && left.some((value, index) => value < right[index]);
+}
+
+/** State progression and physical evidence retain separate provenance. */
+function findPhaseBoundaries(states: StateFlags[], patterns: KPattern[], endIdx: number, evidence: CfopAnalysisEvidence): (CfopCandidate & { issues: CfopAnalysisIssue[] }) | null {
   const candidates = FACES.flatMap(face => {
-    const candidate = candidateForFace(states, endIdx, face);
+    const candidate = candidateForFace(states, patterns, endIdx, face);
     return candidate ? [candidate] : [];
-  }).sort((a, b) => a.f2lIdx - b.f2lIdx);
+  }).sort((a, b) => a.f2lIdx - b.f2lIdx || a.ollIdx - b.ollIdx || a.crossIdx - b.crossIdx);
   if (!candidates.length) return null;
-  const meaningful = candidates.filter(candidate => candidate.f2lIdx < endIdx);
-  const observedCandidate = candidates.find(candidate => candidate.crossFace === observed);
-  const selected = observedCandidate && observedCandidate.f2lIdx < endIdx ? observedCandidate : candidates[0];
+  const progressive = candidates.filter(candidate => !candidate.collapsedProgression);
+  const stateFrontier = progressive.filter(candidate => !progressive.some(other => strongerCandidate(other, candidate)));
+  const bottom = evidence.observedStartBottomFace ?? evidence.trackedBottomFace;
+  const source = evidence.observedStartBottomFace ? "solve-start" : "whole-solve-gyro";
+  const matching = stateFrontier.find(candidate => candidate.crossFace === bottom);
+  // Restored pair progression breaks otherwise equal state-only interpretations.
+  // Physical evidence may still support legitimate shared/XCross pair checkpoints.
+  const competing = matching ? stateFrontier : stateFrontier.filter(candidate => !stateFrontier.some(other =>
+    other.crossIdx === candidate.crossIdx && other.f2lIdx === candidate.f2lIdx && other.ollIdx === candidate.ollIdx
+    && other.unassignedSlots <= candidate.unassignedSlots && other.unrecognizedLastLayer <= candidate.unrecognizedLastLayer
+    && other.pairCheckpoints > candidate.pairCheckpoints));
+  const selected = matching ?? competing[0] ?? candidates[0];
   const issues: CfopAnalysisIssue[] = [];
-  if (!(observedCandidate && observedCandidate.f2lIdx < endIdx) && meaningful.length !== 1) {
-    issues.push({ code: "ambiguous-cross", candidates: (meaningful.length ? meaningful : candidates).map(candidate => candidate.crossFace) });
+  if (selected.collapsedProgression) issues.push({ code: "incoherent-cfop-progression" });
+  if (!matching && competing.length > 1) {
+    issues.push({ code: "ambiguous-cross", candidates: competing.map(candidate => candidate.crossFace) });
   }
-  if (observed && selected.crossFace !== observed) {
-    issues.push({ code: "cross-face-conflict", observed, inferred: selected.crossFace });
+  if (bottom && selected.crossFace !== bottom) {
+    issues.push({ code: "cross-face-conflict", observed: bottom, inferred: selected.crossFace, source });
   }
   return { ...selected, issues };
 }

@@ -1,3 +1,4 @@
+import { ANALYSIS_VERSION } from "../../../cube/analysis";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ReplayDialog } from "./ReplayDialog";
@@ -100,14 +101,15 @@ const solve: Solve = {
   gripTrack: `|${describeGrip(IDENTITY)}${describeGrip(GENERATORS.y)}`,
 };
 
-function fixture(initialView?: { index: number; speed: number }, withAnalysis = false, trusted = true) {
+function fixture(initialView?: { index: number; speed: number }, withAnalysis = false, trusted = true, changes: Partial<Solve> = {}) {
   const onClose = vi.fn(), onTrainStep = vi.fn();
   const selectedSolve: Solve = withAnalysis ? { ...solve, analysis: {
-    analysisVersion: 3, quality: trusted ? { status: "trusted", issues: [] } : { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }] },
+    analysisVersion: ANALYSIS_VERSION, quality: trusted ? { status: "trusted", issues: [] } : { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }] },
     method: "CFOP", crossFace: "D", rotation: "DB", steps: [step("Cross", 0, 1), step("OLL", 1, 2)],
     solvingMs: 1000, tps: 2, totalRecognitionMs: 200, totalExecutionMs: 800, stepsSkipped: 0,
     turnsAfterSolution: 0, pauses: [], faceTurns: 2, quarterTurns: 2, sliceTurns: 2,
   } } : solve;
+  Object.assign(selectedSolve, changes);
   function render() {
     hooks.cursor = 0;
     const nodes: Node[] = [];
@@ -262,4 +264,22 @@ it("keeps raw replay controls available but withholds Training for suspect analy
   expect(view.button("Play").disabled).not.toBe(true);
   expect(view.sequence.moves).toEqual(["R", "y", "F"]);
   expect(view.breakdown).toBeDefined();
+});
+
+
+it("uses the raw cube frame when suspect analysis has no grip track", () => {
+  const { render } = fixture(undefined, true, false, { gripTrack: undefined });
+  const view = render();
+  expect(view.sequence.moves).toEqual(["R", "R"]);
+  expect(view.button("Play").disabled).not.toBe(true);
+  expect(view.labels.some(label => typeof label === "string" && label.startsWith("Train"))).toBe(false);
+});
+it("uses trusted Cross as a fallback only without a recorded grip track", () => {
+  const analysed = { method: "CFOP", analysisVersion: ANALYSIS_VERSION, crossFace: "U", quality: { status: "trusted", issues: [] }, steps: [step("Cross", 0, 1), step("OLL", 1, 2)] } as unknown as Solve["analysis"];
+  const view = fixture(undefined, true, true, { gripTrack: undefined, analysis: analysed }).render();
+  expect(view.sequence.moves).not.toEqual(["R", "R"]);
+});
+it("keeps recorded grip authoritative even when the suspect Cross disagrees", () => {
+  const analysed = { method: "CFOP", crossFace: "U", quality: { status: "suspect", issues: [] }, steps: [step("Cross", 0, 1), step("OLL", 1, 2)] } as unknown as Solve["analysis"];
+  expect(fixture(undefined, true, false, { analysis: analysed }).render().sequence.moves).toEqual(["R", "y", "F"]);
 });

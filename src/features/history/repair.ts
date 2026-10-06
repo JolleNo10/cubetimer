@@ -46,7 +46,7 @@ export function rebuildAnalysis(kpuzzle: KPuzzle, solve: Solve): Solve | null {
   // The readings are long gone, but what they were taken to mean was kept, so the
   // rebuilt breakdown still names the faces the solver was actually looking at.
   const grip = solve.gripTrack ? decodeGripTrack(solve.gripTrack) : null;
-  const analysis = analyseSolve(from, solve.moves, grip, solve.solveStartBottomFace);
+  const analysis = analyseSolve(from, solve.moves, grip, { observedStartBottomFace: solve.solveStartBottomFace });
   if (!analysis) return null;
   return { ...solve, analysis };
 }

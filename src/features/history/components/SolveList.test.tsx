@@ -61,11 +61,22 @@ describe("History solve chooser", () => {
 
 it("includes independent CFOP badges without changing counted rows or PB eligibility", () => {
   hooks.filter = "counted";
-  const uncertain = solve("uncertain", { analysis: { method: "CFOP", analysisVersion: 3, quality: { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }] } } as Solve["analysis"] });
+  const uncertain = solve("uncertain", { source: "smartcube", analysis: { method: "CFOP", analysisVersion: 3, quality: { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }] } } as unknown as Solve["analysis"] });
   const missing = solve("missing", { source: "smartcube", rawMs: 9000, moves: [{ move: "R", t: 0 }] });
   const tree = SolveList({ solves: [uncertain, missing], selectedId: null, onSelect: vi.fn() });
   expect(rows(tree)).toHaveLength(2);
   const badges = elements(tree).filter(node => node.type === CfopAnalysisBadge);
   expect(badges.map(node => CfopAnalysisBadge(node.props as { solve: Solve })?.props.children)).toEqual(["no CFOP", "CFOP uncertain"]);
   expect(elements(rows(tree)[0]).some(node => node.props.children === "PB")).toBe(true);
+});
+
+
+it.each([{ slowSolve: true }, { replay: true }, { practice: true }])("keeps existing practice badges without compact CFOP warnings %j", flags => {
+  for (const analysis of [null, { method: "CFOP", quality: { status: "suspect", issues: [] } } as unknown as Solve["analysis"]]) {
+    const recorded = solve("practice", { source: "smartcube", moves: [{ move: "R", t: 0 }], analysis, ...flags });
+    const tree = SolveList({ solves: [recorded], selectedId: null, onSelect: vi.fn() });
+    const badge = elements(tree).find(node => node.type === CfopAnalysisBadge)!;
+    expect(CfopAnalysisBadge(badge.props as { solve: Solve })).toBeNull();
+    if ("slowSolve" in flags || "replay" in flags) expect(elements(tree).some(node => node.props.children === ("slowSolve" in flags ? "slow" : "replay"))).toBe(true);
+  }
 });

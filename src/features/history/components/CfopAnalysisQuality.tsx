@@ -1,11 +1,13 @@
+import { isCountedSolve } from "../../statistics/state/stats";
 import { isTrustedCfopAnalysis, type CfopAnalysisIssue, type SolveAnalysis } from "../../../cube/analysis";
 import { faceColour } from "../../../cube/colours";
 import type { Solve } from "../../../app/types";
 
 function reason(issue: CfopAnalysisIssue): string {
   switch (issue.code) {
-    case "cross-face-conflict": return `Observed bottom ${faceColour(issue.observed).name} (${issue.observed}) disagrees with inferred Cross ${faceColour(issue.inferred).name} (${issue.inferred}).`;
-    case "ambiguous-cross": return `Cross face is ambiguous: ${issue.candidates.join(", ")}.`;
+    case "cross-face-conflict": return `${issue.source === "whole-solve-gyro" ? "Whole-solve gyro bottom" : "Observed bottom"} ${faceColour(issue.observed).name} (${issue.observed}) disagrees with inferred Cross ${faceColour(issue.inferred).name} (${issue.inferred}).`;
+    case "ambiguous-cross": return `Cross interpretation is ambiguous between ${issue.candidates.map(face => `${faceColour(face).name} (${face})`).join(" and ")}.`;
+    case "incoherent-cfop-progression": return "The recorded states did not produce a reliable CFOP phase progression.";
     case "unassigned-f2l-slot": return `${issue.step} could not be assigned a concrete slot.`;
     case "unrecognized-oll": return "The reconstructed OLL state was not recognized.";
     case "unrecognized-pll": return "The reconstructed PLL state was not recognized.";
@@ -24,6 +26,7 @@ export function CfopAnalysisWarning({ analysis }: { analysis: SolveAnalysis }) {
 }
 
 export function CfopAnalysisBadge({ solve }: { solve: Solve }) {
+  if (solve.source !== "smartcube" || !isCountedSolve(solve)) return null;
   if (solve.analysis && !isTrustedCfopAnalysis(solve.analysis)) {
     return <span className="phase-case muted" title="Uncertain CFOP analysis; excluded from CFOP statistics">CFOP uncertain</span>;
   }
