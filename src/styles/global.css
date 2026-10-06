@@ -1199,6 +1199,9 @@ button.ghost.stats-open-link { color: var(--accent); text-decoration: underline;
 .stats-table .muted { color: var(--text-faint); }
 .stats-loading { padding: 20px; }
 .stats-detail { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); padding: 16px; margin: 14px 0; min-width: 0; }
+.stats-table tr.stats-expanded > td { padding: 0 0 10px; white-space: normal; }
+.stats-table tr.stats-expanded .stats-detail { margin: 2px 0 0; background: var(--panel-2); }
+.stats-table tr.stats-expanded .stats-table td { white-space: nowrap; }
 .stats-pagination { margin-top: 12px; justify-content: flex-end; }
 .stats-scramble, .stats-note { overflow-wrap: anywhere; }
 .statistics-solve-detail .dialog-body { display: grid; gap: 14px; }

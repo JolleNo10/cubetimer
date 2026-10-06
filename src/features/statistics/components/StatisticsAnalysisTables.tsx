@@ -1,6 +1,6 @@
 import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { formatTime } from "../../../shared/time";
-import { useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatSolveTime } from "../state/stats";
 import { RECOGNITION_NOTE, sortPerformanceRows, type CasePerformance, type CaseSort, type PerformanceSummary, type SortDirection, type StatisticsViewModel } from "../state/statistics";
 import type { Solve } from "../../../app/types";
@@ -31,13 +31,23 @@ export function SortHeader({ id, label, sort }: { id: CaseSort; label: string; s
   </th>;
 }
 
-export function PerformanceTable({ rows, labelHeader = "Case / slot / order", sort, onSelect }: {
+/** A detail row under its summary row, scrolled into view so a selection far down the table is visible. */
+function ExpandedRow({ label, columns, children }: { label: string; columns: number; children: ReactNode }) {
+  const ref = useRef<HTMLTableRowElement | null>(null);
+  useEffect(() => { ref.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" }); }, [label]);
+  return <tr className="stats-expanded" ref={ref}><td colSpan={columns}>{children}</td></tr>;
+}
+
+export function PerformanceTable({ rows, labelHeader = "Case / slot / order", sort, onSelect, expandedLabel, expanded }: {
   rows: readonly PerformanceSummary[]; labelHeader?: string; sort?: PerformanceSortState; onSelect?: (row: PerformanceSummary) => void;
+  /** Detail shown directly under the row with this label. */
+  expandedLabel?: string; expanded?: ReactNode;
 }) {
   return <div className="table-scroll"><table className="stats-table"><thead><tr>
     <SortHeader id="case" label={labelHeader} sort={sort} />
     {PERFORMANCE_COLUMNS.map((column) => <SortHeader key={column.id} id={column.id} label={column.label} sort={sort} />)}
-  </tr></thead><tbody>{rows.map((row) => <tr key={row.label} {...statisticsActivationProps(onSelect ? () => onSelect(row) : undefined, `View ${row.label} samples`)}><td>{onSelect ? <button className="ghost small stats-open-link" onClick={() => onSelect(row)}>{row.label}</button> : row.label}</td><td className="stats-samples">{row.count}{row.count > 0 && row.count < 3 ? <span className="stats-badge small-sample" title="Fewer than 3 observations; medians describe a very small sample.">small sample</span> : null}</td><td className="number">{formatTime(row.bestMs)}</td><td className="number">{formatTime(row.medianMs)}</td><td className="number">{formatTime(row.recognitionMs)}</td><td className="number">{formatTime(row.executionMs)}</td><td className="number">{row.moves ?? "—"}</td><td className="number">{row.tps?.toFixed(2) ?? "—"}</td><td className="number">{row.skipCount}</td></tr>)}</tbody></table></div>;
+  </tr></thead><tbody>{rows.map((row) => <Fragment key={row.label}><tr className={row.label === expandedLabel ? "selected" : undefined} aria-expanded={onSelect ? row.label === expandedLabel : undefined} {...statisticsActivationProps(onSelect ? () => onSelect(row) : undefined, `View ${row.label} samples`)}><td>{onSelect ? <button className="ghost small stats-open-link" onClick={() => onSelect(row)}>{row.label}</button> : row.label}</td><td className="stats-samples">{row.count}{row.count > 0 && row.count < 3 ? <span className="stats-badge small-sample" title="Fewer than 3 observations; medians describe a very small sample.">small sample</span> : null}</td><td className="number">{formatTime(row.bestMs)}</td><td className="number">{formatTime(row.medianMs)}</td><td className="number">{formatTime(row.recognitionMs)}</td><td className="number">{formatTime(row.executionMs)}</td><td className="number">{row.moves ?? "—"}</td><td className="number">{row.tps?.toFixed(2) ?? "—"}</td><td className="number">{row.skipCount}</td></tr>
+    {row.label === expandedLabel && expanded ? <ExpandedRow label={row.label} columns={PERFORMANCE_COLUMNS.length + 1}>{expanded}</ExpandedRow> : null}</Fragment>)}</tbody></table></div>;
 }
 
 export function StatisticsCaseTable({ family, rows, skipCount, focus = [], model, onOpenSolve, onTrainCase }: {
@@ -60,14 +70,13 @@ export function StatisticsCaseTable({ family, rows, skipCount, focus = [], model
       </div>)}
     </div> : null}
     <p className="small faint">{RECOGNITION_NOTE}</p>
-    {rows.length ? <PerformanceTable rows={sorted} labelHeader="Case" sort={sort} onSelect={(row) => setCaseId((row as CasePerformance).caseId)} /> : <div className="chart-empty">No recognised non-skipped {family.toUpperCase()} cases in this scope.</div>}
-    {selected ? <div className="stats-detail" role="region" aria-label={`${family.toUpperCase()} case solves`}>
+    {rows.length ? <PerformanceTable rows={sorted} labelHeader="Case" sort={sort} onSelect={(row) => setCaseId((current) => current === (row as CasePerformance).caseId ? null : (row as CasePerformance).caseId)} expandedLabel={selected?.label} expanded={selected ? <div className="stats-detail" role="region" aria-label={`${family.toUpperCase()} case solves`}>
       <div className="section-heading"><h3>{family.toUpperCase()} {selected.caseId} · {selected.count} solves</h3><div className="row"><button onClick={() => onTrainCase(family, selected.caseId)}>Train case</button><button className="ghost" onClick={() => setCaseId(null)}>Close case</button></div></div>
       <div className="table-scroll"><table className="stats-table"><thead><tr><th>Solve</th><th>Session</th><th>Date</th></tr></thead><tbody>{selected.solveIds.map((id) => {
         const solve = members.get(id);
         return solve ? <tr key={id} {...statisticsActivationProps(() => onOpenSolve(solve), `View solve ${formatSolveTime(solve)} · ${date(solve.createdAt)}`)}><td><button className="ghost small stats-open-link" onClick={() => onOpenSolve(solve)}>{formatSolveTime(solve)}</button></td><td>{model.eventSessions.find((session) => session.id === solve.sessionId)?.name}</td><td>{date(solve.createdAt)}</td></tr> : null;
       })}</tbody></table></div>
-    </div> : null}
+    </div> : undefined} /> : <div className="chart-empty">No recognised non-skipped {family.toUpperCase()} cases in this scope.</div>}
   </StatsSection>;
 }
 
@@ -88,8 +97,7 @@ export function StatisticsF2lPerformance({ model, onOpenSolve }: { model: Statis
       <button className="ghost" aria-pressed={mode === "order"} onClick={() => { setMode("order"); setPosition(null); }}>By solve order</button>
     </div>
     {mode === "slot" && model.f2lUnassignedCount ? <p className="small faint">{model.f2lUnassignedCount} F2L steps have no recognised slot and are excluded from slot summaries; completion-order analysis includes them.</p> : null}
-    {model.analysisCount ? <PerformanceTable rows={rows} labelHeader={mode === "slot" ? "Slot" : "Pair"} sort={sort} onSelect={(row) => setPosition(row.label)} /> : <div className="chart-empty">No usable CFOP analysis in this scope.</div>}
-    {selected ? <div className="stats-detail" role="region" aria-label="F2L position solves">
+    {model.analysisCount ? <PerformanceTable rows={rows} labelHeader={mode === "slot" ? "Slot" : "Pair"} sort={sort} onSelect={(row) => setPosition((current) => current === row.label ? null : row.label)} expandedLabel={selected?.label} expanded={selected ? <div className="stats-detail" role="region" aria-label="F2L position solves">
       <div className="section-heading"><h3>{selected.label} · {selected.count} contributing solves</h3><button className="ghost" onClick={() => setPosition(null)}>Close pair</button></div>
       {selected.samples.length ? <div className="table-scroll"><table className="stats-table">
         <thead><tr><th>Pair time</th><th>Measured recognition</th><th>Measured execution</th><th>STM</th><th>Execution TPS</th><th>Solve time</th>{model.sessionId === null ? <th>Session</th> : null}<th>Date</th></tr></thead>
@@ -102,7 +110,7 @@ export function StatisticsF2lPerformance({ model, onOpenSolve }: { model: Statis
           </tr> : null;
         })}</tbody>
       </table></div> : <div className="chart-empty">No non-skipped samples for this position.</div>}
-    </div> : null}
+    </div> : undefined} /> : <div className="chart-empty">No usable CFOP analysis in this scope.</div>}
   </StatsSection>;
 }
 

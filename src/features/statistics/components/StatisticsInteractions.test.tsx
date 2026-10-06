@@ -377,6 +377,13 @@ controller.sessions.update((state) => ({ ...state, sessionId: "A", sessions: sna
     find(tree, (element) => element.type === "button" && element.props.children === "View").props.onClick();
     tree = render();
     expect(find(tree, (element) => element.props["aria-label"] === "OLL case solves")).toBeDefined();
+    // The detail opens inside the table, under its own row, rather than after the whole table.
+    const table = find(tree, (element) => element.type === PerformanceTable);
+    expect(table.props.expandedLabel).toBe("27");
+    expect(find(table.props.expanded, (element) => element.props["aria-label"] === "OLL case solves")).toBeDefined();
+    table.props.onSelect(rows[0]);
+    tree = render();
+    expect(find(tree, (element) => element.type === PerformanceTable).props.expandedLabel).toBeUndefined();
   });
 
   it("reverses a CFOP ranking from its value header instead of a direction selector", () => {
