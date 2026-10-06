@@ -26,7 +26,6 @@ import { isF2lSolved } from "./algBank";
 import {
   f2lExecution,
   lastLayerLooks,
-  lookupAlgorithm,
   type ExecutedAlg,
   type LastLayerLook,
   type StepInput,
@@ -305,7 +304,7 @@ export function analyseSolve(
   const rotation = rotationForCrossFace(crossFace);
   /** The solve as the cube reported it, turned so the cross is underneath. */
   const crossDown = reorientMoves(moves, rotation.orientation).map((m) => m.move);
-  const cuts = extendToAlgorithms(boundaries, states, crossDown);
+  const { cuts } = boundaries;
   const steps: SolveStep[] = [];
 
   /**
@@ -377,24 +376,20 @@ export function analyseSolve(
       to,
       startMs: previousCumulative,
     };
-    let recognitionMs = index === 0 ? 0 : recognitionTime(turning, previousCumulative, timeMs);
+    const recognitionMs = index === 0 ? 0 : recognitionTime(turning, previousCumulative, timeMs);
     let caseName: string | null = null;
     let execution: Pick<SolveStep, "caseAt" | "setupMoves" | "executedAlg" | "looks"> = {};
     const position = slot ? positionOf(slot) : undefined;
     if (position) {
       const f2l = f2lExecution(input, position);
       caseName = f2l.case;
-      if (to > from) {
-        recognitionMs = Math.min(timeMs, f2l.recognitionMs);
-        execution = { caseAt: f2l.caseAt, setupMoves: f2l.setupMoves, executedAlg: f2l.executedAlg };
-      }
+      if (to > from) execution = { caseAt: f2l.caseAt, setupMoves: f2l.setupMoves, executedAlg: f2l.executedAlg };
     } else if (name === "OLL" || name === "PLL") {
       // A case is whatever the solver was looking at when the step began; the looks
       // say how they actually went about it.
       caseName = name === "OLL" ? recogniseOll(kpuzzle, stateFacing(from)) : recognisePll(kpuzzle, stateFacing(from));
       const looks = lastLayerLooks(input, name, (i) => isF2lSolved(stateFacing(i)), PAUSE_THRESHOLD_MS);
       if (looks.length > 0) {
-        recognitionMs = Math.min(timeMs, looks.reduce((sum, look) => sum + look.recognitionMs, 0));
         execution = {
           looks,
           executedAlg: looks.length === 1 && looks[0].alg
@@ -485,48 +480,6 @@ function recognitionTime(
   return timeMs;
 }
 
-/**
- * How long a milestone may come undone and still count as reached.
- *
- * F2L triggers on the side faces routinely knock a cross edge out and put it straight
- * back (`F' U' F`, a keyhole `D R U R' D'`), and inserting one pair often disturbs the
- * pair beside it for a few turns. Anything longer is the milestone genuinely being
- * broken and rebuilt, and the rebuild is when it was reached.
- */
-const CROSS_DIP = 6;
-const SLOT_DIP = 6;
-
-/** Whether `predicate` holds at `i` and never fails for more than `maxDip` states running up to `end`. */
-function heldFrom(
-  states: StateFlags[],
-  i: number,
-  end: number,
-  predicate: (s: StateFlags) => boolean,
-  maxDip: number,
-): boolean {
-  if (!predicate(states[i])) return false;
-  let run = 0;
-  for (let j = i + 1; j <= end; j++) {
-    run = predicate(states[j]) ? 0 : run + 1;
-    if (run > maxDip) return false;
-  }
-  return true;
-}
-
-/** First index in `[lo, end]` from which `predicate` is held, or `end`. */
-function firstHeld(
-  states: StateFlags[],
-  lo: number,
-  end: number,
-  predicate: (s: StateFlags) => boolean,
-  maxDip: number,
-): number {
-  for (let i = lo; i < end; i++) {
-    if (heldFrom(states, i, end, predicate, maxDip)) return i;
-  }
-  return end;
-}
-
 type Boundaries = {
   crossFace: Face;
   cuts: number[];
@@ -543,23 +496,6 @@ type Boundaries = {
  */
 const COMPETING_PROGRESS = 0.95;
 
-/**
- * Where each CFOP phase ends, as an index into the raw move stream.
- *
- * The cross face is the one the solve made progress on: cross edges and pairs of that
- * face in place, added up over every state of the solve. Choosing by which face first
- * shows a finished F2L is fooled by coincidences — a last layer one turn from done can
- * be one turn from an F2L on another face too — whereas the face really being solved is
- * in place for most of the solve. A face whose first two layers were done before the
- * first turn wins outright.
- *
- * Independent evidence of the face held underneath settles faces that are genuinely
- * competing; evidence against a face that is clearly ahead is reported as a conflict,
- * and competing faces with no evidence as ambiguity. Either makes the analysis suspect.
- *
- * Each milestone is then dated by when it was reached for good (see `CROSS_DIP`), not by
- * the first moment it happened to be true.
- */
 type Candidate = {
   face: Face;
   crossIdx: number;
@@ -586,8 +522,6 @@ function candidateFor(
   const llFaceIndex = FACES.indexOf(OPPOSITE[face]);
   const found = firstFrom(states, f2lIdx, (s) => s.faceUniform[llFaceIndex] && f2lDone(s));
   const ollIdx = found === -1 || found > endIdx ? endIdx : found;
-  // Compared between faces by when it first appeared, which a coincidence cannot fake
-  // later; when it stuck is a question for the dating once the face is chosen.
   const crossIdx = firstFrom(states, 0, crossSolved);
   let score = 0;
   for (let i = 0; i <= endIdx; i++) {
@@ -645,8 +579,7 @@ function dominates(a: Candidate, b: Candidate): boolean {
  * competing (see `COMPETING_PROGRESS`); evidence against a face that is clearly ahead
  * is reported as a conflict, and competing faces with no evidence as ambiguity.
  *
- * Each milestone is then dated by when it was reached for good (see `CROSS_DIP`), not by
- * the first moment it happened to be true.
+ * Each milestone of the chosen face is then dated by when it was first reached.
  */
 function findPhaseBoundaries(
   states: StateFlags[],
@@ -682,22 +615,31 @@ function findPhaseBoundaries(
   const isSlotSolved = (s: StateFlags, d: (typeof slotDefs)[number]) =>
     s.cornerSolved[d.corner] && s.edgeSolved[d.edge];
 
-  const crossIdx = firstHeld(states, 0, f2lIdx, crossSolved, CROSS_DIP);
+  // Milestones are dated by when they were first reached. F2L triggers on the side
+  // faces routinely knock a cross edge out and put it back, and a solver may turn the
+  // bottom layer while working on pairs; the cross was still done when it was first done.
+  const crossIdx = Math.min(firstFrom(states, 0, crossSolved), f2lIdx);
 
-  // Each pair is dated by when it went in for good, so a pair knocked out and rebuilt
-  // is credited to the rebuild, and a neighbour briefly disturbed by an insertion keeps
-  // its own time. The steps are the pairs in the order those times fall.
-  const dated = slotDefs
-    .map((d, order) => ({
-      name: d.name,
-      order,
-      at: Math.max(crossIdx, firstHeld(states, 0, f2lIdx, (s) => isSlotSolved(s, d), SLOT_DIP)),
-    }))
-    .sort((a, b) => a.at - b.at || a.order - b.order);
-  const slotCuts = dated.map((slot) => slot.at);
-  // A slot can only be filled once; a name that comes round again is not a real slot.
-  const slotNames: (string | null)[] = dated.map((slot, i) =>
-    dated.slice(0, i).some((earlier) => earlier.name === slot.name) ? null : slot.name);
+  // Pairs are dated by the moment the number of finished slots, with the cross in, goes
+  // up, rather than slot by slot: inserting one pair frequently disturbs a neighbour
+  // for a few moves, and that must not push the earlier pair's time forward.
+  const solvedSlotCount = (s: StateFlags) => slotDefs.filter((d) => isSlotSolved(s, d)).length;
+  const slotCuts: number[] = [];
+  const slotNames: (string | null)[] = [];
+  const filled = new Set<string>();
+  let previous = crossIdx;
+  for (let k = 1; k <= 4; k++) {
+    const found = firstFrom(states, previous, (s) => crossSolved(s) && solvedSlotCount(s) >= k);
+    const idx = found === -1 ? f2lIdx : Math.min(found, f2lIdx);
+    // Whichever slot was not done a moment ago but is now is the one just filled.
+    const justFilled =
+      slotDefs.find((d) => !filled.has(d.name) && isSlotSolved(states[idx], d) && (idx === 0 || !isSlotSolved(states[idx - 1], d))) ??
+      slotDefs.find((d) => !filled.has(d.name) && isSlotSolved(states[idx], d));
+    if (justFilled) filled.add(justFilled.name);
+    slotCuts.push(idx);
+    slotNames.push(justFilled?.name ?? null);
+    previous = idx;
+  }
 
   const llFaceIndex = FACES.indexOf(OPPOSITE[face]);
   const f2lIntact = (s: StateFlags) => crossSolved(s) && slotDefs.every((d) => isSlotSolved(s, d));
@@ -713,59 +655,6 @@ function findPhaseBoundaries(
   if (cuts[0] === 0) for (let k = 1; k <= 4; k++) if (solvedDuring[k] === "Cross") solvedDuring[k] = undefined;
 
   return { crossFace: face, cuts, slots: slotNames, solvedDuring, issues };
-}
-
-/**
- * Let a pair's step run to the end of the algorithm it was part of.
- *
- * Some F2L algorithms have the pair in its slot before they finish — `R' F R F'` drops
- * it in with the `R'` and the `F R F'` only reshuffles the last layer. The state says
- * the pair was done at the `R'`; the solver was still executing. When the turns from
- * inside the step to some point before the next step ends are a catalogue F2L
- * algorithm, and the pairs and cross are still in at that point, the step ends there.
- */
-const EXTENSION_LIMIT = 4;
-
-function extendToAlgorithms(
-  { crossFace, cuts, slots }: Boundaries,
-  states: StateFlags[],
-  tokens: readonly string[],
-): number[] {
-  const adjusted = [...cuts];
-  const slotDefs = f2lSlotsForCrossFace(crossFace);
-  const inPlace = (s: StateFlags, count: number) =>
-    EDGES_OF_FACE[crossFace].every((e) => s.edgeSolved[e]) &&
-    slots.slice(0, count).every((name) => {
-      const d = slotDefs.find((slot) => slot.name === name);
-      return !d || (s.cornerSolved[d.corner] && s.edgeSolved[d.edge]);
-    });
-  for (let k = 1; k <= 4; k++) {
-    const from = adjusted[k - 1];
-    const to = adjusted[k];
-    if (to <= from) continue;
-    // Only a short tail, and only one that does not cancel into the step: `R'` and a
-    // Sune that starts with `R` are not one algorithm.
-    const lastFamily = parseMove(tokens[to - 1])?.family;
-    const nextFamily = parseMove(tokens[to] ?? "")?.family;
-    if (lastFamily === nextFamily) continue;
-    // The tail has to be working on this pair still, as `F R F'` is: turns that never
-    // touch it are the next step's.
-    const own = slotDefs.find((slot) => slot.name === slots[k - 1]);
-    const disturbs = (j: number) => !!own && !(states[j].cornerSolved[own.corner] && states[j].edgeSolved[own.edge]);
-    search: for (let end = Math.min(adjusted[k + 1], to + EXTENSION_LIMIT); end > to; end--) {
-      if (!inPlace(states[end], k)) continue;
-      let touched = false;
-      for (let j = to + 1; j < end; j++) touched ||= disturbs(j);
-      if (!touched) continue;
-      for (let start = from; start < to; start++) {
-        if (lookupAlgorithm(tokens.slice(start, end), "F2L")) {
-          adjusted[k] = end;
-          break search;
-        }
-      }
-    }
-  }
-  return adjusted;
 }
 
 /** Lightweight live check used by the timer to know when to stop. */

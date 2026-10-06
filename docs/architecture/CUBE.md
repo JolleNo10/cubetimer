@@ -99,13 +99,13 @@ is left untouched, and successful repairs are persisted once. Missing quality al
 triggers repair when raw facts remain available.
 
 Version 3 introduced derived CFOP quality; version 4 refined candidate coherence and
-orientation provenance; version 5 dates milestones by when they stick, chooses among
-coherent candidates by progress and records what was executed. Quality is `trusted` or `suspect` with machine-readable
+orientation provenance; version 5 chooses among coherent candidates by progress and
+records what was executed. Quality is `trusted` or `suspect` with machine-readable
 issues. `isTrustedCfopAnalysis` is the shared boundary for current, explicitly trusted
 CFOP analysis. Legacy analysis without quality remains readable but is untrusted.
 Suspect analysis stays inspectable in History, Result and Replay; it is excluded from
 CFOP metrics, comparisons, case statistics, training suggestions and step-specific
-Training/Analysis tools. Ordinary timing, averages and PB eligibility are independent.
+Training and the alternatives in Review. Ordinary timing, averages and PB eligibility are independent.
 
 `analysis.ts` is the sole CFOP interpreter. Candidate checkpoints accumulate invariants:
 Cross edges solved; each F2L milestone also has Cross plus the required solved pairs;
@@ -194,24 +194,27 @@ Per-step analysis includes information such as:
   is a front-right or front-left insert) and marked `insertedAtSource: "inferred"`;
 - move-stream boundaries.
 
-Once the face is chosen, milestones are dated by when they were reached for good. The
-cross and each pair count from the first state after which they stay in place, apart
-from short disturbances (a trigger knocking an edge out and back). The steps are the
-pairs in the order those times fall. A pair step runs on to the end of the catalogue
-algorithm it was part of when the algorithm drops the pair in before it finishes
-(`R' F R F'`).
-Rejected: dating each milestone by the first state in which it is true. An accidental
-early cross gets the credit, and a pair that is broken and rebuilt gets the wrong slot.
+Once the face is chosen, milestones are dated by when they were first reached: the
+cross by the first state with its edges in, and pair k by the first state after the
+previous one with the cross in and at least k pairs. Recognition runs to the first
+turn that is not a U.
+Rejected: dating each milestone by when it stays in place for good, and running a pair
+step on to the end of a catalogue algorithm that drops the pair in early (`R' F R F'`).
+Over 2,995 recorded solves, step boundaries agreed with the exporting timer's own
+analysis 99.7% of the time under first-reached dating and 44% under stable dating.
+Turning the bottom layer while working on pairs keeps the cross out for many moves
+without undoing it.
 
-Cases are read where the solver began executing, not where the step began. A step
-is matched from its end against the algorithm bank, held in any `y`. The case is
-read where the matched algorithm starts. Turns before it are setup, and U turns
-inside it are execution rather than recognition. Last-layer steps are split into
-looks wherever the first two layers are intact and either a catalogue algorithm
-has just finished or the solver paused.
-Rejected: reading the case from the state at the start of the step. That names a
-2-look last layer by its one-look case, and it misreads a pair that was set up
-first.
+F2L cases are the case the pair stood as when its step began, basic or advanced
+(`AF2L n`, for a piece stuck in a slot). Only a pair that began as neither is read
+where the catalogue algorithm that finished it started. Each step is also matched
+from its end against the algorithm bank, held in any `y` (`executedAlg`); the turns
+before the match are `setupMoves`. Last-layer steps are split into looks wherever the
+first two layers are intact and either a catalogue algorithm has just finished or the
+solver paused, and each look has its own case, two-look name and recognition time.
+Rejected: reading the F2L case where the matched algorithm starts. Almost every
+insertion ends in a catalogue trigger, so that reads most pairs as the trivial
+paired-up cases rather than the case the solver faced.
 
 Solver-facing F2L statistics group pairs by insertion position, not by cube slot.
 Rejected: grouping by the cube-frame slot mapped through the starting grip. Every

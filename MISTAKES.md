@@ -531,3 +531,18 @@ physical witnesses from state invariants and invert solutions for starting patte
 Adding bottom evidence to GripTrack exposed that the encoder's input unnecessarily
 required complete reconstruction metadata; it serializes only SolveGrip, so accept that
 projection with optional tracking metadata rather than fabricate raw evidence in callers.
+
+
+## Step dating changed without checking real solves
+
+Milestone dating was changed to "when it stays in place" and pair steps were extended
+to the end of early-finishing algorithms, on the strength of synthetic fixtures alone.
+Against 2,995 recorded solves, step-boundary agreement with the exporting timer fell
+from 99.6% to 44% and recognition agreement from 80% to 4%: solvers turn the bottom
+layer while working on pairs, which keeps the cross out without undoing it. Reading
+F2L cases where the matched algorithm began had the same flaw, because almost every
+insertion ends in a catalogue trigger. Root cause: synthetic solves only exercise the
+cases they were built for. Prevention: run `scripts/compareAnalysis.ts` over a real
+export before and after any change to phase dating, recognition or case naming, and
+compare the tallies.
+

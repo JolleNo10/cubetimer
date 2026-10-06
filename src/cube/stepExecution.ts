@@ -1,13 +1,13 @@
 /**
- * What a solver actually did within a step, rather than what the cube looked like when
- * the step began.
+ * What a solver actually did within a step, beside what the cube looked like when the
+ * step began.
  *
- * Reading a case off the state at the start of a step is right for a solver who looks,
- * lines up and executes one algorithm. Real solves are messier: a pair is pulled out of
- * the wrong slot first, a U turn lines it up, or the last layer is done in two looks.
- * So each step is matched against the algorithm bank — what was turned, from the end
- * backwards, compared with every algorithm a solver might have learnt, held any way
- * round — and the last layer is split where the solver stopped to look again.
+ * The case a step began from is what the solver faced, and stays the case. How they went
+ * about it is a separate question: a pair is pulled out of the wrong slot first, a U turn
+ * lines it up, or the last layer is done in two looks. So each step is matched against
+ * the algorithm bank — what was turned, from the end backwards, compared with every
+ * algorithm a solver might have learnt, held any way round — and the last layer is split
+ * where the solver stopped to look again.
  *
  * Everything here works in the cross-down frame: `U` is the last layer and the moves
  * are the face turns a smart cube reports. Wide moves, slices and rotations in the
@@ -191,52 +191,44 @@ export type F2lExecution = {
   /** Raw move index the case was read at. */
   caseAt: number;
   executedAlg: ExecutedAlg | null;
-  /** Turns before the case was set up, AUF excluded: pair-outs, keyholes, other pairs. */
+  /** Turns before the catalogue algorithm that finished the pair, AUF excluded. */
   setupMoves: number;
-  recognitionMs: number;
 };
 
 /**
  * Which case a pair was solved from, and how.
  *
- * The case is read where the algorithm that finished the pair began, so turns spent
- * freeing the pair or lining it up are not mistaken for the case. With no catalogue
- * algorithm at the end — an intuitive insert — it is read at the first moment the pair
- * stood as one of the 41 cases, or as an advanced case when it never did.
+ * The case is the one the pair stood as when the step began — basic, or advanced when a
+ * piece was stuck in a slot. Only when it began as neither is it read later: where the
+ * catalogue algorithm that finished it started, or failing that the first moment it
+ * stood as one of the 41. The algorithm itself is reported separately: almost every
+ * insertion ends in a trigger that is in the catalogue, so where that trigger began says
+ * how the pair went in, not which case it was.
  */
 export function f2lExecution(input: StepInput, position: F2lPosition): F2lExecution {
-  const { kpuzzle, facing, tokens, moves, from, to, startMs } = input;
-  if (to <= from) return { case: null, caseAt: from, executedAlg: null, setupMoves: 0, recognitionMs: 0 };
+  const { kpuzzle, facing, tokens, from, to } = input;
+  if (to <= from) return { case: null, caseAt: from, executedAlg: null, setupMoves: 0 };
 
   const match = longestAlgorithmTail(tokens, "F2L");
-  let caseAt: number;
-  let executedAlg: ExecutedAlg | null = null;
-  let begins: number;
-  if (match) {
-    const algFrom = firstNonU(tokens, match.start);
-    caseAt = from + match.start;
-    executedAlg = { family: "F2L", alg: match.entry.alg, fromMove: from + (match.entry.leadingU ? match.start : algFrom), toMove: to };
-    begins = match.start;
-  } else {
-    let free = -1;
-    for (let i = from; i < to; i++) {
-      if (recognizeF2lSlot(kpuzzle, facing(i), position).status === "case") {
-        free = i;
-        break;
+  const executedAlg: ExecutedAlg | null = match
+    ? { family: "F2L", alg: match.entry.alg, fromMove: from + (match.entry.leadingU ? match.start : firstNonU(tokens, match.start)), toMove: to }
+    : null;
+  let caseAt = from;
+  if (!recognizeAnyF2lSlot(kpuzzle, facing(from), position)) {
+    if (match) caseAt = from + match.start;
+    else {
+      for (let i = from; i < to; i++) {
+        if (recognizeF2lSlot(kpuzzle, facing(i), position).status === "case") {
+          caseAt = i;
+          break;
+        }
       }
     }
-    caseAt = free === -1 ? from : free;
-    begins = caseAt - from;
   }
+  const begins = match ? match.start : caseAt - from;
   const name = recognizeAnyF2lSlot(kpuzzle, facing(caseAt), position)?.name ?? null;
   const setupMoves = tokens.slice(0, begins).filter((token) => !isLastLayerTurn(token)).length;
-  // Looking ends at the first turn that is not lining up — unless the algorithm opens
-  // with a U of its own and nothing came before it, when it ends where the algorithm
-  // starts.
-  const firstMove = setupMoves === 0 && match?.entry.leadingU ? match.start : firstNonU(tokens);
-  const lastMs = moves.at(-1)?.t ?? startMs;
-  const recognitionMs = Math.max(0, (firstMove < tokens.length ? moves[firstMove].t : lastMs) - startMs);
-  return { case: name, caseAt, executedAlg, setupMoves, recognitionMs };
+  return { case: name, caseAt, executedAlg, setupMoves };
 }
 
 const TWO_LOOK_OLL_CORNERS: Record<string, string> = {
