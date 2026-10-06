@@ -2,7 +2,7 @@ import type { KPuzzle } from "cubing/kpuzzle";
 import { DEFAULT_EVENT_ID, type EventId } from "../../cube/scramble";
 import * as db from "../../infrastructure/persistence/db";
 import { loadSessionHistory } from "../history/solveHistory";
-import type { Session, Solve } from "../../app/types";
+import type { CompareScope, Session, Solve } from "../../app/types";
 
 export type SessionContext = {
   sessions: Session[];
@@ -82,6 +82,14 @@ export async function renameSession(sessions: Session[], id: string, name: strin
   const session = sessions.find((candidate) => candidate.id === id);
   if (!session) return undefined;
   const updated = { ...session, name };
+  await db.saveSession(updated);
+  return updated;
+}
+
+export async function setSessionCompareScope(sessions: Session[], id: string, compareScope: CompareScope): Promise<Session | undefined> {
+  const session = sessions.find((candidate) => candidate.id === id);
+  if (!session) return undefined;
+  const updated = { ...session, compareScope };
   await db.saveSession(updated);
   return updated;
 }

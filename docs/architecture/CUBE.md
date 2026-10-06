@@ -79,6 +79,12 @@ Raw solve facts are authoritative.
 
 When stored analysis uses an obsolete/unreadable shape, loading may rebuild it from retained scramble/move facts and persist the repaired record.
 
+Analyses are versioned by `ANALYSIS_VERSION` in `analysis.ts` (a missing
+`analysisVersion` reads as 1). An analysis older than the current version is
+rebuilt the same way when the solve still has its moves and a starting state;
+when it cannot be rebuilt, such as a CSV import without moves, it is kept as it
+is. Raise the version whenever the analysis starts recording something new.
+
 `solveHistory.ts` owns Session and Statistics history loading and persistence of
 successful repairs. `repair.ts` derives the repaired Solve using cube-domain
 analysis; raw scramble/move facts remain authoritative. Already valid analysis is
@@ -102,7 +108,9 @@ Per-step analysis includes information such as:
 - cumulative timing;
 - turn metrics;
 - TPS;
-- case;
+- case: the OLL number, the PLL name, or for an F2L pair the catalogue case
+  (`"F2L n"`) it started as, recognised with `recognizeF2lSlot` (null when the
+  pair was already solved or buried);
 - F2L slot;
 - move-stream boundaries.
 

@@ -126,7 +126,11 @@ If the target Session has a different event, the Controller invalidates the old 
 
 Statistics shown in the normal application are therefore naturally scoped to the selected Session because the Controller's active `solves` collection contains that Session's history.
 
-Solve-to-history comparisons additionally require matching `sessionId`.
+Solve-to-history comparisons on the result screen follow the Session's
+`compareScope`: `"session"` (the default, also used when the field is missing)
+compares with earlier solves of the same `sessionId`; `"event"` compares with
+earlier solves from every Session of the same event. The scope is a property of
+the Session, chosen per Session from the result screen, not a global Setting.
 
 ## Solve data flow
 
@@ -391,6 +395,8 @@ same-event scramble progress, or invalidates incompatible scramble/recovery stat
 and regenerates for a changed event. Its runtime lock spans the entire operation.
 
 The CSV contract should not be changed casually as a side effect of internal persistence refactoring.
+Since analysis version 2, `step_N_case` also holds the F2L catalogue case
+(`F2L n`) for F2L steps; this was a deliberate change.
 
 ## Settings
 
@@ -406,7 +412,8 @@ Examples include:
 - gyroscope use;
 - sound;
 - theme;
-- XCross/cross generation preferences.
+- XCross/cross generation preferences;
+- which chart the result screen shows beside the step breakdown.
 
 Session/event concerns must not be pushed back into `Settings` as a second source of truth.
 

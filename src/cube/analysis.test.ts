@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
-import { analyseSolve, type TimedMove } from "./analysis";
+import { ANALYSIS_VERSION, analyseSolve, type TimedMove } from "./analysis";
 import { get3x3x3 } from "./puzzle";
 
 const kpuzzle = await get3x3x3();
@@ -120,7 +120,30 @@ describe("analyseSolve", () => {
     expect(byName["OLL"].case).toBe("27");
     expect(byName["PLL"].case).toBe("T");
     expect(byName["Cross"].case).toBeNull();
-    expect(byName["F2L Slot 1"].case).toBeNull();
+  });
+
+  it("names the F2L case each pair started as", () => {
+    // Every pair goes back in with U R U' R' in its own slot's frame: textbook case 1.
+    expect(
+      ["F2L Slot 1", "F2L Slot 2", "F2L Slot 3", "F2L Slot 4"].map((n) => byName[n].case),
+    ).toEqual(["F2L 1", "F2L 1", "F2L 1", "F2L 1"]);
+  });
+
+  it("stamps the analysis with the version that made it", () => {
+    expect(analysis.analysisVersion).toBe(ANALYSIS_VERSION);
+  });
+
+  it("does not call a pair a case when it was already solved", () => {
+    // Only three slots are opened, so the FL pair is never one of the 41 cases.
+    const partial = kpuzzle.defaultPattern()
+      .applyAlg(new Alg(pll).invert()).applyAlg(new Alg(oll).invert())
+      .applyAlg(new Alg(extractions.slice(1).join(" ")));
+    const forward = [...extractions.slice(1)].reverse().map((e) => new Alg(e).invert().toString()).join(" ") +
+      " " + oll + " " + pll;
+    const result = analyseSolve(partial, timed(forward))!;
+    const cases = result.steps.slice(1, 5).map((step) => step.case);
+    expect(cases.filter((value) => value === "F2L 1")).toHaveLength(3);
+    expect(cases).toContain(null);
   });
 
   it("calls a skipped last-layer step solved", () => {

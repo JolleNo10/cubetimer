@@ -36,6 +36,7 @@ import * as trainingHistory from "../features/training/trainingHistory";
 import { catalogueCaseForTarget, selectTrainingReview, type TrainingCatalogueCase } from "../features/training/trainingPerformance";
 import {
   DEFAULT_SETTINGS,
+  type CompareScope,
   type Session,
   type Settings,
   type Solve,
@@ -618,6 +619,15 @@ export class Controller {
   async renameSession(id: string, name: string): Promise<void> {
     await this.#queueSessionMutation(async () => {
       const updated = await sessionService.renameSession(this.sessions.get().sessions, id, name);
+      if (!updated) return;
+      this.sessions.update((s) => ({ ...s, sessions: s.sessions.map((session) => session.id === id ? updated : session) }));
+    });
+  }
+
+  /** Which earlier solves this session's results are compared against. */
+  async setSessionCompareScope(id: string, scope: CompareScope): Promise<void> {
+    await this.#queueSessionMutation(async () => {
+      const updated = await sessionService.setSessionCompareScope(this.sessions.get().sessions, id, scope);
       if (!updated) return;
       this.sessions.update((s) => ({ ...s, sessions: s.sessions.map((session) => session.id === id ? updated : session) }));
     });

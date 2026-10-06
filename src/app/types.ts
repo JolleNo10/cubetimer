@@ -83,11 +83,20 @@ export type Penalty = "none" | "+2" | "DNF";
 
 export type XCrossMaxMoves = 4 | 5 | 6;
 
+/** Which earlier solves a session's results are compared against. */
+export type CompareScope = "session" | "event";
+export const COMPARE_SCOPES: readonly CompareScope[] = ["session", "event"];
+
 export type Session = {
   id: string;
   name: string;
   event: EventId;
   createdAt: number;
+  /**
+   * Compare a result with this session's own solves, or with every session of the same
+   * event. Missing means `"session"`.
+   */
+  compareScope?: CompareScope;
 };
 
 export type Solve = {
@@ -182,7 +191,16 @@ export type Settings = {
   useGyroscope: boolean;
   sound: boolean;
   theme: "dark" | "light";
+  /** Which chart the result screen shows beside the step breakdown. */
+  resultChart: ResultChart;
+  /** Which of the scatter views the result screen's scatter chart shows. */
+  resultScatter: ResultScatter;
 };
+
+export type ResultChart = "bullets" | "dial" | "scatter" | "spread";
+export const RESULT_CHARTS: readonly ResultChart[] = ["bullets", "dial", "scatter", "spread"];
+export type ResultScatter = "recexec" | "speed" | "thinkturn";
+export const RESULT_SCATTERS: readonly ResultScatter[] = ["recexec", "speed", "thinkturn"];
 
 export const DEFAULT_SETTINGS: Settings = {
   ollTrainingSet: "full",
@@ -202,4 +220,6 @@ export const DEFAULT_SETTINGS: Settings = {
   useGyroscope: true,
   sound: true,
   theme: "dark",
+  resultChart: "bullets",
+  resultScatter: "recexec",
 };

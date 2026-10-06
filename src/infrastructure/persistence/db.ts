@@ -5,7 +5,7 @@
  * more than `localStorage` will hold, hence IndexedDB.
  */
 import { DEFAULT_EVENT_ID, EVENTS, type EventId } from "../../cube/scramble";
-import { DEFAULT_SETTINGS, type Session, type Settings, type Solve, type TrainingAttempt, type TrainingAttemptTarget, type TrainingDrillPreset, type TrainingDrillPresetContext, type TrainingAlgorithmPreference, type TrainingRecognitionAttempt } from "../../app/types";
+import { COMPARE_SCOPES, DEFAULT_SETTINGS, RESULT_CHARTS, RESULT_SCATTERS, type CompareScope, type Session, type Settings, type Solve, type TrainingAttempt, type TrainingAttemptTarget, type TrainingDrillPreset, type TrainingDrillPresetContext, type TrainingAlgorithmPreference, type TrainingRecognitionAttempt } from "../../app/types";
 import { normalizeTrainingCatalogueIdentity, trainingCatalogueCaseIds, trainingCatalogueKey } from "../../app/trainingCatalogue";
 import { normaliseLastLayerTrainingSet } from "../../app/settings";
 import { F2L_POSITIONS } from "../../cube/f2lCases";
@@ -66,7 +66,7 @@ async function store(
   return db.transaction(name, mode).objectStore(name);
 }
 
-type StoredSession = Omit<Session, "event"> & { event?: unknown };
+type StoredSession = Omit<Session, "event" | "compareScope"> & { event?: unknown; compareScope?: unknown };
 type StoredSolve = Solve & { event?: unknown };
 
 function isEventId(value: unknown): value is EventId {
@@ -78,6 +78,7 @@ export function migrateSession(session: StoredSession): Session {
   return {
     ...canonical,
     event: isEventId(session.event) ? session.event : DEFAULT_EVENT_ID,
+    compareScope: COMPARE_SCOPES.includes(session.compareScope as CompareScope) ? session.compareScope as CompareScope : "session",
   };
 }
 
@@ -112,6 +113,8 @@ export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
     whiteCrossMoves: [1, 2, 3, 4, 5, 6, 7].includes(settings.whiteCrossMoves)
       ? settings.whiteCrossMoves
       : DEFAULT_SETTINGS.whiteCrossMoves,
+    resultChart: RESULT_CHARTS.includes(settings.resultChart) ? settings.resultChart : DEFAULT_SETTINGS.resultChart,
+    resultScatter: RESULT_SCATTERS.includes(settings.resultScatter) ? settings.resultScatter : DEFAULT_SETTINGS.resultScatter,
   };
 }
 

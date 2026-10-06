@@ -3,6 +3,7 @@ import { Alg } from "cubing/alg";
 import { get3x3x3 } from "../../cube/puzzle";
 import { patternToFacelets } from "../../cube/facelets";
 import { rebuildAnalysis } from "./repair";
+import { ANALYSIS_VERSION } from "../../cube/analysis";
 import type { Solve } from "../../app/types";
 
 const kpuzzle = await get3x3x3();
@@ -55,6 +56,21 @@ describe("rebuildAnalysis", () => {
   it("leaves alone a solve that already has one", () => {
     const already = rebuildAnalysis(kpuzzle, solve())!;
     expect(rebuildAnalysis(kpuzzle, already)).toBeNull();
+  });
+
+  it("rebuilds an analysis made by an older version, gaining what it lacked", () => {
+    const current = rebuildAnalysis(kpuzzle, solve())!;
+    const { analysisVersion: _version, ...older } = current.analysis!;
+    const outdated = { ...current, analysis: { ...older, steps: older.steps.map((step) => ({ ...step, case: step.name.startsWith("F2L") ? null : step.case })) } };
+    const rebuilt = rebuildAnalysis(kpuzzle, outdated);
+    expect(rebuilt).not.toBeNull();
+    expect(rebuilt!.analysis!.analysisVersion).toBe(ANALYSIS_VERSION);
+  });
+
+  it("keeps an outdated analysis that cannot be rebuilt", () => {
+    const current = rebuildAnalysis(kpuzzle, solve())!;
+    const { analysisVersion: _version, ...older } = current.analysis!;
+    expect(rebuildAnalysis(kpuzzle, { ...current, moves: [], source: "import", analysis: older })).toBeNull();
   });
 
   it("leaves alone a solve with no moves to work from", () => {

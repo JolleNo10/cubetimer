@@ -18,11 +18,21 @@ import {
   type TimedMove,
   type TurnMetrics,
 } from "./notation";
-import { describeGrip, reorientMoves, rotationForCrossFace } from "./orientation";
+import { describeGrip, reorientMoves, rotationForCrossFace, slotInCubeFrame } from "./orientation";
 import { rewriteWithRotations, type SolveGrip } from "./gripTrack";
 import { recogniseOll, recognisePll, reframe } from "./recognise";
+import { recognizeF2lSlot } from "./f2l";
+import { F2L_POSITIONS } from "./f2lCases";
 
 export type { TimedMove };
+
+/**
+ * What the analysis records, as a version. Stored analyses older than this are rebuilt
+ * from the solve's raw facts when those facts are still there.
+ *
+ * 2: F2L steps carry the catalogue case they started from.
+ */
+export const ANALYSIS_VERSION = 2;
 
 export const STEP_NAMES = [
   "Cross",
@@ -61,7 +71,10 @@ export type SolveStep = TurnMetrics & {
   cumulativeMs: number;
   /** Turns per second while actually turning. */
   tps: number;
-  /** Case identifier, when one is known: an OLL number, a PLL name. */
+  /**
+   * Case identifier, when one is known: an OLL number, a PLL name, or an F2L catalogue
+   * case (`"F2L 12"`) for a pair that started as one of the 41 cases.
+   */
   case: string | null;
   /**
    * Which F2L slot this step filled, as the pair of faces that meet there — `"FR"`,
@@ -75,6 +88,8 @@ export type SolveStep = TurnMetrics & {
 
 export type SolveAnalysis = TurnMetrics & {
   method: "CFOP";
+  /** The `ANALYSIS_VERSION` this was made under; missing on analyses from before versions. */
+  analysisVersion?: number;
   /** Face of the scrambled cube the cross was built on. */
   crossFace: Face;
   /** How the cube was held, as `<bottom face><back face>` of the scrambled cube. */
@@ -197,6 +212,19 @@ export function analyseSolve(
       rotationAlg,
     );
 
+  /**
+   * Which of the 41 cases a pair started as. A pair that was already solved (and then
+   * broken and rebuilt) or was buried in another slot is not one of them.
+   */
+  const f2lCase = (facing: KPattern, slot: string): string | null => {
+    const position = F2L_POSITIONS.find(
+      (candidate) => slotInCubeFrame(rotation.orientation, candidate) === slot,
+    );
+    if (!position) return null;
+    const recognition = recognizeF2lSlot(scrambledState.kpuzzle, facing, position);
+    return recognition.status === "case" ? (recognition.match?.name ?? null) : null;
+  };
+
   let from = 0;
   let previousCumulative = 0;
   let totals: TurnMetrics = { sliceTurns: 0, faceTurns: 0, quarterTurns: 0 };
@@ -239,12 +267,15 @@ export function analyseSolve(
     const metrics = countTurns(recorded.map((m) => m.move));
     // A case is whatever the solver was looking at when the step began.
     const kpuzzle = scrambledState.kpuzzle;
+    const slot = index >= 1 && index <= 4 ? (slots[index - 1] ?? null) : null;
     const caseName =
       name === "OLL"
         ? recogniseOll(kpuzzle, stateFacing(from))
         : name === "PLL"
           ? recognisePll(kpuzzle, stateFacing(from))
-          : null;
+          : slot
+            ? f2lCase(stateFacing(from), slot)
+            : null;
     totals = addTurns(totals, metrics);
     const executionMs = Math.max(0, timeMs - recognitionMs);
 
@@ -261,7 +292,7 @@ export function analyseSolve(
       tps: executionMs > 0 ? (metrics.sliceTurns / executionMs) * 1000 : 0,
       case: caseName,
       // Steps one to four are the F2L pairs, in the order they were finished.
-      slot: index >= 1 && index <= 4 ? (slots[index - 1] ?? null) : null,
+      slot,
       fromMove: from,
       toMove: to,
       ...metrics,
@@ -282,6 +313,7 @@ export function analyseSolve(
 
   return {
     method: "CFOP",
+    analysisVersion: ANALYSIS_VERSION,
     crossFace,
     // The grip the solve was written in: the one measured, when there was a gyroscope
     // to measure it, and otherwise the one the cross face implies.
