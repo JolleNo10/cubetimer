@@ -5,12 +5,13 @@ import {
   averageWindow,
   bestAverage,
   countedSolves,
+  caseSpread,
   compareSolveToHistory,
   isSlowSolve,
   meanOf,
   sessionStats,
 } from "./stats";
-import type { Penalty, Solve } from "../../../app/types";
+import type { Penalty, Session, Solve } from "../../../app/types";
 
 function solve(rawMs: number, penalty: Penalty = "none"): Solve {
   return {
@@ -354,13 +355,17 @@ describe("compareSolveToHistory", () => {
     const comparison = compareSolveToHistory(current, [...before, current, after]);
 
     expect(comparison?.sampleSize).toBe(3);
-    expect(comparison?.steps[0]).toEqual({
+    expect(comparison?.steps[0]).toMatchObject({
       name: "Cross",
       currentMs: 10,
       baselineMs: 200,
       deltaMs: -190,
       skipped: false,
+      p25Ms: 150,
+      p75Ms: 250,
+      series: [100, 200, 300],
     });
+    expect(comparison?.scope).toBe("session");
   });
 
   it("marks a skipped current step without changing its baseline", () => {
@@ -526,5 +531,93 @@ describe("compareSolveToHistory", () => {
 
     expect(compareSolveToHistory(current, [...previous, current])?.steps.map((step) => step.name))
       .toEqual(STEP_NAMES);
+  });
+});
+
+/** A solve with a complete, valid analysis, so it also counts for case statistics. */
+function fullSolve(id: string, sessionId: string, times: number[], cases: (string | null)[] = [], createdAt = 0): Solve {
+  let move = 0;
+  const steps = STEP_NAMES.map((name, index) => {
+    const timeMs = times[index];
+    const from = move;
+    move += 8;
+    return {
+      name, timeMs, recognitionMs: index === 0 ? 0 : timeMs * 0.3, executionMs: index === 0 ? timeMs : timeMs * 0.7,
+      sliceTurns: 8, faceTurns: 8, quarterTurns: 8, tps: 8 / ((index === 0 ? timeMs : timeMs * 0.7) / 1000),
+      skipped: false, hasTurns: true, case: cases[index] ?? null, slot: null, moves: "", recordedMoves: [],
+      cumulativeMs: 0, fromMove: from, toMove: move,
+    };
+  });
+  const solvingMs = times.reduce((sum, value) => sum + value, 0);
+  return {
+    ...solve(solvingMs), id, sessionId, createdAt, source: "smartcube",
+    analysis: {
+      method: "CFOP", crossFace: "D", rotation: "DB", steps, solvingMs, tps: 1, stepsSkipped: 0, turnsAfterSolution: 0, pauses: [],
+      totalRecognitionMs: steps.reduce((sum, step) => sum + step.recognitionMs, 0),
+      totalExecutionMs: steps.reduce((sum, step) => sum + step.executionMs, 0),
+      sliceTurns: 56, faceTurns: 56, quarterTurns: 56,
+    } as unknown as SolveAnalysis,
+  };
+}
+
+const sessions: Session[] = [
+  { id: "a", name: "A", event: "333", createdAt: 0 },
+  { id: "b", name: "B", event: "333", createdAt: 1 },
+  { id: "c", name: "C", event: "222", createdAt: 2 },
+];
+const base = [1000, 2000, 2000, 2000, 2000, 1500, 1500];
+
+describe("comparison scope", () => {
+  const history = [
+    fullSolve("b1", "b", base), fullSolve("b2", "b", base), fullSolve("b3", "b", base),
+    fullSolve("c1", "c", base), fullSolve("c2", "c", base), fullSolve("c3", "c", base),
+    fullSolve("a1", "a", base),
+  ];
+  const current = fullSolve("now", "a", base);
+
+  it("keeps to the Session unless it compares with the whole event", () => {
+    expect(compareSolveToHistory(current, [...history, current], { scope: "session", sessions })).toBeNull();
+    const event = compareSolveToHistory(current, [...history, current], { scope: "event", sessions })!;
+    expect(event.scope).toBe("event");
+    expect(event.sampleSize).toBe(4);
+  });
+
+  it("falls back to the Session when its event is unknown", () => {
+    expect(compareSolveToHistory(current, [...history, current], { scope: "event", sessions: [] })).toBeNull();
+  });
+
+  it("gives the medians the scatter charts need", () => {
+    const step = compareSolveToHistory(current, [...history, current], { scope: "event", sessions })!.steps[1];
+    expect(step.medianRecognitionMs).toBeCloseTo(600);
+    expect(step.medianExecutionMs).toBeCloseTo(1400);
+    expect(step.medianMoves).toBe(8);
+  });
+});
+
+describe("caseSpread", () => {
+  it("pools an F2L case across all four pairs and keeps OLL cases exact", () => {
+    const prior = [
+      fullSolve("p1", "a", [1000, 1800, 2000, 2200, 2400, 1500, 1500], [null, "F2L 5", "F2L 9", "F2L 5", "F2L 1", "27", "T"]),
+      fullSolve("p2", "a", [1100, 2100, 1900, 2300, 2000, 1300, 1600], [null, "F2L 1", "F2L 5", "F2L 2", "F2L 3", "21", "T"]),
+    ];
+    const current = fullSolve("now", "a", [900, 2000, 2000, 2000, 2000, 1400, 1500], [null, "F2L 5", null, "F2L 7", "F2L 1", "27", "Ua"]);
+    const rows = caseSpread(current, [...prior, current], { scope: "session", sessions })!;
+    expect(rows[0]).toMatchObject({ label: "all crosses", samples: [1000, 1100] });
+    expect(rows[1].label).toBe("F2L 5");
+    expect([...rows[1].samples].sort()).toEqual([1800, 1900, 2200]);
+    expect(rows[1].fasterThan).toBeCloseTo(1 / 3);
+    expect(rows[2].label).toBe("all F2L pairs");
+    expect(rows[2].samples).toHaveLength(8);
+    expect(rows[3]).toMatchObject({ label: "F2L 7", samples: [], medianMs: null, fasterThan: null });
+    expect(rows[5]).toMatchObject({ label: "OLL 27", samples: [1500] });
+    expect(rows[6]).toMatchObject({ label: "PLL Ua", samples: [] });
+  });
+
+  it("leaves out practice solves and other events", () => {
+    const practice = { ...fullSolve("p", "a", base, [null, null, null, null, null, "27"]), practice: true };
+    const other = fullSolve("o", "c", base, [null, null, null, null, null, "27"]);
+    const current = fullSolve("now", "a", base, [null, null, null, null, null, "27"]);
+    const rows = caseSpread(current, [practice, other, current], { scope: "event", sessions })!;
+    expect(rows[5].samples).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 import { formatTime } from "../../../shared/time";
 import { STEP_NAMES, PAUSE_THRESHOLD_MS, type StepName, type SolveStep, type SolveAnalysis } from "../../../cube/analysis";
-import { effectiveMs, type Solve } from "../../../app/types";
+import { effectiveMs, type CompareScope, type Session, type Solve } from "../../../app/types";
 
 const MIN_COMPARISON_SOLVES = 3;
 const MAX_COMPARISON_SOLVES = 20;
@@ -13,10 +13,30 @@ export type StepComparison = {
   baselineMs: number;
   deltaMs: number;
   skipped: boolean;
+  /** Middle half of the comparison solves' times for this step. */
+  p25Ms: number;
+  p75Ms: number;
+  /** The comparison solves' times for this step, oldest first. */
+  series: number[];
+  /**
+   * Medians over the comparison solves that did not skip this step; `null` when every
+   * one of them skipped it.
+   */
+  medianRecognitionMs: number | null;
+  medianExecutionMs: number | null;
+  medianMoves: number | null;
+  medianTps: number | null;
+};
+
+/** Which earlier solves a result is compared with, and the Sessions that decides it. */
+export type ComparisonOptions = {
+  scope?: CompareScope;
+  sessions?: readonly Session[];
 };
 
 export type SolveComparison = {
   sampleSize: number;
+  scope: CompareScope;
   steps: StepComparison[];
 };
 
@@ -71,6 +91,42 @@ function median(values: number[]): number {
     : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
+/** Linear-interpolated percentile with stable behavior for small samples. */
+export function percentile(values: readonly number[], fraction: number): number | undefined {
+  if (values.length === 0) return undefined;
+  const sorted = [...values].sort((a, b) => a - b);
+  const position = (sorted.length - 1) * Math.min(1, Math.max(0, fraction));
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  if (lower === upper) return sorted[lower];
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
+}
+
+function medianOrNull(values: number[]): number | null {
+  return values.length ? median(values) : null;
+}
+
+/**
+ * The solves recorded before `current` that it may be compared with: the same Session,
+ * or with an `"event"` scope every Session of the same event. Returns `null` when
+ * `current` is not in `solves`.
+ */
+function priorInScope(current: Solve, solves: readonly Solve[], options: ComparisonOptions): Solve[] | null {
+  const currentIndex = solves.findIndex((solve) => solve.id === current.id);
+  if (currentIndex < 0) return null;
+  const prior = solves.slice(0, currentIndex);
+  const event = options.sessions?.find((session) => session.id === current.sessionId)?.event;
+  if (options.scope !== "event" || !event) return prior.filter((solve) => solve.sessionId === current.sessionId);
+  const sameEvent = new Set(options.sessions!.filter((session) => session.event === event).map((session) => session.id));
+  return prior.filter((solve) => sameEvent.has(solve.sessionId));
+}
+
+function effectiveScope(current: Solve, options: ComparisonOptions): CompareScope {
+  return options.scope === "event" && options.sessions?.some((session) => session.id === current.sessionId)
+    ? "event"
+    : "session";
+}
+
 /** The single eligibility rule shared by ordinary statistics and their richer views. */
 export function isCountedSolve(
   solve: Pick<Solve, "practice" | "replay" | "slowSolve">,
@@ -78,23 +134,25 @@ export function isCountedSolve(
   return solve.practice !== true && solve.replay !== true && solve.slowSolve !== true;
 }
 
-/** Compare one completed solve with the latest comparable solves in its session. */
+/**
+ * Compare one completed solve with the latest comparable solves before it: in its
+ * Session, or across its event when the Session compares with the whole event.
+ */
 export function compareSolveToHistory(
   currentSolve: Solve,
   solves: readonly Solve[],
+  options: ComparisonOptions = {},
 ): SolveComparison | null {
   const currentAnalysis = currentSolve.analysis;
   if (!currentAnalysis) return null;
 
-  const currentIndex = solves.findIndex((solve) => solve.id === currentSolve.id);
-  if (currentIndex < 0) return null;
+  const prior = priorInScope(currentSolve, solves, options);
+  if (!prior) return null;
 
-  const comparisonSolves = solves
-    .slice(0, currentIndex)
+  const comparisonSolves = prior
     .filter((solve) => {
       const analysis = solve.analysis;
-      return solve.sessionId === currentSolve.sessionId
-        && solve.replay !== true
+      return solve.replay !== true
         && isSlowSolve(solve) === isSlowSolve(currentSolve)
         && analysis !== null
         && analysis !== undefined
@@ -106,19 +164,87 @@ export function compareSolveToHistory(
 
   return {
     sampleSize: comparisonSolves.length,
+    scope: effectiveScope(currentSolve, options),
     steps: currentAnalysis.steps.map((step, index) => {
-      const baselineMs = median(
-        comparisonSolves.map((solve) => solve.analysis!.steps[index].timeMs),
-      );
+      const history = comparisonSolves.map((solve) => solve.analysis!.steps[index]);
+      const series = history.map((candidate) => candidate.timeMs);
+      const turned = history.filter((candidate) => !candidate.skipped);
+      const baselineMs = median(series);
       return {
         name: step.name,
         currentMs: step.timeMs,
         baselineMs,
         deltaMs: step.timeMs - baselineMs,
         skipped: step.skipped === true,
+        p25Ms: percentile(series, 0.25)!,
+        p75Ms: percentile(series, 0.75)!,
+        series,
+        medianRecognitionMs: medianOrNull(turned.map((candidate) => candidate.recognitionMs)),
+        medianExecutionMs: medianOrNull(turned.map((candidate) => candidate.executionMs)),
+        medianMoves: medianOrNull(turned.map((candidate) => candidate.sliceTurns)),
+        medianTps: medianOrNull(turned.map((candidate) => candidate.tps)),
       };
     }),
   };
+}
+
+export type CaseSpreadRow = {
+  name: StepName;
+  /** What this step was compared with: `"OLL 27"`, `"F2L 12"`, `"all crosses"`. */
+  label: string;
+  currentMs: number;
+  skipped: boolean;
+  /** Earlier times for the same case, in no particular order. */
+  samples: number[];
+  medianMs: number | null;
+  /** Share of the earlier times this one beat, from 0 to 1; `null` without samples. */
+  fasterThan: number | null;
+};
+
+const F2L_STEPS = [1, 2, 3, 4];
+
+function caseSkipped(step: SolveStep): boolean {
+  return step.skipped || step.case === "Solved" || step.sliceTurns === 0;
+}
+
+/**
+ * Every earlier counted time for the case each step of `current` met.
+ *
+ * An F2L case is the same case whichever pair it was, so all four F2L steps are pooled.
+ * A step with no recognised case is compared with every time for that kind of step.
+ */
+export function caseSpread(
+  current: Solve,
+  solves: readonly Solve[],
+  options: ComparisonOptions = {},
+): CaseSpreadRow[] | null {
+  const analysis = current.analysis;
+  if (!analysis || !compatibleAnalysis(analysis, analysis)) return null;
+  const prior = priorInScope(current, solves, options);
+  if (!prior) return null;
+  const history = prior.flatMap((solve) => (analysedSolveFacts(solve) ? [solve.analysis!.steps] : []));
+
+  return analysis.steps.map((step, index) => {
+    const f2l = F2L_STEPS.includes(index);
+    const indices = f2l ? F2L_STEPS : [index];
+    const known = step.case && step.case !== "Solved" ? step.case : null;
+    const samples = history.flatMap((steps) => indices
+      .map((at) => steps[at])
+      .filter((candidate) => candidate && !caseSkipped(candidate) && (known === null || candidate.case === known))
+      .map((candidate) => candidate.timeMs));
+    const label = known
+      ? (index === 5 ? `OLL ${known}` : index === 6 ? `PLL ${known}` : known)
+      : index === 0 ? "all crosses" : f2l ? "all F2L pairs" : `all ${step.name}s`;
+    return {
+      name: step.name,
+      label,
+      currentMs: step.timeMs,
+      skipped: caseSkipped(step),
+      samples,
+      medianMs: medianOrNull(samples),
+      fasterThan: samples.length ? samples.filter((value) => value > step.timeMs).length / samples.length : null,
+    };
+  });
 }
 
 /**

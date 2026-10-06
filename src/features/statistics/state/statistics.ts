@@ -1,4 +1,4 @@
-import { analysedSolveFacts, averageWindow, countedSolves, sessionStats, type AverageWindow, type AnalysedSolveFacts, type CfopPhaseMedian, type SessionStats } from "./stats";
+import { analysedSolveFacts, averageWindow, countedSolves, percentile, sessionStats, type AverageWindow, type AnalysedSolveFacts, type CfopPhaseMedian, type SessionStats } from "./stats";
 import type { SolveStep } from "../../../cube/analysis";
 import { gripFromDescription, slotInHeldFrame } from "../../../cube/orientation";
 import { eventInfo, type EventId } from "../../../cube/scramble";
@@ -400,16 +400,7 @@ function median(values: readonly number[]): number | undefined {
     : (sorted[middle - 1] + sorted[middle]) / 2;
 }
 
-/** Linear-interpolated percentile with stable behavior for small samples. */
-export function percentile(values: readonly number[], fraction: number): number | undefined {
-  if (values.length === 0) return undefined;
-  const sorted = [...values].sort((a, b) => a - b);
-  const position = (sorted.length - 1) * Math.min(1, Math.max(0, fraction));
-  const lower = Math.floor(position);
-  const upper = Math.ceil(position);
-  if (lower === upper) return sorted[lower];
-  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower);
-}
+export { percentile };
 
 function finishedTimes(solves: readonly Solve[]): number[] {
   return solves
