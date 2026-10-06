@@ -4,10 +4,10 @@ import type { CompareScope, ResultChart, ResultScatter } from "../../../../app/t
 import type { CaseSpreadRow, SolveComparison } from "../../../statistics/state/stats";
 import { CaseSpread } from "./CaseSpread";
 import { SolveDial } from "./SolveDial";
-import { StepBullets } from "./StepBullets";
 import { StepScatter } from "./StepScatter";
+import { StepTrends } from "./StepTrends";
 
-const CHARTS: [ResultChart, string][] = [["bullets", "Bullets"], ["dial", "Dial"], ["scatter", "Scatter"], ["spread", "Spread"]];
+const CHARTS: [ResultChart, string][] = [["dial", "Dial"], ["scatter", "Scatter"], ["spread", "Spread"], ["trend", "Trend"]];
 const SCATTERS: [ResultScatter, string, string][] = [
   ["recexec", "Recog vs exec", "Recognition against execution time"],
   ["speed", "Speed vs time", "Turning speed against execution time, with equal-move curves"],
@@ -57,11 +57,11 @@ export function ResultCharts({ analysis, comparison, spread, scope, loading, onS
           ))}
         </div>
       ) : null}
-      {chart === "bullets" ? <StepBullets steps={analysis.steps} comparison={comparison} />
-        : chart === "dial" ? <SolveDial analysis={analysis} />
-          : chart === "scatter" ? <StepScatter steps={analysis.steps} comparison={comparison} mode={scatter} />
+      {chart === "dial" ? <SolveDial analysis={analysis} />
+        : chart === "scatter" ? <StepScatter steps={analysis.steps} comparison={comparison} mode={scatter} />
+          : chart === "trend" ? <StepTrends steps={analysis.steps} comparison={comparison} />
             : <CaseSpread rows={spread} loading={loading} />}
-      {chart !== "spread" && chart !== "dial" ? <div className="result-charts-note small faint">{note}</div> : null}
+      {chart === "scatter" || chart === "trend" ? <div className="result-charts-note small faint">{note}</div> : null}
     </section>
   );
 }

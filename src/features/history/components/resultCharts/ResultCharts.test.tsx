@@ -10,7 +10,8 @@ import { caseSpread, compareSolveToHistory } from "../../../statistics/state/sta
 import { ResultCharts } from "./ResultCharts";
 import { CaseSpread } from "./CaseSpread";
 import { SolveDial } from "./SolveDial";
-import { StepBullets } from "./StepBullets";
+import { StepTrends } from "./StepTrends";
+import { DetailedStepBreakdown } from "../StepBreakdown";
 import { StepScatter } from "./StepScatter";
 
 const kpuzzle = await get3x3x3();
@@ -51,7 +52,7 @@ describe("Result charts", () => {
     expect(spread?.[1].label).toBe("F2L 1");
   });
 
-  it.each(["bullets", "dial", "scatter", "spread"] as const)("shows the %s chart the solver chose, marked as pressed", (chart) => {
+  it.each(["dial", "scatter", "spread", "trend"] as const)("shows the %s chart the solver chose, marked as pressed", (chart) => {
     const html = charts(chart);
     const pressed = [...html.matchAll(/aria-pressed="true"[^>]*>([^<]+)</g)].map((match) => match[1]);
     expect(pressed[0].toLowerCase()).toBe(chart);
@@ -66,17 +67,11 @@ describe("Result charts", () => {
 });
 
 describe("chart marks", () => {
-  it("labels every bullet row and explains the usual range", () => {
-    const html = renderToStaticMarkup(<StepBullets steps={analysis.steps} comparison={comparison} />);
+  it("draws each step's trend with its usual range", () => {
+    const html = renderToStaticMarkup(<StepTrends steps={analysis.steps} comparison={comparison} />);
     for (const label of ["Cross", "F1", "F2", "F3", "F4", "OLL", "PLL"]) expect(html).toContain(`>${label}</span>`);
-    expect(html).toContain("middle half");
-    expect(html.match(/class="rc-spark"/g)?.length).toBeGreaterThan(0);
-  });
-
-  it("falls back to plain bars without history", () => {
-    const html = renderToStaticMarkup(<StepBullets steps={analysis.steps} comparison={null} />);
-    expect(html).not.toContain('class="rc-band"');
-    expect(html).toContain("after 3 comparable solves");
+    expect(html.match(/class="rc-trend-band"/g)).toHaveLength(7);
+    expect(renderToStaticMarkup(<StepTrends steps={analysis.steps} comparison={null} />)).toContain("after 3 comparable solves");
   });
 
   it("draws the solve as a lap with the total in the middle and a tick per move", () => {
@@ -102,5 +97,13 @@ describe("chart marks", () => {
     expect(html).toContain("PLL T");
     expect(html).toMatch(/beat \d+%/);
     expect(renderToStaticMarkup(<CaseSpread rows={null} loading />)).toContain("Loading your history");
+  });
+
+  it("puts your usual range and median behind each step's bar in the table", () => {
+    const html = renderToStaticMarkup(<DetailedStepBreakdown analysis={analysis} comparison={comparison} slim />);
+    expect(html.match(/class="phase-usual"/g)).toHaveLength(7);
+    expect(html.match(/class="phase-median"/g)).toHaveLength(7);
+    expect(html).toContain("usual range");
+    expect(renderToStaticMarkup(<DetailedStepBreakdown analysis={analysis} slim />)).not.toContain("phase-usual");
   });
 });

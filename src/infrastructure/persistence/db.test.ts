@@ -52,9 +52,11 @@ describe("migrateSolve", () => {
 
 describe("mergeSettings", () => {
   it("defaults the result charts and drops unknown choices", () => {
-    expect(mergeSettings({})).toMatchObject({ resultChart: "bullets", resultScatter: "recexec" });
+    expect(mergeSettings({})).toMatchObject({ resultChart: "dial", resultScatter: "recexec" });
     expect(mergeSettings({ resultChart: "dial", resultScatter: "speed" })).toMatchObject({ resultChart: "dial", resultScatter: "speed" });
-    expect(mergeSettings({ resultChart: "pie" as never, resultScatter: "3d" as never })).toMatchObject({ resultChart: "bullets", resultScatter: "recexec" });
+    expect(mergeSettings({ resultChart: "pie" as never, resultScatter: "3d" as never })).toMatchObject({ resultChart: "dial", resultScatter: "recexec" });
+    // Bullets moved into the step table; a stored choice of it falls back to the dial.
+    expect(mergeSettings({ resultChart: "bullets" as never }).resultChart).toBe("dial");
   });
 
   it.each([undefined, {}])("defaults old last-layer settings to Full/Full", (stored) => {

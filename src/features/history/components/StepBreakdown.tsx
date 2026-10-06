@@ -27,8 +27,8 @@ export type StepTimeScale = {
 const NICE_INTERVALS = [1, 2, 2.5, 5];
 
 /** Choose one shared, human-readable linear scale for all step timing bars. */
-export function stepTimeScale(steps: readonly SolveStep[]): StepTimeScale {
-  const slowestMs = Math.max(0, ...steps.map((step) => step.timeMs));
+export function stepTimeScale(steps: readonly SolveStep[], alsoMs: readonly number[] = []): StepTimeScale {
+  const slowestMs = Math.max(0, ...steps.map((step) => step.timeMs), ...alsoMs.filter(Number.isFinite));
   if (slowestMs === 0) return buildStepTimeScale(100, 500);
 
   const order = Math.floor(Math.log10(slowestMs));
@@ -344,6 +344,23 @@ function StepRow({
             ))}
           </span>
         ) : null}
+        {comparison && timeScale ? (
+          <>
+            <span
+              className="phase-usual"
+              aria-hidden="true"
+              style={{
+                left: `${scalePositionPercent(comparison.p25Ms, timeScale)}%`,
+                width: `${Math.max(0.5, scalePositionPercent(comparison.p75Ms - comparison.p25Ms, timeScale))}%`,
+              }}
+            />
+            <span
+              className="phase-median"
+              aria-hidden="true"
+              style={{ left: `${scalePositionPercent(comparison.baselineMs, timeScale)}%` }}
+            />
+          </>
+        ) : null}
         <span
           className="recognition"
           style={{ width: `${recognitionWidth}%` }}
@@ -384,7 +401,7 @@ function StepRow({
   );
 
   if (!onSelect) {
-    return <div className="phase-row">{content}</div>;
+    return <div className={`phase-row${comparison && timeScale ? " with-usual" : ""}`}>{content}</div>;
   }
   return (
     <button
@@ -570,7 +587,10 @@ export function StepBreakdown({
   onPracticeStep?: (step: SolveStep) => void;
 }) {
   const total = Math.max(1, analysis.solvingMs);
-  const timeScale = showTimeScale ? stepTimeScale(analysis.steps) : undefined;
+  // The scale also reaches your usual times, so the usual range fits on every bar.
+  const timeScale = showTimeScale
+    ? stepTimeScale(analysis.steps, comparison ? comparison.steps.flatMap((step) => [step.p75Ms, step.baselineMs]) : [])
+    : undefined;
   const solution = fullSolution(analysis);
   return (
     <>
@@ -623,6 +643,12 @@ export function StepBreakdown({
           <i style={{ background: "var(--accent)" }} />
           execution
         </span>
+        {comparison && timeScale ? (
+          <>
+            <span title="The middle half of your recent times for the step"><i className="legend-usual" />usual range</span>
+            <span title="Your median for the step"><i className="legend-median" />median</span>
+          </>
+        ) : null}
         <span className="grow" />
         <span>
           {formatTime(analysis.totalRecognitionMs)} {showTimeScale ? "measured recognition" : "looking"} ·{" "}

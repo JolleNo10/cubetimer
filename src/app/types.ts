@@ -197,8 +197,8 @@ export type Settings = {
   resultScatter: ResultScatter;
 };
 
-export type ResultChart = "bullets" | "dial" | "scatter" | "spread";
-export const RESULT_CHARTS: readonly ResultChart[] = ["bullets", "dial", "scatter", "spread"];
+export type ResultChart = "dial" | "scatter" | "spread" | "trend";
+export const RESULT_CHARTS: readonly ResultChart[] = ["dial", "scatter", "spread", "trend"];
 export type ResultScatter = "recexec" | "speed" | "thinkturn";
 export const RESULT_SCATTERS: readonly ResultScatter[] = ["recexec", "speed", "thinkturn"];
 
@@ -220,6 +220,6 @@ export const DEFAULT_SETTINGS: Settings = {
   useGyroscope: true,
   sound: true,
   theme: "dark",
-  resultChart: "bullets",
+  resultChart: "dial",
   resultScatter: "recexec",
 };
