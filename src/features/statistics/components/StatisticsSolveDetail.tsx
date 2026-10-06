@@ -4,6 +4,7 @@ import { formatTime } from "../../../shared/time";
 import { validatedSolveFacts, formatSolveTime } from "../state/stats";
 import { effectiveMs, type Session, type Solve } from "../../../app/types";
 import { SolveAnalysisReview } from "../../history/components/SolveAnalysisReview";
+import { StatCard } from "./StatisticsPrimitives";
 
 export function StatisticsSolveDetail({ solve, solves, session, onClose, onReplay, onTools }: {
   solve: Solve; solves: readonly Solve[]; session?: Session; onClose: () => void; onReplay: (solve: Solve) => void; onTools: (solve: Solve) => void;
@@ -16,12 +17,12 @@ export function StatisticsSolveDetail({ solve, solves, session, onClose, onRepla
     <div className="dialog-body">
       <SolveOutlierNotice solve={solve} />
       <p>{session?.name ?? "Unknown Session"} · {date(solve.createdAt)}</p>
-      <div className="stat-grid">{[
+      <div className="kpi-grid">{[
         ["Result", formatTime(effectiveMs(solve))], ["Raw time", formatTime(solve.rawMs)],
         ["Penalty", solve.penalty === "none" ? "OK" : solve.penalty],
         ["Source", { smartcube: "Smart cube", keyboard: "Keyboard", import: "Import" }[solve.source]],
         ...(solve.inspectionMs === undefined ? [] : [["Inspection", formatTime(solve.inspectionMs)]]),
-      ].map(([label, value]) => <div key={label} className="stat-card"><span>{label}</span><strong>{value}</strong></div>)}</div>
+      ].map(([label, value]) => <StatCard key={label} label={label} value={value} />)}</div>
       <div className="mono small stats-scramble">{solve.scramble || "No recorded scramble"}</div>
       <p className="stats-note">{solve.comment || "No note"}</p>
       <div className="row wrap"><button className="ghost" disabled={!solve.moves.length} onClick={() => onReplay(solve)}>Replay</button><button className="ghost" disabled={!canAnalyse} onClick={() => onTools(solve)}>Tools</button></div>

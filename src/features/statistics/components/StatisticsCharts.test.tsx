@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { TrendPoint } from "../state/statistics";
 import { deriveStatistics } from "../state/statistics";
 import type { Solve } from "../../../app/types";
+import { Controller } from "../../../app/Controller";
+import { ControllerContext } from "../../../app/useController";
 import { AverageProgressionChart, RecognitionExecutionTrendChart, CfopPhaseTrendChart, DistributionChart, SolveTimeTrendChart } from "./StatisticsCharts";
 
 describe("Statistics charts", () => {
@@ -27,7 +29,7 @@ describe("Statistics charts", () => {
       ao5: 15000 + index * 100, ao12: 16000 + index * 100, isPb: false,
     }));
     const solveTime = renderToStaticMarkup(<SolveTimeTrendChart points={points} scopeLabel="All sessions" />);
-    const progression = renderToStaticMarkup(<AverageProgressionChart scopeLabel="All sessions" points={points.map((point) => ({
+    const progression = renderToStaticMarkup(<AverageProgressionChart scopeLabel="All sessions" onOpenSolve={() => {}} points={points.map((point) => ({
       ...point, solveId: point.id, segmentKey: String(Math.floor(point.index / 2)), ao50: point.ao5 + 2000, ao100: point.ao5 + 3000,
     }))} />);
     for (const [html, metrics] of [[solveTime, [5, 12]], [progression, [5, 12, 50, 100]]] as const) {
@@ -40,7 +42,11 @@ describe("Statistics charts", () => {
     expect(solveTime.match(/class="chart-session-boundary"/g)).toHaveLength(2);
     expect(solveTime.match(/class="chart-point"/g)).toHaveLength(5);
     expect(progression.match(/class="chart-series-point ao/g)).toHaveLength(20);
-    for (const point of points) for (const size of [5, 12, 50, 100]) expect(progression).toContain(`${point.id} \u00b7 Ao${size}:`);
+    for (const point of points) {
+      const target = new RegExp(`<g class="chart-hit" data-solve-id="${point.id}"[^>]*aria-label="([^"]*)"`).exec(progression)![1];
+      for (const size of [5, 12, 50, 100]) expect(target).toContain(`Ao${size} `);
+    }
+    expect(progression.match(/class="chart-session-boundary"/g)).toHaveLength(2);
   });
 
   it("omits nonfinite singles and averages without emitting invalid coordinates", () => {
@@ -81,23 +87,25 @@ describe("Statistics charts", () => {
   });
 
   it("charts actual rolling averages with unavailable or DNF windows left as gaps", () => {
-    const html = renderToStaticMarkup(<AverageProgressionChart scopeLabel="All sessions" points={[
+    const html = renderToStaticMarkup(<AverageProgressionChart scopeLabel="All sessions" onOpenSolve={() => {}} points={[
       { index: 5, solveId: "s5", sessionId: "A", segmentKey: "0", createdAt: 5, ao5: 10000 },
       { index: 6, solveId: "s6", sessionId: "A", segmentKey: "0", createdAt: 6, ao5: null },
       { index: 50, solveId: "s50", sessionId: "A", segmentKey: "0", createdAt: 50, ao5: 9000, ao12: 11000, ao50: 12000 },
     ]} />);
     expect(html).toContain("Actual rolling average progression");
-    expect(html).toContain("s50 · Ao50: 12.00"); expect(html).not.toContain("Projected");
+    expect(html).toMatch(/data-solve-id="s50"[^>]*aria-label="[^"]*Ao50 12\.00/); expect(html).not.toContain("Projected");
     expect(html).toContain('class="chart-line ao100" d=""');
     expect(html).toMatch(/class="chart-line ao5" d="M[^L]+ M/);
     expect(renderToStaticMarkup(<AverageProgressionChart scopeLabel="All sessions" points={[]} />)).toContain("actual window of at least 5");
   });
 
   it("renders measured recognition/execution series with their source solve IDs", () => {
-    const html = renderToStaticMarkup(<RecognitionExecutionTrendChart scopeLabel="Session A" points={[{ index: 1, solveId: "historical", sessionId: "A", createdAt: 1, segmentKey: "0", recognitionMs: 2000, executionMs: 7500, unclassifiedMs: 500 }]} />);
+    const html = renderToStaticMarkup(<RecognitionExecutionTrendChart scopeLabel="Session A" onOpenSolve={() => {}} points={[{ index: 1, solveId: "historical", sessionId: "A", createdAt: 1, segmentKey: "0", recognitionMs: 2000, executionMs: 7500, unclassifiedMs: 500 }]} />);
     expect(html).toContain("Measured recognition / execution trend for Session A");
-    expect(html).toContain("historical · Measured recognition: 2.00"); expect(html).toContain("historical · Measured execution: 7.50");
-    expect(html).toContain("historical · Unclassified/opening time: 0.50");
+    const target = /data-solve-id="historical"[^>]*aria-label="([^"]*)"/.exec(html)![1];
+    expect(target).toContain("Recognition 2.00"); expect(target).toContain("Execution 7.50"); expect(target).toContain("Unclassified 0.50");
+    expect(html).toContain('class="chart-line recognition"');
+    expect(html).toContain('<i class="swatch line recognition"></i>Recognition');
   });
 
   it("distinguishes an empty CFOP scope from an empty display window", () => {
@@ -131,7 +139,7 @@ describe("Statistics charts", () => {
     expect(Number(marker[1])).toBe(centre);
     expect(Number(marker[2])).toBe(centre);
     expect(markup).toContain(`<text class="chart-axis" x="${centre}" y="284" text-anchor="middle">10.00</text>`);
-    expect(markup).toContain("10.00: 3 solves");
+    expect(markup).toContain('aria-label="10.00: 3 solves"');
     expect(markup).not.toContain("10.00–10.00");
   });
 
@@ -147,9 +155,10 @@ describe("Statistics charts", () => {
       isPb: index === 0 || index === 1,
     }));
     const markup = renderToStaticMarkup(<SolveTimeTrendChart points={points} scopeLabel="All sessions" />);
-    expect(markup).toContain('<g class="chart-point outlier"><title>solve-0:');
-    expect(markup).toContain('<g class="chart-point pb"><title>solve-1:');
-    expect(markup).toContain('<g class="chart-point"><title>solve-2:');
+    expect(markup).toContain('<g class="chart-point outlier" data-solve-id="solve-0"');
+    expect(markup).toContain('<g class="chart-point pb" data-solve-id="solve-1"');
+    expect(markup).toContain('<g class="chart-point" data-solve-id="solve-2"');
+    expect(markup).not.toContain("<title>solve-");
     expect(markup).toContain('<g class="chart-dnf"');
     expect(markup).not.toContain('class="chart-point pb outlier"');
     expect(markup.match(/<g class="chart-axis"><line /g)).toHaveLength(3);
@@ -163,7 +172,6 @@ describe("Statistics charts", () => {
     expect(Number(/data-y-min="([\d.]+)"/.exec(html)![1])).toBeGreaterThan(13000);
     expect(Number(/data-y-max="([\d.]+)"/.exec(html)![1])).toBeLessThan(17000);
     const marker = /<g class="chart-point outlier outlier-low"[^>]*>[\s\S]*?<\/g>/.exec(html)![0];
-    expect(marker).toContain('<title>s0: 0.10');
     expect(marker).toContain('aria-label="View solve 0.10');
     expect(marker).toContain('role="button"');
     expect(marker).toContain('tabindex="0"');
@@ -192,5 +200,45 @@ describe("Statistics charts", () => {
     expect(Number(/data-y-min="([\d.]+)"/.exec(html)![1])).toBeLessThan(5000);
     expect(Number(/data-y-max="([\d.]+)"/.exec(html)![1])).toBeGreaterThan(25000);
     expect(html).not.toContain("NaN"); expect(html).not.toContain("Infinity");
+  });
+
+  it("keeps the legend outside the plot and labels the x-axis with saved-format dates", () => {
+    const controller = new Controller();
+    controller.settings.update((settings) => ({ ...settings, dateFormat: "yyyy-mm-dd", timeZone: "UTC" }));
+    const day = 24 * 60 * 60 * 1000;
+    const points = Array.from({ length: 30 }, (_, index) => ({
+      index, id: `s${index}`, sessionId: "A", createdAt: Date.UTC(2026, 9, 1) + Math.floor(index / 10) * day, time: 15000, ao5: undefined, ao12: undefined, isPb: false,
+    }));
+    const html = renderToStaticMarkup(<ControllerContext.Provider value={controller}><SolveTimeTrendChart points={points} scopeLabel="A" /></ControllerContext.Provider>);
+    expect(html.indexOf('<ul class="chart-legend"')).toBeLessThan(html.indexOf("<svg"));
+    expect(html).not.toContain("chart-legend-label");
+    const axis = /<g class="chart-x-tick">[\s\S]*?<\/g><\/g>/.exec(html)![0];
+    const ticks = [...axis.matchAll(/>([^<>]+)<\/text>/g)].map((match) => match[1]);
+    expect(ticks).toEqual(["2026-10-01", "2026-10-02", "2026-10-03"]);
+    expect(html).not.toContain(">older<");
+  });
+
+  it("breaks phase and recognition trends and marks boundaries at segment changes", () => {
+    const points = ["0", "0", "1", "1", "2"].map((segmentKey, index) => ({
+      index, solveId: `s${index}`, sessionId: segmentKey === "1" ? "B" : "A", createdAt: index, segmentKey,
+      crossMs: 1000 + index, f2lMs: 5000, ollMs: 2000, pllMs: 2000, recognitionMs: 1000, executionMs: 5000, unclassifiedMs: 100,
+    }));
+    for (const html of [
+      renderToStaticMarkup(<CfopPhaseTrendChart points={points} scopeLabel="All" />),
+      renderToStaticMarkup(<RecognitionExecutionTrendChart points={points} scopeLabel="All" />),
+    ]) {
+      expect(html.match(/class="chart-session-boundary"/g)).toHaveLength(2);
+      const path = /class="chart-line (?:phase-cross|recognition)" d="([^"]*)"/.exec(html)![1];
+      expect(path.match(/M/g)).toHaveLength(3);
+    }
+  });
+
+  it("shades the middle half of a distribution", () => {
+    const bins = Array.from({ length: 8 }, (_, index) => ({ startMs: 10_000 + index * 1000, endMs: 11_000 + index * 1000, count: index + 1 }));
+    const html = renderToStaticMarkup(<DistributionChart distribution={{ status: "ready", bins, minMs: 10_000, maxMs: 18_000, medianMs: 15_000, dnfCount: 0 }} band={{ p25Ms: 12_000, p75Ms: 16_000 }} />);
+    const band = /<rect class="distribution-band" x="([\d.]+)"[^>]*width="([\d.]+)"/.exec(html)!;
+    expect(Number(band[1])).toBeCloseTo(64 + 912 * 0.25);
+    expect(Number(band[2])).toBeCloseTo(912 * 0.5);
+    expect(html).toContain("Middle 50%");
   });
 });

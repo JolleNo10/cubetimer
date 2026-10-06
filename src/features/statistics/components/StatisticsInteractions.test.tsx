@@ -4,13 +4,14 @@ import { App } from "../../../app/App";
 import { Controller } from "../../../app/Controller";
 import { deriveStatistics, type StatisticsSnapshot } from "../state/statistics";
 import type { Solve } from "../../../app/types";
-import { StatisticsView, StatisticsNavigation } from "./StatisticsView";
+import { StatisticsView, StatisticsNavigation, StatisticsOverview, SessionTable } from "./StatisticsView";
+import { Pagination, StatCard, StatsSection } from "./StatisticsPrimitives";
 import { StatisticsRecords, StatisticsRankingTable, StatisticsAverageDetail } from "./StatisticsRecords";
 import { StatisticsCaseTable, StatisticsF2lPerformance, PerformanceTable } from "./StatisticsAnalysisTables";
 import { StatisticsSolveDetail } from "./StatisticsSolveDetail";
 import { ReplayDialog } from "../../history/components/ReplayDialog";
 import { AnalyticsDialog } from "../../history/components/AnalyticsDialog";
-import { SolveTimeTrendChart } from "./StatisticsCharts";
+import { AverageProgressionChart, SolveTimeTrendChart } from "./StatisticsCharts";
 
 // Exercise presentation callback boundaries without a browser or a new DOM runner.
 const hooks = vi.hoisted(() => ({ values: [] as unknown[], cursor: 0, effectCursor: 0, dependencies: [] as (readonly unknown[] | undefined)[], effects: [] as (() => unknown)[], controller: null as unknown }));
@@ -44,7 +45,9 @@ function elements(root: unknown): Element[] {
   if (Array.isArray(root)) return root.flatMap(elements);
   if (!root || typeof root !== "object" || !("props" in root)) return [];
   const element = root as Element;
-  return [element, ...elements(element.props.children)];
+  // Element-valued props (such as section actions) are part of the rendered tree too.
+  const slotted = Object.entries(element.props).filter(([key, value]) => key !== "children" && value && typeof value === "object" && "props" in value).map(([, value]) => value);
+  return [element, ...elements(element.props.children), ...elements(slotted)];
 }
 function find(root: unknown, predicate: (element: Element) => boolean): Element {
   const found = elements(root).find(predicate); if (!found) throw new Error("Expected control missing"); return found;
@@ -139,7 +142,9 @@ describe("Statistics user interactions", () => {
     let tree = render();
     find(tree, (element) => element.type === "select").props.onChange({ target: { value: "ao5" } });
     tree = render();
-    const pb = elements(tree).filter((element) => element.type === "section")[1];
+    const pbSelect = find(tree, (element) => element.type === "select");
+    expect(pbSelect.props.value).toBe("ao5");
+    const pb = find(tree, (element) => element.type === StatsSection && element.props.id === "pb-history");
     const row = find(pb, (element) => element.type === "tr" && element.props.tabIndex === 0);
     row.props.onKeyDown(keyEvent("Enter"));
     tree = render();
@@ -155,10 +160,10 @@ describe("Statistics user interactions", () => {
     const large = deriveStatistics({ ...snapshot, solves: Array.from({ length: 110 }, (_, index) => item(`s${index}`, "A", 10000 + index * 100, index)) }, { event: "333", sessionId: null }, "A");
     const render = () => renderRoot(() => StatisticsRecords({ model: large, onOpenSolve: vi.fn() }));
     let tree = render();
-    const section = () => find(tree, (element) => element.type === "section");
+    const section = () => find(tree, (element) => element.type === StatsSection && element.props.id === "solves");
     const rows = () => elements(section()).filter((element) => element.type === "tr" && element.props.tabIndex === 0);
     expect(rows()).toHaveLength(50);
-    find(tree, (element) => element.type === "button" && element.props.children === "Next").props.onClick();
+    find(tree, (element) => element.type === Pagination).props.onPageChange(1);
     tree = render(); expect(rows()[0].props["aria-label"]).toContain("15.00");
     find(tree, (element) => element.type === "button" && element.props.className === "stats-sort").props.onClick();
     tree = render(); expect(rows()[0].props["aria-label"]).toContain("20.90");
@@ -245,10 +250,12 @@ controller.sessions.update((state) => ({ ...state, sessionId: "A" }));
     let tree = render(); for (const effect of hooks.effects) effect();
     expect(load).toHaveBeenCalledOnce();
     expect(elements(tree).some((element) => element.type === StatisticsRecords)).toBe(false);
-    elements(tree).filter((element) => element.type === "select")[2].props.onChange({ target: { value: "50" } });
+    expect(find(tree, (element) => element.type === StatisticsOverview).props.series.trend).toHaveLength(100);
+    find(tree, (element) => element.type === StatisticsOverview).props.onChartWindowChange(50);
     tree = render();
-    expect(find(tree, (element) => element.type === SolveTimeTrendChart).props.points).toHaveLength(50);
-    find(tree, (element) => element.type === SolveTimeTrendChart).props.onOpenSolve("s0");
+    expect(find(tree, (element) => element.type === StatisticsOverview).props.series.trend).toHaveLength(50);
+    expect(find(tree, (element) => element.type === StatisticsOverview).props.model.solveRows).toHaveLength(110);
+    find(tree, (element) => element.type === StatisticsOverview).props.onOpenSolveId("s0");
     tree = render();
     expect(find(tree, (element) => element.type === StatisticsSolveDetail).props.solve).toBe(snapshot.solves[0]);
     expect(find(tree, (element) => element.type === StatisticsSolveDetail).props.solves).toEqual(history.solves.filter((solve) => solve.sessionId !== "C"));
@@ -299,5 +306,62 @@ controller.sessions.update((state) => ({ ...state, sessionId: "A", sessions: sna
     find(tree, (element) => element.type === StatisticsView).props.onScopeChange(["s1"]);
     tree = render();
     expect(elements(tree).some((element) => element.type === ReplayDialog || element.type === AnalyticsDialog)).toBe(false);
+  });
+
+  it("filters Statistics from a Session row by click or keyboard", () => {
+    const onSelect = vi.fn();
+    const tree = renderRoot(() => SessionTable({ model, onSelect }));
+    const rows = elements(tree).filter((element) => element.type === "tr" && element.props.tabIndex === 0);
+    expect(rows.map((row) => row.props["aria-label"])).toEqual(["Show statistics for Timer Session", "Show statistics for History Session"]);
+    rows[1].props.onClick(clickEvent()); rows[1].props.onKeyDown(keyEvent("Enter")); rows[0].props.onKeyDown(keyEvent(" "));
+    expect(onSelect.mock.calls.flat()).toEqual(["B", "B", "A"]);
+  });
+
+  it("previews chart points on hover/focus and opens any series point", () => {
+    const points = Array.from({ length: 6 }, (_, index) => ({ index, solveId: `s${index}`, sessionId: "A", createdAt: index, segmentKey: "0", ao5: index > 3 ? 15000 : undefined }));
+    const onOpenSolve = vi.fn();
+    // AverageProgressionChart delegates to the shared time-series chart; render that element's own tree.
+    const chart = AverageProgressionChart({ points, scopeLabel: "A", onOpenSolve }) as Element;
+    const render = () => renderRoot(() => (chart.type as (props: unknown) => Element)(chart.props));
+    let tree = render();
+    const target = () => find(tree, (element) => element.type === "g" && element.props["data-solve-id"] === "s4");
+    expect(target().props.role).toBe("button");
+    target().props.onFocus();
+    tree = render();
+    const frame = find(tree, (element) => typeof element.type === "function" && element.props.tooltip !== undefined);
+    expect(frame.props.tooltip.rows.find((row: { label: string }) => row.label === "Ao5").value).toBe("15.00");
+    target().props.onKeyDown(keyEvent("Enter"));
+    expect(onOpenSolve).toHaveBeenCalledWith("s4");
+    target().props.onBlur();
+    tree = render();
+    expect(find(tree, (element) => typeof element.type === "function" && element.props.tooltip !== undefined).props.tooltip).toBeNull();
+  });
+
+  it("opens Solves-tab personal bests as solves or exact average windows", () => {
+    const local = deriveStatistics({ ...snapshot, solves: snapshot.solves.map((solve) => ({ ...solve, sessionId: "A" })) }, { event: "333", sessionId: null }, "A");
+    const onOpenSolve = vi.fn();
+    const records = renderRoot(() => StatisticsRecords({ model: local, onOpenSolve }));
+    const summary = find(records, (element) => typeof element.type === "function" && element.props.onOpenAverage !== undefined);
+    const cards = renderRoot(() => (summary.type as (props: unknown) => Element)(summary.props));
+    const statCards = elements(cards).filter((element) => element.type === StatCard);
+    expect(statCards.map((card) => card.props.label)).toEqual(["Best single", "Best Ao5", "Best Ao12", "Best Ao50", "Best Ao100"]);
+    statCards[0].props.onOpen();
+    expect(onOpenSolve).toHaveBeenCalledWith(local.scopeSolves[5]);
+    statCards[1].props.onOpen();
+    const tree = renderRoot(() => StatisticsRecords({ model: local, onOpenSolve }));
+    expect(find(tree, (element) => element.type === StatisticsAverageDetail).props.window).toBe(local.records.ao5[0].kind === "average" ? local.records.ao5[0].window : undefined);
+    expect(statCards[4].props.onOpen).toBeUndefined();
+  });
+
+  it("trains or reviews a suggested slow case", () => {
+    const rows = [{ caseId: "27", label: "27", count: 4, skipCount: 0, solveIds: ["s0"], samples: [], medianMs: 2000 }];
+    const onTrainCase = vi.fn();
+    const render = () => renderRoot(() => StatisticsCaseTable({ family: "oll", rows, focus: rows, skipCount: 0, model, onOpenSolve: vi.fn(), onTrainCase }));
+    let tree = render();
+    find(tree, (element) => element.type === "button" && element.props.children === "Train").props.onClick();
+    expect(onTrainCase).toHaveBeenCalledWith("oll", "27");
+    find(tree, (element) => element.type === "button" && element.props.children === "View").props.onClick();
+    tree = render();
+    expect(find(tree, (element) => element.props["aria-label"] === "OLL case solves")).toBeDefined();
   });
 });

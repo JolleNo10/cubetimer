@@ -1,5 +1,11 @@
 # Mistakes
 
+## 2026-10-06 — Statistics redesign review and CSS replacement
+
+- What happened: the review reported unmatched pauses being attributed to F2L, but validation already rejects any pause outside the contiguous step range; a first fix added unreachable "unattributed" fields. Replacing the Statistics CSS block also removed the shared `.table-scroll` rule, and two stale chart outline rules outside the block kept drawing a focus box on hover.
+- Root cause: the finding was inferred from the consumer without reading the validator that guarantees its input, and a whole CSS range was swapped without diffing the removed selectors against remaining usage.
+- Prevention: check the validation boundary before reporting an impossible branch as a bug; after replacing a CSS range, list removed selectors, grep for their consumers, and search the whole stylesheet for older rules on the same selectors.
+
 ## 2026-10-04 — Drill test contract fixtures
 
 - What happened: an initial exact-step Drill fixture used invented step field names; old callback/export assertions omitted additive contract changes. Final inspection also found reveal timing began before target preparation finished.

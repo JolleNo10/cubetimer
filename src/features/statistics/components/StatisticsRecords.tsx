@@ -6,8 +6,11 @@ import { formatSolveTime, type AverageWindow } from "../state/stats";
 import { RANKING_METRICS, RECOGNITION_NOTE, sortRankingRows, sortSolveRows, type AverageMetric, type SolveSortColumn, type PbMetric, type RankingMetric, type RankingRow, type SortDirection, type StatisticsViewModel } from "../state/statistics";
 import type { Session, Solve } from "../../../app/types";
 import { statisticsActivationProps } from "./statisticsInteraction";
+import { Delta, Pagination, StatCard, StatsSection } from "./StatisticsPrimitives";
 
 const PAGE_SIZE = 50;
+/** Rankings show the top of a list; the full table pages more often. */
+const RANKING_PAGE_SIZE = 10;
 
 export function StatisticsAverageDetail({ window, solves, sessions, onOpenSolve, onClose }: {
   window: AverageWindow; solves: readonly Solve[]; sessions: readonly Session[];
@@ -34,20 +37,20 @@ export function StatisticsRankingTable({ rows, metric, model, onOpen }: { rows: 
   const { date } = useDateTimeFormat();
   const definition = RANKING_METRICS.find((item) => item.id === metric)!;
   const [page, setPage] = useState(0);
-  const lastPage = Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1);
+  const lastPage = Math.max(0, Math.ceil(rows.length / RANKING_PAGE_SIZE) - 1);
   const currentPage = Math.min(page, lastPage);
-  const offset = currentPage * PAGE_SIZE;
+  const offset = currentPage * RANKING_PAGE_SIZE;
   if (!rows.length) return <div className="chart-empty">No eligible {definition.label} records in this scope.{definition.group === "Averages" ? " An actual complete window is required." : metric !== "single" ? " Usable CFOP analysis is required." : ""}</div>;
   return <>
     <p className="small dim">{rows.length} records · full selected scope</p>
     <div className="table-scroll"><table className="stats-table"><thead><tr><th>Rank</th><th>{definition.label}</th><th>Solve time</th><th>STM</th><th>{metric === "tps" || definition.group === "Solve" ? "Whole-solve TPS" : "Execution TPS"}</th>{model.sessionId === null ? <th>Session</th> : null}<th>Date</th><th>Context</th></tr></thead><tbody>
-      {rows.slice(offset, offset + PAGE_SIZE).map((row, index) => <tr key={row.id} {...statisticsActivationProps(() => onOpen(row), `${row.kind === "average" ? `View Ao${row.window.size} window` : `View solve ${formatTime(row.totalTime)}`} · ${date(row.createdAt)}`)}>
+      {rows.slice(offset, offset + RANKING_PAGE_SIZE).map((row, index) => <tr key={row.id} {...statisticsActivationProps(() => onOpen(row), `${row.kind === "average" ? `View Ao${row.window.size} window` : `View solve ${formatTime(row.totalTime)}`} · ${date(row.createdAt)}`)}>
         <td>{offset + index + 1}</td><td><button className="ghost small mono stats-open-link" onClick={() => onOpen(row)}>{definition.unit === "time" ? formatTime(row.value) : definition.unit === "tps" ? row.value.toFixed(2) : row.value}</button></td>
         <td><button className="ghost small mono stats-open-link" onClick={() => onOpen(row)}>{row.kind === "average" ? "View window" : formatTime(row.totalTime)}</button></td><td>{row.moves ?? "—"}</td><td>{row.tps?.toFixed(2) ?? "—"}</td>
         {model.sessionId === null ? <td>{model.eventSessions.find((session) => session.id === row.sessionId)?.name ?? "—"}</td> : null}<td>{date(row.createdAt)}</td><td>{row.context ? <span className="stats-badge">{row.context}{row.context.includes("at Cross") ? " · XCross" : ""}</span> : "—"}</td>
       </tr>)}
     </tbody></table></div>
-    {lastPage > 0 ? <div className="row stats-pagination"><button className="ghost small" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span className="small dim">Page {currentPage + 1} / {lastPage + 1}</span><button className="ghost small" disabled={currentPage === lastPage} onClick={() => setPage(currentPage + 1)}>Next</button></div> : null}
+    <Pagination page={currentPage} lastPage={lastPage} onPageChange={setPage} />
   </>;
 }
 
@@ -76,8 +79,8 @@ export function StatisticsRecords({ model, onOpenSolve }: { model: StatisticsVie
     else { const solve = model.scopeSolves.find((solve) => solve.id === row.solveId); if (solve) onOpenSolve(solve); }
   };
   return <>
-    <section className="stats-section"><div className="section-heading"><div><h2>Solves</h2><p>{rows.length} counted solves · full selected scope · select a row for its complete breakdown</p></div></div>
-      <p className="small faint">Sort any column. Average values open exact Session-local windows. Unavailable metrics stay last; DNF is a result.</p>
+    <StatisticsPbSummary model={model} onOpenSolve={onOpenSolve} onOpenAverage={setAverage} />
+    <StatsSection id="solves" title="Solves" description={`${rows.length} counted solves · select a row for its breakdown, an average for its exact window`}>
       <div className="table-scroll"><table className="stats-table solves-table"><thead><tr>{columns.map(({ id, label }) => <th key={id} aria-sort={column === id ? direction === "asc" ? "ascending" : "descending" : "none"}>
         <button className="stats-sort" onClick={() => { setColumn(id); setDirection(column === id && direction === "asc" ? "desc" : "asc"); setPage(0); }}>{label}{column === id ? direction === "asc" ? " ↑" : " ↓" : ""}</button>
       </th>)}</tr></thead><tbody>{rows.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE).map((row) => <tr key={row.solve.id} {...statisticsActivationProps(() => onOpenSolve(row.solve), `View solve ${formatSolveTime(row.solve)} · ${date(row.date)}`)}>
@@ -95,12 +98,12 @@ export function StatisticsRecords({ model, onOpenSolve }: { model: StatisticsVie
         })}
       </tr>)}</tbody></table></div>
       {!rows.length ? <div className="chart-empty">No counted solves in this scope yet.</div> : null}
-      {lastPage > 0 ? <div className="row stats-pagination"><button className="ghost small" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span className="small dim">Page {currentPage + 1} / {lastPage + 1}</span><button className="ghost small" disabled={currentPage === lastPage} onClick={() => setPage(currentPage + 1)}>Next</button></div> : null}
-    </section>
+      <Pagination page={currentPage} lastPage={lastPage} onPageChange={setPage} />
+    </StatsSection>
     {averageInScope ? <StatisticsAverageDetail window={currentAverage} solves={model.scopeSolves} sessions={model.eventSessions} onOpenSolve={onOpenSolve} onClose={() => setAverage(null)} /> : null}
-    <section className="stats-section"><div className="section-heading"><div><h2>PB history</h2><p>Strict improvements only · achieved Session-local average windows</p></div><label className="field">PB metric<select value={pbMetric} onChange={(e) => setPbMetric(e.target.value as PbMetric)}>{(["single", "ao5", "ao12", "ao50", "ao100"] as const).map((id) => <option key={id} value={id}>{id === "single" ? "Single" : `Ao${id.slice(2)}`}</option>)}</select></label></div>
+    <StatsSection id="pb-history" title="PB history" description="Strict improvements only · achieved Session-local average windows" actions={<label className="field compact">PB metric<select value={pbMetric} onChange={(e) => setPbMetric(e.target.value as PbMetric)}>{(["single", "ao5", "ao12", "ao50", "ao100"] as const).map((id) => <option key={id} value={id}>{id === "single" ? "Single" : `Ao${id.slice(2)}`}</option>)}</select></label>}>
       {model.pbHistory[pbMetric].length ? <div className="table-scroll"><table className="stats-table"><thead><tr><th>PB</th><th>Date</th><th>Source Session</th></tr></thead><tbody>{model.pbHistory[pbMetric].map((row) => <tr key={row.id} {...statisticsActivationProps(() => openPb(row), `View ${row.kind === "average" ? `Ao${row.window.size} window` : "solve"} · ${date(row.createdAt)}`)}><td><button className="ghost small mono stats-open-link" onClick={() => openPb(row)}>{formatTime(row.value)}</button></td><td>{date(row.createdAt)}</td><td>{model.eventSessions.find((session) => session.id === row.sessionId)?.name ?? "—"}{row.kind === "average" ? ` · ${row.window.size}-solve window` : ""}</td></tr>)}</tbody></table></div> : <div className="chart-empty">No achieved PBs for this metric yet.</div>}
-    </section>
+    </StatsSection>
   </>;
 }
 
@@ -116,24 +119,70 @@ export function StatisticsCfopRecords({ model, onOpenSolve }: { model: Statistic
     const solve = model.scopeSolves.find((solve) => solve.id === row.solveId);
     if (solve) onOpenSolve(solve);
   };
-  return <section className="stats-section"><div className="section-heading"><div><h2>CFOP records</h2><p>Phase times and efficiency · XCross context retained</p></div></div>
+  return <StatsSection id="cfop-records" title="CFOP records" description="Phase times and efficiency · XCross context retained">
     <div className="statistics-controls">
       <label className="field">CFOP record metric<select value={metric} onChange={(e) => { const next = e.target.value as RankingMetric; setMetric(next); setDirection(RANKING_METRICS.find((item) => item.id === next)!.direction); }}>{CFOP_METRICS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
       <label className="field">Ranking direction<select value={direction} onChange={(e) => setDirection(e.target.value as SortDirection)}><option value="asc">{definition.unit === "time" ? "Fastest → slowest" : "Lowest → highest"}</option><option value="desc">{definition.unit === "time" ? "Slowest → fastest" : "Highest → lowest"}</option></select></label>
     </div>
     <p className="small faint">{RECOGNITION_NOTE} Phase TPS uses measured execution time.</p>
     <StatisticsRankingTable key={`${metric}:${direction}`} rows={rows} metric={metric} model={model} onOpen={open} />
-  </section>;
+  </StatsSection>;
 }
 
-export function StatisticsBestSplits({ model, onOpenSolve }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void }) {
+/** The best result of each tracked kind, opening its solve or exact average window. */
+export function StatisticsPbSummary({ model, onOpenSolve, onOpenAverage }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void; onOpenAverage: (window: AverageWindow) => void }) {
+  const { dateOnly } = useDateTimeFormat();
+  const solves = new Map(model.scopeSolves.map((solve) => [solve.id, solve]));
+  const sessions = new Map(model.eventSessions.map((session) => [session.id, session.name]));
+  return <div className="kpi-grid pb-summary" role="group" aria-label="Personal bests">
+    {(["single", "ao5", "ao12", "ao50", "ao100"] as const).map((metric) => {
+      const best = model.records[metric][0];
+      const label = metric === "single" ? "Best single" : `Best Ao${metric.slice(2)}`;
+      const open = !best ? undefined : best.kind === "average" ? () => onOpenAverage(best.window) : solves.has(best.solveId) ? () => onOpenSolve(solves.get(best.solveId)!) : undefined;
+      return <StatCard key={metric} label={label} value={formatTime(best?.value)} tone={best ? undefined : "unavailable"} onOpen={open}
+        openLabel={best ? `View ${label} ${formatTime(best.value)} · ${dateOnly(best.createdAt)}` : undefined}
+        detail={best ? `${dateOnly(best.createdAt)}${model.sessionId === null ? ` · ${sessions.get(best.sessionId) ?? "—"}` : ""}` : metric === "single" ? "No finished solve" : "No achieved window"} />;
+    })}
+  </div>;
+}
+
+const PHASES = [
+  { name: "Cross", record: "cross", delta: "crossDelta", recognition: undefined },
+  { name: "F2L", record: "f2l", delta: "f2lDelta", recognition: "medianF2lRecognitionMs" },
+  { name: "OLL", record: "oll", delta: "ollDelta", recognition: "medianOllRecognitionMs" },
+  { name: "PLL", record: "pll", delta: "pllDelta", recognition: "medianPllRecognitionMs" },
+] as const;
+
+/** Median phase times with their recognition, recent change and best observed split. */
+export function StatisticsPhaseTable({ model, onOpenSolve }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void }) {
   const { date } = useDateTimeFormat();
   const solves = new Map(model.scopeSolves.map((solve) => [solve.id, solve]));
-  const open = (row: RankingRow) => { if (row.kind === "solve") { const solve = solves.get(row.solveId); if (solve) onOpenSolve(solve); } };
-  return (
-    <section className="stats-section"><div className="section-heading"><div><h2>Best splits</h2><p>Best observed phases from different solves; these may not combine into a real solve. F2L requires zero pairs completed at Cross.</p></div></div>
-      <div className="table-scroll"><table className="stats-table"><thead><tr><th>Phase</th><th>Best time</th><th>Source solve / Session</th><th>Date</th></tr></thead><tbody>{model.bestSplits.sources.map(({ phase, record }) => <tr key={phase} {...statisticsActivationProps(record ? () => open(record) : undefined, `View ${phase} source solve`)}><td>{phase}</td><td>{formatTime(record?.value)}</td><td>{record ? <button className="ghost small stats-open-link" onClick={() => open(record)}>{record.kind === "solve" && solves.has(record.solveId) ? formatSolveTime(solves.get(record.solveId)!) : formatTime(record.totalTime)} · {model.eventSessions.find((session) => session.id === record.sessionId)?.name}</button> : "No eligible analysed sample"}</td><td>{record ? date(record.createdAt) : "—"}</td></tr>)}</tbody></table></div>
-      <div className="stat-grid"><div className="stat-card"><span>Best Single</span><strong>{formatTime(model.bestSplits.pbMs)}</strong></div><div className="stat-card"><span>Best splits</span><strong>{formatTime(model.bestSplits.totalMs)}</strong></div><div className="stat-card"><span>PB − Best splits</span><strong>{formatTime(model.bestSplits.gapMs)}</strong></div></div>
-    </section>
-  );
+  const open = (row: RankingRow | undefined) => { if (row?.kind === "solve") { const solve = solves.get(row.solveId); if (solve) onOpenSolve(solve); } };
+  const medians = new Map(model.cfop?.map((phase) => [phase.name, phase.timeMs]));
+  const max = Math.max(...(model.cfop ?? []).map((phase) => phase.timeMs), 1);
+  const recent = model.recentPerformance;
+  const analysis = model.recognitionExecution;
+  return <StatsSection id="phases" title="Phases" description={<>Medians over analysed solves · Δ compares the latest {recent ? recent.sampleSize : "—"} with the {recent ? recent.sampleSize : "—"} before · Best splits come from different solves and may not combine into a real one. F2L requires zero pairs completed at Cross.</>}>
+    {model.cfop?.length ? <div className="table-scroll"><table className="stats-table phase-table">
+      <thead><tr><th>Phase</th><th>Median</th><th>Recognition</th><th>Recent Δ</th><th>Best split</th><th>Source</th></tr></thead>
+      <tbody>{PHASES.map((phase) => {
+        const median = medians.get(phase.name);
+        const record = model.bestSplits.sources.find((source) => source.phase === phase.name)?.record;
+        const source = record?.kind === "solve" ? solves.get(record.solveId) : undefined;
+        return <tr key={phase.name} {...statisticsActivationProps(source ? () => open(record) : undefined, `View ${phase.name} best split source solve`)}>
+          <td>{phase.name}</td>
+          <td className="phase-median-cell"><div className="phase-track"><span className={`phase-${phase.record}`} style={{ width: `${(median ?? 0) / max * 100}%` }} /></div><strong>{formatTime(median)}</strong></td>
+          <td className="number">{phase.recognition && analysis ? formatTime(analysis[phase.recognition]) : "—"}</td>
+          <td className="number">{recent ? <Delta ms={recent[phase.delta]} /> : "—"}</td>
+          <td className="number">{formatTime(record?.value)}</td>
+          <td>{record ? <button className="ghost small stats-open-link" onClick={() => open(record)}>{source ? formatSolveTime(source) : formatTime(record.totalTime)} · {model.eventSessions.find((session) => session.id === record.sessionId)?.name} · {date(record.createdAt)}</button> : "No eligible analysed sample"}</td>
+        </tr>;
+      })}</tbody>
+    </table></div> : <div className="chart-empty">No usable CFOP analysis in this scope.</div>}
+    <div className="kpi-grid">
+      <StatCard label="Best single" value={formatTime(model.bestSplits.pbMs)} />
+      <StatCard label="Sum of best splits" value={formatTime(model.bestSplits.totalMs)} />
+      <StatCard label="PB − best splits" value={formatTime(model.bestSplits.gapMs)} detail="Time a perfect combination would save" />
+    </div>
+  </StatsSection>;
 }

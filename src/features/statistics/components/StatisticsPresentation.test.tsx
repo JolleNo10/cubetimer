@@ -7,7 +7,7 @@ import { deriveStatistics } from "../state/statistics";
 import { averageWindow } from "../state/stats";
 import type { Solve } from "../../../app/types";
 import { StatisticsSolveDetail } from "./StatisticsSolveDetail";
-import { StatisticsAverageDetail, StatisticsRecords, StatisticsCfopRecords, StatisticsBestSplits } from "./StatisticsRecords";
+import { StatisticsAverageDetail, StatisticsRecords, StatisticsCfopRecords, StatisticsPhaseTable } from "./StatisticsRecords";
 import { StatisticsAnalysisTables, StatisticsConsistency, StatisticsPauses, StatisticsCaseTable } from "./StatisticsAnalysisTables";
 import { StatisticsNavigation, StatisticsOverviewSummary } from "./StatisticsView";
 import { SolveResult } from "../../history/components/SolveResult";
@@ -98,7 +98,8 @@ describe("Statistics presentation", () => {
     expect(html).not.toContain("Record metric");
     for (const column of ["Time", "Ao5", "Ao12", "Ao50", "Ao100", "TPS", "STM", "Cross", "F2L", "OLL", "PLL", "Session", "Date"]) expect(html).toContain(`>${column}${column === "Time" ? " ↑" : ""}</button>`);
     expect(html).toContain('aria-sort="ascending"'); expect(html).toContain("PB history");
-    expect(html).not.toContain("Best splits");
+    expect(html).not.toContain("Sum of best splits");
+    for (const label of ["Best single", "Best Ao5", "Best Ao100"]) expect(html).toContain(label);
     const selected = deriveStatistics({ sessions, solves: [solve] }, { event: "333", sessionId: "history" }, null);
     expect(renderToStaticMarkup(<StatisticsRecords model={selected} onOpenSolve={() => {}} />)).not.toContain(">Session</button>");
   });
@@ -117,7 +118,7 @@ describe("Statistics presentation", () => {
     for (const name of ["Overview", "Solves", "CFOP", "Cases"]) expect(nav).toContain(`>${name}</button>`);
     const model = deriveStatistics({ sessions, solves: Array.from({ length: 12 }, (_, index) => ({ ...solve, id: `s${index}`, createdAt: index, penalty: "none" })) }, { event: "333", sessionId: null }, null);
     const html = renderToStaticMarkup(<StatisticsOverviewSummary model={model} />);
-    expect(html.match(/class="stat-card"/g)).toHaveLength(9);
+    expect(html.match(/class="stat-card[ "]/g)).toHaveLength(7);
     for (const size of [5, 12, 50, 100]) expect(html).toContain(`Latest Ao${size}`);
     expect(html).toContain("History Session · Best 2.10");
     expect(html).toContain("No achieved window · Best —");
@@ -127,10 +128,10 @@ describe("Statistics presentation", () => {
   it("keeps specialized CFOP records and Best Splits with visible XCross context", () => {
     const model = deriveStatistics({ sessions, solves: [solve] }, { event: "333", sessionId: null }, null);
     model.records.cross = [{ id: solve.id, kind: "solve", solveId: solve.id, value: 1000, totalTime: 4100, sessionId: "history", createdAt: 1, context: "1 pair at Cross" }];
-    const html = renderToStaticMarkup(<><StatisticsCfopRecords model={model} onOpenSolve={() => {}} /><StatisticsBestSplits model={model} onOpenSolve={() => {}} /></>);
+    const html = renderToStaticMarkup(<><StatisticsCfopRecords model={model} onOpenSolve={() => {}} /><StatisticsPhaseTable model={model} onOpenSolve={() => {}} /></>);
     expect(html).toContain("CFOP records"); expect(html).toContain("XCross");
     expect(html).toContain("1 pair at Cross · XCross");
-    expect(html).toContain("Measured execution"); expect(html).toContain("Best splits");
+    expect(html).toContain("Measured execution"); expect(html).toContain("Sum of best splits"); expect(html).toContain("Best split");
     expect(html).toContain("F2L requires zero pairs completed at Cross");
     expect(html).not.toContain('<option value="single"'); expect(html).not.toContain('<option value="ao5"');
   });
@@ -141,6 +142,16 @@ describe("Statistics presentation", () => {
     const html = renderToStaticMarkup(<StatisticsCaseTable family={family} rows={rows} skipCount={0} model={model} onOpenSolve={() => {}} onTrainCase={() => {}} />);
     expect(html).toContain("Samples"); expect(html).toContain("small sample"); expect(html).toContain("1.00");
     expect(html).toContain("Fewer than 3 observations");
+  });
+
+  it("summarises single-Session averages with projection and best-relative detail", () => {
+    const solves = Array.from({ length: 12 }, (_, index) => ({ ...solve, id: `s${index}`, createdAt: index, rawMs: 10_000 + (index % 3) * 1000, penalty: "none" as const }));
+    const model = deriveStatistics({ sessions, solves }, { event: "333", sessionId: "history" }, "history");
+    const html = renderToStaticMarkup(<StatisticsOverviewSummary model={model} />);
+    expect(html).toContain("Projected Ao50"); expect(html).toContain("12 / 50 solves");
+    expect(html).toContain('class="stat-card tone-projected"');
+    expect(html).toMatch(/Ao12<\/span><strong>11\.00<\/strong><small>(?:Personal best · )?Best 11\.00/);
+    expect(html).not.toContain("NaN");
   });
 
   it("renders sensible empty analysis and consistency sections", () => {
