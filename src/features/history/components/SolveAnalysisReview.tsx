@@ -30,7 +30,7 @@ export function SolveAnalysisReview({ solve, solves, analysis, onPracticeStep }:
         <ResultCharts analysis={analysis} comparison={history.comparison} spread={history.spread}
           scope={history.scope} loading={history.loading} onScope={history.setScope} />
         <DetailedStepBreakdown analysis={analysis} onPracticeStep={onPracticeStep}
-          comparison={history.comparison} compact />
+          comparison={history.comparison} />
       </div>
     </div>
     <p className="result-note">{RECOGNITION_NOTE}</p>
