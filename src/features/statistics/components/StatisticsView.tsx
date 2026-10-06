@@ -1,7 +1,8 @@
+import { applySolveThreshold } from "../state/solveThreshold";
 import { formatTime } from "../../../shared/time";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { DEFAULT_EVENT_ID, eventInfo, type EventId } from "../../../cube/scramble";
-import { useController } from "../../../app/useController";
+import { useController, useSettings } from "../../../app/useController";
 import {
   availableStatisticsEvents,
   deriveStatistics,
@@ -187,6 +188,7 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTool
   onScopeChange: (solveIds: readonly string[]) => void;
 }) {
   const controller = useController();
+  const { slowSolveThreshold, slowSolveHandling } = useSettings();
   const [snapshot, setSnapshot] = useState<StatisticsSnapshot | null>(null);
   const [event, setEvent] = useState<EventId>(currentEvent || DEFAULT_EVENT_ID);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -228,8 +230,8 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTool
     if (!snapshot) return null;
     const matching = snapshot.sessions.some((candidate) => candidate.id === sessionId && candidate.event === event);
     const safeSessionId = matching ? sessionId : null;
-    return deriveStatistics(snapshot, { event, sessionId: safeSessionId }, activeSessionId);
-  }, [event, sessionId, snapshot, activeSessionId]);
+    return deriveStatistics({ ...snapshot, solves: applySolveThreshold(snapshot.solves, { slowSolveThreshold, slowSolveHandling }) }, { event, sessionId: safeSessionId }, activeSessionId);
+  }, [event, sessionId, snapshot, activeSessionId, slowSolveThreshold, slowSolveHandling]);
 
   const refresh = useCallback(() => setRefreshToken((token) => token + 1), []);
   useEffect(() => {

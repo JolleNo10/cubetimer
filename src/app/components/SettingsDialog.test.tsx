@@ -50,3 +50,12 @@ it("shows independent date, clock and time zone settings with a UTC preview", ()
   expect(html).toContain("Autodetect (");
   expect(html).toContain("2026-10-06, 14:30:00");
 });
+
+it("explains the automatic slow-solve policy and offers exclusion, DNF and Off", () => {
+  const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><SettingsDialog settings={DEFAULT_SETTINGS} onClose={() => {}} /></ControllerContext.Provider>);
+  expect(html).toContain('for="slowSolveThreshold">Threshold (times usual time)');
+  expect(html).toContain('value="exclude" selected=""');
+  expect(html).toContain("Count as DNF"); expect(html).toContain("Off - count normally");
+  expect(html).toContain("previous 20 counted, finished solves in the same session");
+  expect(html).toContain("Needs at least 5 baseline solves"); expect(html).toContain("existing and future solves");
+});

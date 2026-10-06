@@ -132,6 +132,8 @@ export type Solve = {
   replay?: boolean;
   /** True when the solve was deliberately made in slow/practice timing mode. */
   slowSolve?: boolean;
+  /** Derived display/statistics policy only; never persisted as a raw solve fact. */
+  statisticsOutlier?: { action: "exclude" | "dnf"; baselineMs: number; multiplier: number };
 
   // Fields carried by the solve analysis model. They are optional because a solve
   // recorded here only fills in what it actually knows, but they survive a
@@ -155,7 +157,7 @@ export type Solve = {
 
 /** The time a solve counts for, with its penalty applied. `null` means DNF. */
 export function effectiveMs(solve: Solve): number | null {
-  if (solve.penalty === "DNF") return null;
+  if (solve.penalty === "DNF" || solve.statisticsOutlier?.action === "dnf") return null;
   return solve.rawMs + (solve.penalty === "+2" ? 2000 : 0);
 }
 
@@ -168,6 +170,9 @@ export type Settings = {
    * These solves are still recorded and analysed but never counted in the statistics.
    */
   slowSolve: boolean;
+  /** Compare finished solves with the previous up-to-20 valid counted session times. */
+  slowSolveThreshold: number;
+  slowSolveHandling: "off" | "exclude" | "dnf";
   /** Maximum solution length used when looking for an XCross scramble. */
   xCrossMaxMoves: XCrossMaxMoves;
   /** Exact optimal length of the generated white cross in Slow Solve. */
@@ -211,6 +216,8 @@ export const DEFAULT_SETTINGS: Settings = {
   ollTrainingSet: "full",
   pllTrainingSet: "full",
   slowSolve: false,
+  slowSolveThreshold: 3,
+  slowSolveHandling: "exclude",
   xCrossMaxMoves: 5,
   whiteCrossMoves: 5,
   inspection: false,

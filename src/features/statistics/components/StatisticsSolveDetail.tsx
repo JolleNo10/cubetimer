@@ -1,3 +1,4 @@
+import { SolveOutlierNotice } from "../../history/components/SolveOutlierNotice";
 import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { formatTime } from "../../../shared/time";
 import { validatedSolveFacts, formatSolveTime } from "../state/stats";
@@ -13,6 +14,7 @@ export function StatisticsSolveDetail({ solve, solves, session, onClose, onRepla
   return <div className="backdrop" onClick={onClose}><div className="dialog wide statistics-solve-detail" role="dialog" aria-modal="true" aria-label="Statistics solve detail" onClick={(e) => e.stopPropagation()}>
     <div className="dialog-head"><h3>Historical solve · {formatSolveTime(solve)}</h3><button className="ghost" onClick={onClose} aria-label="Close solve detail">×</button></div>
     <div className="dialog-body">
+      <SolveOutlierNotice solve={solve} />
       <p>{session?.name ?? "Unknown Session"} · {date(solve.createdAt)}</p>
       <div className="stat-grid">{[
         ["Result", formatTime(effectiveMs(solve))], ["Raw time", formatTime(solve.rawMs)],

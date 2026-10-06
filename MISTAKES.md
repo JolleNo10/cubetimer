@@ -498,3 +498,10 @@ plain text. Use ASCII in shell-fed edits or explicit Unicode escapes.
 A timestamp edit used Python default encoding and failed midway through files.
 Rerunning the loop duplicated edits in completed files. Removed those duplicates.
 Read and write UTF-8 explicitly and inspect partial progress before retrying scripts.
+
+## Derived solve metadata and test boundaries
+
+A destructured raw Solve inferred a narrower type that rejected adding ephemeral
+outlier metadata. Explicitly type projected records as Solve. A baseline test
+sliced one entry too early and included the intentionally invalid zero-duration
+fixture; use named boundary indices when mixing normal and exceptional records.

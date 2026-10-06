@@ -1,5 +1,6 @@
+import { applySolveThreshold } from "../../../statistics/state/solveThreshold";
 import { useEffect, useMemo, useState } from "react";
-import { useController, useSessionState } from "../../../../app/useController";
+import { useController, useSessionState, useSettings } from "../../../../app/useController";
 import type { CompareScope, Session, Solve } from "../../../../app/types";
 import { caseSpread, compareSolveToHistory } from "../../../statistics/state/stats";
 
@@ -11,6 +12,7 @@ import { caseSpread, compareSolveToHistory } from "../../../statistics/state/sta
  */
 export function useResultHistory(solve: Solve, solves: readonly Solve[]) {
   const controller = useController();
+  const { slowSolveThreshold, slowSolveHandling } = useSettings();
   const { sessions } = useSessionState();
   const scope: CompareScope = sessions.find((session) => session.id === solve.sessionId)?.compareScope ?? "session";
   const [history, setHistory] = useState<{ solveId: string; solves: Solve[]; sessions: Session[] } | null>(null);
@@ -28,7 +30,7 @@ export function useResultHistory(solve: Solve, solves: readonly Solve[]) {
   const loading = scope === "event" && wide === null;
   return useMemo(() => {
     // Until the wider history arrives, the session's own solves stand in for it.
-    const source = wide?.solves ?? solves;
+    const source = applySolveThreshold(wide?.solves ?? solves, { slowSolveThreshold, slowSolveHandling });
     const options = wide ? { scope, sessions: wide.sessions } : { scope: "session" as const, sessions };
     return {
       scope,
@@ -37,5 +39,5 @@ export function useResultHistory(solve: Solve, solves: readonly Solve[]) {
       spread: loading ? null : caseSpread(solve, source, options),
       setScope: (next: CompareScope) => void controller.setSessionCompareScope(solve.sessionId, next),
     };
-  }, [controller, loading, scope, sessions, solve, solves, wide]);
+  }, [controller, loading, scope, sessions, solve, solves, wide, slowSolveThreshold, slowSolveHandling]);
 }

@@ -8,7 +8,7 @@ import { DATE_FORMATS, TIME_FORMATS, normaliseTimeZone } from "../../shared/time
 import { DEFAULT_EVENT_ID, EVENTS, type EventId } from "../../cube/scramble";
 import { COMPARE_SCOPES, DEFAULT_SETTINGS, RESULT_CHARTS, RESULT_SCATTERS, type CompareScope, type Session, type Settings, type Solve, type TrainingAttempt, type TrainingAttemptTarget, type TrainingDrillPreset, type TrainingDrillPresetContext, type TrainingAlgorithmPreference, type TrainingRecognitionAttempt } from "../../app/types";
 import { normalizeTrainingCatalogueIdentity, trainingCatalogueCaseIds, trainingCatalogueKey } from "../../app/trainingCatalogue";
-import { normaliseLastLayerTrainingSet } from "../../app/settings";
+import { normaliseLastLayerTrainingSet, normaliseSolveThreshold } from "../../app/settings";
 import { F2L_POSITIONS } from "../../cube/f2lCases";
 import { findF2lTrainingCase, f2lTrainingCatalogue } from "../../cube/f2lTrainingCases";
 import { lastLayerCaseIds } from "../../cube/lastLayerTraining";
@@ -91,7 +91,7 @@ export function migrateSession(session: StoredSession): Session {
  * are dropped rather than half-read, so the solve simply shows no breakdown.
  */
 export function migrateSolve(solve: StoredSolve): Solve {
-  const { event: _legacyEvent, ...canonical } = solve;
+  const { event: _legacyEvent, statisticsOutlier: _derivedOutlier, ...canonical } = solve;
   const analysis = canonical.analysis as { steps?: unknown } | null | undefined;
   if (analysis && !Array.isArray(analysis.steps)) {
     return { ...canonical, analysis: null, moves: canonical.moves ?? [] };
@@ -106,6 +106,7 @@ export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
   const settings = { ...DEFAULT_SETTINGS, ...withoutLegacyEvent };
   return {
     ...settings,
+    ...normaliseSolveThreshold(settings),
     timeZone: normaliseTimeZone(settings.timeZone),
     dateFormat: DATE_FORMATS.includes(settings.dateFormat) ? settings.dateFormat : "locale",
     timeFormat: TIME_FORMATS.includes(settings.timeFormat) ? settings.timeFormat : "locale",
@@ -156,7 +157,8 @@ export async function loadAllSolves(): Promise<Solve[]> {
 }
 
 export async function saveSolve(solve: Solve): Promise<void> {
-  await promisify((await store("solves", "readwrite")).put(solve));
+  const { statisticsOutlier: _derivedOutlier, ...rawSolve } = solve;
+  await promisify((await store("solves", "readwrite")).put(rawSolve));
 }
 
 export async function deleteSolve(id: string): Promise<void> {

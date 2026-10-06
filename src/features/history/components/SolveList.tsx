@@ -1,10 +1,11 @@
+import { SolveOutlierNotice } from "./SolveOutlierNotice";
 import { useMemo } from "react";
 import { useController } from "../../../app/useController";
 import {
   practiceScrambleLabel,
   practiceScrambleTitle,
 } from "../../../app/scrambleProvider";
-import { bestSingle, countedSolves, formatSolveTime, isSlowSolve } from "../../statistics/state/stats";
+import { bestSingle, countedSolves, formatSolveTime, isSlowSolve, isCountedSolve } from "../../statistics/state/stats";
 import { effectiveMs, type Solve } from "../../../app/types";
 
 type Props = {
@@ -31,7 +32,7 @@ export function SolveList({ solves, selectedId, onSelect }: Props) {
           [...solves].reverse().map((solve, reverseIndex) => {
             const index = solves.length - reverseIndex;
             const time = effectiveMs(solve);
-            const isPb = time !== null && time === best && !solve.practice;
+            const isPb = time !== null && time === best && isCountedSolve(solve);
             const specialLabel = practiceScrambleLabel(solve.scrambleProvider);
             const specialTitle = practiceScrambleTitle(solve.scrambleProvider);
             return (
@@ -50,9 +51,10 @@ export function SolveList({ solves, selectedId, onSelect }: Props) {
               >
                 <span className="index">{index}</span>
                 <span className="row" style={{ gap: 7 }}>
-                  <span className={`time${solve.penalty === "DNF" ? " dnf" : ""}`}>
+                  <span className={`time${time === null ? " dnf" : ""}`}>
                     {formatSolveTime(solve)}
                   </span>
+                  <SolveOutlierNotice solve={solve} />
                   {isPb ? <span className="pb small">PB</span> : null}
                   {isSlowSolve(solve) ? (
                     <span className="phase-case muted" title="Slow solve, not counted">

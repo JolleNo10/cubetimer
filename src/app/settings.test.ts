@@ -34,3 +34,12 @@ it("defaults missing or unsupported calendar formats for older settings", () => 
   expect(settings.timeFormat).toBe("locale");
   expect(normaliseSettings({ ...DEFAULT_SETTINGS, dateFormat: "yyyy-mm-dd", timeFormat: "24h" })).toMatchObject({ dateFormat: "yyyy-mm-dd", timeFormat: "24h" });
 });
+
+it("validates the threshold independently of other settings", () => {
+  for (const value of [undefined, NaN, Infinity, 0, 1, 101]) {
+    expect(normaliseSettings({ ...DEFAULT_SETTINGS, slowSolveThreshold: value } as typeof DEFAULT_SETTINGS).slowSolveThreshold).toBe(3);
+  }
+  for (const mode of ["off", "exclude", "dnf"] as const) {
+    expect(normaliseSettings({ ...DEFAULT_SETTINGS, slowSolveThreshold: 2.5, slowSolveHandling: mode })).toMatchObject({ slowSolveThreshold: 2.5, slowSolveHandling: mode });
+  }
+});

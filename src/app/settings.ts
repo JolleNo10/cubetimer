@@ -1,11 +1,20 @@
 import { DATE_FORMATS, TIME_FORMATS, normaliseTimeZone } from "../shared/time";
 import { faceOfColour, FACE_COLOURS } from "../cube/colours";
 import { frontsFor } from "../cube/orientation";
-import type { Settings } from "./types";
+import { DEFAULT_SETTINGS, type Settings } from "./types";
 import type { LastLayerTrainingSet } from "../cube/lastLayerTraining";
 
 export function normaliseLastLayerTrainingSet(value: unknown): LastLayerTrainingSet {
   return value === "2look" ? "2look" : "full";
+}
+
+export function normaliseSolveThreshold(settings: Pick<Settings, "slowSolveThreshold" | "slowSolveHandling">) {
+  return {
+    slowSolveThreshold: Number.isFinite(settings.slowSolveThreshold) && settings.slowSolveThreshold > 1 && settings.slowSolveThreshold <= 100
+      ? settings.slowSolveThreshold : DEFAULT_SETTINGS.slowSolveThreshold,
+    slowSolveHandling: ["off", "exclude", "dnf"].includes(settings.slowSolveHandling)
+      ? settings.slowSolveHandling : DEFAULT_SETTINGS.slowSolveHandling,
+  };
 }
 
 /**
@@ -18,6 +27,7 @@ export function normaliseLastLayerTrainingSet(value: unknown): LastLayerTraining
 export function normaliseSettings(settings: Settings): Settings {
   settings = {
     ...settings,
+    ...normaliseSolveThreshold(settings),
     timeZone: normaliseTimeZone(settings.timeZone),
     dateFormat: DATE_FORMATS.includes(settings.dateFormat) ? settings.dateFormat : "locale",
     timeFormat: TIME_FORMATS.includes(settings.timeFormat) ? settings.timeFormat : "locale",

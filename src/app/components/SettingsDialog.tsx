@@ -44,6 +44,25 @@ export function SettingsDialog({
               checked={settings.slowSolve}
               onChange={(slowSolve) => set({ slowSolve })}
             />
+            <div className="field">
+              <label htmlFor="slowSolveHandling">Unusually slow normal solves</label>
+              <select id="slowSolveHandling" value={settings.slowSolveHandling} onChange={(e) => set({ slowSolveHandling: e.target.value as Settings["slowSolveHandling"] })}>
+                <option value="off">Off - count normally</option>
+                <option value="exclude">Exclude from statistics</option>
+                <option value="dnf">Count as DNF</option>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="slowSolveThreshold">Threshold (times usual time)</label>
+              <input id="slowSolveThreshold" type="number" min="1.1" max="100" step="0.1" key={settings.slowSolveThreshold} defaultValue={settings.slowSolveThreshold}
+                disabled={settings.slowSolveHandling === "off"} onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                onBlur={(e) => {
+                  const value = Number(e.target.value);
+                  if (Number.isFinite(value) && value > 1 && value <= 100) set({ slowSolveThreshold: value });
+                  else e.target.value = String(settings.slowSolveThreshold);
+                }} />
+              <span className="help">A normal solve above {settings.slowSolveThreshold} times the median of the previous 20 counted, finished solves in the same session is flagged. Needs at least 5 baseline solves. Flagged, slow and replay solves do not affect the baseline. Applies to existing and future solves; recorded times and penalties stay intact.</span>
+            </div>
             <Toggle
               title="WCA inspection"
               help="15 seconds, with +2 and DNF penalties."

@@ -501,3 +501,13 @@ it("preserves a saved display zone and auto-detects for older or invalid setting
   expect(mergeSettings({}).timeZone).toBe("");
   expect(mergeSettings({ timeZone: "Unknown/Zone" }).timeZone).toBe("");
 });
+
+it("loads and validates automatic slow-solve policy without persisting derived classification", () => {
+  expect(mergeSettings({})).toMatchObject({ slowSolveThreshold: 3, slowSolveHandling: "exclude" });
+  expect(mergeSettings({ slowSolveThreshold: 2.5, slowSolveHandling: "dnf" })).toMatchObject({ slowSolveThreshold: 2.5, slowSolveHandling: "dnf" });
+  expect(mergeSettings({ slowSolveThreshold: NaN, slowSolveHandling: "invalid" } as never)).toMatchObject({ slowSolveThreshold: 3, slowSolveHandling: "exclude" });
+  const solve = { id: "outlier", sessionId: "A", createdAt: 1, rawMs: 40000, penalty: "none", source: "keyboard", moves: [], scramble: "",
+    statisticsOutlier: { action: "dnf", baselineMs: 10000, multiplier: 3 } } as const;
+  const restored = migrateSolve(solve as unknown as Parameters<typeof migrateSolve>[0]);
+  expect(restored.statisticsOutlier).toBeUndefined(); expect(restored.rawMs).toBe(40000); expect(restored.penalty).toBe("none");
+});

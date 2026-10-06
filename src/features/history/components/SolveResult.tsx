@@ -1,3 +1,4 @@
+import { SolveOutlierNotice } from "./SolveOutlierNotice";
 import { SolveAnalysisReview } from "./SolveAnalysisReview";
 import type { SolveStep } from "../../../cube/analysis";
 import { useController } from "../../../app/useController";
@@ -45,6 +46,7 @@ export function SolveResult({
         <div>
           <div className="result-title-row">
             <div className="panel-title">Result</div>
+            <SolveOutlierNotice solve={solve} />
             {slowSolve ? <span className="phase-case muted">slow solve</span> : null}
             {!slowSolve && solve.replay ? <span className="phase-case muted">replay</span> : null}
             {specialLabel ? (

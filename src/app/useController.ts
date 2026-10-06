@@ -1,4 +1,5 @@
-import { createContext, useContext, useSyncExternalStore } from "react";
+import { applySolveThreshold } from "../features/statistics/state/solveThreshold";
+import { createContext, useContext, useSyncExternalStore, useMemo } from "react";
 import type { Controller } from "./Controller";
 import type { Store } from "../shared/store";
 
@@ -24,7 +25,21 @@ export function useTrainingState() {
 
 export function useTimerState() { return useStore(useController().timer.state); }
 export function useCubeState() { return useStore(useController().physical.state); }
-export function useSessionState() { return useStore(useController().sessions); }
+export function useSolveThresholdSettings() {
+  const controller = useController();
+  const slowSolveThreshold = useStoreValue(controller.settings, settings => settings.slowSolveThreshold);
+  const slowSolveHandling = useStoreValue(controller.settings, settings => settings.slowSolveHandling);
+  return useMemo(() => ({ slowSolveThreshold, slowSolveHandling }), [slowSolveThreshold, slowSolveHandling]);
+}
+
+export function useSessionState() {
+  const state = useStore(useController().sessions);
+  const threshold = useSolveThresholdSettings();
+  return useMemo(() => {
+    const solves = applySolveThreshold(state.solves, threshold);
+    return { ...state, solves, lastSolve: state.lastSolve ? solves.find(solve => solve.id === state.lastSolve!.id) ?? state.lastSolve : null };
+  }, [state, threshold]);
+}
 export function useSettings() { return useStore(useController().settings); }
 
 /** Select stable facts without subscribing a consumer to unrelated move updates. */

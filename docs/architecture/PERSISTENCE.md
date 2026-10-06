@@ -156,6 +156,23 @@ scramble state + timed moves + grip information
 
 Presentation components do not independently own or persist canonical solves.
 
+## Unusually slow normal solves
+
+Settings owns a multiplier (default 3) and handling (default exclude; Off or DNF
+are alternatives). A pure Statistics projection processes raw history in timestamp
+then ID order, separately per Session. It compares a normal finished solve's
+penalty-adjusted time with the median of the previous up-to-20 positive finite
+counted finished times, requiring at least five. Only times strictly above the
+threshold are flagged; flagged solves never enter later baselines.
+
+The projection covers existing and future history and recomputes when settings
+change. It supplies ephemeral `statisticsOutlier` metadata to session presentation,
+Statistics and result comparisons. Exclusion uses the shared counted eligibility
+rule; DNF uses the shared effective-time rule and ordinary DNF average semantics.
+Raw times, manual penalties, analysis and history remain intact. Persistence strips
+the derived annotation; exports retain raw facts. Destructive rewriting of slow-mode
+flags or manual penalties is rejected because changing policy must be reversible.
+
 ## Persistence
 
 `src/infrastructure/persistence/db.ts` owns IndexedDB access.

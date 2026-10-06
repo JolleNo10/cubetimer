@@ -1,3 +1,4 @@
+import { SolveOutlierNotice } from "../../history/components/SolveOutlierNotice";
 import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { formatTime } from "../../../shared/time";
 import { useMemo, useState } from "react";
@@ -88,6 +89,7 @@ export function StatisticsRecords({ model, onOpenSolve }: { model: StatisticsVie
           return <td key={id} className={id === "session" || id === "date" ? undefined : "number"}>
             {id === "time" ? <button className="ghost small mono stats-open-link" onClick={() => onOpenSolve(row.solve)}>{formatSolveTime(row.solve)}</button>
               : id === "session" ? row.session : id === "date" ? date(row.date) : id === "stm" ? row.stm ?? "—" : id === "tps" ? row.tps?.toFixed(2) ?? "—" : formatTime(row[id as "cross" | "f2l" | "oll" | "pll"])}
+            {id === "time" ? <SolveOutlierNotice solve={row.solve} /> : null}
             {id === "cross" && row.xCrossCount ? <span className="stats-badge" title={`${row.xCrossCount} pairs already solved at Cross`}>XCross · {row.xCrossCount}</span> : null}
           </td>;
         })}

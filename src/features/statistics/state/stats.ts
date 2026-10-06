@@ -129,9 +129,9 @@ function effectiveScope(current: Solve, options: ComparisonOptions): CompareScop
 
 /** The single eligibility rule shared by ordinary statistics and their richer views. */
 export function isCountedSolve(
-  solve: Pick<Solve, "practice" | "replay" | "slowSolve">,
+  solve: Pick<Solve, "practice" | "replay" | "slowSolve" | "statisticsOutlier">,
 ): boolean {
-  return solve.practice !== true && solve.replay !== true && solve.slowSolve !== true;
+  return solve.practice !== true && solve.replay !== true && solve.slowSolve !== true && solve.statisticsOutlier?.action !== "exclude";
 }
 
 /**
@@ -152,7 +152,7 @@ export function compareSolveToHistory(
   const comparisonSolves = prior
     .filter((solve) => {
       const analysis = solve.analysis;
-      return solve.replay !== true
+      return !solve.statisticsOutlier && solve.replay !== true
         && isSlowSolve(solve) === isSlowSolve(currentSolve)
         && analysis !== null
         && analysis !== undefined
@@ -512,7 +512,7 @@ export function sessionStats(all: Solve[]): SessionStats {
 }
 
 export function formatSolveTime(solve: Solve): string {
-  if (solve.penalty === "DNF") return `DNF(${formatTime(solve.rawMs)})`;
+  if (effectiveMs(solve) === null) return `DNF(${formatTime(solve.rawMs)})`;
   const time = formatTime(effectiveMs(solve));
   return solve.penalty === "+2" ? `${time}+` : time;
 }
