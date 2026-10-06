@@ -6,8 +6,8 @@ import { deriveStatistics, type StatisticsSnapshot } from "../state/statistics";
 import type { Solve } from "../../../app/types";
 import { StatisticsView, StatisticsNavigation, StatisticsOverview, SessionTable } from "./StatisticsView";
 import { Pagination, StatCard, StatsSection } from "./StatisticsPrimitives";
-import { StatisticsRecords, StatisticsRankingTable, StatisticsAverageDetail } from "./StatisticsRecords";
-import { StatisticsCaseTable, StatisticsF2lPerformance, PerformanceTable } from "./StatisticsAnalysisTables";
+import { StatisticsRecords, StatisticsRankingTable, StatisticsAverageDetail, StatisticsCfopRecords } from "./StatisticsRecords";
+import { StatisticsCaseTable, StatisticsF2lPerformance, PerformanceTable, SortHeader } from "./StatisticsAnalysisTables";
 import { StatisticsSolveDetail } from "./StatisticsSolveDetail";
 import { ReplayDialog } from "../../history/components/ReplayDialog";
 import { AnalyticsDialog } from "../../history/components/AnalyticsDialog";
@@ -182,8 +182,19 @@ describe("Statistics user interactions", () => {
     expect(onOpenSolve).toHaveBeenCalledWith(snapshot.solves[0]);
     find(tree, (element) => element.type === "tr" && element.props.tabIndex === 0).props.onKeyDown(keyEvent("Enter"));
     expect(onOpenSolve).toHaveBeenCalledTimes(2);
-    find(tree, (element) => element.type === "select" && element.props.value === "case").props.onChange({ target: { value: "median" } });
-    expect(find(render(), (element) => element.type === PerformanceTable).props.rows[0].caseId).toBe("27");
+    expect(elements(tree).some((element) => element.type === "select")).toBe(false);
+    const table = () => find(render(), (element) => element.type === PerformanceTable);
+    expect(table().props.rows.map((row: { caseId: string }) => row.caseId)).toEqual(["2", "27"]);
+    table().props.sort.onSort("median");
+    expect(table().props.sort).toMatchObject({ column: "median", direction: "asc" });
+    expect(table().props.rows[0].caseId).toBe("27");
+    table().props.sort.onSort("median");
+    expect(table().props.sort.direction).toBe("desc");
+    expect(table().props.rows[0].caseId).toBe("2");
+    table().props.sort.onSort("case");
+    expect(table().props.sort).toMatchObject({ column: "case", direction: "asc" });
+    const header = PerformanceTable(table().props as Parameters<typeof PerformanceTable>[0]);
+    expect(elements(header).filter((element) => element.type === SortHeader).map((element) => element.props.label)).toEqual(["Case", "Samples", "Best", "Median", "Measured recognition median", "Measured execution median", "STM median", "Execution TPS", "Skips"]);
   });
 
   it("expands an F2L position and opens its contributing solve from a row or solve time", () => {
@@ -213,6 +224,9 @@ describe("Statistics user interactions", () => {
     expect(elements(tree).some((element) => element.props["aria-label"] === "F2L position solves")).toBe(false);
     find(tree, (element) => element.type === "button" && element.props.children === "By slot").props.onClick();
     expect(find(render(), (element) => element.type === PerformanceTable).props.rows.map((row: { label: string }) => row.label)).toEqual(["FR", "FL", "BR", "BL"]);
+    find(render(), (element) => element.type === PerformanceTable).props.sort.onSort("count");
+    find(render(), (element) => element.type === PerformanceTable).props.sort.onSort("count");
+    expect(find(render(), (element) => element.type === PerformanceTable).props.rows[0].label).toBe("BL");
     expect(find(render(), (element) => element.type === "p" && element.props.children === "Solver-relative F2L slot · skipped/XCross pairs counted separately")).toBeDefined();
   });
 
@@ -363,5 +377,19 @@ controller.sessions.update((state) => ({ ...state, sessionId: "A", sessions: sna
     find(tree, (element) => element.type === "button" && element.props.children === "View").props.onClick();
     tree = render();
     expect(find(tree, (element) => element.props["aria-label"] === "OLL case solves")).toBeDefined();
+  });
+
+  it("reverses a CFOP ranking from its value header instead of a direction selector", () => {
+    const render = () => renderRoot(() => StatisticsCfopRecords({ model, onOpenSolve: vi.fn() }));
+    let tree = render();
+    expect(elements(tree).filter((element) => element.type === "select")).toHaveLength(1);
+    const table = () => find(tree, (element) => element.type === StatisticsRankingTable);
+    expect(table().props.direction).toBe("asc");
+    table().props.onToggleDirection();
+    tree = render();
+    expect(table().props.direction).toBe("desc");
+    const ranked = StatisticsRankingTable({ ...(table().props as Parameters<typeof StatisticsRankingTable>[0]), rows: model.records.single });
+    const header = find(ranked, (element) => element.type === "th" && element.props["aria-sort"] !== undefined);
+    expect(header.props["aria-sort"]).toBe("descending");
   });
 });

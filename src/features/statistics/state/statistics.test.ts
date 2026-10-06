@@ -16,6 +16,7 @@ import {
   sliceChartWindow,
   sortRankingRows,
   sortCasePerformance,
+  sortPerformanceRows,
   sortSolveRows,
   type StatisticsSnapshot,
 } from "./statistics";
@@ -703,5 +704,21 @@ describe("Statistics insights", () => {
     expect(series.recognition).toHaveLength(50);
     expect(series.averages[0].solveId).toBe("s10");
     expect(chartWindowSeries(model, "all").trend).toHaveLength(60);
+  });
+});
+
+describe("performance table sorting", () => {
+  const row = (label: string, values: { bestMs?: number; moves?: number; skipCount?: number; tps?: number }) =>
+    ({ label, count: 1, skipCount: values.skipCount ?? 0, solveIds: [], samples: [], ...values });
+  const rows = [row("10", { bestMs: 900, moves: 9, skipCount: 2 }), row("2", { bestMs: 1200, moves: 7, tps: 5 }), row("1", { moves: 7, skipCount: 1, tps: 3 })];
+
+  it("sorts labels naturally and every metric column with missing values last", () => {
+    expect(sortPerformanceRows(rows, "case", "asc").map((item) => item.label)).toEqual(["1", "2", "10"]);
+    expect(sortPerformanceRows(rows, "case", "desc").map((item) => item.label)).toEqual(["10", "2", "1"]);
+    expect(sortPerformanceRows(rows, "best", "asc").map((item) => item.label)).toEqual(["10", "2", "1"]);
+    expect(sortPerformanceRows(rows, "best", "desc").map((item) => item.label)).toEqual(["2", "10", "1"]);
+    expect(sortPerformanceRows(rows, "moves", "asc").map((item) => item.label)).toEqual(["1", "2", "10"]);
+    expect(sortPerformanceRows(rows, "skips", "desc").map((item) => item.label)).toEqual(["10", "1", "2"]);
+    expect(sortPerformanceRows(rows, "tps", "desc").map((item) => item.label)).toEqual(["2", "1", "10"]);
   });
 });

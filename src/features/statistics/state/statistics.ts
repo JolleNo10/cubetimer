@@ -222,7 +222,8 @@ export type PerformanceSummary = {
   bestMs?: number; medianMs?: number; recognitionMs?: number; executionMs?: number; moves?: number; tps?: number;
 };
 export type CasePerformance = PerformanceSummary & { caseId: string };
-export type CaseSort = "case" | "count" | "median" | "recognition" | "execution" | "tps";
+/** Sortable performance-table columns; "case" is the row label (case, slot or pair order). */
+export type CaseSort = "case" | "count" | "best" | "median" | "recognition" | "execution" | "moves" | "tps" | "skips";
 export type PauseStats = {
   sampleSize: number; pauseCount: number; meanCount: number; meanDurationMs?: number; meanTotalMs: number;
   pauseFreeCount: number; pauseFreeShare: number;
@@ -382,12 +383,19 @@ function casePerformance(facts: readonly AnalysedSolveFacts[], index: 5 | 6): Ca
 }
 
 export function sortCasePerformance(rows: readonly CasePerformance[], sort: CaseSort, direction: SortDirection): CasePerformance[] {
-  const key = { count: "count", median: "medianMs", recognition: "recognitionMs", execution: "executionMs", tps: "tps" } as const;
+  return sortPerformanceRows(rows, sort, direction);
+}
+
+/** Labels sort naturally; missing metrics stay last in either direction; ties keep label order. */
+export function sortPerformanceRows<T extends PerformanceSummary>(rows: readonly T[], sort: CaseSort, direction: SortDirection): T[] {
+  const key = { count: "count", best: "bestMs", median: "medianMs", recognition: "recognitionMs", execution: "executionMs", moves: "moves", tps: "tps", skips: "skipCount" } as const;
+  const label = (a: T, b: T) => a.label.localeCompare(b.label, undefined, { numeric: true });
+  const sign = direction === "asc" ? 1 : -1;
   return [...rows].sort((a, b) => {
-    const order = sort === "case" ? a.caseId.localeCompare(b.caseId, undefined, { numeric: true })
-      : a[key[sort]] === undefined ? b[key[sort]] === undefined ? 0 : 1
-      : b[key[sort]] === undefined ? -1 : (a[key[sort]]! - b[key[sort]]!) * (direction === "asc" ? 1 : -1);
-    return (sort === "case" ? order * (direction === "asc" ? 1 : -1) : order) || a.caseId.localeCompare(b.caseId, undefined, { numeric: true });
+    if (sort === "case") return label(a, b) * sign;
+    const av = a[key[sort]], bv = b[key[sort]];
+    const order = av === undefined ? bv === undefined ? 0 : 1 : bv === undefined ? -1 : (av - bv) * sign;
+    return order || label(a, b);
   });
 }
 

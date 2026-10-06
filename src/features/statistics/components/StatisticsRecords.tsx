@@ -33,7 +33,11 @@ export function StatisticsAverageDetail({ window, solves, sessions, onOpenSolve,
   </div>;
 }
 
-export function StatisticsRankingTable({ rows, metric, model, onOpen }: { rows: readonly RankingRow[]; metric: RankingMetric; model: StatisticsViewModel; onOpen: (row: RankingRow) => void }) {
+export function StatisticsRankingTable({ rows, metric, model, onOpen, direction, onToggleDirection }: {
+  rows: readonly RankingRow[]; metric: RankingMetric; model: StatisticsViewModel; onOpen: (row: RankingRow) => void;
+  /** When given, the value header reverses the ranking, like the Solves table headers. */
+  direction?: SortDirection; onToggleDirection?: () => void;
+}) {
   const { date } = useDateTimeFormat();
   const definition = RANKING_METRICS.find((item) => item.id === metric)!;
   const [page, setPage] = useState(0);
@@ -43,7 +47,9 @@ export function StatisticsRankingTable({ rows, metric, model, onOpen }: { rows: 
   if (!rows.length) return <div className="chart-empty">No eligible {definition.label} records in this scope.{definition.group === "Averages" ? " An actual complete window is required." : metric !== "single" ? " Usable CFOP analysis is required." : ""}</div>;
   return <>
     <p className="small dim">{rows.length} records · full selected scope</p>
-    <div className="table-scroll"><table className="stats-table"><thead><tr><th>Rank</th><th>{definition.label}</th><th>Solve time</th><th>STM</th><th>{metric === "tps" || definition.group === "Solve" ? "Whole-solve TPS" : "Execution TPS"}</th>{model.sessionId === null ? <th>Session</th> : null}<th>Date</th><th>Context</th></tr></thead><tbody>
+    <div className="table-scroll"><table className="stats-table"><thead><tr><th>Rank</th>{direction && onToggleDirection
+      ? <th aria-sort={direction === "asc" ? "ascending" : "descending"}><button className="stats-sort" onClick={onToggleDirection}>{definition.label}{direction === "asc" ? " ↑" : " ↓"}</button></th>
+      : <th>{definition.label}</th>}<th>Solve time</th><th>STM</th><th>{metric === "tps" || definition.group === "Solve" ? "Whole-solve TPS" : "Execution TPS"}</th>{model.sessionId === null ? <th>Session</th> : null}<th>Date</th><th>Context</th></tr></thead><tbody>
       {rows.slice(offset, offset + RANKING_PAGE_SIZE).map((row, index) => <tr key={row.id} {...statisticsActivationProps(() => onOpen(row), `${row.kind === "average" ? `View Ao${row.window.size} window` : `View solve ${formatTime(row.totalTime)}`} · ${date(row.createdAt)}`)}>
         <td>{offset + index + 1}</td><td><button className="ghost small mono stats-open-link" onClick={() => onOpen(row)}>{definition.unit === "time" ? formatTime(row.value) : definition.unit === "tps" ? row.value.toFixed(2) : row.value}</button></td>
         <td><button className="ghost small mono stats-open-link" onClick={() => onOpen(row)}>{row.kind === "average" ? "View window" : formatTime(row.totalTime)}</button></td><td>{row.moves ?? "—"}</td><td>{row.tps?.toFixed(2) ?? "—"}</td>
@@ -113,19 +119,15 @@ export function StatisticsCfopRecords({ model, onOpenSolve }: { model: Statistic
   const [metric, setMetric] = useState<RankingMetric>("cross");
   const [direction, setDirection] = useState<SortDirection>("asc");
   const rows = useMemo(() => sortRankingRows(model.records[metric], direction), [model, metric, direction]);
-  const definition = RANKING_METRICS.find((item) => item.id === metric)!;
   const open = (row: RankingRow) => {
     if (row.kind !== "solve") return;
     const solve = model.scopeSolves.find((solve) => solve.id === row.solveId);
     if (solve) onOpenSolve(solve);
   };
-  return <StatsSection id="cfop-records" title="CFOP records" description="Phase times and efficiency · XCross context retained">
-    <div className="statistics-controls">
-      <label className="field">CFOP record metric<select value={metric} onChange={(e) => { const next = e.target.value as RankingMetric; setMetric(next); setDirection(RANKING_METRICS.find((item) => item.id === next)!.direction); }}>{CFOP_METRICS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
-      <label className="field">Ranking direction<select value={direction} onChange={(e) => setDirection(e.target.value as SortDirection)}><option value="asc">{definition.unit === "time" ? "Fastest → slowest" : "Lowest → highest"}</option><option value="desc">{definition.unit === "time" ? "Slowest → fastest" : "Highest → lowest"}</option></select></label>
-    </div>
+  return <StatsSection id="cfop-records" title="CFOP records" description="Phase times and efficiency · XCross context retained · select the value header to reverse the ranking"
+    actions={<label className="field compact">CFOP record metric<select value={metric} onChange={(e) => { const next = e.target.value as RankingMetric; setMetric(next); setDirection(RANKING_METRICS.find((item) => item.id === next)!.direction); }}>{CFOP_METRICS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}>
     <p className="small faint">{RECOGNITION_NOTE} Phase TPS uses measured execution time.</p>
-    <StatisticsRankingTable key={`${metric}:${direction}`} rows={rows} metric={metric} model={model} onOpen={open} />
+    <StatisticsRankingTable key={`${metric}:${direction}`} rows={rows} metric={metric} model={model} onOpen={open} direction={direction} onToggleDirection={() => setDirection(direction === "asc" ? "desc" : "asc")} />
   </StatsSection>;
 }
 
