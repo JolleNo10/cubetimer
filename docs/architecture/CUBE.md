@@ -36,6 +36,9 @@ Important responsibilities include:
 - `stepExecution.ts` — what was executed within a step: the catalogue algorithm a
   step ended with, and the looks of a last-layer step;
 - `physicalTurns.ts` — an algorithm as the face turns a smart cube reports;
+- `alternatives.ts` — what a solve could have been: shorter routes to each step's
+  result, other pairs and the best pair order with catalogue algorithms, XCross, and
+  one-look last-layer algorithms, each playable as cube-frame turns;
 - `recognise.ts` and related modules — case recognition;
 - cross modules — cross solving, planning and targeted scramble generation;
 - F2L modules — case authority, recognition, training targets and training metrics;

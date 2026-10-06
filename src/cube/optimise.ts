@@ -59,7 +59,8 @@ export async function findShorter(
     optimal: false,
     tooDeep: false,
   };
-  if (used <= 1) return { ...unchanged, optimal: used === 0 };
+  // Nothing beats one move but no move at all, which would mean the step did nothing.
+  if (used <= 1) return { ...unchanged, optimal: true };
   if (used - 1 > MAX_SEARCH_DEPTH) return { ...unchanged, tooDeep: true };
 
   // Asking the search to hit a target pattern costs it its pruning tables and turns a
