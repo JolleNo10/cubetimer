@@ -3,7 +3,6 @@ import type { SolveAnalysis, SolveStep } from "../../../cube/analysis";
 import { compareSolveToHistory } from "../../statistics/state/stats";
 import { RECOGNITION_NOTE } from "../../statistics/state/statistics";
 import type { Solve } from "../../../app/types";
-import { SolveComparisonPanel } from "./SolveComparison";
 import { DetailedStepBreakdown } from "./StepBreakdown";
 
 /** Shared analytical presentation; callers own navigation and mutation actions. */
@@ -23,8 +22,8 @@ export function SolveAnalysisReview({ solve, solves, analysis, onPracticeStep }:
     </div>
     {analysis.stepsSkipped > 0 ? <div className="result-badge">{analysis.stepsSkipped} {analysis.stepsSkipped === 1 ? "step" : "steps"} skipped</div> : null}
     {analysis.turnsAfterSolution > 0 ? <div className="result-badge">{analysis.turnsAfterSolution} turns after the cube was solved</div> : null}
-    <DetailedStepBreakdown analysis={analysis} onPracticeStep={onPracticeStep} />
-    <SolveComparisonPanel comparison={compareSolveToHistory(solve, solves)} />
+    <DetailedStepBreakdown analysis={analysis} onPracticeStep={onPracticeStep}
+      comparison={compareSolveToHistory(solve, solves)} />
     <p className="result-note">{RECOGNITION_NOTE}</p>
   </>;
 }

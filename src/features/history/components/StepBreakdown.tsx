@@ -5,6 +5,8 @@ import { faceColour, slotColours } from "../../../cube/colours";
 import { ollGroupForCase, pllGroupForCase } from "../../../cube/lastLayerCases";
 import { isRotation, parseMove } from "../../../cube/notation";
 import type { ReplayAction } from "./replayTimeline";
+import type { SolveComparison, StepComparison } from "../../statistics/state/stats";
+import { formatComparisonDelta } from "./SolveComparison";
 
 export const STEP_COLORS: Record<string, string> = {
   Cross: "var(--blue)",
@@ -181,6 +183,22 @@ function describeCase(step: SolveStep): { id: string; hint?: string } | null {
   return { id: step.case };
 }
 
+function ComparisonValue({ comparison }: { comparison: StepComparison }) {
+  if (comparison.skipped) {
+    return <span className="phase-split-value delta-value same" aria-label="Skipped this solve">—</span>;
+  }
+  const delta = formatComparisonDelta(comparison.deltaMs);
+  return (
+    <span
+      className={`phase-split-value delta-value ${delta.direction}`}
+      title={`${formatTime(comparison.currentMs)} this solve · ${formatTime(comparison.baselineMs)} recent median`}
+      aria-label={delta.direction === "same" ? "Same as recent median" : `${delta.text} seconds, ${delta.direction} than recent median`}
+    >
+      {delta.text}
+    </span>
+  );
+}
+
 function StepRow({
   step,
   total,
@@ -190,6 +208,7 @@ function StepRow({
   showSplitTimes,
   timeScale,
   activeReplayAction,
+  comparison,
   onSelect,
   onPractice,
 }: {
@@ -201,6 +220,7 @@ function StepRow({
   showSplitTimes: boolean;
   timeScale?: StepTimeScale;
   activeReplayAction?: ActiveReplayAction;
+  comparison?: StepComparison;
   onSelect?: () => void;
   onPractice?: () => void;
 }) {
@@ -244,6 +264,7 @@ function StepRow({
       <span className="phase-split-value tps-value" aria-label={isSkipped ? "TPS skipped" : `${step.tps.toFixed(1)} TPS`}>
         {isSkipped ? "—" : step.tps.toFixed(1)}
       </span>
+      {comparison ? <ComparisonValue comparison={comparison} /> : null}
     </>
   ) : null;
 
@@ -478,6 +499,7 @@ export function StepBreakdown({
   showMoveGraph = true,
   position,
   activeReplayAction,
+  comparison,
   onPracticeStep,
 }: {
   analysis: SolveAnalysis;
@@ -492,6 +514,8 @@ export function StepBreakdown({
   showMoveGraph?: boolean;
   position?: number;
   activeReplayAction?: ActiveReplayAction;
+  /** Per-step difference from recent solves; its steps line up with `analysis.steps`. */
+  comparison?: SolveComparison | null;
   onPracticeStep?: (step: SolveStep) => void;
 }) {
   const total = Math.max(1, analysis.solvingMs);
@@ -530,6 +554,7 @@ export function StepBreakdown({
           showSplitTimes={showSplitTimes}
           timeScale={timeScale}
           activeReplayAction={activeReplayAction}
+          comparison={comparison?.steps[i]}
           onSelect={onSelectStep ? () => onSelectStep(step) : undefined}
           onPractice={onPracticeStep ? () => onPracticeStep(step) : undefined}
         />
@@ -576,16 +601,18 @@ export function DetailedStepBreakdown({
   activeStep,
   onSelectStep,
   activeReplayAction,
+  comparison,
   onPracticeStep,
 }: {
   analysis: SolveAnalysis;
   activeStep?: number;
   onSelectStep?: (step: SolveStep) => void;
   activeReplayAction?: ActiveReplayAction;
+  comparison?: SolveComparison | null;
   onPracticeStep?: (step: SolveStep) => void;
 }) {
   return (
-    <div className="detailed-breakdown">
+    <div className={`detailed-breakdown${comparison ? " compared" : ""}`}>
       <div className="detailed-breakdown-grid">
         <div className="detailed-step-heading" aria-hidden="true">
           <span>Step</span>
@@ -595,12 +622,18 @@ export function DetailedStepBreakdown({
           <span>Execution</span>
           <span>Moves</span>
           <span>TPS</span>
+          {comparison ? (
+            <span title={`Step time against the median of the last ${comparison.sampleSize} comparable solves`}>
+              vs last {comparison.sampleSize}
+            </span>
+          ) : null}
         </div>
         <StepBreakdown
           analysis={analysis}
           activeStep={activeStep}
           onSelectStep={onSelectStep}
           activeReplayAction={activeReplayAction}
+          comparison={comparison}
           onPracticeStep={onPracticeStep}
           showMoves
           showFullSolution={false}

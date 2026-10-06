@@ -73,10 +73,11 @@ describe("Statistics presentation", () => {
       reviewed,
     ];
     const html = renderToStaticMarkup(<StatisticsSolveDetail solve={reviewed} solves={history} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
-    expect(html).toContain("median of last 3"); expect(html).not.toContain("median of last 6");
-    expect(html).toContain("Compared with recent solves"); expect(html).toContain("2 turns after the cube was solved");
+    expect(html).toContain("vs last 3"); expect(html).not.toContain("vs last 6");
+    expect(html).toContain("delta-value"); expect(html).not.toContain("solve-comparison");
+    expect(html).toContain("2 turns after the cube was solved");
     const result = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><SolveResult solve={reviewed} solves={history} onContinue={() => {}} onReplay={() => {}} onAnalyse={() => {}} onPracticeStep={() => {}} /></ControllerContext.Provider>);
-    expect(result).toContain("median of last 3"); expect(result).toContain("2 turns after the cube was solved");
+    expect(result).toContain("vs last 3"); expect(result).toContain("2 turns after the cube was solved");
     for (const action of ["Delete", "Solve again", "Train", "Back to timer"]) expect(result).toContain(action);
     expect(result).toContain("<input"); expect(result).toMatch(/<button[^>]*>\+2<\/button>/);
   });
