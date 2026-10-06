@@ -15,16 +15,16 @@ describe("Next scramble on the result screen", () => {
     const controller = new Controller();
     controller.timer.state.update(state => ({ ...state, phase: "scrambling", scramble: "R U F' D2" }));
     const html = render(controller);
-    expect(html).toContain("NEXT SCRAMBLE");
-    expect(html).toContain("R U F&#x27; D2");
+    expect(html).toContain(">Next scramble</span>");
+    expect([...html.matchAll(/class="scramble-move">([^<]+)</g)].map(match => match[1])).toEqual(["R", "U", "F&#x27;", "D2"]);
     expect(html).toContain(">Next solve</button>");
-    expect(html).toContain("or hold Space");
+    expect(html).toContain("hold Space, or");
   });
 
   it("tells a cube user to start turning", () => {
     const controller = new Controller();
     controller.physical.state.update(state => ({ ...state, virtualCube: true }));
-    expect(render(controller)).toContain("or start turning the cube");
+    expect(render(controller)).toContain("start turning the cube, or");
   });
 
   it("explains a missing scramble while generating and after the Training review", () => {

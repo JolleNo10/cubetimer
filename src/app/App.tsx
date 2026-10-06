@@ -323,7 +323,7 @@ export function App() {
               </button>
             </div>
           ) : null}
-          {!resultSolve ? <ScramblePanel /> : null}
+          {resultSolve ? <NextScramblePreview onContinue={() => closeResult()} /> : <ScramblePanel />}
           {!resultSolve ? <TimerCoachPanel /> : null}
           <div className="stage">
             {resultSolve ? (
@@ -331,7 +331,6 @@ export function App() {
                 solve={resultSolve}
                 solves={state.solves}
                 onContinue={closeResult}
-                nextScramble={<NextScramblePreview onContinue={() => closeResult()} />}
                 onReplay={(solve) => {
                   setReplayOrigin("timer");
                   setReplayInitialView(null);

@@ -366,9 +366,6 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .result-secondary { margin-top: 6px; color: var(--text-dim); font-size: 13px; }
 .result-secondary b { color: var(--text); font-family: var(--mono); font-variant-numeric: tabular-nums; }
 .result-compact { margin-top: 8px; color: var(--text-dim); font-family: var(--mono); font-variant-numeric: tabular-nums; }
-.result-next-scramble { display: grid; gap: 6px; margin: 0 0 14px; padding: 10px 12px; border: 1px solid color-mix(in oklab, var(--accent) 35%, var(--border)); border-radius: 10px; background: color-mix(in oklab, var(--accent) 6%, transparent); }
-.result-next-scramble-moves { color: var(--text); font-size: 15px; word-break: break-word; line-height: 1.55; }
-.result-next-scramble-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: wrap; }
 .result-context {
   display: grid;
   gap: 10px;
