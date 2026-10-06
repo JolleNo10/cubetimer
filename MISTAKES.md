@@ -546,3 +546,12 @@ cases they were built for. Prevention: run `scripts/compareAnalysis.ts` over a r
 export before and after any change to phase dating, recognition or case naming, and
 compare the tallies.
 
+
+## Staged renames swept into an unrelated commit
+
+A `git mv` and `git rm` for the Review dialog were staged while a separate analysis
+fix was committed with `git add <files> && git commit`, which commits the whole index.
+The fix commit (015acc7) therefore also renamed the Replay dialog and deleted the
+Analysis tools dialog, and does not build on its own; the next commit completed the
+change. Prevention: check `git diff --cached --stat` before every commit, and stage
+renames and deletions only when committing the change they belong to.
