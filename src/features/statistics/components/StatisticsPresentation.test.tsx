@@ -23,7 +23,7 @@ const sessions = [{ id: "history", name: "History Session", event: "333" as cons
 describe("Statistics presentation", () => {
   it("renders a read-only historical solve with seven-step CFOP, metrics, and review actions", () => {
     const reviewed = { ...solve, inspectionMs: 12000 };
-    const html = renderToStaticMarkup(<StatisticsSolveDetail solve={reviewed} solves={[reviewed]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
+    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={reviewed} solves={[reviewed]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
     expect(html).toContain("4.10+"); expect(html).toContain("History Session");
     expect(html).toContain("Read-only note"); expect(html).toContain("STM"); expect(html).toContain("Whole-solve TPS");
     expect(html).toContain("Measured recognition"); expect(html).toContain("Execution"); expect(html).toContain("Pauses ≥250\u00a0ms");
@@ -43,14 +43,14 @@ describe("Statistics presentation", () => {
   });
 
   it("shows missing analysis without fabricated metrics", () => {
-    const html = renderToStaticMarkup(<StatisticsSolveDetail solve={{ ...solve, analysis: null, moves: [] }} solves={[]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
+    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={{ ...solve, analysis: null, moves: [] }} solves={[]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
     expect(html).toContain("No usable move-by-move CFOP analysis");
     expect(html).not.toContain("Whole-solve TPS");
     expect(html).toContain("disabled");
   });
 
   it("can review recorded CFOP analysis on a DNF average constituent", () => {
-    const html = renderToStaticMarkup(<StatisticsSolveDetail solve={{ ...solve, penalty: "DNF" }} solves={[solve]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
+    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={{ ...solve, penalty: "DNF" }} solves={[solve]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
     expect(html).toContain("DNF(2.10)");
     expect(html).toContain("Measured recognition");
     expect(html).toContain("F2L Slot 4");
@@ -58,7 +58,7 @@ describe("Statistics presentation", () => {
   });
 
   it("keeps a stored breakdown viewable without enabling raw-move tools", () => {
-    const html = renderToStaticMarkup(<StatisticsSolveDetail solve={{ ...solve, moves: [], source: "import", penalty: "none" }} solves={[solve]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
+    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={{ ...solve, moves: [], source: "import", penalty: "none" }} solves={[solve]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Replay<\/button>/);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Tools<\/button>/);
     expect(html).toContain("F2L Slot 4"); expect(html).toContain("Measured recognition");
@@ -72,7 +72,7 @@ describe("Statistics presentation", () => {
       ...Array.from({ length: 3 }, (_, index) => ({ ...solve, id: `other${index}`, sessionId: "other", createdAt: index + 3 })),
       reviewed,
     ];
-    const html = renderToStaticMarkup(<StatisticsSolveDetail solve={reviewed} solves={history} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} />);
+    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={reviewed} solves={history} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
     expect(html).toContain("vs last 3"); expect(html).not.toContain("vs last 6");
     expect(html).toContain("delta-value"); expect(html).not.toContain("solve-comparison");
     expect(html).toContain("2 turns after the cube was solved");

@@ -468,6 +468,57 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .phase-scale-area > .phase-row { position: relative; z-index: 1; }
 .phase-scale-guides { position: absolute; top: 20px; bottom: 0; left: 0; right: 0; pointer-events: none; z-index: 0; }
 .phase-scale-guides i { position: absolute; top: 0; bottom: 0; width: 1px; background: color-mix(in oklab, var(--border-strong) 45%, transparent); }
+/* Result charts sit left of the step table when the panel is wide, above it otherwise. */
+.result-analysis { container-type: inline-size; min-width: 0; }
+.result-analysis-body { display: grid; gap: 18px; min-width: 0; }
+@container (min-width: 1060px) {
+  .result-analysis-body { grid-template-columns: minmax(340px, 400px) minmax(0, 1fr); align-items: start; }
+}
+.result-charts { display: grid; gap: 10px; align-content: start; min-width: 0; }
+.result-charts-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.result-charts-tabs { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.result-charts-tabs button { padding: 4px 11px; }
+.result-charts-tabs button[aria-pressed="true"] { color: var(--accent); border-color: var(--accent); background: color-mix(in oklab, var(--accent) 12%, transparent); }
+.result-charts-tabs.secondary button { font-size: 11.5px; padding: 3px 9px; }
+.result-charts-scope { display: inline-flex; align-items: center; gap: 6px; }
+.result-charts-scope select { padding: 3px 6px; font-size: 12px; }
+.result-charts svg { display: block; width: 100%; height: auto; overflow: visible; }
+.rc-axis { fill: var(--text-faint); font-size: 10px; font-family: var(--mono); }
+.rc-label { fill: var(--text-dim); font-size: 11px; font-family: var(--sans); }
+.rc-grid { stroke: color-mix(in oklab, var(--border-strong) 60%, transparent); stroke-width: 1; }
+.rc-empty { padding: 24px 0; text-align: center; }
+.rc-key { line-height: 1.4; }
+.rc-dot { stroke: var(--panel); stroke-width: 2; }
+.rc-usual { fill: none; stroke: var(--text-dim); stroke-dasharray: 2 2; }
+.rc-arrow { stroke: var(--text-dim); stroke-width: 1.3; }
+.rc-arrowhead { fill: var(--text-dim); }
+.rc-bullets { display: grid; gap: 8px; }
+.rc-bullet-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) 48px 90px; align-items: center; gap: 8px; }
+.rc-row-label { color: var(--text-dim); font-size: 12px; }
+.result-charts svg.rc-bullet { height: 22px; }
+.result-charts svg.rc-spark { width: 90px; height: 20px; }
+.rc-track { fill: var(--panel-2); }
+.rc-band { fill: color-mix(in oklab, var(--text-faint) 30%, transparent); }
+.rc-median { stroke: var(--text); stroke-width: 2; }
+.rc-spark-line { fill: none; stroke: var(--text-faint); stroke-width: 1.3; }
+.rc-delta { text-align: right; white-space: nowrap; }
+.rc-delta.faster { color: var(--accent); }
+.rc-delta.slower { color: var(--amber); }
+.rc-delta.same { color: var(--text-faint); }
+.result-charts svg.rc-dial { max-width: 360px; justify-self: center; }
+.rc-rim { fill: none; stroke: color-mix(in oklab, var(--border-strong) 60%, transparent); }
+.rc-dial-arc { fill: none; stroke-linecap: round; }
+.rc-dial-arc.turning { stroke-width: 14; }
+.rc-dial-arc.recognising { stroke-width: 10; }
+.rc-dial-tick { stroke: var(--text-dim); stroke-width: 1.2; }
+.rc-dial-total { fill: var(--text); font-size: 30px; font-weight: 700; }
+.rc-quadrant { fill: color-mix(in oklab, var(--accent) 7%, transparent); }
+.rc-divider { stroke: var(--border-strong); stroke-dasharray: 4 3; }
+.rc-corner { fill: var(--text-faint); font-size: 9.5px; letter-spacing: 0.04em; font-family: var(--sans); }
+.rc-curve { fill: none; stroke: var(--text-faint); stroke-dasharray: 3 4; }
+.rc-spread { display: grid; gap: 6px; }
+.rc-sample { fill: var(--text-faint); opacity: 0.55; }
+.rc-median-tick { stroke: var(--text-dim); stroke-width: 1.5; }
 .result-note { margin: 12px 0 0; color: var(--text-faint); font-size: 11px; line-height: 1.45; }
 .result-no-analysis { padding: 30px 10px; }
 

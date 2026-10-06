@@ -1,9 +1,10 @@
 import { formatTime } from "../../../shared/time";
 import type { SolveAnalysis, SolveStep } from "../../../cube/analysis";
-import { compareSolveToHistory } from "../../statistics/state/stats";
 import { RECOGNITION_NOTE } from "../../statistics/state/statistics";
 import type { Solve } from "../../../app/types";
 import { DetailedStepBreakdown } from "./StepBreakdown";
+import { ResultCharts } from "./resultCharts/ResultCharts";
+import { useResultHistory } from "./resultCharts/useResultHistory";
 
 /** Shared analytical presentation; callers own navigation and mutation actions. */
 export function SolveAnalysisReview({ solve, solves, analysis, onPracticeStep }: {
@@ -11,6 +12,7 @@ export function SolveAnalysisReview({ solve, solves, analysis, onPracticeStep }:
   onPracticeStep?: (step: SolveStep) => void;
 }) {
   const pauseMs = analysis.pauses.reduce((sum, pause) => sum + pause.durationMs, 0);
+  const history = useResultHistory(solve, solves);
   return <>
     <div className="result-metrics">
       <ReviewMetric label="Measured recognition" value={formatTime(analysis.totalRecognitionMs)} />
@@ -22,8 +24,15 @@ export function SolveAnalysisReview({ solve, solves, analysis, onPracticeStep }:
     </div>
     {analysis.stepsSkipped > 0 ? <div className="result-badge">{analysis.stepsSkipped} {analysis.stepsSkipped === 1 ? "step" : "steps"} skipped</div> : null}
     {analysis.turnsAfterSolution > 0 ? <div className="result-badge">{analysis.turnsAfterSolution} turns after the cube was solved</div> : null}
-    <DetailedStepBreakdown analysis={analysis} onPracticeStep={onPracticeStep}
-      comparison={compareSolveToHistory(solve, solves)} />
+    {/* Chart beside the table when the panel is wide enough, above it otherwise. */}
+    <div className="result-analysis">
+      <div className="result-analysis-body">
+        <ResultCharts analysis={analysis} comparison={history.comparison} spread={history.spread}
+          scope={history.scope} loading={history.loading} onScope={history.setScope} />
+        <DetailedStepBreakdown analysis={analysis} onPracticeStep={onPracticeStep}
+          comparison={history.comparison} />
+      </div>
+    </div>
     <p className="result-note">{RECOGNITION_NOTE}</p>
   </>;
 }

@@ -14,7 +14,7 @@ These documents describe current state. Start at [SYSTEM.md](SYSTEM.md); load on
 | JSON backup/import | `src/features/data-transfer/dataTransfer.ts`, Session merge rules in `sessionService.ts` |
 | CSV contract | `src/features/data-transfer/solveCsv.ts`, `csv.ts`, transfer tests |
 | Statistics scope/averages/projections | `src/features/statistics/state/stats.ts`, `statistics.ts`; `src/features/statistics/components/StatisticsView.tsx`, `StatisticsCharts.tsx` |
-| Solve/replay/result presentation | `src/features/history/components/SolveResult.tsx`, `StepBreakdown.tsx`, `ReplayDialog.tsx`, `replayTimeline.ts`, `replayFocus.ts` |
+| Solve/replay/result presentation | `src/features/history/components/SolveResult.tsx`, `StepBreakdown.tsx`, `resultCharts/`, `ReplayDialog.tsx`, `replayTimeline.ts`, `replayFocus.ts` |
 | Persisted Solve scramble-provider encoding/display labels | `src/app/scrambleProvider.ts` |
 
 Load [RUNTIME.md](RUNTIME.md) for live context integration, [TRAINING.md](TRAINING.md) for historical practice, or [CUBE.md](CUBE.md) for derived analysis/frame meaning.
