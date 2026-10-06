@@ -1,11 +1,13 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { moveGuideForToken } from "../../cube/moveGuide";
-import { CubeMoveGuide } from "./CubeMoveGuide";
+import { CubeMoveGuide, type GuideCamera } from "./CubeMoveGuide";
 
-function render(token: string) {
-  return renderToStaticMarkup(<CubeMoveGuide move={moveGuideForToken(token)!} />);
+function render(token: string, camera?: GuideCamera) {
+  return renderToStaticMarkup(<CubeMoveGuide move={moveGuideForToken(token)!} camera={camera} />);
 }
+const surfaces = (html: string) =>
+  [...html.matchAll(/data-surface="([xyz])" data-normal="(-?1)"/g)].map(([, surface, normal]) => `${surface}${normal}`);
 
 describe("Cube move surface guidance", () => {
   it.each(["M", "M'", "M2", "E", "E'", "E2", "S", "S'", "S2"])("draws only exterior middle bands for %s", token => {
@@ -53,5 +55,20 @@ describe("Cube move surface guidance", () => {
     expect(html.match(/class="cube-guide-arrowhead"/g)).toHaveLength(2);
     expect(html).toContain('data-direction="either"');
     expect(html).toContain("180°");
+  });
+
+  it("draws on the faces turned towards a moved camera", () => {
+    const behindLeft = { latitude: 27, longitude: 212 };
+    expect(surfaces(render("R"))).toEqual(["x1", "y1", "z1"]);
+    expect(surfaces(render("R", behindLeft))).toEqual(["y1", "z-1"]);
+    expect(surfaces(render("L", behindLeft))).toEqual(["x-1", "y1", "z-1"]);
+    const below = { latitude: -27, longitude: 32 };
+    expect(surfaces(render("U", below))).toEqual(["x1", "z1"]);
+    expect(surfaces(render("D", below))).toEqual(["x1", "y-1", "z1"]);
+  });
+
+  it("moves the arc with the camera", () => {
+    const arc = (html: string) => html.match(/class="cube-guide-arc" d="([^"]+)"/)![1];
+    expect(arc(render("R", { latitude: 27, longitude: 212 }))).not.toBe(arc(render("R")));
   });
 });

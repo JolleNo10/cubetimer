@@ -23,7 +23,7 @@ import {
 } from "./replayTimeline";
 import { effectiveMs, type Solve } from "../../../app/types";
 import { moveGuideForToken } from "../../../cube/moveGuide";
-import { CubeMoveGuide } from "../../../shared/ui/CubeMoveGuide";
+import { CubeMoveGuide, DEFAULT_GUIDE_CAMERA, type GuideCamera } from "../../../shared/ui/CubeMoveGuide";
 import { MoveSequence } from "../../../shared/ui/MoveSequence";
 
 const SPEEDS = [0.25, 0.5, 1, 2];
@@ -55,6 +55,7 @@ export function ReplayDialog({
   const [index, setIndex] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(initialView?.speed ?? 1);
+  const [camera, setCamera] = useState<GuideCamera>(DEFAULT_GUIDE_CAMERA);
 
   const moves = solve.moves;
   const steps = solve.analysis?.steps;
@@ -140,7 +141,13 @@ export function ReplayDialog({
     host.appendChild(player);
     playerRef.current = player;
     appliedRef.current = 0;
+    // The move guide is a flat overlay, so it has to be told where the camera went.
+    setCamera(DEFAULT_GUIDE_CAMERA);
+    const orbit = player.experimentalModel.twistySceneModel.orbitCoordinates;
+    const onOrbit = ({ latitude, longitude }: GuideCamera) => setCamera({ latitude, longitude });
+    orbit.addFreshListener(onOrbit);
     return () => {
+      orbit.removeFreshListener(onOrbit);
       player.remove();
       playerRef.current = null;
     };
@@ -265,7 +272,7 @@ export function ReplayDialog({
           </div>
           <div className="replay-stage">
             <div ref={hostRef} className="replay-cube-host" />
-            {guideMove ? <CubeMoveGuide move={guideMove} /> : null}
+            {guideMove ? <CubeMoveGuide move={guideMove} camera={camera} /> : null}
           </div>
           <MoveSequence moves={visibleMoves} currentIndex={index} completedCount={index}
             onSelect={navigate} label="Replay moves" layout="scroll"

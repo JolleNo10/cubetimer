@@ -13,6 +13,7 @@ import type { SolveStep } from "../../../cube/analysis";
 const hooks = vi.hoisted(() => ({
   cursor: 0, slots: [] as unknown[], effects: [] as (() => void)[],
   cleanups: [] as (() => void)[],
+  orbit: null as null | ((value: { latitude: number; longitude: number }) => void),
   player: null as null | { moves: string[]; alg: { toString(): string }; experimentalAddMove: ReturnType<typeof vi.fn>; jumpToEnd: ReturnType<typeof vi.fn> },
 }));
 vi.mock("react", async original => {
@@ -55,6 +56,10 @@ vi.mock("cubing/twisty", () => ({ TwistyPlayer: class {
   experimentalAddMove = vi.fn((move: string) => this.moves.push(move));
   jumpToEnd = vi.fn();
   remove = vi.fn();
+  experimentalModel = { twistySceneModel: { orbitCoordinates: {
+    addFreshListener: (listener: typeof hooks.orbit) => { hooks.orbit = listener; },
+    removeFreshListener: vi.fn(),
+  } } };
   constructor() { hooks.player = this; }
 } }));
 
@@ -68,7 +73,7 @@ class Control {
   closest(selector: string) { return selector.includes(this.tag) ? this : null; }
 }
 beforeEach(() => {
-  hooks.cursor = 0; hooks.slots = []; hooks.effects = []; hooks.cleanups = []; hooks.player = null;
+  hooks.cursor = 0; hooks.slots = []; hooks.effects = []; hooks.cleanups = []; hooks.player = null; hooks.orbit = null;
   now = 0;
   vi.spyOn(performance, "now").mockImplementation(() => now);
   vi.stubGlobal("HTMLElement", Control);
@@ -151,6 +156,15 @@ describe("Replay instruction cursor", () => {
     expect(view.arrow!.move).toMatchObject({ token: "F", axis: "z", layers: [1 / 3, 1] });
     expect(view.breakdown!.activeReplayAction).toMatchObject({ move: "y", rawIndex: 1, source: "grip-rotation" });
     expect(view.breakdown!.activeStep).toBe(1);
+  });
+
+  it("projects the move guide from wherever the camera was dragged", () => {
+    const { render } = fixture();
+    let view = render();
+    expect(view.arrow!.camera).toEqual({ latitude: 27, longitude: 32 });
+    hooks.orbit!({ latitude: -10, longitude: 200 });
+    view = render();
+    expect(view.arrow!.camera).toEqual({ latitude: -10, longitude: 200 });
   });
 
   it("uses start/end and previous/next boundaries, with no arrow at the end", () => {

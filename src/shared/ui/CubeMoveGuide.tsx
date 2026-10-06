@@ -3,45 +3,60 @@ import type { MoveGuide } from "../../cube/moveGuide";
 
 type Point3 = readonly [number, number, number];
 type Point2 = readonly [number, number];
-const LATITUDE = 27 * Math.PI / 180;
-const LONGITUDE = 32 * Math.PI / 180;
+/** Orbit camera angles in degrees, as cubing.js reports them. */
+export type GuideCamera = { latitude: number; longitude: number };
+export const DEFAULT_GUIDE_CAMERA: GuideCamera = { latitude: 27, longitude: 32 };
+type Camera = { sinLat: number; cosLat: number; sinLon: number; cosLon: number };
 const CAMERA_DISTANCE = 6.25;
 const HALF_CUBE_SIZE = 0.555;
 const PROJECTION_SCALE = 200 * HALF_CUBE_SIZE / (CAMERA_DISTANCE * Math.tan(10 * Math.PI / 180));
 const AXIS_INDEX = { x: 0, y: 1, z: 2 } as const;
 
-function cameraDepth([x, y, z]: Point3): number {
-  return x * Math.sin(LONGITUDE) * Math.cos(LATITUDE) + y * Math.sin(LATITUDE) + z * Math.cos(LONGITUDE) * Math.cos(LATITUDE);
+function toCamera({ latitude, longitude }: GuideCamera): Camera {
+  const lat = latitude * Math.PI / 180, lon = longitude * Math.PI / 180;
+  return { sinLat: Math.sin(lat), cosLat: Math.cos(lat), sinLon: Math.sin(lon), cosLon: Math.cos(lon) };
 }
 
-/** Perspective projection tuned to CubeView's fixed PG3D camera. */
-function project([x, y, z]: Point3): Point2 {
-  const depth = cameraDepth([x, y, z]);
+/** Unit vector from the cube centre towards the camera. */
+function cameraDirection(c: Camera): Point3 {
+  return [c.sinLon * c.cosLat, c.sinLat, c.cosLon * c.cosLat];
+}
+
+function cameraDepth(c: Camera, [x, y, z]: Point3): number {
+  const [dx, dy, dz] = cameraDirection(c);
+  return x * dx + y * dy + z * dz;
+}
+
+/** Perspective projection tuned to the PG3D orbit camera. */
+function project(c: Camera, [x, y, z]: Point3): Point2 {
+  const depth = cameraDepth(c, [x, y, z]);
   const scale = PROJECTION_SCALE / (1 - depth * HALF_CUBE_SIZE / CAMERA_DISTANCE);
-  return [200 + scale * (x * Math.cos(LONGITUDE) - z * Math.sin(LONGITUDE)),
-    200 - scale * (-x * Math.sin(LATITUDE) * Math.sin(LONGITUDE) + y * Math.cos(LATITUDE) - z * Math.sin(LATITUDE) * Math.cos(LONGITUDE))];
+  return [200 + scale * (x * c.cosLon - z * c.sinLon),
+    200 - scale * (-x * c.sinLat * c.sinLon + y * c.cosLat - z * c.sinLat * c.cosLon)];
 }
 
 function path(points: readonly Point2[], close = false): string {
   return points.map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(2)},${y.toFixed(2)}`).join(" ") + (close ? " Z" : "");
 }
 
-function surfaceBands(move: MoveGuide) {
+function surfaceBands(c: Camera, move: MoveGuide) {
   const bounds: [number, number][] = [[-1, 1], [-1, 1], [-1, 1]];
   bounds[AXIS_INDEX[move.axis]] = [...move.layers];
-  // Highlight only exterior cubie surfaces, never a slice's internal cut plane.
+  const direction = cameraDirection(c);
+  // Highlight only exterior cubie surfaces facing the camera, never a slice's internal cut plane.
   return (["x", "y", "z"] as const).flatMap((surface) => {
     const axis = AXIS_INDEX[surface];
-    if (surface === move.axis && move.layers[1] !== 1) return [];
+    const side = direction[axis] < 0 ? -1 : 1;
+    if (surface === move.axis && move.layers[side === 1 ? 1 : 0] !== side) return [];
     const others = [0, 1, 2].filter((value) => value !== axis);
     const points = [[0, 0], [1, 0], [1, 1], [0, 1]].map(([a, b]) => {
       const point: [number, number, number] = [0, 0, 0];
-      point[axis] = 1;
+      point[axis] = side;
       point[others[0]] = bounds[others[0]][a];
       point[others[1]] = bounds[others[1]][b];
-      return project(point);
+      return project(c, point);
     });
-    return [{ surface, points }];
+    return [{ surface, side, points }];
   });
 }
 
@@ -53,11 +68,11 @@ function ringPoint(move: MoveGuide, angle: number): Point3 {
   return move.axis === "x" ? [layer, a, b] : move.axis === "y" ? [b, layer, a] : [a, b, layer];
 }
 
-function nearSideAngle(move: MoveGuide): number {
+function nearSideAngle(c: Camera, move: MoveGuide): number {
   let nearest = 0;
   for (let index = 1; index < 72; index++) {
     const angle = index / 72 * Math.PI * 2;
-    if (cameraDepth(ringPoint(move, angle)) > cameraDepth(ringPoint(move, nearest))) nearest = angle;
+    if (cameraDepth(c, ringPoint(move, angle)) > cameraDepth(c, ringPoint(move, nearest))) nearest = angle;
   }
   return nearest;
 }
@@ -71,13 +86,14 @@ function arrowhead(tip: Point2, previous: Point2): string {
     [tip[0] - ux * 14 - uy * 6.5, tip[1] - uy * 14 + ux * 6.5]], true);
 }
 
-export function CubeMoveGuide({ move }: { move: MoveGuide }) {
+export function CubeMoveGuide({ move, camera = DEFAULT_GUIDE_CAMERA }: { move: MoveGuide; camera?: GuideCamera }) {
+  const c = toCamera(camera);
   const id = useId().replaceAll(":", "");
   // Half turns deliberately use a neutral direction and heads at both ends.
   const direction = move.halfTurn ? 1 : move.direction;
   const sweep = move.halfTurn ? Math.PI : Math.PI * 0.75;
-  const start = nearSideAngle(move) - direction * sweep / 2;
-  const points = Array.from({ length: 65 }, (_, index) => project(ringPoint(move, start + direction * index / 64 * sweep)));
+  const start = nearSideAngle(c, move) - direction * sweep / 2;
+  const points = Array.from({ length: 65 }, (_, index) => project(c, ringPoint(move, start + direction * index / 64 * sweep)));
   const label = `${move.token}: ${move.kind === "rotation" ? "whole cube" : move.kind === "wide" ? "two layers" : move.kind === "slice" ? "middle slice" : "outer layer"}${move.halfTurn ? ", 180 degrees" : ""}`;
   return (
     <svg className={`cube-move-guide ${move.kind}${move.halfTurn ? " half-turn" : ""}`} viewBox="0 0 400 400" role="img" aria-label={label}
@@ -87,8 +103,8 @@ export function CubeMoveGuide({ move }: { move: MoveGuide }) {
           <feDropShadow dx="0" dy="1" stdDeviation="1.3" floodColor="var(--bg)" floodOpacity="0.35" />
         </filter>
       </defs>
-      <g className="cube-guide-layer">{surfaceBands(move).map(({ surface, points }) =>
-        <path key={surface} data-surface={surface} data-normal="1" data-layer-min={move.layers[0]} data-layer-max={move.layers[1]} d={path(points, true)} />)}</g>
+      <g className="cube-guide-layer">{surfaceBands(c, move).map(({ surface, side, points }) =>
+        <path key={surface} data-surface={surface} data-normal={side} data-layer-min={move.layers[0]} data-layer-max={move.layers[1]} d={path(points, true)} />)}</g>
       <g filter={`url(#${id}-shadow)`}>
         <path className="cube-guide-arc-shadow" d={path(points)} />
         <path className="cube-guide-arc" d={path(points)} />
