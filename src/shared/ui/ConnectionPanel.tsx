@@ -1,10 +1,17 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { bluetoothAvailable } from "../../infrastructure/bluetooth/smartCube";
 import { useController, useStoreValue } from "../../app/useController";
 import { VIRTUAL_CUBE_HELP } from "./VirtualCubeKeys";
 
 /** Connection state, battery and hardware details for the smart cube. */
-export function ConnectionPanel() {
+export function ConnectionPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const closeButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement;
+    closeButton.current?.focus();
+    return () => { if (previous instanceof HTMLElement) previous.focus(); };
+  }, [open]);
   const controller = useController();
   const cubeStatus = useStoreValue(controller.physical.state, state => state.cubeStatus);
   const hardware = useStoreValue(controller.physical.state, state => state.hardware);
@@ -28,8 +35,14 @@ export function ConnectionPanel() {
   const supported = bluetoothAvailable();
 
   return (
-    <div className="panel connection-panel">
-      <div className="panel-head">
+    <div className="backdrop" style={{ display: open || macRequest ? undefined : "none" }} onClick={() => { if (!macRequest) onClose(); }} onKeyDown={(event) => {
+      event.stopPropagation();
+      if (event.key === "Escape") {
+        if (!macRequest) onClose();
+      }
+    }} onKeyUp={(event) => event.stopPropagation()}>
+    <div className="dialog connection-panel" role="dialog" aria-modal="true" aria-label="Smart cube tools" onClick={(event) => event.stopPropagation()}>
+      <div className="dialog-head">
         <span className="panel-title">Smart cube</span>
         <span className={`chip${cubeStatus === "connected" ? " live" : ""}`}>
           <span className="dot" />
@@ -41,8 +54,9 @@ export function ConnectionPanel() {
                 ? "not connected"
                 : "unavailable"}
         </span>
+        <button ref={closeButton} className="ghost" onClick={onClose} disabled={!!macRequest} aria-label="Close smart cube tools">Close</button>
       </div>
-      <div className="panel-body" style={{ gap: 10, display: "flex", flexDirection: "column" }}>
+      <div className="dialog-body" style={{ gap: 10, display: "flex", flexDirection: "column" }}>
         {!supported ? (
           <div className="small faint">
             Web Bluetooth is not available in this browser. Chrome, Edge or Bluefy on a
@@ -113,6 +127,7 @@ export function ConnectionPanel() {
           }}
         />
       ) : null}
+    </div>
     </div>
   );
 }

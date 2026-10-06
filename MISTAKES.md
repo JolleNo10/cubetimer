@@ -486,3 +486,9 @@ fixture omitted its required Full training set, and a manually fabricated summar
 context did not preserve the runtime's captured context representation. Prevention:
 typecheck new policy seams early and use the runtime's configuration context when
 testing captured-run actions rather than reconstructing lifecycle-owned snapshots.
+
+## Shell encoding in UI edits
+
+A Python edit passed through Windows PowerShell converted a new Unicode ellipsis
+to a question mark. Diff inspection caught it before commit; the label now uses
+plain text. Use ASCII in shell-fed edits or explicit Unicode escapes.

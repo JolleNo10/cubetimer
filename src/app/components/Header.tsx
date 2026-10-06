@@ -6,9 +6,11 @@ import { Icon } from "../../shared/ui/Icon";
 
 export function Header({
   onOpenSettings,
+  onOpenConnection,
   onSelectArea,
 }: {
   onOpenSettings: () => void;
+  onOpenConnection?: () => void;
   onSelectArea: (area: AppArea) => void;
 }) {
   const controller = useController();
@@ -141,15 +143,15 @@ export function Header({
       {state.area === "timer" && !smartEvent ? (
         <span className="chip warn header-warning">smart cube tracking is 3x3x3 only</span>
       ) : null}
-      <span className={`chip header-device${state.cubeStatus === "connected" ? " live" : ""}`}>
+      <button type="button" onClick={onOpenConnection} title="Smart cube tools" aria-label="Smart cube tools" aria-haspopup="dialog" className={`chip header-device${state.cubeStatus === "connected" ? " live" : ""}`}>
         <span className="dot" />
         <span className="header-device-name">{state.cubeStatus === "connected"
           ? (state.hardware?.deviceName ?? "cube")
-          : "no cube"}</span>
+          : state.cubeStatus === "connecting" ? "connecting" : "Smart cube"}</span>
         {state.cubeStatus === "connected" && state.battery !== null
           ? ` · ${state.battery}%`
           : ""}
-      </span>
+      </button>
       <button
         className="ghost icon"
         onClick={onOpenSettings}

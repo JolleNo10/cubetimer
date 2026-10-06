@@ -32,6 +32,7 @@ export function App() {
   const controller = useController();
   const state = { ...useAppState(), ...useSessionState(), settings: useSettings() };
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [connectionOpen, setConnectionOpen] = useState(false);
   const [replaySolve, setReplaySolve] = useState<Solve | null>(null);
   const [replayOrigin, setReplayOrigin] = useState<"timer" | "statistics">("timer");
   const [toolsOrigin, setToolsOrigin] = useState<"timer" | "statistics">("timer");
@@ -207,7 +208,7 @@ export function App() {
   }, [controller, setHoldingBoth, setHoldReadyBoth]);
 
   useEffect(() => {
-    if (replaySolve || settingsOpen) return;
+    if (replaySolve || settingsOpen || connectionOpen) return;
 
     /** Text fields swallow every key; a focused checkbox should only swallow space. */
     const isTextEntry = (target: EventTarget | null) => {
@@ -261,7 +262,7 @@ export function App() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [closeResult, controller, pressStart, pressEnd, replaySolve, resultSolveId, settingsOpen]);
+  }, [closeResult, controller, pressStart, pressEnd, replaySolve, resultSolveId, settingsOpen, connectionOpen]);
 
   useEffect(
     () =>
@@ -293,6 +294,7 @@ export function App() {
     <div className="app">
       <Header
         onOpenSettings={() => setSettingsOpen(true)}
+        onOpenConnection={() => setConnectionOpen(true)}
         onSelectArea={selectArea}
       />
 
@@ -300,7 +302,6 @@ export function App() {
         <StatisticsView currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} onReplay={openStatisticsReplay} onTools={openStatisticsTools} onTrainCase={trainStatisticsCase} onScopeChange={statisticsScopeChanged} />
       ) : <div className="app-body">
         <div className="column left">
-          <ConnectionPanel />
           <SolveList
             solves={state.solves}
             selectedId={selectedSolve?.id ?? null}
@@ -365,6 +366,8 @@ export function App() {
           <StatsPanel solves={state.solves} />
         </div>
       </div>}
+
+      <ConnectionPanel open={connectionOpen} onClose={() => setConnectionOpen(false)} />
 
       {settingsOpen ? (
         <SettingsDialog settings={state.settings} onClose={() => setSettingsOpen(false)} />

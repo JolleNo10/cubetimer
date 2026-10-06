@@ -7,7 +7,6 @@ import { concealsTrainingAnswer, type TrainingState } from "../TrainingRuntime";
 import type { MoveGuide } from "../../../cube/moveGuide";
 import type { TrainingGuideProgress } from "../../../cube/training";
 
-import { ConnectionPanel } from "../../../shared/ui/ConnectionPanel";
 import { CubeView } from "../../../shared/ui/CubeView";
 import { TrainingAlgorithmGuide, type TrainingGuideNavigation } from "./TrainingAlgorithmGuide";
 import { DrillCountdown, TrainingDrillPanel, TrainingDrillControls, TrainingDrillSummary } from "./TrainingDrill";
@@ -44,7 +43,7 @@ export function TrainingWorkspace({ library, details, emptyMessage }: {
   const f2l = family === "f2l";
   return (
     <div className={`app-body ${f2l ? "f2l-training" : "training"}-layout${drill.running ? " drill-running-layout" : drill.status === "summary" ? " drill-summary-layout" : ""}`}>
-      <div className="column left training-library-column">{drill.running ? <TrainingDrillPanel /> : <>{library}<ConnectionPanel /></>}</div>
+      <div className="column left training-library-column">{drill.running ? <TrainingDrillPanel /> : library}</div>
       <div className="column training-workspace-column">
         {error ? <div className="notice error"><span className="grow">{error}</span><button className="ghost" onClick={() => controller.dismissError()}>Dismiss</button></div> : null}
         {drill.status === "summary" ? <TrainingDrillSummary /> : <>
