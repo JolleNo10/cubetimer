@@ -4,6 +4,7 @@
  * Solves carry their whole move stream, so a long session can run to a few megabytes —
  * more than `localStorage` will hold, hence IndexedDB.
  */
+import { DATE_FORMATS, TIME_FORMATS, normaliseTimeZone } from "../../shared/time";
 import { DEFAULT_EVENT_ID, EVENTS, type EventId } from "../../cube/scramble";
 import { COMPARE_SCOPES, DEFAULT_SETTINGS, RESULT_CHARTS, RESULT_SCATTERS, type CompareScope, type Session, type Settings, type Solve, type TrainingAttempt, type TrainingAttemptTarget, type TrainingDrillPreset, type TrainingDrillPresetContext, type TrainingAlgorithmPreference, type TrainingRecognitionAttempt } from "../../app/types";
 import { normalizeTrainingCatalogueIdentity, trainingCatalogueCaseIds, trainingCatalogueKey } from "../../app/trainingCatalogue";
@@ -105,6 +106,9 @@ export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
   const settings = { ...DEFAULT_SETTINGS, ...withoutLegacyEvent };
   return {
     ...settings,
+    timeZone: normaliseTimeZone(settings.timeZone),
+    dateFormat: DATE_FORMATS.includes(settings.dateFormat) ? settings.dateFormat : "locale",
+    timeFormat: TIME_FORMATS.includes(settings.timeFormat) ? settings.timeFormat : "locale",
     ollTrainingSet: normaliseLastLayerTrainingSet(settings.ollTrainingSet),
     pllTrainingSet: normaliseLastLayerTrainingSet(settings.pllTrainingSet),
     xCrossMaxMoves: [4, 5, 6].includes(settings.xCrossMaxMoves)

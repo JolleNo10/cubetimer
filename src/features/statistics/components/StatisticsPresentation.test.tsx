@@ -151,3 +151,13 @@ describe("Statistics presentation", () => {
     expect(html).not.toContain("NaN"); expect(html).not.toContain("Infinity");
   });
 });
+
+it("uses saved calendar formats throughout Statistics records", () => {
+  const controller = new Controller();
+  controller.settings.update(settings => ({ ...settings, dateFormat: "yyyy-mm-dd", timeFormat: "12h", timeZone: "UTC" }));
+  const at = Date.UTC(2026, 9, 6, 14, 5, 9);
+  const historical = { ...solve, createdAt: at };
+  const model = deriveStatistics({ sessions, solves: [historical] }, { event: "333", sessionId: "history" }, "history");
+  const html = renderToStaticMarkup(<ControllerContext.Provider value={controller}><StatisticsRecords model={model} onOpenSolve={() => {}} /></ControllerContext.Provider>);
+  expect(html).toContain("2026-10-06, 2:05:09 PM");
+});

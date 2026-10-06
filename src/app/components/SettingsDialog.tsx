@@ -1,3 +1,4 @@
+import { DATE_FORMATS, TIME_FORMATS, formatDateTime, availableTimeZones } from "../../shared/time";
 import { useState } from "react";
 import { forgetStoredMacs } from "../../infrastructure/bluetooth/smartCube";
 import { FACE_COLOURS, FACES, faceOfColour } from "../../cube/colours";
@@ -12,6 +13,8 @@ export function SettingsDialog({
   settings: Settings;
   onClose: () => void;
 }) {
+  const timeZones = availableTimeZones();
+  const detectedTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
   const controller = useController();
   const [progress, setProgress] = useState<string | null>(null);
   const bottomFace = faceOfColour(settings.crossColour);
@@ -168,6 +171,29 @@ export function SettingsDialog({
               checked={settings.theme === "light"}
               onChange={(light) => set({ theme: light ? "light" : "dark" })}
             />
+          </Section>
+
+          <Section title="Date and time">
+            <div className="field">
+              <label htmlFor="dateFormat">Date format</label>
+              <select id="dateFormat" value={settings.dateFormat} onChange={(e) => set({ dateFormat: e.target.value as Settings["dateFormat"] })}>
+                {DATE_FORMATS.map((format) => <option key={format} value={format}>{format === "locale" ? "Browser default" : format.toUpperCase()}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="timeFormat">Time format</label>
+              <select id="timeFormat" value={settings.timeFormat} onChange={(e) => set({ timeFormat: e.target.value as Settings["timeFormat"] })}>
+                {TIME_FORMATS.map((format) => <option key={format} value={format}>{format === "locale" ? "Browser default" : format === "24h" ? "24-hour (14:30:00)" : "12-hour (2:30:00 PM)"}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="timeZone">Time zone</label>
+              <select id="timeZone" value={settings.timeZone} onChange={(e) => set({ timeZone: e.target.value })}>
+                <option value="">Autodetect ({detectedTimeZone})</option>
+                {[...new Set([...timeZones, ...(settings.timeZone ? [settings.timeZone] : [])])].map((zone) => <option key={zone} value={zone}>{zone.replaceAll("_", " ")}</option>)}
+              </select>
+            </div>
+            <span className="help">Preview: {formatDateTime(Date.UTC(2026, 9, 6, 14, 30), settings)}. Timestamps are saved as UTC instants and displayed in the selected time zone.</span>
           </Section>
 
           <Section title="Your data">

@@ -26,3 +26,11 @@ describe("normaliseSettings", () => {
     expect(withGrip("", "green").frontColour).toBe("green");
   });
 });
+
+it("defaults missing or unsupported calendar formats for older settings", () => {
+  const legacy = { ...DEFAULT_SETTINGS, dateFormat: undefined, timeFormat: "invalid" };
+  const settings = normaliseSettings(legacy as unknown as typeof DEFAULT_SETTINGS);
+  expect(settings.dateFormat).toBe("locale");
+  expect(settings.timeFormat).toBe("locale");
+  expect(normaliseSettings({ ...DEFAULT_SETTINGS, dateFormat: "yyyy-mm-dd", timeFormat: "24h" })).toMatchObject({ dateFormat: "yyyy-mm-dd", timeFormat: "24h" });
+});

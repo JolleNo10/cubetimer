@@ -1,3 +1,4 @@
+import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { formatTime } from "../../../shared/time";
 import type { AverageProgressionPoint, RecognitionTrendPoint, DistributionStats, PhaseTrendPoint, TrendPoint } from "../state/statistics";
 import { statisticsActivationProps } from "./statisticsInteraction";
@@ -96,6 +97,7 @@ export function SolveTimeTrendChart({
   scopeLabel: string;
   onOpenSolve?: (solveId: string) => void;
 }) {
+  const { date } = useDateTimeFormat();
   if (!points.length) return <div className="chart-empty">No counted solves in this scope yet.</div>;
   const finished = points.flatMap((point) => typeof point.time === "number" && Number.isFinite(point.time) ? [point.time] : []);
   const rollingValues = points.flatMap((point) => [
@@ -136,7 +138,7 @@ export function SolveTimeTrendChart({
         {points.map((point, index) => {
           if (point.time !== null && !Number.isFinite(point.time)) return null;
           const x = chartX(index, points.length);
-          const activation = statisticsActivationProps<SVGGElement>(onOpenSolve ? () => onOpenSolve(point.id) : undefined, `View solve ${formatTime(point.time)}${point.isPb ? " · personal best" : ""} · ${new Date(point.createdAt).toLocaleString()}`);
+          const activation = statisticsActivationProps<SVGGElement>(onOpenSolve ? () => onOpenSolve(point.id) : undefined, `View solve ${formatTime(point.time)}${point.isPb ? " · personal best" : ""} · ${date(point.createdAt)}`);
           if (point.time === null) {
             return (
               <g key={point.id} className="chart-dnf" transform={`translate(${x},${HEIGHT - PAD.bottom - 8})`} {...activation} role={onOpenSolve ? "button" : undefined}>

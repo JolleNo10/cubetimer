@@ -488,3 +488,16 @@ describe("Recognition IndexedDB v5 migration", () => {
     await expect(adapter.saveTrainingRecognitionAttempt({ ...a, responseMs: -1 })).rejects.toThrow("Invalid Recognition");
   });
 });
+
+it("loads calendar preferences and safely defaults old or invalid records", () => {
+  expect(mergeSettings({})).toMatchObject({ dateFormat: "locale", timeFormat: "locale" });
+  expect(mergeSettings({ dateFormat: "dd.mm.yyyy", timeFormat: "24h" })).toMatchObject({ dateFormat: "dd.mm.yyyy", timeFormat: "24h" });
+  expect(mergeSettings({ dateFormat: "invalid", timeFormat: null } as never)).toMatchObject({ dateFormat: "locale", timeFormat: "locale" });
+});
+
+it("preserves a saved display zone and auto-detects for older or invalid settings", () => {
+  expect(mergeSettings({ timeZone: "Europe/Oslo" }).timeZone).toBe("Europe/Oslo");
+  expect(mergeSettings({ timeZone: "UTC" }).timeZone).toBe("UTC");
+  expect(mergeSettings({}).timeZone).toBe("");
+  expect(mergeSettings({ timeZone: "Unknown/Zone" }).timeZone).toBe("");
+});

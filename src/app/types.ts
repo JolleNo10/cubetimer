@@ -1,3 +1,4 @@
+import type { DateFormat, TimeFormat } from "../shared/time";
 import type { SolveAnalysis, TimedMove } from "../cube/analysis";
 import type { WhiteCrossMoves } from "../cube/crossScramble";
 import type { EventId } from "../cube/scramble";
@@ -191,6 +192,10 @@ export type Settings = {
   useGyroscope: boolean;
   sound: boolean;
   theme: "dark" | "light";
+  dateFormat: DateFormat;
+  timeFormat: TimeFormat;
+  /** IANA display time zone; empty auto-detects the browser zone. */
+  timeZone: string;
   /** Which chart the result screen shows beside the step breakdown. */
   resultChart: ResultChart;
   /** Which of the scatter views the result screen's scatter chart shows. */
@@ -220,6 +225,9 @@ export const DEFAULT_SETTINGS: Settings = {
   useGyroscope: true,
   sound: true,
   theme: "dark",
+  dateFormat: "locale",
+  timeFormat: "locale",
+  timeZone: "",
   resultChart: "dial",
   resultScatter: "recexec",
 };

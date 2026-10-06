@@ -1,3 +1,4 @@
+import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { useMemo, useState } from "react";
 import { trainingContextHistory } from "../trainingBrowseContext";
 import { TrainingContextSelector } from "./TrainingContextSelector";
@@ -28,6 +29,7 @@ function Metrics({ values }: { values: [string, string | number][] }) {
 
 /** Presentation reads the two histories once; no runtime or Timer context is modified. */
 export function TrainingInsights() {
+  const { date, dateOnly } = useDateTimeFormat();
   const controller = useController(), execution = useStore(controller.trainingAttempts), recognition = useStore(controller.trainingRecognitionAttempts);
   const [window, setWindow] = useState<25 | 50 | 100 | "all">(50);
   const [context, setContext] = useState<TrainingDrillPresetContext | null>(null);
@@ -59,7 +61,7 @@ export function TrainingInsights() {
           <td>{c.execution.attempts} · {status[c.execution.status]}</td><td>{formatTime(c.execution.recentMedianCaseTimeMs ?? c.execution.recentMedianMoveSpanMs)}</td>
           <td>{delta(c.execution.recentMedianDelta)}</td><td>{percent(c.personal.matchRate)}</td><td>{c.recognition.attempts}</td>
           <td>{percent(c.recognition.accuracy)}</td><td>{formatTime(c.recognition.medianCorrectResponseMs)}</td>
-          <td>{c.lastPracticedAt === null ? "—" : new Date(c.lastPracticedAt).toLocaleDateString()}</td></tr>)}</tbody></table> : <p>No catalogue Training history yet.</p>}
+          <td>{c.lastPracticedAt === null ? "—" : dateOnly(c.lastPracticedAt)}</td></tr>)}</tbody></table> : <p>No catalogue Training history yet.</p>}
       <p className="small dim">Recent execution time uses Drill case time when available, otherwise move span.</p>
     </div></section>
     <section className="panel"><div className="panel-head"><h2 className="panel-title">Common recognition confusions</h2></div><div className="panel-body">
@@ -85,10 +87,10 @@ export function TrainingInsights() {
         {[25, 50, 100, "all"].map(n => <option key={n} value={n}>{n === "all" ? "All" : n}</option>)}</select></label></div><div className="panel-body">
       <p className="small dim">Each task has its own chronological window. Time, STM and outcomes are separate columns.</p>
       <details><summary>Execution trend · {trends.execution.length} attempts</summary><div className="table-scroll"><table className="stats-table"><thead><tr><th>Date</th><th>Move span</th><th>Drill case time</th><th>Effective STM delta</th><th>Matched My Algorithm</th></tr></thead><tbody>
-        {trends.execution.map(a => <tr key={a.id}><td>{new Date(a.createdAt).toLocaleString()}</td><td>{formatTime(a.elapsedMs)}</td><td>{formatTime(a.caseTimeMs)}</td><td>{delta(a.effectiveDelta)}</td><td>{a.matchedPreferred === null ? "—" : a.matchedPreferred ? "Yes" : "No"}</td></tr>)}
+        {trends.execution.map(a => <tr key={a.id}><td>{date(a.createdAt)}</td><td>{formatTime(a.elapsedMs)}</td><td>{formatTime(a.caseTimeMs)}</td><td>{delta(a.effectiveDelta)}</td><td>{a.matchedPreferred === null ? "—" : a.matchedPreferred ? "Yes" : "No"}</td></tr>)}
       </tbody></table></div></details>
       <details><summary>Recognition trend · {trends.recognition.length} answers</summary><div className="table-scroll"><table className="stats-table"><thead><tr><th>Date</th><th>Outcome</th><th>Correct response time</th></tr></thead><tbody>
-        {trends.recognition.map(a => <tr key={a.id}><td>{new Date(a.createdAt).toLocaleString()}</td><td>{a.correct ? "Correct" : "Incorrect"}</td><td>{formatTime(a.correctResponseMs)}</td></tr>)}
+        {trends.recognition.map(a => <tr key={a.id}><td>{date(a.createdAt)}</td><td>{a.correct ? "Correct" : "Incorrect"}</td><td>{formatTime(a.correctResponseMs)}</td></tr>)}
       </tbody></table></div></details>
     </div></section>
   </div>;

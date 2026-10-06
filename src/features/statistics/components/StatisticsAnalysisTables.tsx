@@ -1,3 +1,4 @@
+import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { formatTime } from "../../../shared/time";
 import { useMemo, useState } from "react";
 import { formatSolveTime } from "../state/stats";
@@ -14,6 +15,7 @@ export function StatisticsCaseTable({ family, rows, skipCount, model, onOpenSolv
   family: LastLayerFamily; rows: readonly CasePerformance[]; skipCount: number; model: StatisticsViewModel;
   onOpenSolve: (solve: Solve) => void; onTrainCase: (family: LastLayerFamily, caseId: string) => void;
 }) {
+  const { date } = useDateTimeFormat();
   const [sort, setSort] = useState<CaseSort>("case");
   const [direction, setDirection] = useState<SortDirection>("asc");
   const [caseId, setCaseId] = useState<string | null>(null);
@@ -28,13 +30,14 @@ export function StatisticsCaseTable({ family, rows, skipCount, model, onOpenSolv
       <div className="section-heading"><h3>{family.toUpperCase()} {selected.caseId} · {selected.count} solves</h3><div className="row"><button onClick={() => onTrainCase(family, selected.caseId)}>Train case</button><button className="ghost" onClick={() => setCaseId(null)}>Close case</button></div></div>
       <div className="table-scroll"><table className="stats-table"><thead><tr><th>Solve</th><th>Session</th><th>Date</th></tr></thead><tbody>{selected.solveIds.map((id) => {
         const solve = members.get(id);
-        return solve ? <tr key={id} {...statisticsActivationProps(() => onOpenSolve(solve), `View solve ${formatSolveTime(solve)} · ${new Date(solve.createdAt).toLocaleString()}`)}><td><button className="ghost small stats-open-link" onClick={() => onOpenSolve(solve)}>{formatSolveTime(solve)}</button></td><td>{model.eventSessions.find((session) => session.id === solve.sessionId)?.name}</td><td>{new Date(solve.createdAt).toLocaleString()}</td></tr> : null;
+        return solve ? <tr key={id} {...statisticsActivationProps(() => onOpenSolve(solve), `View solve ${formatSolveTime(solve)} · ${date(solve.createdAt)}`)}><td><button className="ghost small stats-open-link" onClick={() => onOpenSolve(solve)}>{formatSolveTime(solve)}</button></td><td>{model.eventSessions.find((session) => session.id === solve.sessionId)?.name}</td><td>{date(solve.createdAt)}</td></tr> : null;
       })}</tbody></table></div>
     </div> : null}
   </section>;
 }
 
 export function StatisticsF2lPerformance({ model, onOpenSolve }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void }) {
+  const { date } = useDateTimeFormat();
   const [position, setPosition] = useState<string | null>(null);
   const [mode, setMode] = useState<"slot" | "order">("slot");
   const rows = mode === "slot" ? model.f2lSlots : model.f2lPositions;
@@ -58,7 +61,7 @@ export function StatisticsF2lPerformance({ model, onOpenSolve }: { model: Statis
           return solve ? <tr key={sample.solveId} {...statisticsActivationProps(() => onOpenSolve(solve), `View solve ${formatSolveTime(solve)} · ${selected.label}`)}>
             <td>{formatTime(sample.timeMs)}</td><td>{formatTime(sample.recognitionMs)}</td><td>{formatTime(sample.executionMs)}</td><td>{sample.moves}</td><td>{sample.tps?.toFixed(2) ?? "—"}</td>
             <td><button className="ghost small stats-open-link" onClick={() => onOpenSolve(solve)}>{formatSolveTime(solve)}</button></td>
-            {model.sessionId === null ? <td>{model.eventSessions.find((session) => session.id === solve.sessionId)?.name}</td> : null}<td>{new Date(solve.createdAt).toLocaleString()}</td>
+            {model.sessionId === null ? <td>{model.eventSessions.find((session) => session.id === solve.sessionId)?.name}</td> : null}<td>{date(solve.createdAt)}</td>
           </tr> : null;
         })}</tbody>
       </table></div> : <div className="chart-empty">No non-skipped samples for this position.</div>}

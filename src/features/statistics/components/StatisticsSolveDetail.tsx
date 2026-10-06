@@ -1,3 +1,4 @@
+import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { formatTime } from "../../../shared/time";
 import { validatedSolveFacts, formatSolveTime } from "../state/stats";
 import { effectiveMs, type Session, type Solve } from "../../../app/types";
@@ -6,12 +7,13 @@ import { SolveAnalysisReview } from "../../history/components/SolveAnalysisRevie
 export function StatisticsSolveDetail({ solve, solves, session, onClose, onReplay, onTools }: {
   solve: Solve; solves: readonly Solve[]; session?: Session; onClose: () => void; onReplay: (solve: Solve) => void; onTools: (solve: Solve) => void;
 }) {
+  const { date } = useDateTimeFormat();
   const facts = validatedSolveFacts(solve);
   const canAnalyse = Boolean(facts && solve.moves.length > 0);
   return <div className="backdrop" onClick={onClose}><div className="dialog wide statistics-solve-detail" role="dialog" aria-modal="true" aria-label="Statistics solve detail" onClick={(e) => e.stopPropagation()}>
     <div className="dialog-head"><h3>Historical solve · {formatSolveTime(solve)}</h3><button className="ghost" onClick={onClose} aria-label="Close solve detail">×</button></div>
     <div className="dialog-body">
-      <p>{session?.name ?? "Unknown Session"} · {new Date(solve.createdAt).toLocaleString()}</p>
+      <p>{session?.name ?? "Unknown Session"} · {date(solve.createdAt)}</p>
       <div className="stat-grid">{[
         ["Result", formatTime(effectiveMs(solve))], ["Raw time", formatTime(solve.rawMs)],
         ["Penalty", solve.penalty === "none" ? "OK" : solve.penalty],

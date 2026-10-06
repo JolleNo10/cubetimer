@@ -1,3 +1,4 @@
+import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { formatTime } from "../../../shared/time";
 import { useMemo, useState } from "react";
 import { formatSolveTime, type AverageWindow } from "../state/stats";
@@ -6,12 +7,12 @@ import type { Session, Solve } from "../../../app/types";
 import { statisticsActivationProps } from "./statisticsInteraction";
 
 const PAGE_SIZE = 50;
-const date = (at: number) => new Date(at).toLocaleString();
 
 export function StatisticsAverageDetail({ window, solves, sessions, onOpenSolve, onClose }: {
   window: AverageWindow; solves: readonly Solve[]; sessions: readonly Session[];
   onOpenSolve: (solve: Solve) => void; onClose: () => void;
 }) {
+  const { date } = useDateTimeFormat();
   const members = new Map(solves.map((solve) => [solve.id, solve]));
   const names = new Map(sessions.map((session) => [session.id, session.name]));
   const first = members.get(window.entries[0]?.solveId);
@@ -29,6 +30,7 @@ export function StatisticsAverageDetail({ window, solves, sessions, onOpenSolve,
 }
 
 export function StatisticsRankingTable({ rows, metric, model, onOpen }: { rows: readonly RankingRow[]; metric: RankingMetric; model: StatisticsViewModel; onOpen: (row: RankingRow) => void }) {
+  const { date } = useDateTimeFormat();
   const definition = RANKING_METRICS.find((item) => item.id === metric)!;
   const [page, setPage] = useState(0);
   const lastPage = Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1);
@@ -56,6 +58,7 @@ const SOLVE_COLUMNS: { id: SolveSortColumn; label: string }[] = [
 ];
 
 export function StatisticsRecords({ model, onOpenSolve }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void }) {
+  const { date } = useDateTimeFormat();
   const [column, setColumn] = useState<SolveSortColumn>("time");
   const [direction, setDirection] = useState<SortDirection>("asc");
   const [page, setPage] = useState(0);
@@ -122,6 +125,7 @@ export function StatisticsCfopRecords({ model, onOpenSolve }: { model: Statistic
 }
 
 export function StatisticsBestSplits({ model, onOpenSolve }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void }) {
+  const { date } = useDateTimeFormat();
   const solves = new Map(model.scopeSolves.map((solve) => [solve.id, solve]));
   const open = (row: RankingRow) => { if (row.kind === "solve") { const solve = solves.get(row.solveId); if (solve) onOpenSolve(solve); } };
   return (

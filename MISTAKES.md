@@ -492,3 +492,9 @@ testing captured-run actions rather than reconstructing lifecycle-owned snapshot
 A Python edit passed through Windows PowerShell converted a new Unicode ellipsis
 to a question mark. Diff inspection caught it before commit; the label now uses
 plain text. Use ASCII in shell-fed edits or explicit Unicode escapes.
+
+## Partial scripted edits
+
+A timestamp edit used Python default encoding and failed midway through files.
+Rerunning the loop duplicated edits in completed files. Removed those duplicates.
+Read and write UTF-8 explicitly and inspect partial progress before retrying scripts.

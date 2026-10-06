@@ -1,3 +1,4 @@
+import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { useMemo, useState } from "react";
 import type { TrainingDrillPresetContext } from "../../../app/types";
 import { useController, useStore, useStoreValue } from "../../../app/useController";
@@ -17,6 +18,7 @@ const modes: { id: TrainingGuidedMode; label: string; description: string }[] = 
 const stageLabel = (stage: string) => stage[0].toUpperCase() + stage.slice(1);
 
 export function TrainingGuided({ onLoaded }: { onLoaded: () => void }) {
+  const { date } = useDateTimeFormat();
   const controller = useController(), execution = useStore(controller.trainingAttempts), recognition = useStore(controller.trainingRecognitionAttempts);
   const applying = useStore(controller.trainingDrillConfigurationApplying);
   const canConfigure = useStoreValue(controller.training.state, s => s.drill.status === "configuring" && s.phase !== "solving");
@@ -49,7 +51,7 @@ export function TrainingGuided({ onLoaded }: { onLoaded: () => void }) {
     </div></section>)}
     <section className="panel"><div className="panel-head"><h3 className="panel-title">Curriculum cases</h3></div><div className="panel-body table-scroll">
       <table className="stats-table"><thead><tr><th>Case</th><th>Stage</th><th>Review</th></tr></thead><tbody>{curriculum.cases.map(c => <tr key={c.key}>
-        <td>{c.label}</td><td>{stageLabel(c.stage)}</td><td>{c.due ? "Due now" : new Date(c.dueAt).toLocaleString()}</td></tr>)}</tbody></table>
+        <td>{c.label}</td><td>{stageLabel(c.stage)}</td><td>{c.due ? "Due now" : date(c.dueAt)}</td></tr>)}</tbody></table>
     </div></section>
   </div>;
 }

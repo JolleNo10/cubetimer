@@ -16,6 +16,8 @@ import { SolveTimeTrendChart } from "./StatisticsCharts";
 const hooks = vi.hoisted(() => ({ values: [] as unknown[], cursor: 0, effectCursor: 0, dependencies: [] as (readonly unknown[] | undefined)[], effects: [] as (() => unknown)[], controller: null as unknown }));
 vi.mock("react", async (original) => ({
   ...await original<typeof import("react")>(),
+  useContext: () => hooks.controller,
+  useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown) => snapshot(),
   useState: (initial: unknown) => {
     const index = hooks.cursor++;
     if (!Object.hasOwn(hooks.values, index)) hooks.values[index] = typeof initial === "function" ? initial() : initial;
@@ -28,7 +30,8 @@ vi.mock("react", async (original) => ({
     hooks.dependencies[index] = dependencies;
   }, useRef: (value: unknown) => ({ current: value }),
 }));
-vi.mock("../../../app/useController", () => ({
+vi.mock("../../../app/useController", async original => ({
+  ...await original<typeof import("../../../app/useController")>(),
   useController: () => hooks.controller,
   useAppState: () => (hooks.controller as Controller).state.get(),
   useSessionState: () => (hooks.controller as Controller).sessions.get(),

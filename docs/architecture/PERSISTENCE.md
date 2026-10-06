@@ -202,7 +202,15 @@ Components do not write IndexedDB directly.
 `src/app/scrambleProvider.ts` owns the encoding and display labels for persisted
 `Solve.scrambleProvider` metadata shared by Timer production and history/result
 presentation. Provider strings retain their interchange meaning independently of
-the feature that produces them. Generic time formatting belongs to `src/shared/time.ts`;
+the feature that produces them.
+
+Calendar timestamps are stored as UTC Unix epoch milliseconds; CSV timestamps
+remain standardized UTC text. Date/clock formats and the IANA display time zone
+(empty for browser autodetection) are Settings-owned presentation preferences.
+Time zone conversion occurs only when displaying timestamps, preserving stored
+instants, chronological sorting and elapsed durations. Storing localized calendar
+strings is rejected because time zone and daylight-saving changes would make them
+ambiguous. Generic time formatting belongs to `src/shared/time.ts`;
 Statistics calculations remain in the Statistics feature.
 
 Persisted application workflows flow through concrete state services:

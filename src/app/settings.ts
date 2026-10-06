@@ -1,3 +1,4 @@
+import { DATE_FORMATS, TIME_FORMATS, normaliseTimeZone } from "../shared/time";
 import { faceOfColour, FACE_COLOURS } from "../cube/colours";
 import { frontsFor } from "../cube/orientation";
 import type { Settings } from "./types";
@@ -17,6 +18,9 @@ export function normaliseLastLayerTrainingSet(value: unknown): LastLayerTraining
 export function normaliseSettings(settings: Settings): Settings {
   settings = {
     ...settings,
+    timeZone: normaliseTimeZone(settings.timeZone),
+    dateFormat: DATE_FORMATS.includes(settings.dateFormat) ? settings.dateFormat : "locale",
+    timeFormat: TIME_FORMATS.includes(settings.timeFormat) ? settings.timeFormat : "locale",
     ollTrainingSet: normaliseLastLayerTrainingSet(settings.ollTrainingSet),
     pllTrainingSet: normaliseLastLayerTrainingSet(settings.pllTrainingSet),
   };

@@ -39,3 +39,14 @@ describe("Settings Training libraries", () => {
     expect(html).toContain("Training case libraries only. Solve analysis is unchanged.");
   });
 });
+
+it("shows independent date, clock and time zone settings with a UTC preview", () => {
+  const settings = { ...DEFAULT_SETTINGS, dateFormat: "yyyy-mm-dd", timeFormat: "24h", timeZone: "UTC" } as const;
+  const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><SettingsDialog settings={settings} onClose={() => {}} /></ControllerContext.Provider>);
+  expect(html).toContain('for="dateFormat">Date format');
+  expect(html).toContain('for="timeFormat">Time format');
+  expect(html).toContain('for="timeZone">Time zone');
+  expect(html).toContain('value="UTC" selected=""');
+  expect(html).toContain("Autodetect (");
+  expect(html).toContain("2026-10-06, 14:30:00");
+});

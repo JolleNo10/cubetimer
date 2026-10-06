@@ -1,3 +1,4 @@
+import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { formatTime } from "../../../shared/time";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alg } from "cubing/alg";
@@ -51,6 +52,7 @@ export function ReplayDialog({
   onTrainStep?: (step: SolveStep, view: ReplayViewState) => void;
   initialView?: ReplayViewState;
 }) {
+  const { date } = useDateTimeFormat();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<TwistyPlayer | null>(null);
   const appliedRef = useRef(0);
@@ -273,7 +275,7 @@ export function ReplayDialog({
             <h3>Replay</h3>
             <span className="mono dim">{formatTime(effectiveMs(solve))}</span>
             <span className="faint small">
-              {new Date(solve.createdAt).toLocaleString()}
+              {date(solve.createdAt)}
             </span>
           </div>
           <button className="ghost" onClick={onClose} aria-label="Close">
