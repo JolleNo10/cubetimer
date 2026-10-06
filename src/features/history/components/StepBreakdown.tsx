@@ -209,6 +209,7 @@ function StepRow({
   timeScale,
   activeReplayAction,
   comparison,
+  slim = false,
   onSelect,
   onPractice,
 }: {
@@ -221,6 +222,8 @@ function StepRow({
   timeScale?: StepTimeScale;
   activeReplayAction?: ActiveReplayAction;
   comparison?: StepComparison;
+  /** Narrow columns: paired figures share a column and the case sits under the name. */
+  slim?: boolean;
   onSelect?: () => void;
   onPractice?: () => void;
 }) {
@@ -243,7 +246,26 @@ function StepRow({
     </button>
   ) : null;
 
-  const splitValues = showSplitTimes ? (
+  const recognitionText = isSkipped || step.name === "Cross" ? "—" : formatTime(step.recognitionMs);
+  const executionText = isSkipped ? "—" : formatTime(step.executionMs);
+  const splitValues = showSplitTimes && slim ? (
+    <>
+      <span
+        className="phase-split-value recexec-value"
+        title={step.name === "Cross" ? "Cross recognition before the first turn is not timed." : "Recognition / execution"}
+        aria-label={isSkipped ? "Recognition and execution skipped" : `Recognition ${step.name === "Cross" ? "not measured" : formatTime(step.recognitionMs)}, execution ${formatTime(step.executionMs)}`}
+      >
+        <span className="recognition-part">{recognitionText}</span>
+        <span className="split-separator"> / </span>
+        <span className="execution-part">{executionText}</span>
+      </span>
+      <span className="phase-split-value movestps-value" title="Moves · turns per second"
+        aria-label={isSkipped ? "Moves and TPS skipped" : `${step.sliceTurns} moves at ${step.tps.toFixed(1)} TPS`}>
+        {isSkipped ? "—" : `${step.sliceTurns} · ${step.tps.toFixed(1)}`}
+      </span>
+      {comparison ? <ComparisonValue comparison={comparison} /> : null}
+    </>
+  ) : showSplitTimes ? (
     <>
       <span
         className="phase-split-value recognition-value"
@@ -268,21 +290,29 @@ function StepRow({
     </>
   ) : null;
 
+  const chips = (
+    <>
+      {described ? (
+        <span className={`phase-case${isSkip ? " muted" : ""}`}>
+          {described.id === "Solved" ? "skip" : described.id}
+        </span>
+      ) : step.skipped ? (
+        <span className="phase-case muted">skip</span>
+      ) : null}
+      {step.skipped && described && described.id !== "Solved" ? (
+        <span className="phase-case muted">skip</span>
+      ) : null}
+      {described?.hint ? <span className="phase-hint">{described.hint}</span> : null}
+    </>
+  );
+  const hasChips = Boolean(described || step.skipped);
+  const hasMoves = showMoves && Boolean(step.moves || (renderRecordedMoves && step.recordedMoves.length > 0));
+
   const content = (
     <>
       <span className="phase-head">
         <span className="phase-name">{step.name}</span>
-        {described ? (
-          <span className={`phase-case${isSkip ? " muted" : ""}`}>
-            {described.id === "Solved" ? "skip" : described.id}
-          </span>
-        ) : step.skipped ? (
-          <span className="phase-case muted">skip</span>
-        ) : null}
-        {step.skipped && described && described.id !== "Solved" ? (
-          <span className="phase-case muted">skip</span>
-        ) : null}
-        {described?.hint ? <span className="phase-hint">{described.hint}</span> : null}
+        {slim ? null : chips}
         {practice}
       </span>
       <span className="phase-time">{isSkipped ? "—" : formatTime(step.timeMs)}</span>
@@ -329,9 +359,10 @@ function StepRow({
       <span className="phase-sub">
         {isSkipped ? "—" : `${step.sliceTurns} mv · ${step.tps.toFixed(1)} tps`}
       </span>
-      {showMoves && (step.moves || (renderRecordedMoves && step.recordedMoves.length > 0)) ? (
+      {hasMoves || (slim && hasChips) ? (
         <span className="phase-moves mono">
-          {renderRecordedMoves
+          {slim && hasChips ? <span className="phase-chips">{chips}</span> : null}
+          {!hasMoves ? null : renderRecordedMoves
             ? step.recordedMoves.map((recorded, index) => (
                 <Fragment key={`${recorded.t}-${recorded.move}-${index}`}>
                   {index > 0 ? " " : null}
@@ -517,6 +548,7 @@ export function StepBreakdown({
   position,
   activeReplayAction,
   comparison,
+  slim = false,
   onPracticeStep,
 }: {
   analysis: SolveAnalysis;
@@ -533,6 +565,8 @@ export function StepBreakdown({
   activeReplayAction?: ActiveReplayAction;
   /** Per-step difference from recent solves; its steps line up with `analysis.steps`. */
   comparison?: SolveComparison | null;
+  /** Narrow columns, for sharing the width with a chart. */
+  slim?: boolean;
   onPracticeStep?: (step: SolveStep) => void;
 }) {
   const total = Math.max(1, analysis.solvingMs);
@@ -573,6 +607,7 @@ export function StepBreakdown({
             timeScale={timeScale}
             activeReplayAction={activeReplayAction}
             comparison={comparison?.steps[i]}
+            slim={slim}
             onSelect={onSelectStep ? () => onSelectStep(step) : undefined}
             onPractice={onPracticeStep ? () => onPracticeStep(step) : undefined}
           />
@@ -621,6 +656,7 @@ export function DetailedStepBreakdown({
   onSelectStep,
   activeReplayAction,
   comparison,
+  slim = false,
   onPracticeStep,
 }: {
   analysis: SolveAnalysis;
@@ -628,22 +664,29 @@ export function DetailedStepBreakdown({
   onSelectStep?: (step: SolveStep) => void;
   activeReplayAction?: ActiveReplayAction;
   comparison?: SolveComparison | null;
+  /** Paired figures share columns so the table can sit beside a chart. */
+  slim?: boolean;
   onPracticeStep?: (step: SolveStep) => void;
 }) {
   return (
-    <div className={`detailed-breakdown${comparison ? " compared" : ""}`}>
+    <div className={`detailed-breakdown${comparison ? " compared" : ""}${slim ? " slim" : ""}`}>
       <div className="detailed-breakdown-grid">
         <div className="detailed-step-heading" aria-hidden="true">
           <span>Step</span>
           <span>Total</span>
-          <span>Cumulative</span>
-          <span>Recognition</span>
-          <span>Execution</span>
-          <span>Moves</span>
-          <span>TPS</span>
+          <span>{slim ? "Cum." : "Cumulative"}</span>
+          {slim ? <>
+            <span>Rec / Exec</span>
+            <span>Mv · TPS</span>
+          </> : <>
+            <span>Recognition</span>
+            <span>Execution</span>
+            <span>Moves</span>
+            <span>TPS</span>
+          </>}
           {comparison ? (
             <span title={`Step time against the median of the last ${comparison.sampleSize} comparable solves`}>
-              vs last {comparison.sampleSize}
+              {slim ? "vs" : "vs last"} {comparison.sampleSize}
             </span>
           ) : null}
         </div>
@@ -653,6 +696,7 @@ export function DetailedStepBreakdown({
           onSelectStep={onSelectStep}
           activeReplayAction={activeReplayAction}
           comparison={comparison}
+          slim={slim}
           onPracticeStep={onPracticeStep}
           showMoves
           showFullSolution={false}

@@ -446,6 +446,19 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .detailed-breakdown .phase-row .phase-bar { grid-column: 1 / -1; grid-row: 3; }
 .detailed-breakdown .phase-row .phase-sub { display: none; }
 .detailed-breakdown .row.small { display: none; }
+/* Slim: paired figures share a column and the case chips sit on the moves line. */
+.detailed-breakdown.slim .detailed-breakdown-grid { min-width: 400px; }
+.detailed-breakdown.slim .detailed-step-heading,
+.detailed-breakdown.slim .phase-row { grid-template-columns: minmax(78px, 1fr) auto 52px 92px 58px; column-gap: 8px; }
+.detailed-breakdown.slim.compared .detailed-step-heading,
+.detailed-breakdown.slim.compared .phase-row { grid-template-columns: minmax(78px, 1fr) auto 52px 92px 58px 52px; }
+.detailed-breakdown.slim .phase-row .recexec-value { grid-column: 4; grid-row: 1; }
+.detailed-breakdown.slim .phase-row .movestps-value { grid-column: 5; grid-row: 1; color: var(--text-dim); }
+.detailed-breakdown.slim .phase-row .delta-value { grid-column: 6; }
+.recexec-value .recognition-part { color: var(--blue); }
+.recexec-value .execution-part { color: var(--accent); }
+.recexec-value .split-separator { color: var(--text-faint); }
+.phase-chips { display: inline-flex; gap: 6px; align-items: center; margin-right: 8px; font-family: var(--sans); vertical-align: middle; }
 .phase-time-axis {
   position: relative;
   height: 18px;
@@ -471,8 +484,8 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 /* Result charts sit left of the step table when the panel is wide, above it otherwise. */
 .result-analysis { container-type: inline-size; min-width: 0; }
 .result-analysis-body { display: grid; gap: 18px; min-width: 0; }
-@container (min-width: 1060px) {
-  .result-analysis-body { grid-template-columns: minmax(340px, 400px) minmax(0, 1fr); align-items: start; }
+@container (min-width: 940px) {
+  .result-analysis-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; }
 }
 .result-charts { display: grid; gap: 10px; align-content: start; min-width: 0; }
 .result-charts-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }

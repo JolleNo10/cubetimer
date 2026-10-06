@@ -73,11 +73,11 @@ describe("Statistics presentation", () => {
       reviewed,
     ];
     const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={reviewed} solves={history} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
-    expect(html).toContain("vs last 3"); expect(html).not.toContain("vs last 6");
+    expect(html).toContain(">vs 3<"); expect(html).not.toContain(">vs 6<");
     expect(html).toContain("delta-value"); expect(html).not.toContain("solve-comparison");
     expect(html).toContain("2 turns after the cube was solved");
     const result = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><SolveResult solve={reviewed} solves={history} onContinue={() => {}} onReplay={() => {}} onAnalyse={() => {}} onPracticeStep={() => {}} /></ControllerContext.Provider>);
-    expect(result).toContain("vs last 3"); expect(result).toContain("2 turns after the cube was solved");
+    expect(result).toContain(">vs 3<"); expect(result).toContain("2 turns after the cube was solved");
     for (const action of ["Delete", "Solve again", "Train"]) expect(result).toContain(action);
     expect(result).not.toContain("Back to timer");
     expect(result).toContain("<input"); expect(result).toMatch(/<button[^>]*>\+2<\/button>/);
