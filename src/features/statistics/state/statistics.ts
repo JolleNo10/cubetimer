@@ -1,6 +1,5 @@
 import { analysedSolveFacts, averageWindow, countedSolves, percentile, sessionStats, type AverageWindow, type AnalysedSolveFacts, type CfopPhaseMedian, type SessionStats } from "./stats";
 import type { SolveStep } from "../../../cube/analysis";
-import { gripFromDescription, slotInHeldFrame } from "../../../cube/orientation";
 import { eventInfo, type EventId } from "../../../cube/scramble";
 import { effectiveMs, type Session, type Solve } from "../../../app/types";
 
@@ -120,7 +119,10 @@ export type StatisticsViewModel = {
   solveRows: StatisticsSolveRow[];
   latestAverages: Partial<Record<AverageMetric, { solveId: string; sessionId: string; window: AverageWindow }>>;
   f2lSlots: PerformanceSummary[];
+  /** Performed pairs with no known insertion position. */
   f2lUnassignedCount: number;
+  /** Performed pairs whose insertion position was inferred from turns rather than the grip. */
+  f2lInferredCount: number;
   recentForm: RecentForm | null;
   averageStandings: Record<AverageMetric, AverageStanding>;
   ollFocus: CasePerformance[];
@@ -681,10 +683,9 @@ export function deriveStatistics(
       f2l: fact?.phases.f2lMs, oll: fact?.phases.ollMs, pll: fact?.phases.pllMs, xCrossCount: fact?.xCrossCount,
     };
   });
-  const pairs = facts.flatMap((fact) => {
-    const orientation = typeof fact.rotation === "string" && fact.rotation.length === 2 ? gripFromDescription(fact.rotation) : null;
-    return fact.steps.slice(1, 5).map((step) => ({ fact, step, slot: orientation ? slotInHeldFrame(orientation, step.slot) : null }));
-  });
+  // Where each pair went in relative to the solver's hands, not which slot of the cube it
+  // filled: every solve fills every cube slot once, so that would only count solves.
+  const pairs = facts.flatMap((fact) => fact.steps.slice(1, 5).map((step) => ({ fact, step, slot: step.insertedAt ?? null })));
   const slots = ["FR", "FL", "BR", "BL"] as const;
   const medianMs = percentile(finished, 0.5);
   const consistency: ConsistencyStats = {
@@ -723,7 +724,8 @@ export function deriveStatistics(
     ...recordModel,
     solveRows, latestAverages,
     f2lSlots: slots.map((slot) => performance(slot, pairs.filter((pair) => pair.slot === slot))),
-    f2lUnassignedCount: pairs.filter((pair) => !slots.some((slot) => pair.slot === slot)).length,
+    f2lUnassignedCount: pairs.filter((pair) => !skipped(pair.step) && !slots.some((slot) => pair.slot === slot)).length,
+    f2lInferredCount: pairs.filter((pair) => !skipped(pair.step) && pair.step.insertedAtSource === "inferred" && slots.some((slot) => pair.slot === slot)).length,
     f2lPositions: ["1st pair", "2nd pair", "3rd pair", "4th pair"].map((label, index) => performance(label, facts.map((fact) => ({ fact, step: fact.steps[index + 1] })))),
     ollCases, pllCases, ollFocus: focusCases(ollCases), pllFocus: focusCases(pllCases),
     ollSkips: facts.filter((fact) => skipped(fact.steps[5])).length,

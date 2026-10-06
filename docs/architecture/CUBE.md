@@ -111,8 +111,18 @@ Per-step analysis includes information such as:
 - case: the OLL number, the PLL name, or for an F2L pair the catalogue case
   (`"F2L n"`) it started as, recognised with `recognizeF2lSlot` (null when the
   pair was already solved or buried);
-- F2L slot;
+- F2L slot (in the scrambled cube's own frame);
+- F2L insertion position (`insertedAt`, since analysis version 3): where the pair
+  went in relative to the solver's hands, after any rotations. It is read from the
+  grip track when one was recorded; otherwise it is inferred from the step's turns
+  (the slot face turned most, or on a tie last, is the solver's R or L, so the pair
+  is a front-right or front-left insert) and marked `insertedAtSource: "inferred"`;
 - move-stream boundaries.
+
+Solver-facing F2L statistics group pairs by insertion position, not by cube slot.
+Rejected: grouping by the cube-frame slot mapped through the starting grip. Every
+solve fills every cube slot once, so those groups only count solves and say nothing
+about technique.
 
 Detailed algorithm rules belong in the relevant `src/cube` modules and tests rather than in this architecture document.
 

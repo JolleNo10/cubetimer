@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
-import { ANALYSIS_VERSION, analyseSolve, type TimedMove } from "./analysis";
+import { ANALYSIS_VERSION, analyseSolve, inferInsertionPosition, type TimedMove } from "./analysis";
+import { IDENTITY } from "./orientation";
 import { get3x3x3 } from "./puzzle";
 
 const kpuzzle = await get3x3x3();
@@ -127,6 +128,41 @@ describe("analyseSolve", () => {
     expect(
       ["F2L Slot 1", "F2L Slot 2", "F2L Slot 3", "F2L Slot 4"].map((n) => byName[n].case),
     ).toEqual(["F2L 1", "F2L 1", "F2L 1", "F2L 1"]);
+  });
+
+  it("infers that every pair was inserted at front-right when each used U R U' R' in its own frame", () => {
+    // Slots are filled FR, BR, BL, FL in the cube's frame, but every pair was rotated to the
+    // front-right first: the turns are U R U' R', U B U' B', U L U' L' and U F U' F'.
+    const f2l = analysis.steps.slice(1, 5);
+    expect(f2l.map((step) => step.insertedAt)).toEqual(["FR", "FR", "FR", "FR"]);
+    expect(f2l.every((step) => step.insertedAtSource === "inferred")).toBe(true);
+    expect(byName["Cross"].insertedAt).toBeUndefined();
+    expect(byName["OLL"].insertedAt).toBeUndefined();
+  });
+
+  it("infers front-left for left-handed inserts", () => {
+    // Mirror images of the fixture: U' L' U L in each slot's own front-left frame.
+    const lefty = ["F' U' F U", "L' U' L U", "B' U' B U", "R' U' R U"]; // open FR, FL, BL, BR
+    const start = kpuzzle.defaultPattern().applyAlg(new Alg(pll).invert()).applyAlg(new Alg(oll).invert()).applyAlg(new Alg(lefty.join(" ")));
+    const forward = [...lefty].reverse().map((e) => new Alg(e).invert().toString()).join(" ") + " " + oll + " " + pll;
+    const mirrored = analyseSolve(start, timed(forward))!;
+    expect(mirrored.steps.slice(1, 5).map((step) => step.insertedAt)).toEqual(["FL", "FL", "FL", "FL"]);
+  });
+
+  it("uses the recorded grip for the exact insertion position", () => {
+    // Held exactly as scrambled the whole time, so each pair went in where its slot is.
+    const held = analyseSolve(scrambled, timed(solution), { orientations: timed(solution).map(() => IDENTITY), inspection: [] })!;
+    expect(held.steps.slice(1, 5).map((step) => [step.insertedAt, step.insertedAtSource])).toEqual([["FR", "grip"], ["BR", "grip"], ["BL", "grip"], ["FL", "grip"]]);
+  });
+
+  it("breaks a tie with the slot face turned last and leaves untouched slots unknown", () => {
+    expect(inferInsertionPosition("FR", ["F", "R", "U", "R'", "U'", "F'"])).toBe("FL");
+    expect(inferInsertionPosition("FR", ["F'", "U", "F", "R", "U", "R'"])).toBe("FR");
+    expect(inferInsertionPosition("FR", ["U", "D", "U'"])).toBeNull();
+    expect(inferInsertionPosition("FR", ["U", "R", "U'", "R'"])).toBe("FR");
+    expect(inferInsertionPosition("FR", ["U'", "F'", "U", "F"])).toBe("FL");
+    expect(inferInsertionPosition("UR", ["R"])).toBeNull();
+    expect(inferInsertionPosition(null, ["R"])).toBeNull();
   });
 
   it("stamps the analysis with the version that made it", () => {

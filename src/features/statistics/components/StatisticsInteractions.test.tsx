@@ -203,7 +203,7 @@ describe("Statistics user interactions", () => {
     const render = () => renderRoot(() => StatisticsF2lPerformance({ model: f2lModel, onOpenSolve }));
     let tree = render();
     const performance = find(tree, (element) => element.type === PerformanceTable);
-    expect(find(tree, (element) => element.type === "p" && element.props.children === "Solver-relative F2L slot · skipped/XCross pairs counted separately")).toBeDefined();
+    expect(find(tree, (element) => element.type === "p" && element.props.children === "Where each pair went in relative to how you held the cube, after any rotations")).toBeDefined();
     const summary = PerformanceTable(performance.props as Parameters<typeof PerformanceTable>[0]);
     const fourth = elements(summary).filter((element) => element.type === "tr" && element.props.tabIndex === 0)[3];
     fourth.props.onKeyDown(keyEvent("Enter"));
@@ -222,12 +222,12 @@ describe("Statistics user interactions", () => {
     expect(find(tree, (element) => element.type === "p" && element.props.children === "Pair completion order · skipped/XCross pairs counted separately")).toBeDefined();
     expect(find(tree, (element) => element.type === PerformanceTable).props.rows.map((row: { label: string }) => row.label)).toEqual(["1st pair", "2nd pair", "3rd pair", "4th pair"]);
     expect(elements(tree).some((element) => element.props["aria-label"] === "F2L position solves")).toBe(false);
-    find(tree, (element) => element.type === "button" && element.props.children === "By slot").props.onClick();
+    find(tree, (element) => element.type === "button" && element.props.children === "By insertion position").props.onClick();
     expect(find(render(), (element) => element.type === PerformanceTable).props.rows.map((row: { label: string }) => row.label)).toEqual(["FR", "FL", "BR", "BL"]);
     find(render(), (element) => element.type === PerformanceTable).props.sort.onSort("count");
     find(render(), (element) => element.type === PerformanceTable).props.sort.onSort("count");
     expect(find(render(), (element) => element.type === PerformanceTable).props.rows[0].label).toBe("BL");
-    expect(find(render(), (element) => element.type === "p" && element.props.children === "Solver-relative F2L slot · skipped/XCross pairs counted separately")).toBeDefined();
+    expect(find(render(), (element) => element.type === "p" && element.props.children === "Where each pair went in relative to how you held the cube, after any rotations")).toBeDefined();
   });
 
   it("opens singles, PBs, outliers, and DNFs from accessible chart points", () => {

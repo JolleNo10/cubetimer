@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { STEP_NAMES, type SolveAnalysis } from "../../../cube/analysis";
 import { DEFAULT_EVENT_ID } from "../../../cube/scramble";
-import { describeGrip, rotationForGrip, slotInCubeFrame } from "../../../cube/orientation";
 import { averageOf } from "./stats";
 import {
   deriveStatistics,
@@ -311,31 +310,26 @@ describe("historical records and performance", () => {
     expect(sortSolveRows(model.solveRows, "ao5", "desc").map((row) => row.solve.id)).toEqual(["s6", "s4", "s5", "s0", "s1", "s2", "s3"]);
   });
 
-  it("normalizes persisted F2L slots from different grips, preserving order and skips", () => {
+  it("groups F2L pairs by where they were inserted relative to the solver, not by cube slot", () => {
     const a = analysed("a", "A", 1), b = analysed("b", "A", 2), c = analysed("c", "A", 3);
-    const grips = [rotationForGrip("D", "F")!, rotationForGrip("F", "U")!, rotationForGrip("R", "F")!];
-    for (const [index, item] of [a, b, c].entries()) {
-      item.analysis!.rotation = describeGrip(grips[index].orientation);
-      for (const [order, slot] of ["BL", "FR", "BR", "FL"].entries()) item.analysis!.steps[order + 1].slot = slotInCubeFrame(grips[index].orientation, slot);
-    }
-    b.analysis!.steps[1].slot = slotInCubeFrame(grips[1].orientation, "FR");
-    b.analysis!.steps[2].slot = slotInCubeFrame(grips[1].orientation, "BL");
-    expect([b.analysis!.steps[1].slot, c.analysis!.steps[1].slot].every((slot) => !["FR", "FL", "BR", "BL"].includes(slot!))).toBe(true);
+    // Each solve fills every cube slot, but a and b inserted every pair at front-right.
+    for (const item of [a, b]) for (const [order, slot] of ["BL", "FR", "BR", "FL"].entries()) Object.assign(item.analysis!.steps[order + 1], { slot, insertedAt: "FR", insertedAtSource: "inferred" });
     b.analysis!.steps[2].timeMs = 1500;
+    for (const [order, insertedAt] of ["FR", "FL", "BR", "BL"].entries()) Object.assign(c.analysis!.steps[order + 1], { insertedAt, insertedAtSource: "grip" });
     skipStep(c, 1);
-    c.analysis!.steps[2].slot = null;
-    c.analysis!.steps[3].slot = "unknown" as "FR";
+    c.analysis!.steps[3].insertedAt = null;
     const model = modelFor([a, b, c]);
     expect(model.f2lSlots.map((row) => row.label)).toEqual(["FR", "FL", "BR", "BL"]);
-    expect(model.f2lSlots[0]).toMatchObject({ count: 2, medianMs: 500, solveIds: ["a", "b"] });
-    expect(model.f2lSlots[3]).toMatchObject({ count: 2, skipCount: 1, medianMs: 1000 });
-    expect(model.f2lUnassignedCount).toBe(2);
-    expect(model.f2lPositions[0]).toMatchObject({ label: "1st pair", count: 2, skipCount: 1, medianMs: 500 });
+    expect(model.f2lSlots[0]).toMatchObject({ count: 8 });
+    expect(model.f2lSlots[0].solveIds.filter((id) => id === "a")).toHaveLength(4);
+    expect(model.f2lSlots.slice(1).map((row) => row.count)).toEqual([1, 0, 1]);
+    expect(model.f2lUnassignedCount).toBe(1);
+    expect(model.f2lInferredCount).toBe(8);
+    expect(model.f2lPositions[0]).toMatchObject({ label: "1st pair", count: 2, skipCount: 1 });
   });
 
-  it.each([undefined, "", "DD", "DU", "DBextra"])("leaves F2L slots unassigned when saved grip %s cannot be parsed", (rotation) => {
-    const item = analysed("invalid-grip", "A", 1);
-    item.analysis!.rotation = rotation as string;
+  it("leaves pairs from analyses without an insertion position unassigned", () => {
+    const item = analysed("old", "A", 1);
     for (const [index, slot] of ["FR", "FL", "BR", "BL"].entries()) item.analysis!.steps[index + 1].slot = slot;
     const model = modelFor([item]);
     expect(model.f2lUnassignedCount).toBe(4);
@@ -343,10 +337,9 @@ describe("historical records and performance", () => {
     expect(model.f2lPositions.every((row) => row.count === 1)).toBe(true);
   });
 
-  it("does not guess a canonical F2L position for a valid edge outside the held F2L slots", () => {
+  it("does not count an insertion position outside the held middle layer", () => {
     const item = analysed("non-f2l-slot", "A", 1);
-    item.analysis!.rotation = "DB";
-    for (const step of item.analysis!.steps.slice(1, 5)) step.slot = "UR";
+    for (const step of item.analysis!.steps.slice(1, 5)) step.insertedAt = "UR";
     expect(modelFor([item]).f2lUnassignedCount).toBe(4);
   });
 

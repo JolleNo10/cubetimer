@@ -90,14 +90,15 @@ export function StatisticsF2lPerformance({ model, onOpenSolve }: { model: Statis
   const selected = rows.find((row) => row.label === position);
   const members = new Map(model.scopeSolves.map((solve) => [solve.id, solve]));
   return <StatsSection id="f2l" title="F2L performance">
-    <p className="small faint">{mode === "slot" ? "Solver-relative F2L slot · skipped/XCross pairs counted separately" : "Pair completion order · skipped/XCross pairs counted separately"}</p>
+    <p className="small faint">{mode === "slot" ? "Where each pair went in relative to how you held the cube, after any rotations" : "Pair completion order · skipped/XCross pairs counted separately"}</p>
     <p className="small faint">{RECOGNITION_NOTE}</p>
     <div className="statistics-mode" role="group" aria-label="F2L grouping">
-      <button className="ghost" aria-pressed={mode === "slot"} onClick={() => { setMode("slot"); setPosition(null); }}>By slot</button>
+      <button className="ghost" aria-pressed={mode === "slot"} onClick={() => { setMode("slot"); setPosition(null); }}>By insertion position</button>
       <button className="ghost" aria-pressed={mode === "order"} onClick={() => { setMode("order"); setPosition(null); }}>By solve order</button>
     </div>
-    {mode === "slot" && model.f2lUnassignedCount ? <p className="small faint">{model.f2lUnassignedCount} F2L steps have no recognised slot and are excluded from slot summaries; completion-order analysis includes them.</p> : null}
-    {model.analysisCount ? <PerformanceTable rows={rows} labelHeader={mode === "slot" ? "Slot" : "Pair"} sort={sort} onSelect={(row) => setPosition((current) => current === row.label ? null : row.label)} expandedLabel={selected?.label} expanded={selected ? <div className="stats-detail" role="region" aria-label="F2L position solves">
+    {mode === "slot" && model.f2lInferredCount ? <p className="small faint">{model.f2lInferredCount} insertions were recorded without grip data and are inferred from the turns: the slot face turned most is taken as your R or L, so front-face or back-slot inserts may read as their mirror.</p> : null}
+    {mode === "slot" && model.f2lUnassignedCount ? <p className="small faint">{model.f2lUnassignedCount} pairs have no known insertion position and are left out here; solve order includes them.</p> : null}
+    {model.analysisCount ? <PerformanceTable rows={rows} labelHeader={mode === "slot" ? "Inserted at" : "Pair"} sort={sort} onSelect={(row) => setPosition((current) => current === row.label ? null : row.label)} expandedLabel={selected?.label} expanded={selected ? <div className="stats-detail" role="region" aria-label="F2L position solves">
       <div className="section-heading"><h3>{selected.label} · {selected.count} contributing solves</h3><button className="ghost" onClick={() => setPosition(null)}>Close pair</button></div>
       {selected.samples.length ? <div className="table-scroll"><table className="stats-table">
         <thead><tr><th>Pair time</th><th>Measured recognition</th><th>Measured execution</th><th>STM</th><th>Execution TPS</th><th>Solve time</th>{model.sessionId === null ? <th>Session</th> : null}<th>Date</th></tr></thead>

@@ -18,7 +18,7 @@ import {
   type TimedMove,
   type TurnMetrics,
 } from "./notation";
-import { describeGrip, reorientMoves, rotationForCrossFace, slotInCubeFrame } from "./orientation";
+import { describeGrip, reorientMoves, rotationForCrossFace, slotInCubeFrame, slotInHeldFrame } from "./orientation";
 import { rewriteWithRotations, type SolveGrip } from "./gripTrack";
 import { recogniseOll, recognisePll, reframe } from "./recognise";
 import { recognizeF2lSlot } from "./f2l";
@@ -32,7 +32,7 @@ export type { TimedMove };
  *
  * 2: F2L steps carry the catalogue case they started from.
  */
-export const ANALYSIS_VERSION = 2;
+export const ANALYSIS_VERSION = 3;
 
 export const STEP_NAMES = [
   "Cross",
@@ -81,6 +81,15 @@ export type SolveStep = TurnMetrics & {
    * `"BL"` and so on, in the scrambled cube's own frame, so its colours are fixed.
    */
   slot: string | null;
+  /**
+   * Where an F2L pair went in relative to the solver's hands when it was finished —
+   * `"FR"` for a pair inserted at front-right after any rotations. Measured from the
+   * grip track when there is one, otherwise inferred from the turns (see
+   * `inferInsertionPosition`). Missing on analyses from before version 3.
+   */
+  insertedAt?: string | null;
+  /** Whether `insertedAt` came from the recorded grip or was inferred from the turns. */
+  insertedAtSource?: "grip" | "inferred";
   /** Range of this step within the solve's raw move stream. */
   fromMove: number;
   toMove: number;
@@ -164,6 +173,47 @@ function firstFrom(
     if (predicate(states[i])) return i;
   }
   return -1;
+}
+
+const F2L_HELD_SLOTS = ["FR", "FL", "BR", "BL"] as const;
+
+function middleLayerSlot(slot: string | null): string | null {
+  return slot && (F2L_HELD_SLOTS as readonly string[]).includes(slot) ? slot : null;
+}
+
+/** The face on your right when the given side face is in front of you, cross down. */
+const RIGHT_OF: Partial<Record<Face, Face>> = { F: "R", R: "B", B: "L", L: "F" };
+
+/**
+ * Where a pair was inserted relative to the solver, when no grip was recorded.
+ *
+ * Face turns cannot show a cube rotation, so the same physical insertion could have been
+ * made from any side. Solvers rotate a slot to the front and insert with the side face
+ * (`R U R'`, `L' U' L`), so the slot face turned most is taken to be the solver's R or L
+ * and the other slot face to be the front: front-right or front-left. On a tie the slot
+ * face turned last — the one that drops the pair in — is the side face. Insertions made
+ * mainly with the front face, or into a back slot without rotating, read as their mirror;
+ * a pair placed without turning either slot face is unknown. `slot` and `moves` are both
+ * in the cross-down frame.
+ */
+export function inferInsertionPosition(slot: string | null, moves: readonly string[]): string | null {
+  if (!slot || slot.length !== 2) return null;
+  const [a, b] = [...slot] as Face[];
+  if (!RIGHT_OF[a] || !RIGHT_OF[b]) return null;
+  const turns = (face: Face) => moves.reduce((sum, move) => {
+    const parsed = parseMove(move);
+    return parsed?.family === face ? sum + Math.abs(parsed.amount) : sum;
+  }, 0);
+  const [ta, tb] = [turns(a), turns(b)];
+  let side: Face;
+  if (ta !== tb) side = ta > tb ? a : b;
+  else {
+    const last = [...moves].reverse().map(parseMove).find((parsed) => parsed?.family === a || parsed?.family === b);
+    if (!last) return null;
+    side = last.family as Face;
+  }
+  const front = side === a ? b : a;
+  return RIGHT_OF[front] === side ? "FR" : "FL";
 }
 
 /**
@@ -268,6 +318,11 @@ export function analyseSolve(
     // A case is whatever the solver was looking at when the step began.
     const kpuzzle = scrambledState.kpuzzle;
     const slot = index >= 1 && index <= 4 ? (slots[index - 1] ?? null) : null;
+    const insertion = slot && to > from
+      ? grip
+        ? { insertedAt: middleLayerSlot(slotInHeldFrame(grip.orientations[to - 1] ?? grip.orientations[0], slot)), insertedAtSource: "grip" as const }
+        : { insertedAt: inferInsertionPosition(slotInHeldFrame(rotation.orientation, slot), reorientMoves(turned, rotation.orientation).map((m) => m.move)), insertedAtSource: "inferred" as const }
+      : {};
     const caseName =
       name === "OLL"
         ? recogniseOll(kpuzzle, stateFacing(from))
@@ -293,6 +348,7 @@ export function analyseSolve(
       case: caseName,
       // Steps one to four are the F2L pairs, in the order they were finished.
       slot,
+      ...insertion,
       fromMove: from,
       toMove: to,
       ...metrics,
