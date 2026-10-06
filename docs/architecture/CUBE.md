@@ -65,6 +65,7 @@ A smart-cube Solve can retain:
 - scramble;
 - timed move stream;
 - starting facelets;
+- optional `solveStartBottomFace`, the independently observed physical bottom face at solve start;
 - encoded grip information;
 - derived `SolveAnalysis`;
 - optional interchange/import metadata.
@@ -87,8 +88,34 @@ is. Raise the version whenever the analysis starts recording something new.
 
 `solveHistory.ts` owns Session and Statistics history loading and persistence of
 successful repairs. `repair.ts` derives the repaired Solve using cube-domain
-analysis; raw scramble/move facts remain authoritative. Already valid analysis is
-left untouched, and successful repairs are persisted once.
+analysis; raw scramble/move facts remain authoritative. Current analysis with quality
+is left untouched, and successful repairs are persisted once. Missing quality also
+triggers repair when raw facts remain available.
+
+Version 3 carries derived CFOP quality: `trusted` or `suspect` with machine-readable
+issues. `isTrustedCfopAnalysis` is the shared boundary for current, explicitly trusted
+CFOP analysis. Legacy analysis without quality remains readable but is untrusted.
+Suspect analysis stays inspectable in History, Result and Replay; it is excluded from
+CFOP metrics, comparisons, case statistics, training suggestions and step-specific
+Training/Analysis tools. Ordinary timing, averages and PB eligibility are independent.
+
+`analysis.ts` is the sole CFOP interpreter. Candidate checkpoints accumulate invariants:
+Cross edges solved; each F2L milestone also has Cross plus the required solved pairs;
+OLL completion also retains full F2L and a uniform opposite face; PLL ends at solution.
+Shared XCross checkpoints are valid. Missing slot assignment or non-skipped last-layer
+recognition adds a quality issue; a null F2L catalogue case alone does not.
+Without independent evidence, a unique pre-solution full-F2L candidate establishes the
+Cross; multiple candidates or only final-state F2L are ambiguous. Meaningful progression
+on the observed bottom resolves ambiguity; disagreement with meaningful state-derived
+progression is suspect.
+
+Timer captures `solveStartBottomFace` before `holdBottom`. It supplies that observation
+to grip reconstruction and analysis when available; otherwise grip uses its gyroscope
+fallback. Only trusted preliminary boundaries may anchor drift correction. Old grip
+tracks must not be promoted to independent observations: they used inferred Cross priors.
+An analysis conclusion must never become the evidence validating that same conclusion.
+Rejected: using `Settings.crossColour` as ground truth (it is preference, not a per-solve
+fact), or feeding inferred `analysis.crossFace` back as independent truth (circular validation).
 
 Native CFOP analysis consists of:
 

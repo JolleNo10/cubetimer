@@ -2,6 +2,8 @@ import { Alg } from "cubing/alg";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CubeModel } from "../../cube/model";
 import { get3x3x3 } from "../../cube/puzzle";
+import * as analysis from "../../cube/analysis";
+import * as gripTrack from "../../cube/gripTrack";
 import * as scramble from "../../cube/scramble";
 import * as solver from "../../cube/solver";
 import * as recovery from "../../shared/recovery";
@@ -230,5 +232,48 @@ describe("TimerRuntime", () => {
     expect(f.model.pattern).toBe(pattern);
     expect(scramble.generateScramble).not.toHaveBeenCalled();
     expect(f.persistSolve).not.toHaveBeenCalled();
+  });
+});
+
+
+describe("independent solve-start evidence", () => {
+  it.each(["D", "U", null] as const)("captures %s without feeding inferred Cross back into grip tracking", async bottom => {
+    const f = fixture();
+    const solution = new Alg("R U R' U R U2 R'");
+    f.physical.setVirtualCube(true);
+    f.timer.setScramble(solution.invert().toString());
+    for (const node of solution.invert().childAlgNodes()) f.physical.injectMove(node.toString());
+    expect(f.timer.state.get().phase).toBe("ready");
+    const observed = vi.spyOn(f.physical, "grip", "get").mockReturnValue(bottom ? { bottom, front: "F" } : null);
+    vi.spyOn(f.physical, "gripLocked", "get").mockReturnValue(true);
+    vi.spyOn(f.physical, "gripReference", "get").mockReturnValue({ x: 0, y: 0, z: 0, w: 1 });
+    vi.spyOn(f.physical, "pose", "get").mockReturnValue({ x: 0, y: 0, z: 0, w: 1 });
+    const hold = vi.spyOn(f.physical, "holdBottom").mockImplementation(() => observed.mockReturnValue({ bottom: "L", front: "F" }));
+    const track = vi.spyOn(gripTrack, "trackGrip");
+    const analyse = vi.spyOn(analysis, "analyseSolve");
+    let time = 100;
+    vi.spyOn(performance, "now").mockImplementation(() => time += 200);
+    for (const node of solution.childAlgNodes()) f.physical.injectMove(node.toString());
+    await vi.waitFor(() => expect(f.persistSolve).toHaveBeenCalledOnce());
+    expect(hold).toHaveBeenCalledWith(bottom);
+    const saved = f.persistSolve.mock.calls[0][0];
+    expect(saved.solveStartBottomFace).toBe(bottom ?? undefined);
+    expect(track).toHaveBeenCalledOnce();
+    expect(track.mock.calls[0][0].crossFace).toBe(bottom ?? undefined);
+    expect(analyse.mock.calls.every(call => call[3] === (bottom ?? undefined))).toBe(true);
+    expect(track.mock.calls[0][0].boundaries === undefined).toBe(bottom !== "D");
+    if (bottom === null) expect(track.mock.calls[0][0]).not.toHaveProperty("crossFace");
+  });
+  it("clears captured evidence when an attempt is cancelled", async () => {
+    const f = fixture(); f.physical.setVirtualCube(true); f.timer.setScramble("R U");
+    f.physical.injectMove("R"); f.physical.injectMove("U");
+    const grip = vi.spyOn(f.physical, "grip", "get").mockReturnValue({ bottom: "D", front: "F" });
+    f.physical.injectMove("U'"); f.timer.cancel();
+    f.model.applyMove("R'"); f.timer.setScramble("R U");
+    f.physical.injectMove("R"); f.physical.injectMove("U");
+    grip.mockReturnValue(null);
+    f.physical.injectMove("U'"); f.physical.injectMove("R'");
+    await vi.waitFor(() => expect(f.persistSolve).toHaveBeenCalledOnce());
+    expect(f.persistSolve.mock.calls[0][0].solveStartBottomFace).toBeUndefined();
   });
 });

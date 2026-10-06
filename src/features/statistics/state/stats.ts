@@ -1,5 +1,5 @@
 import { formatTime } from "../../../shared/time";
-import { STEP_NAMES, PAUSE_THRESHOLD_MS, type StepName, type SolveStep, type SolveAnalysis } from "../../../cube/analysis";
+import { STEP_NAMES, PAUSE_THRESHOLD_MS, isTrustedCfopAnalysis, type StepName, type SolveStep, type SolveAnalysis } from "../../../cube/analysis";
 import { effectiveMs, type CompareScope, type Session, type Solve } from "../../../app/types";
 
 const MIN_COMPARISON_SOLVES = 3;
@@ -144,7 +144,7 @@ export function compareSolveToHistory(
   options: ComparisonOptions = {},
 ): SolveComparison | null {
   const currentAnalysis = currentSolve.analysis;
-  if (!currentAnalysis) return null;
+  if (!isTrustedCfopAnalysis(currentAnalysis)) return null;
 
   const prior = priorInScope(currentSolve, solves, options);
   if (!prior) return null;
@@ -156,6 +156,7 @@ export function compareSolveToHistory(
         && isSlowSolve(solve) === isSlowSolve(currentSolve)
         && analysis !== null
         && analysis !== undefined
+        && isTrustedCfopAnalysis(analysis)
         && compatibleAnalysis(currentAnalysis, analysis);
     })
     .slice(-MAX_COMPARISON_SOLVES);
@@ -219,7 +220,7 @@ export function caseSpread(
   options: ComparisonOptions = {},
 ): CaseSpreadRow[] | null {
   const analysis = current.analysis;
-  if (!analysis || !compatibleAnalysis(analysis, analysis)) return null;
+  if (!analysis || !isTrustedCfopAnalysis(analysis) || !compatibleAnalysis(analysis, analysis)) return null;
   const prior = priorInScope(current, solves, options);
   if (!prior) return null;
   const history = prior.flatMap((solve) => (analysedSolveFacts(solve) ? [solve.analysis!.steps] : []));
@@ -389,7 +390,7 @@ function longAverage(times: (number | null)[], size: 50 | 100, baseline: number 
 }
 
 export function analysedSolveFacts(solve: Solve): AnalysedSolveFacts | null {
-  if (!isCountedSolve(solve) || effectiveMs(solve) === null) return null;
+  if (!isCountedSolve(solve) || effectiveMs(solve) === null || !isTrustedCfopAnalysis(solve.analysis)) return null;
   return validatedSolveFacts(solve);
 }
 

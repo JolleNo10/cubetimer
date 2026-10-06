@@ -511,3 +511,13 @@ A destructured raw Solve inferred a narrower type that rejected adding ephemeral
 outlier metadata. Explicitly type projected records as Solve. A baseline test
 sliced one entry too early and included the intentionally invalid zero-duration
 fixture; use named boundary indices when mixing normal and exceptional records.
+
+
+## CFOP quality fixture and import assumptions
+
+Initial quarantine tests reused analyses without explicit quality, making their intended
+trusted baselines fail correctly. Give trusted fixtures independent known orientation
+and current quality rather than weakening the trust rule. A timing assertion assumed an
+export owner and omitted the average window size; inspect existing imports/signatures
+before adding assertions. A nullable-analysis helper also needed a type predicate so
+trusted branches narrow safely without repeated assertions.

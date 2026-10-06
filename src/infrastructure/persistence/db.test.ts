@@ -511,3 +511,13 @@ it("loads and validates automatic slow-solve policy without persisting derived c
   const restored = migrateSolve(solve as unknown as Parameters<typeof migrateSolve>[0]);
   expect(restored.statisticsOutlier).toBeUndefined(); expect(restored.rawMs).toBe(40000); expect(restored.penalty).toBe("none");
 });
+
+
+describe("solve-start bottom observation", () => {
+  it.each(["U", "R", "F", "D", "L", "B"] as const)("retains valid %s raw evidence", face => {
+    expect(migrateSolve({ ...base, solveStartBottomFace: face }).solveStartBottomFace).toBe(face);
+  });
+  it.each([undefined, null, "bad", "d", 0])("drops invalid imported evidence %s", face => {
+    expect(migrateSolve({ ...base, solveStartBottomFace: face } as unknown as Solve).solveStartBottomFace).toBeUndefined();
+  });
+});

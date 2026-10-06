@@ -1,3 +1,4 @@
+import { analyseSolve } from "../cube/analysis";
 import { Alg } from "cubing/alg";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -1569,4 +1570,18 @@ describe("Controller Recognition history composition", () => {
     const result = await controller.importData(JSON.stringify({ version: 7, sessions: [], solves: [], trainingRecognitionAttempts: [attempt] }));
     expect(result.trainingRecognitionAttempts).toBe(1); expect(controller.trainingRecognitionAttempts.get()).toEqual([attempt]);
   });
+});
+
+
+it("rejects untrusted solve-specific Training before changing area or delegating", async () => {
+  const controller = new Controller();
+  const alg = new Alg("R U R' U R U2 R'");
+  const moves = Array.from(alg.childAlgNodes()).map((node, i) => ({ move: node.toString(), t: (i + 1) * 200 }));
+  const analysis = analyseSolve(kpuzzle.defaultPattern().applyAlg(alg.invert()), moves)!;
+  const practice = vi.spyOn(controller.training, "practiceSolveStep").mockResolvedValue();
+  await controller.practiceSolveStep({ ...solveFor("A"), analysis }, analysis.steps[5]);
+  expect(practice).not.toHaveBeenCalled(); expect(controller.snapshot().area).toBe("timer");
+  const trusted = { ...analysis, quality: { status: "trusted" as const, issues: [] } };
+  await controller.practiceSolveStep({ ...solveFor("A"), analysis: trusted }, trusted.steps[5]);
+  expect(practice).toHaveBeenCalledOnce(); expect(controller.snapshot().area).toBe("training");
 });

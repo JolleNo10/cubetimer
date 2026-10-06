@@ -37,6 +37,8 @@ vi.mock("react", async original => {
       const slot = hooks.cursor++;
       return hooks.slots[slot] ??= { current: initial };
     },
+    useContext: () => null,
+    useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown) => snapshot(),
     useMemo: memo,
     useCallback: (callback: unknown, deps: unknown[]) => memo(() => callback, deps),
     useEffect: (effect: () => (() => void) | undefined, deps: unknown[]) => {
@@ -98,9 +100,10 @@ const solve: Solve = {
   gripTrack: `|${describeGrip(IDENTITY)}${describeGrip(GENERATORS.y)}`,
 };
 
-function fixture(initialView?: { index: number; speed: number }, withAnalysis = false) {
+function fixture(initialView?: { index: number; speed: number }, withAnalysis = false, trusted = true) {
   const onClose = vi.fn(), onTrainStep = vi.fn();
   const selectedSolve: Solve = withAnalysis ? { ...solve, analysis: {
+    analysisVersion: 3, quality: trusted ? { status: "trusted", issues: [] } : { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }] },
     method: "CFOP", crossFace: "D", rotation: "DB", steps: [step("Cross", 0, 1), step("OLL", 1, 2)],
     solvingMs: 1000, tps: 2, totalRecognitionMs: 200, totalExecutionMs: 800, stepsSkipped: 0,
     turnsAfterSolution: 0, pauses: [], faceTurns: 2, quarterTurns: 2, sliceTurns: 2,
@@ -119,6 +122,7 @@ function fixture(initialView?: { index: number; speed: number }, withAnalysis = 
     visit(ReplayDialog({ solve: selectedSolve, onClose, onTrainStep, initialView }));
     hooks.effects.splice(0).forEach(effect => effect());
     return {
+      labels: nodes.filter(node => node.type === "button").map(node => Array.isArray(node.props.children) ? node.props.children.join("") : node.props.children),
       button: (label: string) => nodes.find(node => node.type === "button" &&
         (node.props["aria-label"] === label || (Array.isArray(node.props.children) ? node.props.children.join("") : node.props.children) === label))!.props as { onClick(): void; disabled?: boolean },
       sequence: nodes.find(node => node.type === MoveSequence)!.props as React.ComponentProps<typeof MoveSequence>,
@@ -248,4 +252,14 @@ describe("Replay instruction cursor", () => {
     expect(key(" ", new Control("button"))).not.toHaveBeenCalled();
     key("Escape", new Control("input")); expect(onClose).toHaveBeenCalledOnce();
   });
+});
+
+
+it("keeps raw replay controls available but withholds Training for suspect analysis", () => {
+  const { render } = fixture(undefined, true, false);
+  const view = render();
+  expect(view.labels.some(label => typeof label === "string" && label.startsWith("Train"))).toBe(false);
+  expect(view.button("Play").disabled).not.toBe(true);
+  expect(view.sequence.moves).toEqual(["R", "y", "F"]);
+  expect(view.breakdown).toBeDefined();
 });

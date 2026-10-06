@@ -140,6 +140,7 @@ For a native smart-cube solve, the important factual inputs are:
 scramble / starting cube state
 + timed move stream
 + available grip/orientation information
++ optional independent solveStartBottomFace observation
 ```
 
 Conceptually:
@@ -155,6 +156,21 @@ scramble state + timed moves + grip information
 ```
 
 Presentation components do not independently own or persist canonical solves.
+
+`Solve.solveStartBottomFace` retains the physical bottom face observed at solve start,
+when available. `migrateSolve` preserves valid cube faces and drops invalid imported
+values. Whole-record Solve persistence and JSON v7 backup retain this additive raw fact;
+IndexedDB stays schema 5 and JSON remains version 7. Solve-analysis CSV stays unchanged
+and has no independent start-orientation column. Historical grip tracks and Cross colour
+preferences must not manufacture this observation.
+
+Nested `SolveAnalysis.analysisVersion` and derived quality govern reconstruction and
+CFOP trust; they are distinct from top-level interchange `Solve.analysisVersion`.
+Rebuildable legacy analyses gain current quality from raw facts. Unrebuildable legacy
+and suspect breakdowns remain displayable, but only explicitly current trusted quality
+enters CFOP analytics, comparisons or step-specific training. Ordinary timing eligibility
+and statistics-outlier handling remain independent of CFOP quality.
+
 
 ## Unusually slow normal solves
 

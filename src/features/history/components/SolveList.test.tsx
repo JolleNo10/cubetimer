@@ -1,3 +1,4 @@
+import { CfopAnalysisBadge } from "./CfopAnalysisQuality";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Solve } from "../../../app/types";
@@ -55,4 +56,16 @@ describe("History solve chooser", () => {
     expect(elements(render([solves[1]])).some(element => element.props.children === "No counted solves. Choose All solves to view the full history.")).toBe(true);
     expect(elements(render([])).some(element => element.props.children === "No solves yet. Scramble and go.")).toBe(true);
   });
+});
+
+
+it("includes independent CFOP badges without changing counted rows or PB eligibility", () => {
+  hooks.filter = "counted";
+  const uncertain = solve("uncertain", { analysis: { method: "CFOP", analysisVersion: 3, quality: { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }] } } as Solve["analysis"] });
+  const missing = solve("missing", { source: "smartcube", rawMs: 9000, moves: [{ move: "R", t: 0 }] });
+  const tree = SolveList({ solves: [uncertain, missing], selectedId: null, onSelect: vi.fn() });
+  expect(rows(tree)).toHaveLength(2);
+  const badges = elements(tree).filter(node => node.type === CfopAnalysisBadge);
+  expect(badges.map(node => CfopAnalysisBadge(node.props as { solve: Solve })?.props.children)).toEqual(["no CFOP", "CFOP uncertain"]);
+  expect(elements(rows(tree)[0]).some(node => node.props.children === "PB")).toBe(true);
 });

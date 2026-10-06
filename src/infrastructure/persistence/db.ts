@@ -4,6 +4,7 @@
  * Solves carry their whole move stream, so a long session can run to a few megabytes —
  * more than `localStorage` will hold, hence IndexedDB.
  */
+import { FACES, type Face } from "../../cube/moves";
 import { DATE_FORMATS, TIME_FORMATS, normaliseTimeZone } from "../../shared/time";
 import { DEFAULT_EVENT_ID, EVENTS, type EventId } from "../../cube/scramble";
 import { COMPARE_SCOPES, DEFAULT_SETTINGS, RESULT_CHARTS, RESULT_SCATTERS, type CompareScope, type Session, type Settings, type Solve, type TrainingAttempt, type TrainingAttemptTarget, type TrainingDrillPreset, type TrainingDrillPresetContext, type TrainingAlgorithmPreference, type TrainingRecognitionAttempt } from "../../app/types";
@@ -92,6 +93,7 @@ export function migrateSession(session: StoredSession): Session {
  */
 export function migrateSolve(solve: StoredSolve): Solve {
   const { event: _legacyEvent, statisticsOutlier: _derivedOutlier, ...canonical } = solve;
+  canonical.solveStartBottomFace = FACES.includes(solve.solveStartBottomFace as Face) ? solve.solveStartBottomFace : undefined;
   const analysis = canonical.analysis as { steps?: unknown } | null | undefined;
   if (analysis && !Array.isArray(analysis.steps)) {
     return { ...canonical, analysis: null, moves: canonical.moves ?? [] };

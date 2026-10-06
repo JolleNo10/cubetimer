@@ -1,3 +1,4 @@
+import { isTrustedCfopAnalysis } from "../../../cube/analysis";
 /**
  * What a solve could have been.
  *
@@ -90,10 +91,12 @@ export async function analyseAlternatives(
   onStep?: (step: StepAnalytics) => void,
 ): Promise<SolveAnalytics> {
   const analysis = solve.analysis;
-  const rotation = rotationForCrossFace(analysis?.crossFace ?? "D");
+  if (!isTrustedCfopAnalysis(analysis)) {
+    return { grip: gripFaces(rotationForCrossFace("D").orientation), steps: [], cross: null, wholeSolve: null };
+  }
+  const rotation = rotationForCrossFace(analysis.crossFace);
   const rotationAlg = new Alg(rotation.tokens.join(" "));
   const grip = gripFaces(rotation.orientation);
-  if (!analysis) return { grip, steps: [], cross: null, wholeSolve: null };
 
   // States after each move, so any step's boundaries can be looked up.
   const patterns: KPattern[] = [scrambled];

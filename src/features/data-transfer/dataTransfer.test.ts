@@ -316,3 +316,15 @@ describe("JSON v7 Recognition and run metadata", () => {
     expect(attemptStore.get("old-attempt")).toEqual({ ...attempt, drillRunId: null, drillRound: null });
   });
 });
+
+
+it("preserves independent solve-start bottom evidence through a JSON v7 round trip", async () => {
+  const recorded: Solve = { ...solveFor("A"), source: "smartcube", solveStartBottomFace: "D" };
+  const { solveStore } = storage(previous.sessions, [recorded]);
+  const backup = await transfer.exportData();
+  expect(JSON.parse(backup)).toMatchObject({ version: 7, solves: [{ solveStartBottomFace: "D" }] });
+  solveStore.clear();
+  await transfer.importData(kpuzzle, previous, backup);
+  expect(solveStore.get(recorded.id)?.solveStartBottomFace).toBe("D");
+  expect(JSON.parse(await transfer.exportData()).solves[0].solveStartBottomFace).toBe("D");
+});

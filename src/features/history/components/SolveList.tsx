@@ -1,3 +1,4 @@
+import { CfopAnalysisBadge } from "./CfopAnalysisQuality";
 import { SolveOutlierNotice } from "./SolveOutlierNotice";
 import { useMemo, useState } from "react";
 import { useController } from "../../../app/useController";
@@ -62,6 +63,7 @@ export function SolveList({ solves, selectedId, onSelect }: Props) {
                     {formatSolveTime(solve)}
                   </span>
                   <SolveOutlierNotice solve={solve} />
+                  <CfopAnalysisBadge solve={solve} />
                   {isPb ? <span className="pb small">PB</span> : null}
                   {isSlowSolve(solve) ? (
                     <span className="phase-case muted" title="Slow solve, not counted">

@@ -31,6 +31,7 @@ export type { TimedMove };
  * from the solve's raw facts when those facts are still there.
  *
  * 2: F2L steps carry the catalogue case they started from.
+ * 3: Canonical CFOP checkpoints and explicit evidence-based quality.
  */
 export const ANALYSIS_VERSION = 3;
 
@@ -95,8 +96,22 @@ export type SolveStep = TurnMetrics & {
   toMove: number;
 };
 
+export type CfopAnalysisIssue =
+  | { code: "cross-face-conflict"; observed: Face; inferred: Face }
+  | { code: "ambiguous-cross"; candidates: Face[] }
+  | { code: "unassigned-f2l-slot"; step: StepName }
+  | { code: "unrecognized-oll" }
+  | { code: "unrecognized-pll" };
+
+export type CfopAnalysisQuality = {
+  status: "trusted" | "suspect";
+  issues: CfopAnalysisIssue[];
+};
+
 export type SolveAnalysis = TurnMetrics & {
   method: "CFOP";
+  /** Optional only for compatibility with legacy/imported analysis. */
+  quality?: CfopAnalysisQuality;
   /** The `ANALYSIS_VERSION` this was made under; missing on analyses from before versions. */
   analysisVersion?: number;
   /** Face of the scrambled cube the cross was built on. */
@@ -114,6 +129,13 @@ export type SolveAnalysis = TurnMetrics & {
   turnsAfterSolution: number;
   pauses: { afterMove: number; startMs: number; durationMs: number }[];
 };
+
+/** Legacy or inconsistent quality metadata cannot authorize derived CFOP analytics. */
+export function isTrustedCfopAnalysis(analysis: SolveAnalysis | null | undefined): analysis is SolveAnalysis & { quality: CfopAnalysisQuality } {
+  return analysis?.method === "CFOP" && analysis.analysisVersion === ANALYSIS_VERSION
+    && analysis.quality?.status === "trusted" && Array.isArray(analysis.quality.issues)
+    && analysis.quality.issues.length === 0;
+}
 
 export const PAUSE_THRESHOLD_MS = 250;
 
@@ -228,6 +250,7 @@ export function analyseSolve(
   scrambledState: KPattern,
   moves: TimedMove[],
   grip?: SolveGrip | null,
+  solveStartBottomFace?: Face,
 ): SolveAnalysis | null {
   if (moves.length === 0) return null;
 
@@ -243,10 +266,10 @@ export function analyseSolve(
   const endIdx = solvedAt;
   const turnsAfterSolution = moves.length - solvedAt;
 
-  const boundaries = findPhaseBoundaries(states, endIdx);
+  const boundaries = findPhaseBoundaries(states, endIdx, solveStartBottomFace);
   if (!boundaries) return null;
 
-  const { crossFace, cuts, slots } = boundaries;
+  const { crossFace, cuts, slots, issues } = boundaries;
   const rotation = rotationForCrossFace(crossFace);
   const steps: SolveStep[] = [];
 
@@ -331,6 +354,11 @@ export function analyseSolve(
           : slot
             ? f2lCase(stateFacing(from), slot)
             : null;
+    if (index >= 1 && index <= 4 && !slot) issues.push({ code: "unassigned-f2l-slot", step: name });
+    if (turning.length > 0 && caseName === null) {
+      if (name === "OLL") issues.push({ code: "unrecognized-oll" });
+      if (name === "PLL") issues.push({ code: "unrecognized-pll" });
+    }
     totals = addTurns(totals, metrics);
     const executionMs = Math.max(0, timeMs - recognitionMs);
 
@@ -370,6 +398,7 @@ export function analyseSolve(
   return {
     method: "CFOP",
     analysisVersion: ANALYSIS_VERSION,
+    quality: { status: issues.length ? "suspect" : "trusted", issues },
     crossFace,
     // The grip the solve was written in: the one measured, when there was a gyroscope
     // to measure it, and otherwise the one the cross face implies.
@@ -405,81 +434,61 @@ function recognitionTime(
   return timeMs;
 }
 
-/** Where each CFOP phase ends, as an index into the raw move stream. */
-function findPhaseBoundaries(
-  states: StateFlags[],
-  endIdx: number,
-): { crossFace: Face; cuts: number[]; slots: (string | null)[] } | null {
-  let best: {
-    crossFace: Face;
-    cuts: number[];
-    slots: (string | null)[];
-    f2lIdx: number;
-  } | null = null;
+type CfopCandidate = {
+  crossFace: Face;
+  cuts: number[];
+  slots: (string | null)[];
+  f2lIdx: number;
+};
 
-  for (const face of FACES) {
-    const slotDefs = f2lSlotsForCrossFace(face);
-    const crossSolved = (s: StateFlags) =>
-      EDGES_OF_FACE[face].every((e) => s.edgeSolved[e]);
-    const isSlotSolved = (s: StateFlags, d: (typeof slotDefs)[number]) =>
-      s.cornerSolved[d.corner] && s.edgeSolved[d.edge];
-
-    const f2lIdx = firstFrom(
-      states,
-      0,
-      (s) => crossSolved(s) && slotDefs.every((d) => isSlotSolved(s, d)),
-    );
-    if (f2lIdx === -1 || f2lIdx > endIdx) continue;
-
-    // The cross is dated by when it first comes together: F2L triggers on the F, B and
-    // L faces routinely disturb a cross edge and put it straight back.
-    const crossIdx = Math.min(firstFrom(states, 0, crossSolved), f2lIdx);
-
-    // Pairs are dated by the moment the number of finished slots goes up, rather than
-    // by each slot individually: inserting one pair frequently disturbs a neighbouring
-    // slot for a few moves, and that must not push the earlier pair's time forward.
-    const solvedSlotCount = (st: StateFlags) =>
-      slotDefs.filter((d) => isSlotSolved(st, d)).length;
-    const slotCuts: number[] = [];
-    const slotNames: (string | null)[] = [];
-    const filled = new Set<string>();
-    let previous = crossIdx;
-    for (let k = 1; k <= 4; k++) {
-      const idx = firstFrom(states, previous, (st) => solvedSlotCount(st) >= k);
-      if (idx === -1) break;
-      // Whichever slot was not done a moment ago but is now is the one just filled.
-      const justFilled =
-        slotDefs.find(
-          (d) =>
-            !filled.has(d.name) &&
-            isSlotSolved(states[idx], d) &&
-            (idx === 0 || !isSlotSolved(states[idx - 1], d)),
-        ) ??
-        slotDefs.find((d) => !filled.has(d.name) && isSlotSolved(states[idx], d));
-      if (justFilled) filled.add(justFilled.name);
-      slotCuts.push(idx);
-      slotNames.push(justFilled?.name ?? null);
-      previous = idx;
-    }
-    if (slotCuts.length < 4) continue;
-
-    const llFaceIndex = FACES.indexOf(OPPOSITE[face]);
-    const ollIdx = firstFrom(states, f2lIdx, (s) => s.faceUniform[llFaceIndex]);
-    const cuts = [
-      crossIdx,
-      ...slotCuts,
-      ollIdx === -1 ? endIdx : ollIdx,
-      endIdx,
-    ];
-
-    if (best === null || f2lIdx < best.f2lIdx) {
-      best = { crossFace: face, cuts, slots: slotNames, f2lIdx };
-    }
+/** Canonical checkpoints require the accumulated CFOP invariants, not transient pair counts. */
+function candidateForFace(states: StateFlags[], endIdx: number, face: Face): CfopCandidate | null {
+  const slotDefs = f2lSlotsForCrossFace(face);
+  const crossSolved = (state: StateFlags) => EDGES_OF_FACE[face].every(edge => state.edgeSolved[edge]);
+  const isSlotSolved = (state: StateFlags, slot: (typeof slotDefs)[number]) => state.cornerSolved[slot.corner] && state.edgeSolved[slot.edge];
+  const fullF2l = (state: StateFlags) => crossSolved(state) && slotDefs.every(slot => isSlotSolved(state, slot));
+  const f2lIdx = firstFrom(states, 0, fullF2l);
+  if (f2lIdx === -1 || f2lIdx > endIdx) return null;
+  // Temporary Cross/pair disruption between milestones is permitted.
+  const crossIdx = firstFrom(states, 0, crossSolved);
+  const slotCuts: number[] = [];
+  const slotNames: (string | null)[] = [];
+  const filled = new Set<string>();
+  let previous = crossIdx;
+  for (let k = 1; k <= 4; k++) {
+    const idx = firstFrom(states, previous, state => crossSolved(state) && slotDefs.filter(slot => isSlotSolved(state, slot)).length >= k);
+    if (idx === -1 || idx > endIdx) return null;
+    const justFilled = slotDefs.find(slot => !filled.has(slot.name) && isSlotSolved(states[idx], slot)
+      && (idx === 0 || !isSlotSolved(states[idx - 1], slot)))
+      ?? slotDefs.find(slot => !filled.has(slot.name) && isSlotSolved(states[idx], slot));
+    if (justFilled) filled.add(justFilled.name);
+    slotCuts.push(idx);
+    slotNames.push(justFilled?.name ?? null);
+    previous = idx;
   }
+  const llFaceIndex = FACES.indexOf(OPPOSITE[face]);
+  const ollIdx = firstFrom(states, f2lIdx, state => fullF2l(state) && state.faceUniform[llFaceIndex]);
+  return { crossFace: face, f2lIdx, slots: slotNames, cuts: [crossIdx, ...slotCuts, ollIdx === -1 ? endIdx : ollIdx, endIdx] };
+}
 
-  return best
-    ? { crossFace: best.crossFace, cuts: best.cuts, slots: best.slots }
-    : null;
+/** State-derived selection and independent solve-start evidence have separate provenance. */
+function findPhaseBoundaries(states: StateFlags[], endIdx: number, observed?: Face): (CfopCandidate & { issues: CfopAnalysisIssue[] }) | null {
+  const candidates = FACES.flatMap(face => {
+    const candidate = candidateForFace(states, endIdx, face);
+    return candidate ? [candidate] : [];
+  }).sort((a, b) => a.f2lIdx - b.f2lIdx);
+  if (!candidates.length) return null;
+  const meaningful = candidates.filter(candidate => candidate.f2lIdx < endIdx);
+  const observedCandidate = candidates.find(candidate => candidate.crossFace === observed);
+  const selected = observedCandidate && observedCandidate.f2lIdx < endIdx ? observedCandidate : candidates[0];
+  const issues: CfopAnalysisIssue[] = [];
+  if (!(observedCandidate && observedCandidate.f2lIdx < endIdx) && meaningful.length !== 1) {
+    issues.push({ code: "ambiguous-cross", candidates: (meaningful.length ? meaningful : candidates).map(candidate => candidate.crossFace) });
+  }
+  if (observed && selected.crossFace !== observed) {
+    issues.push({ code: "cross-face-conflict", observed, inferred: selected.crossFace });
+  }
+  return { ...selected, issues };
 }
 
 /** Lightweight live check used by the timer to know when to stop. */

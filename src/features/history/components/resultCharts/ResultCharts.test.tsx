@@ -28,7 +28,7 @@ function solve(id: string, createdAt: number, gap: number): Solve {
     .map((node, i) => ({ move: node.toString(), t: (i + 1) * gap + (i % 5 === 0 ? 400 : 0) }));
   return {
     id, sessionId: "s", createdAt, rawMs: moves.at(-1)!.t, penalty: "none", scramble: "", source: "smartcube",
-    moves, analysis: analyseSolve(scrambled, moves),
+    moves, analysis: analyseSolve(scrambled, moves, null, "D"),
   } as Solve;
 }
 

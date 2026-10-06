@@ -1,6 +1,6 @@
 import { SolveOutlierNotice } from "./SolveOutlierNotice";
 import { SolveAnalysisReview } from "./SolveAnalysisReview";
-import type { SolveStep } from "../../../cube/analysis";
+import { isTrustedCfopAnalysis, type SolveStep } from "../../../cube/analysis";
 import { useController } from "../../../app/useController";
 import {
   practiceScrambleLabel,
@@ -34,7 +34,7 @@ export function SolveResult({
   const analysis = solve.analysis ?? null;
   const moveCount = analysis?.sliceTurns ?? solve.moves.length;
   const canReplay = solve.moves.length > 0;
-  const canAnalyse = Boolean(analysis && solve.moves.length > 0);
+  const canAnalyse = Boolean(isTrustedCfopAnalysis(analysis) && solve.moves.length > 0);
   const slowSolve = isSlowSolve(solve);
   const specialLabel = practiceScrambleLabel(solve.scrambleProvider);
   const specialTitle = practiceScrambleTitle(solve.scrambleProvider);
@@ -96,9 +96,10 @@ export function SolveResult({
               ))}
             </div>
             <div className="result-tools">
-              {canAnalyse ? (
+              {analysis && solve.moves.length > 0 ? (
                 <button
                   className="ghost"
+                  disabled={!canAnalyse}
                   onClick={() => onAnalyse(solve)}
                   title="Look for shorter ways to have done each step"
                 >
@@ -144,7 +145,9 @@ export function SolveResult({
           <div className="empty result-no-analysis">
             {solve.source === "keyboard"
               ? "No move-by-move breakdown is available for keyboard-timed solves."
-              : "No move-by-move breakdown is available for this solve."}
+              : solve.source === "smartcube" && solve.moves.length > 0
+                ? "A reliable CFOP breakdown could not be identified for this solve. Replay is still available."
+                : "No move-by-move breakdown is available for this solve."}
           </div>
         )}
       </div>

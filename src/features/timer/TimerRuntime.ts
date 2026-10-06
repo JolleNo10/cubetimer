@@ -2,7 +2,7 @@ import { Alg } from "cubing/alg";
 import type { KPattern } from "cubing/kpuzzle";
 import type { GanCubeMove } from "gan-web-bluetooth";
 import { fitMoveTimestamps, type Quaternion } from "../../infrastructure/bluetooth/smartCube";
-import { analyseSolve, isSolvedPattern, type TimedMove } from "../../cube/analysis";
+import { analyseSolve, isSolvedPattern, isTrustedCfopAnalysis, type TimedMove } from "../../cube/analysis";
 import { faceColour, faceOfColour } from "../../cube/colours";
 import { hasXCrossIn } from "../../cube/crossPlans";
 import { generateWhiteCrossScramble } from "../../cube/crossScramble";
@@ -72,6 +72,7 @@ export class TimerRuntime {
   #scrambleBeforeSpecialGeneration: ScrambleContext | null = null;
   #startedAt = 0;
   #inspectionStartedAt = 0;
+  #solveStartBottomFace: Face | null = null;
   #solveMoves: GanCubeMove[] = [];
   /** The cube's pose as each move landed, in step with `#solveMoves`. */
   #solveReadings: (Quaternion | null)[] = [];
@@ -115,6 +116,7 @@ export class TimerRuntime {
     this.#scrambledPattern = null;
     this.#solveMoves = [];
     this.#solveReadings = [];
+    this.#solveStartBottomFace = null;
     this.#isReplay = false;
     this.#dependencies.elapsed.set(0);
     this.#dependencies.inspectionLeft.set(null);
@@ -165,6 +167,7 @@ export class TimerRuntime {
   }
 
   setScramble(scramble: string, scrambleProvider?: string): void {
+    this.#solveStartBottomFace = null;
     this.#invalidateRecovery();
     this.#scrambleGenerationToken++;
     this.#scrambleBeforeSpecialGeneration = null;
@@ -371,6 +374,7 @@ export class TimerRuntime {
     this.#dependencies.inspectionLeft.set(null);
     this.#solveMoves = [];
     this.#solveReadings = [];
+    this.#solveStartBottomFace = null;
     // Abandoned, so the same applies as when one is finished: stop following the
     // cube until the next scramble is on it.
     this.#dependencies.physical.resetGrip();
@@ -401,11 +405,13 @@ export class TimerRuntime {
     this.#startedAt = atMs;
     this.#solveMoves = [];
     this.#solveReadings = [];
-    // Inspection is over, so whichever face is underneath now is the one the cross
-    // is going on, and it stays there for the solve. Holding the view to it means a
-    // reading that drifts can get the side facing the solver wrong, but can never
+    this.#solveStartBottomFace = null;
+    // Capture the independent physical observation before holding the view to it.
+    // CFOP analysis decides separately whether it agrees with state progression.
+    // Holding the view means drift can get the side facing the solver wrong, but never
     // tip the cube over on screen.
     const bottom = this.#dependencies.physical.grip?.bottom ?? null;
+    this.#solveStartBottomFace = bottom;
     this.#dependencies.physical.holdBottom(bottom);
     if (bottom) {
       debugLog("grip", `solve started with ${faceColour(bottom).name} underneath`);
@@ -576,34 +582,23 @@ export class TimerRuntime {
     void this.#recordSolve(rawMs, timed, "smartcube");
   }
 
-  /**
-   * Work out how the cube was held for every move of the solve just finished.
-   *
-   * The solve is analysed once first, unaided, purely to find where its steps end.
-   * Those are the only places in a solve where the grip is known for certain rather
-   * than measured — a solver finishes the cross, and each pair, with the cross face
-   * underneath — and they are what keeps a drifting reading honest. They can be had
-   * up front because which pieces are solved does not depend on which way the cube
-   * was being held, so this first pass finds exactly the same steps as the real one.
-   *
-   * Null when there is nothing to work from — no gyroscope, or a scramble that was
-   * never finished, so no reference to measure against. The analysis falls back to
-   * guessing the grip from the solve, as it always did.
+  /** Use the physical start observation as the Cross prior, never the analysis conclusion.
+   * Only trusted preliminary checkpoints may anchor grip drift correction.
    */
-  #trackSolveGrip(moves: TimedMove[], scrambled: KPattern): GripTrack | null {
+  #trackSolveGrip(moves: TimedMove[], scrambled: KPattern, solveStartBottomFace?: Face): GripTrack | null {
     const reference = this.#dependencies.physical.gripReference;
     if (!reference || !this.#dependencies.physical.gripLocked) return null;
     if (!this.#solveReadings.some(Boolean)) return null;
 
-    const unaided = analyseSolve(scrambled, moves);
+    const unaided = analyseSolve(scrambled, moves, null, solveStartBottomFace);
     const track = trackGrip({
       moves,
       readings: this.#solveReadings,
       reference,
-      crossFace: unaided?.crossFace,
+      ...(solveStartBottomFace ? { crossFace: solveStartBottomFace } : {}),
       // The last move of each step, and the first of the solve: after inspection the
       // cross face is already underneath.
-      boundaries: [0, ...(unaided?.steps ?? []).map((step) => step.toMove - 1)],
+      ...(isTrustedCfopAnalysis(unaided) ? { boundaries: [0, ...unaided.steps.map(step => step.toMove - 1)] } : {}),
     });
     if (debugEnabled("grip")) {
       debugLog(
@@ -623,6 +618,8 @@ export class TimerRuntime {
     source: Solve["source"],
   ): Promise<void> {
     const { scramble, inspectionPenalty } = this.state.get();
+    const solveStartBottomFace = source === "smartcube" ? this.#solveStartBottomFace ?? undefined : undefined;
+    this.#solveStartBottomFace = null;
     const sessionId = this.#dependencies.getSessionId();
     const settings = this.#dependencies.getSettings();
     const scrambleProvider = this.#scrambleProvider;
@@ -632,7 +629,7 @@ export class TimerRuntime {
       this.#scrambledPattern ??
       (await get3x3x3()).defaultPattern().applyAlg(new Alg(scramble));
     const grip =
-      source === "smartcube" ? this.#trackSolveGrip(moves, scrambledPattern) : null;
+      source === "smartcube" ? this.#trackSolveGrip(moves, scrambledPattern, solveStartBottomFace) : null;
     // The solve is read; nothing is watching the cube again until the next scramble
     // is on it, and the readings taken between now and then are sightings of the
     // pose that scramble will be applied in.
@@ -652,13 +649,14 @@ export class TimerRuntime {
       replay: isReplay || undefined,
       slowSolve: settings.slowSolve || undefined,
       scrambledFacelets: patternToFacelets(scrambledPattern),
+      solveStartBottomFace,
       // Kept alongside the analysis so the breakdown can be rebuilt later without the
       // cube: the readings themselves are gone, but what they were taken to mean is
       // not, and that is what the move text is written from.
       gripTrack: grip ? encodeGripTrack(grip) : undefined,
       analysis:
         source === "smartcube"
-          ? analyseSolve(scrambledPattern, moves, grip)
+          ? analyseSolve(scrambledPattern, moves, grip, solveStartBottomFace)
           : null,
     };
 

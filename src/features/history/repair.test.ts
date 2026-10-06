@@ -3,7 +3,7 @@ import { Alg } from "cubing/alg";
 import { get3x3x3 } from "../../cube/puzzle";
 import { patternToFacelets } from "../../cube/facelets";
 import { rebuildAnalysis } from "./repair";
-import { ANALYSIS_VERSION } from "../../cube/analysis";
+import { ANALYSIS_VERSION, analyseSolve, isTrustedCfopAnalysis } from "../../cube/analysis";
 import type { Solve } from "../../app/types";
 
 const kpuzzle = await get3x3x3();
@@ -88,4 +88,31 @@ describe("rebuildAnalysis", () => {
       rebuildAnalysis(kpuzzle, solve({ scramble: "", scrambledFacelets: undefined })),
     ).toBeNull();
   });
+});
+
+
+it("rebuilds v2 or missing-quality analysis using the independent observation", () => {
+  const current = analyseSolve(kpuzzle.defaultPattern().applyAlg(scramble), moves, null, "D")!;
+  for (const version of [2, ANALYSIS_VERSION]) {
+    const legacy = { ...current, analysisVersion: version, quality: undefined };
+    const rebuilt = rebuildAnalysis(kpuzzle, solve({ analysis: legacy, solveStartBottomFace: "D" }))!;
+    expect(rebuilt.analysis).toMatchObject({ analysisVersion: 3, quality: { status: "trusted", issues: [] } });
+    expect(rebuilt.solveStartBottomFace).toBe("D");
+  }
+});
+it("leaves unrebuildable legacy analysis readable but untrusted", () => {
+  const current = analyseSolve(kpuzzle.defaultPattern().applyAlg(scramble), moves, null, "D")!;
+  const legacy = { ...current, analysisVersion: 2, quality: undefined };
+  const original = solve({ analysis: legacy, moves: [], scramble: "invalid" });
+  expect(rebuildAnalysis(kpuzzle, original)).toBeNull();
+  expect(original.analysis).toBe(legacy);
+  expect(isTrustedCfopAnalysis(original.analysis)).toBe(false);
+});
+
+
+it("does not promote historical reconstructed grip into raw bottom evidence", () => {
+  const rebuilt = rebuildAnalysis(kpuzzle, solve({ gripTrack: `|${"DF".repeat(moves.length)}` }))!;
+  expect(rebuilt.solveStartBottomFace).toBeUndefined();
+  expect(isTrustedCfopAnalysis(rebuilt.analysis)).toBe(false);
+  expect(rebuilt.analysis!.quality!.issues.some(issue => issue.code === "ambiguous-cross")).toBe(true);
 });

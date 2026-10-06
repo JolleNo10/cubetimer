@@ -1,3 +1,4 @@
+import { CfopAnalysisWarning } from "./CfopAnalysisQuality";
 import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { formatTime } from "../../../shared/time";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -11,7 +12,7 @@ import {
   stepAt,
   type ActiveReplayAction,
 } from "./StepBreakdown";
-import type { SolveStep } from "../../../cube/analysis";
+import { isTrustedCfopAnalysis, type SolveStep } from "../../../cube/analysis";
 import {
   NORMAL_REPLAY_STICKERING_MASK,
   replayStickeringMask,
@@ -355,7 +356,7 @@ export function ReplayDialog({
                 </span>
               </>
             ) : null}
-            {currentStep && onTrainStep && canPracticeTrainingStep(currentStep) ? (
+            {isTrustedCfopAnalysis(solve.analysis) && currentStep && onTrainStep && canPracticeTrainingStep(currentStep) ? (
               <button
                 type="button"
                 className="ghost small"
@@ -372,6 +373,7 @@ export function ReplayDialog({
 
           {solve.analysis ? (
             <div className="replay-steps">
+              <CfopAnalysisWarning analysis={solve.analysis} />
               <div className="panel-title" style={{ marginBottom: 8 }}>
                 Breakdown
               </div>

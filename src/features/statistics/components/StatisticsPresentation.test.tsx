@@ -17,7 +17,7 @@ import { Controller } from "../../../app/Controller";
 const kpuzzle = await get3x3x3();
 const alg = new Alg("R U R' U R U2 R'");
 const moves = Array.from(alg.childAlgNodes()).map((node, index) => ({ move: node.toString(), t: (index + 1) * 300 }));
-const solve: Solve = { id: "historical", sessionId: "history", createdAt: 1, rawMs: 2100, penalty: "+2", scramble: alg.invert().toString(), source: "smartcube", moves, comment: "Read-only note", analysis: analyseSolve(kpuzzle.defaultPattern().applyAlg(alg.invert()), moves) };
+const solve: Solve = { id: "historical", sessionId: "history", createdAt: 1, rawMs: 2100, penalty: "+2", scramble: alg.invert().toString(), source: "smartcube", moves, comment: "Read-only note", analysis: analyseSolve(kpuzzle.defaultPattern().applyAlg(alg.invert()), moves, null, "D") };
 const sessions = [{ id: "history", name: "History Session", event: "333" as const, createdAt: 1 }];
 
 describe("Statistics presentation", () => {
@@ -171,4 +171,37 @@ it("uses saved calendar formats throughout Statistics records", () => {
   const model = deriveStatistics({ sessions, solves: [historical] }, { event: "333", sessionId: "history" }, "history");
   const html = renderToStaticMarkup(<ControllerContext.Provider value={controller}><StatisticsRecords model={model} onOpenSolve={() => {}} /></ControllerContext.Provider>);
   expect(html).toContain("2026-10-06, 2:05:09 PM");
+});
+
+
+describe("uncertain CFOP presentation", () => {
+  const suspect: Solve = { ...solve, analysis: { ...solve.analysis!, quality: { status: "suspect", issues: [{ code: "cross-face-conflict", observed: "U", inferred: "D" }] } } };
+  const render = (reviewed: Solve) => renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><SolveResult solve={reviewed} solves={[reviewed]} onContinue={() => {}} onReplay={() => {}} onAnalyse={() => {}} onPracticeStep={() => {}} /></ControllerContext.Provider>);
+  it("warns before showing the suspect breakdown, disables Tools/Train, and keeps Replay", () => {
+    const html = render(suspect);
+    expect(html).toContain("CFOP analysis uncertain");
+    expect(html).toContain("excluded from CFOP statistics");
+    expect(html).toContain("Observed bottom white (U) disagrees with inferred Cross yellow (D)");
+    expect(html.indexOf("CFOP analysis uncertain")).toBeLessThan(html.indexOf("Measured recognition"));
+    expect(html).toContain("F2L Slot 4");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Tools<\/button>/);
+    expect(html).toMatch(/<button class="ghost">Replay<\/button>/);
+    expect(html).not.toContain("Train");
+  });
+  it("keeps legacy analysis inspectable but rejects step-specific actions", () => {
+    const html = render({ ...solve, analysis: { ...solve.analysis!, quality: undefined, analysisVersion: 2 } });
+    expect(html).toContain("CFOP analysis uncertain"); expect(html).toContain("F2L Slot 4");
+    expect(html).not.toContain("Train");
+  });
+  it("explains unavailable CFOP reconstruction while retaining raw replay", () => {
+    const html = render({ ...solve, analysis: null });
+    expect(html).toContain("A reliable CFOP breakdown could not be identified");
+    expect(html).toMatch(/<button class="ghost">Replay<\/button>/);
+  });
+  it("also disables analytical Tools in read-only Statistics detail", () => {
+    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={suspect} solves={[suspect]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
+    expect(html).toContain("CFOP analysis uncertain");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Tools<\/button>/);
+    expect(html).toMatch(/<button class="ghost">Replay<\/button>/);
+  });
 });

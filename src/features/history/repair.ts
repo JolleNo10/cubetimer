@@ -39,14 +39,14 @@ function startingPattern(kpuzzle: KPuzzle, solve: Solve): KPattern | null {
  * `null` when there is nothing to do.
  */
 export function rebuildAnalysis(kpuzzle: KPuzzle, solve: Solve): Solve | null {
-  const current = solve.analysis && (solve.analysis.analysisVersion ?? 1) >= ANALYSIS_VERSION;
+  const current = solve.analysis && (solve.analysis.analysisVersion ?? 1) >= ANALYSIS_VERSION && solve.analysis.quality !== undefined;
   if (current || solve.moves.length === 0) return null;
   const from = startingPattern(kpuzzle, solve);
   if (!from) return null;
   // The readings are long gone, but what they were taken to mean was kept, so the
   // rebuilt breakdown still names the faces the solver was actually looking at.
   const grip = solve.gripTrack ? decodeGripTrack(solve.gripTrack) : null;
-  const analysis = analyseSolve(from, solve.moves, grip);
+  const analysis = analyseSolve(from, solve.moves, grip, solve.solveStartBottomFace);
   if (!analysis) return null;
   return { ...solve, analysis };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { STEP_NAMES, type SolveAnalysis } from "../../../cube/analysis";
+import { ANALYSIS_VERSION, STEP_NAMES, type SolveAnalysis } from "../../../cube/analysis";
 import { DEFAULT_EVENT_ID } from "../../../cube/scramble";
 import { averageOf } from "./stats";
 import {
@@ -49,7 +49,7 @@ function analysed(id: string, sessionId: string, createdAt: number): Solve {
   return solve(id, sessionId, 10_000, {
     createdAt,
     analysis: {
-      method: "CFOP",
+      method: "CFOP", analysisVersion: ANALYSIS_VERSION, quality: { status: "trusted", issues: [] },
       sliceTurns: 50,
       solvingMs: 10_000,
       totalRecognitionMs: 2_000,
@@ -714,4 +714,21 @@ describe("performance table sorting", () => {
     expect(sortPerformanceRows(rows, "skips", "desc").map((item) => item.label)).toEqual(["10", "1", "2"]);
     expect(sortPerformanceRows(rows, "tps", "desc").map((item) => item.label)).toEqual(["2", "1", "10"]);
   });
+});
+
+
+it("quarantines suspect CFOP from every derived summary while keeping the solve in timing history", () => {
+  const trusted = Array.from({ length: 5 }, (_, i) => analysed(`good${i}`, "A", i));
+  const bad = analysed("suspect", "A", 10);
+  bad.analysis!.quality = { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }] };
+  bad.rawMs = 9000;
+  const before = modelFor(trusted), after = modelFor([...trusted, bad]);
+  expect(after.solveRows.some(row => row.solve.id === bad.id)).toBe(true);
+  for (const key of ["f2lSlots", "f2lPositions", "ollCases", "pllCases", "phaseTrend", "ollFocus", "pllFocus", "recognitionTrend", "recognitionExecution", "pauses", "cfop"] as const) {
+    expect(after[key]).toEqual(before[key]);
+  }
+  expect(after.bestSplits.sources).toEqual(before.bestSplits.sources);
+  expect(after.bestSplits.pbMs).toBe(9000);
+  expect(after.analysisCount).toBe(5);
+  expect(after.stats).toMatchObject({ count: 6, best: 9000 });
 });

@@ -1,3 +1,4 @@
+import type { Face } from "../cube/moves";
 import type { DateFormat, TimeFormat } from "../shared/time";
 import type { SolveAnalysis, TimedMove } from "../cube/analysis";
 import type { WhiteCrossMoves } from "../cube/crossScramble";
@@ -113,6 +114,8 @@ export type Solve = {
   moves: TimedMove[];
   /** Cube state the solve started from, as a facelet string. */
   scrambledFacelets?: string;
+  /** Physical face observed underneath at solve start, independent of CFOP inference. */
+  solveStartBottomFace?: Face;
   /**
    * How the cube was held for each move, when the gyroscope was there to say.
    *

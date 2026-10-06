@@ -8,7 +8,7 @@ import type { Solve } from "../../../app/types";
 const kpuzzle = await get3x3x3();
 
 /** A solve that wastes moves: each pair is inserted, taken out and put back. */
-function buildSolve(solution: string, scramble: string): Solve {
+function buildSolve(solution: string, scramble: string, bottom: import("../../../cube/moves").Face = "D"): Solve {
   const moves = Array.from(new Alg(solution).expand().childAlgNodes())
     .flatMap((node) => {
       const move = node.toString();
@@ -20,7 +20,7 @@ function buildSolve(solution: string, scramble: string): Solve {
   return {
     id: "x", sessionId: "s", createdAt: 0, rawMs: moves.at(-1)!.t, penalty: "none",
     scramble, source: "smartcube", moves,
-    analysis: analyseSolve(scrambled, moves),
+    solveStartBottomFace: bottom, analysis: analyseSolve(scrambled, moves, null, bottom),
   } as Solve;
 }
 
@@ -71,7 +71,7 @@ describe("which way up the sequences are written", () => {
     .replace(/U/g, "§").replace(/D/g, "U").replace(/§/g, "D")
     .replace(/R/g, "¤").replace(/L/g, "R").replace(/¤/g, "L");
   const scrambled = kpuzzle.defaultPattern().applyAlg(new Alg(flipped).invert());
-  const solve = buildSolve(flipped, new Alg(flipped).invert().toString());
+  const solve = buildSolve(flipped, new Alg(flipped).invert().toString(), "U");
 
   it("says which faces are down and in front", async () => {
     const result = await analyseAlternatives(kpuzzle, solve, scrambled);
@@ -96,4 +96,14 @@ describe("which way up the sequences are written", () => {
       expect(after.patternData.EDGES.orientation[slot]).toBe(0);
     }
   }, 30_000);
+});
+
+
+it("withholds step-specific alternatives for suspect reconstruction", async () => {
+  const alg = "R U R' U R U2 R'";
+  const recorded = buildSolve(alg, new Alg(alg).invert().toString());
+  const suspect: Solve = { ...recorded, analysis: { ...recorded.analysis!, crossFace: "U", quality: { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }] } } };
+  const result = await analyseAlternatives(kpuzzle, suspect, kpuzzle.defaultPattern().applyAlg(new Alg(alg).invert()));
+  expect(result.grip.bottom).toBe("D");
+  expect(result.steps).toEqual([]); expect(result.cross).toBeNull(); expect(result.wholeSolve).toBeNull();
 });

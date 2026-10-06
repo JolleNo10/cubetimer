@@ -1,6 +1,8 @@
+import { effectiveMs } from "../../../app/types";
 import { describe, expect, it } from "vitest";
-import { STEP_NAMES, type SolveAnalysis } from "../../../cube/analysis";
+import { ANALYSIS_VERSION, STEP_NAMES, type SolveAnalysis } from "../../../cube/analysis";
 import {
+  analysedSolveFacts, validatedSolveFacts, isCountedSolve,
   averageOf,
   averageWindow,
   bestAverage,
@@ -35,7 +37,7 @@ function analysedSolve(
     ...solve(10_000),
     id,
     analysis: {
-      method: "CFOP",
+      method: "CFOP", analysisVersion: ANALYSIS_VERSION, quality: { status: "trusted", issues: [] },
       steps: STEP_NAMES.map((name, index) => ({ name, timeMs: times[index] ?? 0 })),
     } as unknown as SolveAnalysis,
     ...options,
@@ -552,7 +554,7 @@ function fullSolve(id: string, sessionId: string, times: number[], cases: (strin
   return {
     ...solve(solvingMs), id, sessionId, createdAt, source: "smartcube",
     analysis: {
-      method: "CFOP", crossFace: "D", rotation: "DB", steps, solvingMs, tps: 1, stepsSkipped: 0, turnsAfterSolution: 0, pauses: [],
+      method: "CFOP", analysisVersion: ANALYSIS_VERSION, quality: { status: "trusted", issues: [] }, crossFace: "D", rotation: "DB", steps, solvingMs, tps: 1, stepsSkipped: 0, turnsAfterSolution: 0, pauses: [],
       totalRecognitionMs: steps.reduce((sum, step) => sum + step.recognitionMs, 0),
       totalExecutionMs: steps.reduce((sum, step) => sum + step.executionMs, 0),
       sliceTurns: 56, faceTurns: 56, quarterTurns: 56,
@@ -619,5 +621,33 @@ describe("caseSpread", () => {
     const current = fullSolve("now", "a", base, [null, null, null, null, null, "27"]);
     const rows = caseSpread(current, [practice, other, current], { scope: "event", sessions })!;
     expect(rows[5].samples).toEqual([]);
+  });
+});
+
+
+describe("CFOP quarantine leaves ordinary timing intact", () => {
+  const trusted = Array.from({ length: 5 }, (_, i) => fullSolve(`trusted-${i}`, "a", base, [null, null, null, null, null, "27", "T"], i));
+  const original = fullSolve("suspect", "a", base, [null, null, null, null, null, "27", "T"], 10);
+  const suspect: Solve = { ...original, analysis: { ...original.analysis!, quality: { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }] } } };
+  it("retains readable facts and counted solve time, while rejecting derived CFOP facts", () => {
+    expect(validatedSolveFacts(suspect)).not.toBeNull();
+    expect(analysedSolveFacts(suspect)).toBeNull();
+    expect(isCountedSolve(suspect)).toBe(true);
+    expect(effectiveMs(suspect)).toBe(12000);
+    expect(countedSolves([...trusted, suspect])).toHaveLength(6);
+    expect(averageOf([...trusted.slice(0, 4), suspect], 5)).toBe(12000);
+    expect(sessionStats([...trusted, suspect])).toMatchObject({ count: 6, best: 12000 });
+    expect(sessionStats([...trusted, suspect]).cfop).toEqual(sessionStats(trusted).cfop);
+    expect(sessionStats([...trusted, suspect]).solving).toEqual(sessionStats(trusted).solving);
+  });
+  it("rejects suspect current analyses and excludes them from later baselines", () => {
+    expect(compareSolveToHistory(suspect, trusted)).toBeNull();
+    expect(caseSpread(suspect, trusted)).toBeNull();
+    const current = fullSolve("current", "a", base, [null, null, null, null, null, "27", "T"], 20);
+    expect(compareSolveToHistory(current, [...trusted, suspect, current])?.sampleSize).toBe(5);
+    expect(caseSpread(current, [...trusted, suspect, current])).toEqual(caseSpread(current, [...trusted, current]));
+    const legacy: Solve = { ...suspect, analysis: { ...suspect.analysis!, quality: undefined } };
+    expect(analysedSolveFacts(legacy)).toBeNull();
+    expect(validatedSolveFacts(legacy)).not.toBeNull();
   });
 });
