@@ -446,6 +446,15 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .detailed-breakdown .phase-row .phase-bar { grid-column: 1 / -1; grid-row: 3; }
 .detailed-breakdown .phase-row .phase-sub { display: none; }
 .detailed-breakdown .row.small { display: none; }
+/* Compact: one line of figures per step; a row opens to show its moves. */
+.detailed-breakdown.compact .phase-row { padding: 6px 0; row-gap: 2px; }
+.detailed-breakdown.compact .phase-row.expandable { cursor: pointer; }
+.detailed-breakdown.compact .phase-row.expandable:hover { background: color-mix(in oklab, var(--panel-2) 60%, transparent); }
+.detailed-breakdown.compact .phase-row.expanded { padding-bottom: 8px; }
+.phase-toggle { padding: 0; border: 0; background: none; box-shadow: none; color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+.phase-toggle::before { content: "▸"; display: inline-block; width: 1em; color: var(--text-faint); transition: transform 120ms ease; }
+.phase-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
+.phase-toggle:focus-visible { outline: 2px solid var(--text); outline-offset: 2px; border-radius: 3px; }
 .phase-time-axis {
   position: relative;
   height: 18px;

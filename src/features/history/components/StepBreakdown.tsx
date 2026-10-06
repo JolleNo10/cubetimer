@@ -209,6 +209,9 @@ function StepRow({
   timeScale,
   activeReplayAction,
   comparison,
+  showBar = true,
+  expanded,
+  onToggle,
   onSelect,
   onPractice,
 }: {
@@ -221,6 +224,10 @@ function StepRow({
   timeScale?: StepTimeScale;
   activeReplayAction?: ActiveReplayAction;
   comparison?: StepComparison;
+  showBar?: boolean;
+  /** Given `onToggle`, the row opens and closes to show its moves. */
+  expanded?: boolean;
+  onToggle?: () => void;
   onSelect?: () => void;
   onPractice?: () => void;
 }) {
@@ -236,7 +243,7 @@ function StepRow({
     <button
       type="button"
       className="ghost small phase-practice"
-      onClick={onPractice}
+      onClick={(event) => { event.stopPropagation(); onPractice(); }}
       title={`Train ${step.name}`}
     >
       Train
@@ -271,7 +278,13 @@ function StepRow({
   const content = (
     <>
       <span className="phase-head">
-        <span className="phase-name">{step.name}</span>
+        {onToggle ? (
+          <button type="button" className="phase-name phase-toggle" aria-expanded={expanded === true}
+            title={expanded ? "Hide the moves" : "Show the moves"}
+            onClick={(event) => { event.stopPropagation(); onToggle(); }}>
+            {step.name}
+          </button>
+        ) : <span className="phase-name">{step.name}</span>}
         {described ? (
           <span className={`phase-case${isSkip ? " muted" : ""}`}>
             {described.id === "Solved" ? "skip" : described.id}
@@ -295,37 +308,39 @@ function StepRow({
         </span>
       ) : null}
       {splitValues}
-      <span className="phase-bar">
-        {timeScale ? (
+      {showBar ? (
+        <span className="phase-bar">
+          {timeScale ? (
+            <span
+              className="phase-time-guides"
+              aria-hidden="true"
+              data-scale-max-ms={timeScale.maxMs}
+              data-tick-ms={timeScale.tickMs}
+            >
+              {timeScale.ticks.map((tick, index) => (
+                <i
+                  key={tick}
+                  style={{
+                    left: `${scalePositionPercent(tick, timeScale)}%`,
+                    transform: index === timeScale.ticks.length - 1 ? "translateX(-100%)" : undefined,
+                  }}
+                />
+              ))}
+            </span>
+          ) : null}
           <span
-            className="phase-time-guides"
-            aria-hidden="true"
-            data-scale-max-ms={timeScale.maxMs}
-            data-tick-ms={timeScale.tickMs}
-          >
-            {timeScale.ticks.map((tick, index) => (
-              <i
-                key={tick}
-                style={{
-                  left: `${scalePositionPercent(tick, timeScale)}%`,
-                  transform: index === timeScale.ticks.length - 1 ? "translateX(-100%)" : undefined,
-                }}
-              />
-            ))}
-          </span>
-        ) : null}
-        <span
-          className="recognition"
-          style={{ width: `${recognitionWidth}%` }}
-        />
-        <span
-          className="execution"
-          style={{
-            width: `${executionWidth}%`,
-            background: timeScale ? "var(--accent)" : STEP_COLORS[step.name] ?? "var(--accent)",
-          }}
-        />
-      </span>
+            className="recognition"
+            style={{ width: `${recognitionWidth}%` }}
+          />
+          <span
+            className="execution"
+            style={{
+              width: `${executionWidth}%`,
+              background: timeScale ? "var(--accent)" : STEP_COLORS[step.name] ?? "var(--accent)",
+            }}
+          />
+        </span>
+      ) : null}
       <span className="phase-sub">
         {isSkipped ? "—" : `${step.sliceTurns} mv · ${step.tps.toFixed(1)} tps`}
       </span>
@@ -352,6 +367,9 @@ function StepRow({
     </>
   );
 
+  if (onToggle) {
+    return <div className={`phase-row expandable${expanded ? " expanded" : ""}`} onClick={onToggle}>{content}</div>;
+  }
   if (!onSelect) {
     return <div className="phase-row">{content}</div>;
   }
@@ -517,6 +535,7 @@ export function StepBreakdown({
   position,
   activeReplayAction,
   comparison,
+  compact = false,
   onPracticeStep,
 }: {
   analysis: SolveAnalysis;
@@ -533,10 +552,21 @@ export function StepBreakdown({
   activeReplayAction?: ActiveReplayAction;
   /** Per-step difference from recent solves; its steps line up with `analysis.steps`. */
   comparison?: SolveComparison | null;
+  /**
+   * One line of figures per step, without bars, for when charts sit beside it. A row
+   * opens to show its moves and the way to train it.
+   */
+  compact?: boolean;
   onPracticeStep?: (step: SolveStep) => void;
 }) {
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set());
   const total = Math.max(1, analysis.solvingMs);
-  const timeScale = showTimeScale ? stepTimeScale(analysis.steps) : undefined;
+  const timeScale = showTimeScale && !compact ? stepTimeScale(analysis.steps) : undefined;
+  const toggle = (name: string) => setExpanded((open) => {
+    const next = new Set(open);
+    if (!next.delete(name)) next.add(name);
+    return next;
+  });
   const solution = fullSolution(analysis);
   return (
     <>
@@ -567,19 +597,22 @@ export function StepBreakdown({
             step={step}
             total={total}
             active={activeStep === i}
-            showMoves={showMoves}
+            showMoves={compact ? expanded.has(step.name) : showMoves}
+            showBar={!compact}
+            expanded={compact ? expanded.has(step.name) : undefined}
+            onToggle={compact ? () => toggle(step.name) : undefined}
             showCumulativeTime={showCumulativeTime}
             showSplitTimes={showSplitTimes}
             timeScale={timeScale}
             activeReplayAction={activeReplayAction}
             comparison={comparison?.steps[i]}
             onSelect={onSelectStep ? () => onSelectStep(step) : undefined}
-            onPractice={onPracticeStep ? () => onPracticeStep(step) : undefined}
+            onPractice={onPracticeStep && (!compact || expanded.has(step.name)) ? () => onPracticeStep(step) : undefined}
           />
         ))}
       </div>
 
-      <div className="legend">
+      {compact ? null : <div className="legend">
         <span>
           <i style={{ background: "color-mix(in oklab, var(--blue) 55%, transparent)" }} />
           recognition
@@ -593,7 +626,7 @@ export function StepBreakdown({
           {formatTime(analysis.totalRecognitionMs)} {showTimeScale ? "measured recognition" : "looking"} ·{" "}
           {formatTime(analysis.totalExecutionMs)} {showTimeScale ? "execution" : "turning"}
         </span>
-      </div>
+      </div>}
 
       {showFullSolution && solution ? <Solution solution={solution} /> : null}
 
@@ -621,6 +654,7 @@ export function DetailedStepBreakdown({
   onSelectStep,
   activeReplayAction,
   comparison,
+  compact = false,
   onPracticeStep,
 }: {
   analysis: SolveAnalysis;
@@ -628,10 +662,11 @@ export function DetailedStepBreakdown({
   onSelectStep?: (step: SolveStep) => void;
   activeReplayAction?: ActiveReplayAction;
   comparison?: SolveComparison | null;
+  compact?: boolean;
   onPracticeStep?: (step: SolveStep) => void;
 }) {
   return (
-    <div className={`detailed-breakdown${comparison ? " compared" : ""}`}>
+    <div className={`detailed-breakdown${comparison ? " compared" : ""}${compact ? " compact" : ""}`}>
       <div className="detailed-breakdown-grid">
         <div className="detailed-step-heading" aria-hidden="true">
           <span>Step</span>
@@ -653,6 +688,7 @@ export function DetailedStepBreakdown({
           onSelectStep={onSelectStep}
           activeReplayAction={activeReplayAction}
           comparison={comparison}
+          compact={compact}
           onPracticeStep={onPracticeStep}
           showMoves
           showFullSolution={false}
