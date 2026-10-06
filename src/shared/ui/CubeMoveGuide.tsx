@@ -1,39 +1,13 @@
 import { useId } from "react";
 import type { MoveGuide } from "../../cube/moveGuide";
+import {
+  DEFAULT_GUIDE_CAMERA, cameraDepth, cameraDirection, project, toCamera,
+  type Camera, type GuideCamera, type Point2, type Point3,
+} from "./cubeOverlayCamera";
 
-type Point3 = readonly [number, number, number];
-type Point2 = readonly [number, number];
-/** Orbit camera angles in degrees, as cubing.js reports them. */
-export type GuideCamera = { latitude: number; longitude: number };
-export const DEFAULT_GUIDE_CAMERA: GuideCamera = { latitude: 27, longitude: 32 };
-type Camera = { sinLat: number; cosLat: number; sinLon: number; cosLon: number };
-const CAMERA_DISTANCE = 6.25;
-const HALF_CUBE_SIZE = 0.555;
-const PROJECTION_SCALE = 200 * HALF_CUBE_SIZE / (CAMERA_DISTANCE * Math.tan(10 * Math.PI / 180));
+export { DEFAULT_GUIDE_CAMERA, type GuideCamera };
+
 const AXIS_INDEX = { x: 0, y: 1, z: 2 } as const;
-
-function toCamera({ latitude, longitude }: GuideCamera): Camera {
-  const lat = latitude * Math.PI / 180, lon = longitude * Math.PI / 180;
-  return { sinLat: Math.sin(lat), cosLat: Math.cos(lat), sinLon: Math.sin(lon), cosLon: Math.cos(lon) };
-}
-
-/** Unit vector from the cube centre towards the camera. */
-function cameraDirection(c: Camera): Point3 {
-  return [c.sinLon * c.cosLat, c.sinLat, c.cosLon * c.cosLat];
-}
-
-function cameraDepth(c: Camera, [x, y, z]: Point3): number {
-  const [dx, dy, dz] = cameraDirection(c);
-  return x * dx + y * dy + z * dz;
-}
-
-/** Perspective projection tuned to the PG3D orbit camera. */
-function project(c: Camera, [x, y, z]: Point3): Point2 {
-  const depth = cameraDepth(c, [x, y, z]);
-  const scale = PROJECTION_SCALE / (1 - depth * HALF_CUBE_SIZE / CAMERA_DISTANCE);
-  return [200 + scale * (x * c.cosLon - z * c.sinLon),
-    200 - scale * (-x * c.sinLat * c.sinLon + y * c.cosLat - z * c.sinLat * c.cosLon)];
-}
 
 function path(points: readonly Point2[], close = false): string {
   return points.map(([x, y], index) => `${index ? "L" : "M"}${x.toFixed(2)},${y.toFixed(2)}`).join(" ") + (close ? " Z" : "");

@@ -626,6 +626,9 @@ h1, h2, h3, h4 { margin: 0; font-weight: 600; }
 .cube-guide-arrowhead { fill: var(--accent); stroke: var(--accent-dim); stroke-width: 1; stroke-linejoin: round; }
 .cube-guide-label rect { fill: var(--panel); fill-opacity: 0.94; stroke: var(--accent); stroke-opacity: 0.7; }
 .cube-guide-label text { fill: var(--text); font-family: var(--mono); font-size: 13px; font-weight: 700; }
+.cube-front-marker { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; opacity: 0; transition: opacity 200ms ease; }
+.cube-front-marker.visible { opacity: 1; }
+.cube-front-marker text { fill: var(--accent); fill-opacity: 0.4; stroke: var(--accent); stroke-opacity: 0.95; stroke-width: 2.5; font-family: var(--mono); font-size: 100px; font-weight: 700; }
 .training-algorithm-guide { margin: 10px 0; }
 .move-sequence { min-width: 0; display: flex; flex-wrap: wrap; gap: 5px; font-size: 17px; line-height: 1.6; }
 .move-sequence-token { flex: none; padding: 1px 6px; border-radius: 5px; border: 1px solid transparent; }

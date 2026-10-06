@@ -24,9 +24,12 @@ import {
 import { effectiveMs, type Solve } from "../../../app/types";
 import { moveGuideForToken } from "../../../cube/moveGuide";
 import { CubeMoveGuide, DEFAULT_GUIDE_CAMERA, type GuideCamera } from "../../../shared/ui/CubeMoveGuide";
+import { CubeFrontMarker } from "../../../shared/ui/CubeFrontMarker";
 import { MoveSequence } from "../../../shared/ui/MoveSequence";
 
 const SPEEDS = [0.25, 0.5, 1, 2];
+/** How long the Front marker lingers after the camera stops moving. */
+const FRONT_MARKER_LINGER_MS = 1200;
 
 export type ReplayViewState = {
   index: number;
@@ -56,6 +59,7 @@ export function ReplayDialog({
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(initialView?.speed ?? 1);
   const [camera, setCamera] = useState<GuideCamera>(DEFAULT_GUIDE_CAMERA);
+  const [orbiting, setOrbiting] = useState(false);
 
   const moves = solve.moves;
   const steps = solve.analysis?.steps;
@@ -143,10 +147,21 @@ export function ReplayDialog({
     appliedRef.current = 0;
     // The move guide is a flat overlay, so it has to be told where the camera went.
     setCamera(DEFAULT_GUIDE_CAMERA);
+    setOrbiting(false);
     const orbit = player.experimentalModel.twistySceneModel.orbitCoordinates;
-    const onOrbit = ({ latitude, longitude }: GuideCamera) => setCamera({ latitude, longitude });
+    // The first report is just the starting camera; only later ones are the user moving it.
+    let initial = true;
+    let linger: ReturnType<typeof setTimeout> | undefined;
+    const onOrbit = ({ latitude, longitude }: GuideCamera) => {
+      setCamera({ latitude, longitude });
+      if (initial) { initial = false; return; }
+      setOrbiting(true);
+      clearTimeout(linger);
+      linger = setTimeout(() => setOrbiting(false), FRONT_MARKER_LINGER_MS);
+    };
     orbit.addFreshListener(onOrbit);
     return () => {
+      clearTimeout(linger);
       orbit.removeFreshListener(onOrbit);
       player.remove();
       playerRef.current = null;
@@ -273,6 +288,7 @@ export function ReplayDialog({
           <div className="replay-stage">
             <div ref={hostRef} className="replay-cube-host" />
             {guideMove ? <CubeMoveGuide move={guideMove} camera={camera} /> : null}
+            <CubeFrontMarker camera={camera} visible={orbiting} />
           </div>
           <MoveSequence moves={visibleMoves} currentIndex={index} completedCount={index}
             onSelect={navigate} label="Replay moves" layout="scroll"

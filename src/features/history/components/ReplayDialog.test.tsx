@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ReplayDialog } from "./ReplayDialog";
 import { MoveSequence } from "../../../shared/ui/MoveSequence";
 import { CubeMoveGuide } from "../../../shared/ui/CubeMoveGuide";
+import { CubeFrontMarker } from "../../../shared/ui/CubeFrontMarker";
 import { DetailedStepBreakdown } from "./StepBreakdown";
 import { describeGrip, GENERATORS, IDENTITY } from "../../../cube/orientation";
 import type { Solve } from "../../../app/types";
@@ -122,6 +123,7 @@ function fixture(initialView?: { index: number; speed: number }, withAnalysis = 
         (node.props["aria-label"] === label || (Array.isArray(node.props.children) ? node.props.children.join("") : node.props.children) === label))!.props as { onClick(): void; disabled?: boolean },
       sequence: nodes.find(node => node.type === MoveSequence)!.props as React.ComponentProps<typeof MoveSequence>,
       arrow: nodes.find(node => node.type === CubeMoveGuide)?.props as React.ComponentProps<typeof CubeMoveGuide> | undefined,
+      marker: nodes.find(node => node.type === CubeFrontMarker)!.props as React.ComponentProps<typeof CubeFrontMarker>,
       breakdown: nodes.find(node => node.type === DetailedStepBreakdown)?.props as React.ComponentProps<typeof DetailedStepBreakdown> | undefined,
       input: (label: string) => nodes.find(node => node.props["aria-label"] === label)!.props as { value: number; onChange(event: { target: { value: string } }): void },
     };
@@ -165,6 +167,29 @@ describe("Replay instruction cursor", () => {
     hooks.orbit!({ latitude: -10, longitude: 200 });
     view = render();
     expect(view.arrow!.camera).toEqual({ latitude: -10, longitude: 200 });
+  });
+
+  it("shows the Front marker only while the camera is being moved", () => {
+    vi.useFakeTimers();
+    try {
+      const { render } = fixture();
+      expect(render().marker.visible).toBe(false);
+      hooks.orbit!({ latitude: 27, longitude: 32 });
+      expect(render().marker.visible).toBe(false);
+      hooks.orbit!({ latitude: 20, longitude: 90 });
+      let view = render();
+      expect(view.marker).toMatchObject({ visible: true, camera: { latitude: 20, longitude: 90 } });
+      vi.advanceTimersByTime(1000);
+      hooks.orbit!({ latitude: 20, longitude: 120 });
+      vi.advanceTimersByTime(1000);
+      expect(render().marker.visible).toBe(true);
+      vi.advanceTimersByTime(300);
+      view = render();
+      expect(view.marker.visible).toBe(false);
+      expect(view.marker.camera).toEqual({ latitude: 20, longitude: 120 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("uses start/end and previous/next boundaries, with no arrow at the end", () => {
