@@ -1,5 +1,5 @@
 import { SolveOutlierNotice } from "./SolveOutlierNotice";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useController } from "../../../app/useController";
 import {
   practiceScrambleLabel,
@@ -16,21 +16,28 @@ type Props = {
 
 export function SolveList({ solves, selectedId, onSelect }: Props) {
   const controller = useController();
+  const [filter, setFilter] = useState<"all" | "counted">("all");
+  const visible = useMemo(() => solves
+    .map((solve, index) => ({ solve, index: index + 1 }))
+    .filter(({ solve }) => filter === "all" || isCountedSolve(solve)), [solves, filter]);
   // A slow solve is never a personal best; it was never a race.
   const best = useMemo(() => bestSingle(countedSolves(solves)), [solves]);
 
   return (
     <div className="panel" style={{ flex: 1, minHeight: 0 }}>
-      <div className="panel-head">
+      <div className="panel-head" style={{ flexWrap: "wrap" }}>
         <span className="panel-title">History</span>
-        <span className="faint small">{solves.length}</span>
+        <select className="small" aria-label="History solves" value={filter} onChange={(event) => setFilter(event.target.value as "all" | "counted")}>
+          <option value="all">All solves</option>
+          <option value="counted">Counted only</option>
+        </select>
+        <span className="faint small">{filter === "all" ? solves.length : `${visible.length} / ${solves.length}`}</span>
       </div>
       <div className="panel-body tight" style={{ overflow: "auto" }}>
-        {solves.length === 0 ? (
-          <div className="empty">No solves yet. Scramble and go.</div>
+        {visible.length === 0 ? (
+          <div className="empty">{solves.length === 0 ? "No solves yet. Scramble and go." : "No counted solves. Choose All solves to view the full history."}</div>
         ) : (
-          [...solves].reverse().map((solve, reverseIndex) => {
-            const index = solves.length - reverseIndex;
+          [...visible].reverse().map(({ solve, index }) => {
             const time = effectiveMs(solve);
             const isPb = time !== null && time === best && isCountedSolve(solve);
             const specialLabel = practiceScrambleLabel(solve.scrambleProvider);
