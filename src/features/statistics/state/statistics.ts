@@ -68,6 +68,7 @@ export type PhaseTrendPoint = {
   solveId: string;
   sessionId: string;
   createdAt: number;
+  segmentKey: string;
   crossMs: number;
   f2lMs: number;
   ollMs: number;
@@ -94,16 +95,10 @@ export type StatisticsViewModel = {
   stats: SessionStats;
   meanFinishedMs?: number;
   medianMs?: number;
-  p25Ms?: number;
-  p10Ms?: number;
-  p75Ms?: number;
-  p90Ms?: number;
   dnfCount: number;
   dnfRate: number;
   analysisCount: number;
   analysisCoverage: number;
-  bestAo50?: number;
-  bestAo100?: number;
   trend: TrendPoint[];
   distribution: DistributionStats;
   recognitionExecution?: RecognitionExecutionStats;
@@ -126,6 +121,37 @@ export type StatisticsViewModel = {
   latestAverages: Partial<Record<AverageMetric, { solveId: string; sessionId: string; window: AverageWindow }>>;
   f2lSlots: PerformanceSummary[];
   f2lUnassignedCount: number;
+  recentForm: RecentForm | null;
+  averageStandings: Record<AverageMetric, AverageStanding>;
+  ollFocus: CasePerformance[];
+  pllFocus: CasePerformance[];
+};
+
+/** Descriptive comparison of the latest counted solves with the window before them. */
+export type RecentForm = {
+  sampleSize: number;
+  recentMedianMs: number;
+  baselineMedianMs: number;
+  medianDeltaMs: number;
+  recentIqrMs: number;
+  iqrDeltaMs: number;
+  recentDnfCount: number;
+  baselineDnfCount: number;
+};
+
+/** The current (single Session) or latest achieved (All Sessions) value of one average and how it compares with the best. */
+export type AverageStanding = {
+  metric: AverageMetric;
+  size: typeof AVERAGE_SIZES[number];
+  value: number | null | undefined;
+  bestMs?: number;
+  deltaToBestMs?: number;
+  isBest: boolean;
+  status: "actual" | "projected" | "unavailable";
+  /** Projected long averages: how many real solves the projection contains. */
+  count?: number;
+  /** All Sessions: the Session whose window is the latest achieved one. */
+  sourceSessionId?: string;
 };
 
 export type RecentPerformanceComparison = {
@@ -187,7 +213,7 @@ export type AverageProgressionPoint = {
   index: number; solveId: string; sessionId: string; segmentKey: string; createdAt: number;
   ao5?: number | null; ao12?: number | null; ao50?: number | null; ao100?: number | null;
 };
-export type RecognitionTrendPoint = { index: number; solveId: string; recognitionMs: number; executionMs: number; unclassifiedMs: number };
+export type RecognitionTrendPoint = { index: number; solveId: string; sessionId: string; createdAt: number; segmentKey: string; recognitionMs: number; executionMs: number; unclassifiedMs: number };
 export type PerformanceSample = {
   solveId: string; timeMs: number; recognitionMs: number; executionMs: number; moves: number; tps?: number;
 };
@@ -268,12 +294,8 @@ function recordModels(solves: readonly Solve[], facts: readonly AnalysedSolveFac
   const records = Object.fromEntries(RANKING_METRICS.map((metric) => [metric.id, []])) as unknown as Record<RankingMetric, RankingRow[]>;
   const factsById = new Map(facts.map((fact) => [fact.id, fact]));
   const progression: AverageProgressionPoint[] = [];
-  let previousSessionId: string | undefined;
-  let segmentIndex = -1;
+  const segments = sessionSegmentKeys(solves);
   solves.forEach((solve, index) => {
-    // Count every Session transition before filtering out unavailable averages.
-    if (solve.sessionId !== previousSessionId) segmentIndex++;
-    previousSessionId = solve.sessionId;
     const fact = factsById.get(solve.id);
     const base = { id: solve.id, kind: "solve" as const, solveId: solve.id, createdAt: solve.createdAt, sessionId: solve.sessionId, totalTime: effectiveMs(solve), moves: fact?.sliceTurns, tps: fact?.tps, context: "" };
     const add = (metric: RankingMetric, value: number | null | undefined, context = "", moves = base.moves, tps = base.tps) => {
@@ -305,7 +327,7 @@ function recordModels(solves: readonly Solve[], facts: readonly AnalysedSolveFac
       }
       add("last-layer", oll.timeMs + pll.timeMs, [skipped(oll) ? "OLL skip" : "", skipped(pll) ? "PLL skip" : ""].filter(Boolean).join(" · "), oll.sliceTurns + pll.sliceTurns, executionTps(oll.sliceTurns + pll.sliceTurns, oll.executionMs + pll.executionMs));
     }
-    const point: AverageProgressionPoint = { index: index + 1, solveId: solve.id, sessionId: solve.sessionId, segmentKey: String(segmentIndex), createdAt: solve.createdAt };
+    const point: AverageProgressionPoint = { index: index + 1, solveId: solve.id, sessionId: solve.sessionId, segmentKey: segments.get(solve.id)!, createdAt: solve.createdAt };
     for (const size of AVERAGE_SIZES) {
       const metric = `ao${size}` as const;
       const window = rolling.get(solve.id)?.[metric];
@@ -378,13 +400,17 @@ function pauseStatistics(facts: readonly AnalysedSolveFacts[]): PauseStats | und
     pauseCount++; totalMs += pause.durationMs;
     if (!longest || pause.durationMs > longest.durationMs) longest = { solveId: fact.id, durationMs: pause.durationMs };
     const nextMove = pause.afterMove + 1;
-    const step = fact.steps.findIndex((step) => step.fromMove <= nextMove && nextMove < step.toMove);
-    const phase = step === 0 ? 0 : step < 5 ? 1 : step === 5 ? 2 : 3;
-    phases[phase].totalMs += pause.durationMs;
+    // Validation guarantees contiguous steps covering every pause's next move.
+    phases[cfopPhaseOfStep(fact.steps.findIndex((step) => step.fromMove <= nextMove && nextMove < step.toMove))].totalMs += pause.durationMs;
   }
   for (const phase of phases) phase.share = totalMs > 0 ? phase.totalMs / totalMs : 0;
   const pauseFreeCount = facts.filter((fact) => fact.pauses.length === 0).length;
   return { sampleSize: facts.length, pauseCount, meanCount: pauseCount / facts.length, meanDurationMs: pauseCount ? totalMs / pauseCount : undefined, meanTotalMs: totalMs / facts.length, pauseFreeCount, pauseFreeShare: pauseFreeCount / facts.length, longest, phases };
+}
+
+/** Seven analysis steps → Cross, F2L (four pairs), OLL, PLL. */
+function cfopPhaseOfStep(index: number): 0 | 1 | 2 | 3 {
+  return index <= 0 ? 0 : index <= 4 ? 1 : index === 5 ? 2 : 3;
 }
 
 function chronological(a: Solve, b: Solve): number {
@@ -473,22 +499,68 @@ function sessionRows(
   }).map((row) => ({ ...row, current: row.session.id === activeSessionId }));
 }
 
-function phaseTrend(solves: readonly Solve[]): PhaseTrendPoint[] {
-  const facts = solves
-    .map(analysedSolveFacts)
-    .filter((facts): facts is NonNullable<typeof facts> => facts !== null)
-    .sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+/**
+ * Chronological solves → segment key per solve. A key changes at every Session transition,
+ * so a returning Session starts a new segment and charts never bridge another Session.
+ */
+export function sessionSegmentKeys(solves: readonly { id: string; sessionId: string }[]): Map<string, string> {
+  const keys = new Map<string, string>();
+  let previous: string | undefined;
+  let segment = -1;
+  for (const solve of solves) {
+    if (solve.sessionId !== previous) segment++;
+    previous = solve.sessionId;
+    keys.set(solve.id, String(segment));
+  }
+  return keys;
+}
+
+/**
+ * For each item, the latest up-to-`size` items of the same Session ending at it. A Session's
+ * history continues when it returns after another Session, exactly like rolling averages.
+ */
+export function sessionLocalWindows<T extends { sessionId: string }>(items: readonly T[], size: number): T[][] {
+  const histories = new Map<string, T[]>();
+  return items.map((item) => {
+    const history = histories.get(item.sessionId) ?? [];
+    history.push(item);
+    if (history.length > size) history.shift();
+    histories.set(item.sessionId, history);
+    return [...history];
+  });
+}
+
+const TREND_MEDIAN_SIZE = 10;
+
+/** Input facts are chronological; medians are Session-local. */
+function phaseTrend(facts: readonly AnalysedSolveFacts[], segments: Map<string, string>): PhaseTrendPoint[] {
+  const windows = sessionLocalWindows(facts, TREND_MEDIAN_SIZE);
   return facts.map((fact, index) => {
-    const recent = facts.slice(Math.max(0, index - 9), index + 1);
+    const recent = windows[index];
     return {
       index: index + 1,
       solveId: fact.id,
       sessionId: fact.sessionId,
       createdAt: fact.createdAt,
+      segmentKey: segments.get(fact.id) ?? "",
       crossMs: median(recent.map((item) => item.phases.crossMs)) ?? 0,
       f2lMs: median(recent.map((item) => item.phases.f2lMs)) ?? 0,
       ollMs: median(recent.map((item) => item.phases.ollMs)) ?? 0,
       pllMs: median(recent.map((item) => item.phases.pllMs)) ?? 0,
+    };
+  });
+}
+
+/** Input facts are chronological; medians are Session-local. */
+function recognitionTrend(facts: readonly AnalysedSolveFacts[], segments: Map<string, string>): RecognitionTrendPoint[] {
+  const windows = sessionLocalWindows(facts, TREND_MEDIAN_SIZE);
+  return facts.map((fact, index) => {
+    const recent = windows[index];
+    return {
+      index: index + 1, solveId: fact.id, sessionId: fact.sessionId, createdAt: fact.createdAt, segmentKey: segments.get(fact.id) ?? "",
+      recognitionMs: median(recent.map((item) => item.recognitionMs))!,
+      executionMs: median(recent.map((item) => item.executionMs))!,
+      unclassifiedMs: median(recent.map(unclassifiedTime))!,
     };
   });
 }
@@ -566,6 +638,7 @@ export function deriveStatistics(
   const finished = finishedTimes(counted);
   const dnfCount = counted.length - finished.length;
   const facts = scopeSolves.map(analysedSolveFacts).filter((facts): facts is NonNullable<typeof facts> => facts !== null);
+  const segments = sessionSegmentKeys(counted);
   const rolling = sessionRollingAverages(counted);
   const recordModel = recordModels(counted, facts, rolling);
   const latestAverages: StatisticsViewModel["latestAverages"] = {};
@@ -612,6 +685,7 @@ export function deriveStatistics(
     gapShare: stats.best === undefined || !medianMs ? undefined : (medianMs - stats.best) / medianMs,
     p10Ms: percentile(finished, 0.1), p25Ms: percentile(finished, 0.25), p75Ms: percentile(finished, 0.75), p90Ms: percentile(finished, 0.9),
   };
+  const ollCases = casePerformance(facts, 5), pllCases = casePerformance(facts, 6);
   const bySession = new Map<string, Solve[]>();
   for (const solve of eventSolves) {
     const list = bySession.get(solve.sessionId) ?? [];
@@ -628,35 +702,28 @@ export function deriveStatistics(
     stats,
     meanFinishedMs: finished.length ? finished.reduce((sum, time) => sum + time, 0) / finished.length : undefined,
     medianMs,
-    p10Ms: consistency.p10Ms,
-    p25Ms: percentile(finished, 0.25),
-    p75Ms: percentile(finished, 0.75),
-    p90Ms: percentile(finished, 0.9),
     dnfCount,
     dnfRate: counted.length ? dnfCount / counted.length : 0,
     analysisCount: facts.length,
     analysisCoverage: finished.length ? facts.length / finished.length : 0,
-    bestAo50: recordModel.records.ao50[0]?.value,
-    bestAo100: recordModel.records.ao100[0]?.value,
     trend: makeTrend(counted, rolling),
     distribution: distribution(counted),
     recognitionExecution: recognitionExecution(facts),
     cfop: stats.cfop,
-    phaseTrend: phaseTrend(scopeSolves),
+    phaseTrend: phaseTrend(facts, segments),
     sessionComparison: sessionRows(eventSessions, bySession, activeSessionId),
     ...recordModel,
     solveRows, latestAverages,
     f2lSlots: slots.map((slot) => performance(slot, pairs.filter((pair) => pair.slot === slot))),
     f2lUnassignedCount: pairs.filter((pair) => !slots.some((slot) => pair.slot === slot)).length,
     f2lPositions: ["1st pair", "2nd pair", "3rd pair", "4th pair"].map((label, index) => performance(label, facts.map((fact) => ({ fact, step: fact.steps[index + 1] })))),
-    ollCases: casePerformance(facts, 5), pllCases: casePerformance(facts, 6),
+    ollCases, pllCases, ollFocus: focusCases(ollCases), pllFocus: focusCases(pllCases),
     ollSkips: facts.filter((fact) => skipped(fact.steps[5])).length,
     pllSkips: facts.filter((fact) => skipped(fact.steps[6])).length,
-    recognitionTrend: facts.map((fact, index) => {
-      const recent = facts.slice(Math.max(0, index - 9), index + 1);
-      return { index: index + 1, solveId: fact.id, recognitionMs: median(recent.map((fact) => fact.recognitionMs))!, executionMs: median(recent.map((fact) => fact.executionMs))!, unclassifiedMs: median(recent.map(unclassifiedTime))! };
-    }),
+    recognitionTrend: recognitionTrend(facts, segments),
     pauses: pauseStatistics(facts), consistency,
+    recentForm: recentForm(counted),
+    averageStandings: averageStandings(scope.sessionId === null, stats, latestAverages, recordModel.records),
   };
 }
 
@@ -673,4 +740,82 @@ export function filterPhaseChartWindow<T extends { solveId: string }>(
   if (window === "all") return [...points];
   const visibleIds = new Set(visibleTrend.map((point) => point.id));
   return points.filter((point) => visibleIds.has(point.solveId));
+}
+
+/** Presentation series for one chart window; summaries and records keep the full scope. */
+export function chartWindowSeries(model: StatisticsViewModel, window: ChartWindow): {
+  trend: TrendPoint[]; phases: PhaseTrendPoint[]; averages: AverageProgressionPoint[]; recognition: RecognitionTrendPoint[];
+} {
+  const trend = sliceChartWindow(model.trend, window);
+  return {
+    trend,
+    phases: filterPhaseChartWindow(model.phaseTrend, trend, window),
+    averages: filterPhaseChartWindow(model.averageProgression, trend, window),
+    recognition: filterPhaseChartWindow(model.recognitionTrend, trend, window),
+  };
+}
+
+/**
+ * Latest up-to-`maxSize` counted solves against the immediately preceding window of the same
+ * size. Descriptive medians of independent results, not WCA averages, so they may span Sessions.
+ */
+export function recentForm(counted: readonly Solve[], maxSize = 12): RecentForm | null {
+  const ordered = [...counted].sort(chronological);
+  const size = Math.min(maxSize, Math.floor(ordered.length / 2));
+  if (size < 5) return null;
+  const recent = ordered.slice(-size), baseline = ordered.slice(-size * 2, -size);
+  const recentTimes = finishedTimes(recent), baselineTimes = finishedTimes(baseline);
+  if (recentTimes.length < 3 || baselineTimes.length < 3) return null;
+  const iqr = (times: number[]) => percentile(times, 0.75)! - percentile(times, 0.25)!;
+  const recentMedianMs = median(recentTimes)!, baselineMedianMs = median(baselineTimes)!;
+  const recentIqrMs = iqr(recentTimes);
+  return {
+    sampleSize: size, recentMedianMs, baselineMedianMs, medianDeltaMs: recentMedianMs - baselineMedianMs,
+    recentIqrMs, iqrDeltaMs: recentIqrMs - iqr(baselineTimes),
+    recentDnfCount: recent.length - recentTimes.length, baselineDnfCount: baseline.length - baselineTimes.length,
+  };
+}
+
+function averageStandings(
+  allSessions: boolean,
+  stats: SessionStats,
+  latest: StatisticsViewModel["latestAverages"],
+  records: Record<RankingMetric, RankingRow[]>,
+): Record<AverageMetric, AverageStanding> {
+  const result = {} as Record<AverageMetric, AverageStanding>;
+  for (const size of AVERAGE_SIZES) {
+    const metric = `ao${size}` as const;
+    const bestMs = records[metric][0]?.value;
+    let value: number | null | undefined;
+    let status: AverageStanding["status"];
+    let count: number | undefined;
+    if (allSessions) {
+      value = latest[metric]?.window.value;
+      status = latest[metric] ? "actual" : "unavailable";
+    } else if (size === 5 || size === 12) {
+      value = stats[`ao${size}`];
+      status = value === undefined ? "unavailable" : "actual";
+    } else {
+      const long = stats[`ao${size}`];
+      value = long.value;
+      status = long.status;
+      count = long.count;
+    }
+    const comparable = status === "actual" && typeof value === "number" && bestMs !== undefined;
+    result[metric] = {
+      metric, size, value, bestMs, status, count,
+      deltaToBestMs: comparable ? value! - bestMs : undefined,
+      isBest: comparable && value === bestMs,
+      sourceSessionId: allSessions ? latest[metric]?.sessionId : undefined,
+    };
+  }
+  return result;
+}
+
+/** The slowest well-sampled cases by median, as training suggestions. */
+export function focusCases(rows: readonly CasePerformance[], { minSamples = 3, limit = 3 }: { minSamples?: number; limit?: number } = {}): CasePerformance[] {
+  return rows
+    .filter((row) => row.count >= minSamples && row.medianMs !== undefined)
+    .sort((a, b) => b.medianMs! - a.medianMs! || (b.recognitionMs ?? 0) - (a.recognitionMs ?? 0) || a.caseId.localeCompare(b.caseId, undefined, { numeric: true }))
+    .slice(0, limit);
 }

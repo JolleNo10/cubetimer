@@ -8,6 +8,11 @@ import {
   recentPerformanceComparison,
   filterPhaseChartWindow,
   percentile,
+  chartWindowSeries,
+  focusCases,
+  recentForm,
+  sessionLocalWindows,
+  sessionSegmentKeys,
   sliceChartWindow,
   sortRankingRows,
   sortCasePerformance,
@@ -611,5 +616,92 @@ describe("historical records and performance", () => {
     const model = modelFor([10, 20, 30, 40, 50].map((ms, index) => solve(`s${index}`, "A", ms * 1000)));
     expect(model.consistency).toMatchObject({ pbMs: 10_000, medianMs: 30_000, gapMs: 20_000, gapShare: 2 / 3, p10Ms: 14_000, p25Ms: 20_000, p75Ms: 40_000, p90Ms: 46_000 });
     expect(modelFor([]).consistency.gapMs).toBeUndefined();
+  });
+});
+
+describe("Session-local trends", () => {
+  function timed(id: string, sessionId: string, createdAt: number, recognitionMs: number) {
+    const item = analysed(id, sessionId, createdAt);
+    item.analysis!.totalRecognitionMs = recognitionMs;
+    item.analysis!.totalExecutionMs = 10_000 - recognitionMs;
+    item.analysis!.steps[0].timeMs = recognitionMs;
+    return item;
+  }
+
+  it("resets phase and recognition medians at a Session and continues a returning Session's own history", () => {
+    const solves = [
+      ...[100, 200, 300].map((ms, i) => timed(`a${i}`, "A", i, ms)),
+      ...[5000, 6000].map((ms, i) => timed(`b${i}`, "B", 10 + i, ms)),
+      timed("a3", "A", 20, 400),
+    ];
+    const model = modelFor(solves);
+    const recognition = new Map(model.recognitionTrend.map((point) => [point.solveId, point]));
+    expect(recognition.get("b0")!.recognitionMs).toBe(5000);
+    expect(recognition.get("b1")!.recognitionMs).toBe(5500);
+    expect(recognition.get("a3")!.recognitionMs).toBe(250);
+    expect(model.phaseTrend.find((point) => point.solveId === "b0")!.crossMs).toBe(5000);
+    expect(model.phaseTrend.find((point) => point.solveId === "a3")!.crossMs).toBe(250);
+    expect(recognition.get("b0")).toMatchObject({ sessionId: "B", createdAt: 10 });
+    const keys = model.recognitionTrend.map((point) => point.segmentKey);
+    expect(keys).toEqual(["0", "0", "0", "1", "1", "2"]);
+    expect(model.phaseTrend.map((point) => point.segmentKey)).toEqual(keys);
+  });
+
+  it("changes segment through a Session without analysed solves", () => {
+    const model = modelFor([timed("a0", "A", 0, 100), solve("b0", "B", 9_000, { createdAt: 1 }), timed("a1", "A", 2, 300)]);
+    expect(model.phaseTrend.map((point) => point.segmentKey)).toEqual(["0", "2"]);
+  });
+
+  it("derives segment keys and Session-local windows", () => {
+    const items = ["A", "A", "B", "A"].map((sessionId, index) => ({ id: `s${index}`, sessionId }));
+    expect([...sessionSegmentKeys(items).values()]).toEqual(["0", "0", "1", "2"]);
+    expect(sessionLocalWindows(items, 2).map((window) => window.map((item) => item.id))).toEqual([["s0"], ["s0", "s1"], ["s2"], ["s1", "s3"]]);
+  });
+});
+
+describe("Statistics insights", () => {
+  it("compares recent counted form with the previous window, counting DNFs separately", () => {
+    expect(recentForm(Array.from({ length: 9 }, (_, i) => solve(`s${i}`, "A", 10_000)))).toBeNull();
+    const solves = Array.from({ length: 24 }, (_, i) => solve(`s${i}`, "A", i < 12 ? 12_000 + (i % 4) * 100 : 11_000 + (i % 4) * 300, { createdAt: i }));
+    solves[23] = { ...solves[23], penalty: "DNF" };
+    const form = recentForm(solves)!;
+    expect(form).toMatchObject({ sampleSize: 12, baselineMedianMs: 12_150, recentDnfCount: 1, baselineDnfCount: 0 });
+    expect(form.medianDeltaMs).toBe(form.recentMedianMs - 12_150);
+    expect(form.medianDeltaMs).toBeLessThan(0);
+    expect(form.iqrDeltaMs).toBeGreaterThan(0);
+    expect(recentForm(solves.slice(0, 10))?.sampleSize).toBe(5);
+  });
+
+  it("is unavailable when either window has fewer than three finished results", () => {
+    const solves = Array.from({ length: 10 }, (_, i) => solve(`s${i}`, "A", 10_000, { createdAt: i, penalty: i >= 7 ? "DNF" : "none" }));
+    expect(recentForm(solves)).toBeNull();
+  });
+
+  it("describes current single-Session averages against their best", () => {
+    const solves = [10, 10, 10, 10, 10, 12, 12, 12, 12, 12].map((s, i) => solve(`s${i}`, "A", s * 1000, { createdAt: i }));
+    const model = deriveStatistics({ sessions: [session("A")], solves }, { event: "333", sessionId: "A" }, "A");
+    expect(model.averageStandings.ao5).toMatchObject({ value: 12_000, bestMs: 10_000, deltaToBestMs: 2_000, isBest: false, status: "actual" });
+    expect(model.averageStandings.ao12).toMatchObject({ value: undefined, status: "unavailable", isBest: false });
+    expect(model.averageStandings.ao50).toMatchObject({ status: "projected", count: 10 });
+    expect(modelFor(solves.slice(0, 5)).averageStandings.ao5).toMatchObject({ isBest: true, sourceSessionId: "A" });
+  });
+
+  it("suggests the slowest sufficiently sampled cases", () => {
+    const row = (caseId: string, count: number, medianMs: number, recognitionMs = 0) =>
+      ({ caseId, label: caseId, count, skipCount: 0, solveIds: [], samples: [], medianMs, recognitionMs });
+    const rows = [row("1", 5, 1000), row("2", 2, 9000), row("3", 3, 2000, 100), row("4", 4, 2000, 300), row("5", 9, 1500)];
+    expect(focusCases(rows).map((item) => item.caseId)).toEqual(["4", "3", "5"]);
+    expect(focusCases(rows, { minSamples: 1, limit: 1 })[0].caseId).toBe("2");
+  });
+
+  it("slices every chart series to the same counted window", () => {
+    const solves = Array.from({ length: 60 }, (_, i) => analysed(`s${i}`, "A", i));
+    const model = modelFor(solves);
+    const series = chartWindowSeries(model, 50);
+    expect(series.trend).toHaveLength(50);
+    expect(series.phases.map((point) => point.solveId)).toEqual(series.trend.map((point) => point.id));
+    expect(series.recognition).toHaveLength(50);
+    expect(series.averages[0].solveId).toBe("s10");
+    expect(chartWindowSeries(model, "all").trend).toHaveLength(60);
   });
 });

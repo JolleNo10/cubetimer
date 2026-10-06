@@ -466,6 +466,10 @@ Ao5/Ao12/Ao50/Ao100 window must never span Session boundaries. All-Sessions aver
 rankings/history merge achieved Session-local windows rather than flattening Sessions
 into one average sequence. Overview shows the latest achieved window and its source
 Session; long-average projections remain limited to a selected Session.
+Rolling trend medians (CFOP phases and measured recognition/execution, up to 10
+analysed solves) are Session-local in the same way, and trend charts break and mark
+every Session transition. Recent-form comparisons of independent finished results may
+span Sessions because they are descriptive medians, not averages.
 
 Overview, Solves, CFOP, and Cases navigation is local React presentation state.
 Chart windows affect visible charts only, not rankings or summaries.

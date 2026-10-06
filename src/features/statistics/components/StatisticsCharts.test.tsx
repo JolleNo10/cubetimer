@@ -67,8 +67,8 @@ describe("Statistics charts", () => {
     const charts = [
       <SolveTimeTrendChart points={points} scopeLabel="A" />,
       <AverageProgressionChart scopeLabel="A" points={points.map((point) => ({ index: point.index, solveId: point.id, sessionId: point.sessionId, segmentKey: "0", createdAt: point.createdAt, ao5: point.time }))} />,
-      <RecognitionExecutionTrendChart scopeLabel="A" points={points.map((point) => ({ index: point.index, solveId: point.id, recognitionMs: point.time, executionMs: point.time, unclassifiedMs: point.time }))} />,
-      <CfopPhaseTrendChart scopeLabel="A" points={points.map((point) => ({ index: point.index, solveId: point.id, createdAt: point.createdAt, sessionId: "A", crossMs: point.time, f2lMs: point.time, ollMs: point.time, pllMs: point.time }))} />,
+      <RecognitionExecutionTrendChart scopeLabel="A" points={points.map((point) => ({ index: point.index, solveId: point.id, sessionId: "A", createdAt: point.createdAt, segmentKey: "0", recognitionMs: point.time, executionMs: point.time, unclassifiedMs: point.time }))} />,
+      <CfopPhaseTrendChart scopeLabel="A" points={points.map((point) => ({ index: point.index, solveId: point.id, createdAt: point.createdAt, sessionId: "A", segmentKey: "0", crossMs: point.time, f2lMs: point.time, ollMs: point.time, pllMs: point.time }))} />,
     ];
     for (const chart of charts) {
       const html = renderToStaticMarkup(chart);
@@ -94,7 +94,7 @@ describe("Statistics charts", () => {
   });
 
   it("renders measured recognition/execution series with their source solve IDs", () => {
-    const html = renderToStaticMarkup(<RecognitionExecutionTrendChart scopeLabel="Session A" points={[{ index: 1, solveId: "historical", recognitionMs: 2000, executionMs: 7500, unclassifiedMs: 500 }]} />);
+    const html = renderToStaticMarkup(<RecognitionExecutionTrendChart scopeLabel="Session A" points={[{ index: 1, solveId: "historical", sessionId: "A", createdAt: 1, segmentKey: "0", recognitionMs: 2000, executionMs: 7500, unclassifiedMs: 500 }]} />);
     expect(html).toContain("Measured recognition / execution trend for Session A");
     expect(html).toContain("historical · Measured recognition: 2.00"); expect(html).toContain("historical · Measured execution: 7.50");
     expect(html).toContain("historical · Unclassified/opening time: 0.50");
@@ -109,7 +109,7 @@ describe("Statistics charts", () => {
     expect(window).not.toContain("No usable CFOP analysis in this scope.");
 
     const all = renderToStaticMarkup(<CfopPhaseTrendChart points={[{
-      index: 1, solveId: "old", sessionId: "A", createdAt: 1,
+      index: 1, solveId: "old", sessionId: "A", createdAt: 1, segmentKey: "0",
       crossMs: 1_000, f2lMs: 5_000, ollMs: 2_000, pllMs: 2_000,
     }]} scopeLabel="All sessions" emptyMessage="No analysed solves in this chart window." />);
     expect(all).toContain('aria-label="CFOP phase trend for All sessions"');
