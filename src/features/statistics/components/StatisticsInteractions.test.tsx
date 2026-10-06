@@ -9,8 +9,7 @@ import { Pagination, StatCard, StatsSection } from "./StatisticsPrimitives";
 import { StatisticsRecords, StatisticsRankingTable, StatisticsAverageDetail, StatisticsCfopRecords } from "./StatisticsRecords";
 import { StatisticsCaseTable, StatisticsF2lPerformance, PerformanceTable, SortHeader } from "./StatisticsAnalysisTables";
 import { StatisticsSolveDetail } from "./StatisticsSolveDetail";
-import { ReplayDialog } from "../../history/components/ReplayDialog";
-import { AnalyticsDialog } from "../../history/components/AnalyticsDialog";
+import { SolveReviewDialog } from "../../history/components/SolveReviewDialog";
 import { AverageProgressionChart, SolveTimeTrendChart } from "./StatisticsCharts";
 
 // Exercise presentation callback boundaries without a browser or a new DOM runner.
@@ -257,7 +256,7 @@ controller.sessions.update((state) => ({ ...state, sessionId: "A" }));
     const history: StatisticsSnapshot = { sessions: [...snapshot.sessions, { id: "C", name: "2x2", event: "222", createdAt: 3 }], solves: [...snapshot.solves, ...Array.from({ length: 104 }, (_, index) => item(`extra${index}`, "A", 15000, index + 6)), item("other-event", "C", 1000, 120)] };
     const load = vi.spyOn(controller, "loadStatisticsSnapshot").mockResolvedValue(history);
     const onScopeChange = vi.fn();
-    const props = { currentEvent: "333" as const, activeSessionId: "A", onReplay: vi.fn(), onTools: vi.fn(), onTrainCase: vi.fn(), onScopeChange };
+    const props = { currentEvent: "333" as const, activeSessionId: "A", onReplay: vi.fn(), onTrainCase: vi.fn(), onScopeChange };
     const render = () => renderRoot(() => StatisticsView(props));
     render(); for (const effect of hooks.effects) effect();
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
@@ -302,7 +301,7 @@ controller.sessions.update((state) => ({ ...state, sessionId: "A" }));
     expect(controller.snapshot().sessionId).toBe("A"); expect(load).toHaveBeenCalledOnce();
   });
 
-  it("passes cross-Session Solve objects to global Replay/Tools and disables Replay training", () => {
+  it("passes cross-Session Solve objects to the global Review and disables its training", () => {
     const controller = new Controller(); hooks.controller = controller;
     controller.state.update((state) => ({ ...state, ready: true, area: "statistics" }));
 controller.sessions.update((state) => ({ ...state, sessionId: "A", sessions: snapshot.sessions, solves: [snapshot.solves[1]] }));
@@ -310,16 +309,15 @@ controller.sessions.update((state) => ({ ...state, sessionId: "A", sessions: sna
     const render = () => renderRoot(() => App());
     let tree = render();
     const statistics = find(tree, (element) => element.type === StatisticsView);
-    statistics.props.onReplay(snapshot.solves[0]); statistics.props.onTools(snapshot.solves[0]);
+    statistics.props.onReplay(snapshot.solves[0]);
     tree = render();
-    const replay = find(tree, (element) => element.type === ReplayDialog);
+    const replay = find(tree, (element) => element.type === SolveReviewDialog);
     expect(replay.props.solve).toBe(snapshot.solves[0]);
     expect(replay.props.onTrainStep).toBeUndefined();
-    expect(find(tree, (element) => element.type === AnalyticsDialog).props.solve).toBe(snapshot.solves[0]);
     expect(controller.snapshot().sessionId).toBe("A"); expect(select).not.toHaveBeenCalled();
     find(tree, (element) => element.type === StatisticsView).props.onScopeChange(["s1"]);
     tree = render();
-    expect(elements(tree).some((element) => element.type === ReplayDialog || element.type === AnalyticsDialog)).toBe(false);
+    expect(elements(tree).some((element) => element.type === SolveReviewDialog)).toBe(false);
   });
 
   it("filters Statistics from a Session row by click or keyboard", () => {

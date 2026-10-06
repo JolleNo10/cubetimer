@@ -93,7 +93,7 @@ check(
   "the historical Result shows its scramble",
   (await historicalResult.locator(".result-scramble .mono").innerText()).trim().length > 0,
 );
-for (const label of ["OK", "+2", "DNF", "Tools", "Replay", "Solve again", "Delete"]) {
+for (const label of ["OK", "+2", "DNF", "Review", "Solve again", "Delete"]) {
   check(`the historical Result has ${label}`, await historicalResult.getByRole("button", { name: label, exact: true }).count() === 1);
 }
 check("ScramblePanel has no duplicate Replay last action", await page.getByRole("button", { name: "Replay last", exact: true }).count() === 0);

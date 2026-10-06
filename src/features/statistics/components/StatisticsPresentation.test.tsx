@@ -23,7 +23,7 @@ const sessions = [{ id: "history", name: "History Session", event: "333" as cons
 describe("Statistics presentation", () => {
   it("renders a read-only historical solve with seven-step CFOP, metrics, and review actions", () => {
     const reviewed = { ...solve, inspectionMs: 12000 };
-    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={reviewed} solves={[reviewed]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
+    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={reviewed} solves={[reviewed]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} /></ControllerContext.Provider>);
     expect(html).toContain("4.10+"); expect(html).toContain("History Session");
     expect(html).toContain("Read-only note"); expect(html).toContain("STM"); expect(html).toContain("Whole-solve TPS");
     expect(html).toContain("Measured recognition"); expect(html).toContain("Execution"); expect(html).toContain("Pauses ≥250\u00a0ms");
@@ -33,24 +33,23 @@ describe("Statistics presentation", () => {
     expect(html).toContain("Smart cube"); expect(html).toContain("Inspection"); expect(html).toContain("12.00");
     expect(html).toContain(new Date(solve.createdAt).toLocaleString()); expect(html).toContain("R U2 R");
     expect(html).toContain("steps skipped");
-    expect(html).toContain(">Replay<"); expect(html).toContain(">Tools<");
+    expect(html).toContain(">Review<"); expect(html).not.toContain(">Tools<");
     expect(html).toContain("Cross planning before the first turn is not measured.");
     expect(html).not.toContain("<input"); expect(html).not.toContain("<textarea");
     for (const action of ["Delete", "Solve again", "Train", "Add a note"]) expect(html).not.toContain(action);
     expect(html).not.toMatch(/<button[^>]*>(?:OK|\+2|DNF)<\/button>/);
-    expect(html).toMatch(/<button class="ghost">Tools<\/button>/);
-    expect(html).toMatch(/<button class="ghost">Replay<\/button>/);
+    expect(html).toMatch(/<button class="ghost">Review<\/button>/);
   });
 
   it("shows missing analysis without fabricated metrics", () => {
-    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={{ ...solve, analysis: null, moves: [] }} solves={[]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
+    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={{ ...solve, analysis: null, moves: [] }} solves={[]} onClose={() => {}} onReplay={() => {}} /></ControllerContext.Provider>);
     expect(html).toContain("No usable move-by-move CFOP analysis");
     expect(html).not.toContain("Whole-solve TPS");
     expect(html).toContain("disabled");
   });
 
   it("can review recorded CFOP analysis on a DNF average constituent", () => {
-    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={{ ...solve, penalty: "DNF" }} solves={[solve]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
+    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={{ ...solve, penalty: "DNF" }} solves={[solve]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} /></ControllerContext.Provider>);
     expect(html).toContain("DNF(2.10)");
     expect(html).toContain("Measured recognition");
     expect(html).toContain("F2L Slot 4");
@@ -58,9 +57,8 @@ describe("Statistics presentation", () => {
   });
 
   it("keeps a stored breakdown viewable without enabling raw-move tools", () => {
-    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={{ ...solve, moves: [], source: "import", penalty: "none" }} solves={[solve]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Replay<\/button>/);
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Tools<\/button>/);
+    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={{ ...solve, moves: [], source: "import", penalty: "none" }} solves={[solve]} session={sessions[0]} onClose={() => {}} onReplay={() => {}} /></ControllerContext.Provider>);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Review<\/button>/);
     expect(html).toContain("F2L Slot 4"); expect(html).toContain("Measured recognition");
     expect(html).toContain(">OK<"); expect(html).toContain(">Import<");
   });
@@ -72,11 +70,11 @@ describe("Statistics presentation", () => {
       ...Array.from({ length: 3 }, (_, index) => ({ ...solve, id: `other${index}`, sessionId: "other", createdAt: index + 3 })),
       reviewed,
     ];
-    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={reviewed} solves={history} session={sessions[0]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
+    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={reviewed} solves={history} session={sessions[0]} onClose={() => {}} onReplay={() => {}} /></ControllerContext.Provider>);
     expect(html).toContain(">vs 3<"); expect(html).not.toContain(">vs 6<");
     expect(html).toContain("delta-value"); expect(html).not.toContain("solve-comparison");
     expect(html).toContain("2 turns after the cube was solved");
-    const result = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><SolveResult solve={reviewed} solves={history} onContinue={() => {}} onReplay={() => {}} onAnalyse={() => {}} onPracticeStep={() => {}} /></ControllerContext.Provider>);
+    const result = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><SolveResult solve={reviewed} solves={history} onContinue={() => {}} onReplay={() => {}} onPracticeStep={() => {}} /></ControllerContext.Provider>);
     expect(result).toContain(">vs 3<"); expect(result).toContain("2 turns after the cube was solved");
     for (const action of ["Delete", "Solve again", "Train"]) expect(result).toContain(action);
     expect(result).not.toContain("Back to timer");
@@ -176,16 +174,15 @@ it("uses saved calendar formats throughout Statistics records", () => {
 
 describe("uncertain CFOP presentation", () => {
   const suspect: Solve = { ...solve, analysis: { ...solve.analysis!, quality: { status: "suspect", issues: [{ code: "cross-face-conflict", observed: "U", inferred: "D" }] } } };
-  const render = (reviewed: Solve) => renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><SolveResult solve={reviewed} solves={[reviewed]} onContinue={() => {}} onReplay={() => {}} onAnalyse={() => {}} onPracticeStep={() => {}} /></ControllerContext.Provider>);
-  it("warns before showing the suspect breakdown, disables Tools/Train, and keeps Replay", () => {
+  const render = (reviewed: Solve) => renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><SolveResult solve={reviewed} solves={[reviewed]} onContinue={() => {}} onReplay={() => {}} onPracticeStep={() => {}} /></ControllerContext.Provider>);
+  it("warns before showing the suspect breakdown, withholds Train, and keeps Review for the replay", () => {
     const html = render(suspect);
     expect(html).toContain("CFOP analysis uncertain");
     expect(html).toContain("excluded from CFOP statistics");
     expect(html).toContain("Observed bottom white (U) disagrees with inferred Cross yellow (D)");
     expect(html.indexOf("CFOP analysis uncertain")).toBeLessThan(html.indexOf("Measured recognition"));
     expect(html).toContain("F2L Slot 4");
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Tools<\/button>/);
-    expect(html).toMatch(/<button class="ghost">Replay<\/button>/);
+    expect(html).toMatch(/<button class="ghost" title="Replay the solve">Review<\/button>/);
     expect(html).not.toContain("Train");
   });
   it("keeps legacy analysis inspectable but rejects step-specific actions", () => {
@@ -196,12 +193,12 @@ describe("uncertain CFOP presentation", () => {
   it("explains unavailable CFOP reconstruction while retaining raw replay", () => {
     const html = render({ ...solve, analysis: null });
     expect(html).toContain("A reliable CFOP breakdown could not be identified");
-    expect(html).toMatch(/<button class="ghost">Replay<\/button>/);
+    expect(html).toMatch(/<button class="ghost" title="Replay the solve">Review<\/button>/);
   });
-  it("also disables analytical Tools in read-only Statistics detail", () => {
-    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={suspect} solves={[suspect]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
+  it("keeps Review available in read-only Statistics detail", () => {
+    const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={suspect} solves={[suspect]} onClose={() => {}} onReplay={() => {}} /></ControllerContext.Provider>);
     expect(html).toContain("CFOP analysis uncertain");
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Tools<\/button>/);
-    expect(html).toMatch(/<button class="ghost">Replay<\/button>/);
+    expect(html).toMatch(/<button class="ghost">Review<\/button>/);
+    expect(html).not.toContain(">Tools<");
   });
 });

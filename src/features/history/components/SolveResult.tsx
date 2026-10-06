@@ -20,14 +20,13 @@ export function SolveResult({
   solves,
   onContinue,
   onReplay,
-  onAnalyse,
   onPracticeStep,
 }: {
   solve: Solve;
   solves: readonly Solve[];
   onContinue: (options?: { resumeTimer?: boolean }) => void;
+  /** Open the review: the replay, how each step went and what would have been better. */
   onReplay: (solve: Solve) => void;
-  onAnalyse: (solve: Solve) => void;
   onPracticeStep?: (step: SolveStep) => void;
 }) {
   const controller = useController();
@@ -96,19 +95,10 @@ export function SolveResult({
               ))}
             </div>
             <div className="result-tools">
-              {analysis && solve.moves.length > 0 ? (
-                <button
-                  className="ghost"
-                  disabled={!canAnalyse}
-                  onClick={() => onAnalyse(solve)}
-                  title="Look for shorter ways to have done each step"
-                >
-                  Tools
-                </button>
-              ) : null}
               {canReplay ? (
-                <button className="ghost" onClick={() => onReplay(solve)}>
-                  Replay
+                <button className="ghost" onClick={() => onReplay(solve)}
+                  title={canAnalyse ? "Replay the solve, step by step, with better ways to have done each step" : "Replay the solve"}>
+                  Review
                 </button>
               ) : null}
               <button

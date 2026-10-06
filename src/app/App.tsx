@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AnalyticsDialog } from "../features/history/components/AnalyticsDialog";
 import { TimerCoachPanel } from "../features/timer/components/CoachPanel";
 import { ConnectionPanel } from "../shared/ui/ConnectionPanel";
 import { TimerCubeStage } from "../features/timer/components/TimerCubeStage";
 import { Header } from "./components/Header";
-import { ReplayDialog, type ReplayViewState } from "../features/history/components/ReplayDialog";
+import { SolveReviewDialog, type ReplayViewState } from "../features/history/components/SolveReviewDialog";
 import { ScramblePanel } from "../features/timer/components/ScramblePanel";
 import { NextScramblePreview } from "../features/timer/components/NextScramblePreview";
 import { SettingsDialog } from "./components/SettingsDialog";
@@ -35,9 +34,7 @@ export function App() {
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [replaySolve, setReplaySolve] = useState<Solve | null>(null);
   const [replayOrigin, setReplayOrigin] = useState<"timer" | "statistics">("timer");
-  const [toolsOrigin, setToolsOrigin] = useState<"timer" | "statistics">("timer");
   const [replayInitialView, setReplayInitialView] = useState<ReplayViewState | null>(null);
-  const [analyseSolve, setAnalyseSolve] = useState<Solve | null>(null);
   const [resultSolveId, setResultSolveId] = useState<string | null>(null);
   const [trainingReturnView, setTrainingReturnView] = useState<TrainingReturnView | null>(null);
   const [resumeTimerAfterTrainingReview, setResumeTimerAfterTrainingReview] = useState(false);
@@ -52,20 +49,15 @@ export function App() {
     setTrainingReturnView(null);
     setResumeTimerAfterTrainingReview(false);
   }, []);
-  const openStatisticsTools = useCallback((solve: Solve) => {
-    setToolsOrigin("statistics");
-    setAnalyseSolve(solve);
-  }, []);
   const statisticsScopeChanged = useCallback((ids: readonly string[]) => {
     if (replayOrigin === "statistics" && replaySolve && !ids.includes(replaySolve.id)) {
       setReplaySolve(null); setReplayInitialView(null);
     }
-    if (toolsOrigin === "statistics" && analyseSolve && !ids.includes(analyseSolve.id)) setAnalyseSolve(null);
-  }, [replayOrigin, replaySolve, toolsOrigin, analyseSolve]);
+  }, [replayOrigin, replaySolve]);
   const trainStatisticsCase = useCallback((family: LastLayerFamily, caseId: string) => {
     setTrainingReturnView(null);
     setResumeTimerAfterTrainingReview(false);
-    setReplaySolve(null); setAnalyseSolve(null); setReplayInitialView(null);
+    setReplaySolve(null); setReplayInitialView(null);
     controller.setArea("training");
     void controller.selectLastLayerCase(family, caseId, "full");
   }, [controller]);
@@ -103,7 +95,6 @@ export function App() {
         setResultSolveId(returnView.solveId);
         setReplaySolve(returnView.kind === "replay" ? solve : null);
         setReplayInitialView(returnView.kind === "replay" ? returnView.replay : null);
-        setAnalyseSolve(null);
         setResumeTimerAfterTrainingReview(true);
         return;
       }
@@ -146,7 +137,6 @@ export function App() {
     if (state.area !== "timer") {
       setResultSolveId(null);
       setReplaySolve(null);
-      setAnalyseSolve(null);
     }
   }, [state.area]);
 
@@ -299,7 +289,7 @@ export function App() {
       />
 
       {state.area === "training" ? <Training /> : state.area === "statistics" ? (
-        <StatisticsView currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} onReplay={openStatisticsReplay} onTools={openStatisticsTools} onTrainCase={trainStatisticsCase} onScopeChange={statisticsScopeChanged} />
+        <StatisticsView currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} onReplay={openStatisticsReplay} onTrainCase={trainStatisticsCase} onScopeChange={statisticsScopeChanged} />
       ) : <div className="app-body">
         <div className="column left">
           <SolveList
@@ -337,7 +327,6 @@ export function App() {
                   setReplayInitialView(null);
                   setReplaySolve(solve);
                 }}
-                onAnalyse={(solve) => { setToolsOrigin("timer"); setAnalyseSolve(solve); }}
                 onPracticeStep={(step) => {
                   setTrainingReturnView({ kind: "result", solveId: resultSolve.id });
                   setReplayInitialView(null);
@@ -345,7 +334,6 @@ export function App() {
                   void controller.practiceSolveStep(resultSolve, step);
                   setResultSolveId(null);
                   setReplaySolve(null);
-                  setAnalyseSolve(null);
                 }}
               />
             ) : (
@@ -373,7 +361,7 @@ export function App() {
         <SettingsDialog settings={state.settings} onClose={() => setSettingsOpen(false)} />
       ) : null}
       {replaySolve ? (
-        <ReplayDialog
+        <SolveReviewDialog
           solve={replaySolve}
           initialView={replayInitialView ?? undefined}
           onClose={() => {
@@ -391,12 +379,8 @@ export function App() {
             void controller.practiceSolveStep(replaySolve, step);
             setReplaySolve(null);
             setResultSolveId(null);
-            setAnalyseSolve(null);
           }}
         />
-      ) : null}
-      {analyseSolve ? (
-        <AnalyticsDialog solve={analyseSolve} onClose={() => setAnalyseSolve(null)} />
       ) : null}
     </div>
   );
