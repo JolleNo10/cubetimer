@@ -6,6 +6,7 @@ import { TimerCubeStage } from "../features/timer/components/TimerCubeStage";
 import { Header } from "./components/Header";
 import { ReplayDialog, type ReplayViewState } from "../features/history/components/ReplayDialog";
 import { ScramblePanel } from "../features/timer/components/ScramblePanel";
+import { NextScramblePreview } from "../features/timer/components/NextScramblePreview";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { SolveList } from "../features/history/components/SolveList";
 import { SolveResult } from "../features/history/components/SolveResult";
@@ -175,7 +176,9 @@ export function App() {
   const pressStart = useCallback(() => {
     if (resultSolveId !== null) {
       closeResult();
-      return;
+      // Straight from the result into the next solve, unless the next scramble only
+      // gets made by closing it (the review shown after coming back from Training).
+      if (resumeTimerAfterTrainingReview) return;
     }
     const current = controller.snapshot();
     if (current.phase === "solving") {
@@ -191,7 +194,7 @@ export function App() {
     } else {
       setHoldReadyBoth(true);
     }
-  }, [closeResult, controller, resultSolveId, setHoldingBoth, setHoldReadyBoth]);
+  }, [closeResult, controller, resultSolveId, resumeTimerAfterTrainingReview, setHoldingBoth, setHoldReadyBoth]);
 
   const pressEnd = useCallback(() => {
     if (holdTimer.current) clearTimeout(holdTimer.current);
@@ -328,6 +331,7 @@ export function App() {
                 solve={resultSolve}
                 solves={state.solves}
                 onContinue={closeResult}
+                nextScramble={<NextScramblePreview onContinue={() => closeResult()} />}
                 onReplay={(solve) => {
                   setReplayOrigin("timer");
                   setReplayInitialView(null);

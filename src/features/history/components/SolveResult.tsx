@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { SolveAnalysisReview } from "./SolveAnalysisReview";
 import type { SolveStep } from "../../../cube/analysis";
 import { useController } from "../../../app/useController";
@@ -21,6 +22,7 @@ export function SolveResult({
   onReplay,
   onAnalyse,
   onPracticeStep,
+  nextScramble,
 }: {
   solve: Solve;
   solves: readonly Solve[];
@@ -28,6 +30,8 @@ export function SolveResult({
   onReplay: (solve: Solve) => void;
   onAnalyse: (solve: Solve) => void;
   onPracticeStep?: (step: SolveStep) => void;
+  /** The next solve's scramble and how to start it; the Timer owns that presentation. */
+  nextScramble?: ReactNode;
 }) {
   const controller = useController();
   const analysis = solve.analysis ?? null;
@@ -74,6 +78,8 @@ export function SolveResult({
             <div className="result-compact">{moveCount} moves</div>
           ) : null}
         </div>
+
+        {nextScramble}
 
         <div className="result-context">
           <div className="result-scramble">
@@ -145,12 +151,6 @@ export function SolveResult({
               : "No move-by-move breakdown is available for this solve."}
           </div>
         )}
-      </div>
-
-      <div className="result-foot">
-        <button className="primary" onClick={() => onContinue()}>
-          Back to timer
-        </button>
       </div>
     </section>
   );

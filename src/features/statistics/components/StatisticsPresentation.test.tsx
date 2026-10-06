@@ -78,7 +78,11 @@ describe("Statistics presentation", () => {
     expect(html).toContain("2 turns after the cube was solved");
     const result = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><SolveResult solve={reviewed} solves={history} onContinue={() => {}} onReplay={() => {}} onAnalyse={() => {}} onPracticeStep={() => {}} /></ControllerContext.Provider>);
     expect(result).toContain("vs last 3"); expect(result).toContain("2 turns after the cube was solved");
-    for (const action of ["Delete", "Solve again", "Train", "Back to timer"]) expect(result).toContain(action);
+    for (const action of ["Delete", "Solve again", "Train"]) expect(result).toContain(action);
+    expect(result).not.toContain("Back to timer");
+    const withNext = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><SolveResult solve={reviewed} solves={history} onContinue={() => {}} onReplay={() => {}} onAnalyse={() => {}} nextScramble={<div className="next-slot">next</div>} /></ControllerContext.Provider>);
+    expect(withNext.indexOf("next-slot")).toBeGreaterThan(withNext.indexOf("result-hero"));
+    expect(withNext.indexOf("next-slot")).toBeLessThan(withNext.indexOf("SOLVE SCRAMBLE"));
     expect(result).toContain("<input"); expect(result).toMatch(/<button[^>]*>\+2<\/button>/);
   });
 
