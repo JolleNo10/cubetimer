@@ -267,9 +267,9 @@ await page.setViewportSize({ width: 1440, height: 900 });
 
 await page.screenshot({ path: "/tmp/e2e.png" });
 
-// Replay dialog.
+// Review dialog: the replay, and how each step could have gone better.
 await page.setViewportSize({ width: 390, height: 844 });
-await page.locator(".solve-result").getByRole("button", { name: "Replay", exact: true }).click();
+await page.locator(".solve-result").getByRole("button", { name: "Review", exact: true }).click();
 await page.waitForTimeout(1200);
 check("the replay opens", (await page.locator(".dialog").count()) === 1);
 await checkMobileDialog("mobile Replay");
@@ -282,22 +282,17 @@ await replayStep.click();
 check("mobile Replay step still seeks", Number(await page.getByRole("slider", { name: "Move position" }).inputValue()) > 0);
 await page.screenshot({ path: "/tmp/e2e-replay.png" });
 
+// The review's alternatives share the full-screen dialog and stay inside it on a phone.
+await page.waitForSelector(".review-panel .review-alt", { timeout: 90000 });
+await checkControlsFit("mobile Review alternatives stay contained", ".review-alt > .row, .review-choices, .review-alg");
+await page.locator(".review-panel .review-play").first().click();
+await page.waitForTimeout(600);
+check("mobile Review previews an alternative", await page.getByRole("button", { name: "Back to your solve" }).count() === 1);
+await page.getByRole("button", { name: "Back to your solve" }).click();
+await page.waitForTimeout(600);
+check("mobile Review returns to the solve", await page.getByRole("button", { name: "Back to your solve" }).count() === 0);
+await page.screenshot({ path: "/tmp/e2e-review.png" });
 await page.locator(".dialog").getByRole("button", { name: "Close" }).click();
-
-// Analytics shares the full-screen dialog and has its own phone row layout.
-await result.getByRole("button", { name: "Tools", exact: true }).click();
-await page.waitForSelector(".analytics-row", { timeout: 90000 });
-await checkMobileDialog("mobile Analytics");
-await checkControlsFit("mobile Analytics rows and verdicts stay contained", ".analytics-row, .analytics-verdict, .headline > .row");
-const analyticsLayout = await page.locator(".analytics-row").evaluateAll(rows => rows.map(row => {
-  const name = row.querySelector(".phase-name").getBoundingClientRect();
-  const verdict = row.querySelector(".analytics-verdict").getBoundingClientRect();
-  const box = row.getBoundingClientRect();
-  return { nameBottom: name.bottom, verdictTop: verdict.top, rowLeft: box.left, rowRight: box.right, verdictLeft: verdict.left, verdictRight: verdict.right };
-}));
-check("mobile Analytics verdicts use a contained second row", analyticsLayout.length > 0 && analyticsLayout.every(row =>
-  row.verdictTop >= row.nameBottom && row.verdictLeft >= row.rowLeft - 1 && row.verdictRight <= row.rowRight + 1), JSON.stringify(analyticsLayout));
-await page.getByRole("dialog", { name: "Analysis tools" }).getByRole("button", { name: "Close" }).click();
 
 await result.getByRole("button", { name: "Back to timer", exact: true }).click();
 check("Back to timer closes the Result", await result.count() === 0);
@@ -381,7 +376,7 @@ if (await keyboardResult.count() === 1) {
   const keyboardPrimary = (await keyboardResult.locator(".result-primary").innerText()).trim();
   check("keyboard result does not fabricate zero moves", !/^0\s+moves$/.test(keyboardPrimary), keyboardPrimary);
   check("keyboard result explains missing move data", (await keyboardResult.innerText()).includes("keyboard-timed solves"));
-  check("keyboard result has no Replay action", await keyboardResult.getByRole("button", { name: "Replay" }).count() === 0);
+  check("keyboard result has no Review action", await keyboardResult.getByRole("button", { name: "Review" }).count() === 0);
 }
 
 // All feature areas use the same phone viewport, with their own scroll owner.

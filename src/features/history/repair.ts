@@ -12,7 +12,7 @@ import type { Solve } from "../../app/types";
  * Imported ones only have the scramble sequence, which comes to the same thing for a
  * scramble that was actually applied.
  */
-function startingPattern(kpuzzle: KPuzzle, solve: Solve): KPattern | null {
+export function startingPattern(kpuzzle: KPuzzle, solve: Solve): KPattern | null {
   if (solve.scrambledFacelets) {
     try {
       return faceletsToPattern(kpuzzle, solve.scrambledFacelets);

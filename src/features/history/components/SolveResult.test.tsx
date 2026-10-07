@@ -24,16 +24,16 @@ describe("Result manual CFOP exclusion actions", () => {
     controller.updateSolve.mockClear();
     const reviewed = { ...solve, analysis: { ...solve.analysis!, quality: { status, issues: [] } } };
     const render = (current: Solve) => elements(SolveResult({ solve: current, solves: [current],
-      onContinue: vi.fn(), onReplay: vi.fn(), onAnalyse: vi.fn() }));
+      onContinue: vi.fn(), onReplay: vi.fn() }));
     const button = (nodes: Element[], text: string) => nodes.find(node => node.type === "button" && node.props.children === text)!;
     let nodes = render(reviewed);
     button(nodes, "Mark CFOP wrong").props.onClick();
     expect(controller.updateSolve).toHaveBeenLastCalledWith(solve.id, { cfopAnalysisExcluded: true });
     nodes = render({ ...reviewed, cfopAnalysisExcluded: true });
-    expect(button(nodes, "Tools").props.disabled).toBe(true);
-    expect(button(nodes, "Replay").props.disabled).not.toBe(true);
+    expect(nodes.some(node => node.type === "button" && node.props.children === "Tools")).toBe(false);
+    expect(button(nodes, "Review").props.disabled).not.toBe(true);
     button(nodes, "Undo CFOP exclusion").props.onClick();
     expect(controller.updateSolve).toHaveBeenLastCalledWith(solve.id, { cfopAnalysisExcluded: undefined });
-    expect(button(render(reviewed), "Tools").props.disabled).toBe(status === "suspect");
+    expect(button(render(reviewed), "Review").props.title).toBe(status === "suspect" ? "Replay the solve" : "Replay the solve, step by step, with better ways to have done each step");
   });
 });

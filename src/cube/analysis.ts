@@ -21,10 +21,17 @@ import {
 import { describeGrip, reorientMoves, rotationForCrossFace, slotInCubeFrame, slotInHeldFrame } from "./orientation";
 import { rewriteWithRotations, type SolveGrip } from "./gripTrack";
 import { recogniseOll, recognisePll, reframe } from "./recognise";
-import { recognizeF2lSlot } from "./f2l";
 import { F2L_POSITIONS } from "./f2lCases";
+import { isF2lSolved } from "./algBank";
+import {
+  f2lExecution,
+  lastLayerLooks,
+  type ExecutedAlg,
+  type LastLayerLook,
+  type StepInput,
+} from "./stepExecution";
 
-export type { TimedMove };
+export type { TimedMove, ExecutedAlg, LastLayerLook };
 
 /**
  * What the analysis records, as a version. Stored analyses older than this are rebuilt
@@ -33,9 +40,10 @@ export type { TimedMove };
  * 2: F2L steps carry the catalogue case they started from.
  * 3: Canonical CFOP checkpoints and explicit evidence-based quality.
  * 4: Complete candidate coherence and independent gyro evidence.
- * 5: Identity-preserving F2L milestones and independent physical-source conflicts.
+ * 5: Executed algorithms and last-layer looks.
+ * 6: Identity-preserving F2L, full progression and independent physical-source conflicts.
  */
-export const ANALYSIS_VERSION = 5;
+export const ANALYSIS_VERSION = 6;
 
 export const STEP_NAMES = [
   "Cross",
@@ -96,6 +104,20 @@ export type SolveStep = TurnMetrics & {
   /** Range of this step within the solve's raw move stream. */
   fromMove: number;
   toMove: number;
+  /**
+   * The step whose moves finished this one, when it was not its own: an F2L pair
+   * that went in with the cross (an xcross) or with the pair before it. Such a step
+   * has no moves but was not a skip.
+   */
+  solvedDuring?: StepName;
+  /** Raw move index the case was read at; later than `fromMove` when the pair was set up first. */
+  caseAt?: number;
+  /** Turns spent before the case, AUF excluded: pulling a pair out, a keyhole, another pair. */
+  setupMoves?: number;
+  /** The catalogue algorithm the step ended with, when it was one. */
+  executedAlg?: ExecutedAlg | null;
+  /** OLL and PLL: the looks the step was done in, one for a one-look step. */
+  looks?: LastLayerLook[];
 };
 
 export type CfopAnalysisIssue =
@@ -279,8 +301,11 @@ export function analyseSolve(
   const boundaries = findPhaseBoundaries(states, patterns, endIdx, evidence);
   if (!boundaries) return null;
 
-  const { crossFace, cuts, slots, issues } = boundaries;
+  const { crossFace, slots, solvedDuring, issues } = boundaries;
   const rotation = rotationForCrossFace(crossFace);
+  /** The solve as the cube reported it, turned so the cross is underneath. */
+  const crossDown = reorientMoves(moves, rotation.orientation).map((m) => m.move);
+  const { cuts } = boundaries;
   const steps: SolveStep[] = [];
 
   /**
@@ -295,18 +320,9 @@ export function analyseSolve(
       rotationAlg,
     );
 
-  /**
-   * Which of the 41 cases a pair started as. A pair that was already solved (and then
-   * broken and rebuilt) or was buried in another slot is not one of them.
-   */
-  const f2lCase = (facing: KPattern, slot: string): string | null => {
-    const position = F2L_POSITIONS.find(
-      (candidate) => slotInCubeFrame(rotation.orientation, candidate) === slot,
-    );
-    if (!position) return null;
-    const recognition = recognizeF2lSlot(scrambledState.kpuzzle, facing, position);
-    return recognition.status === "case" ? (recognition.match?.name ?? null) : null;
-  };
+  const kpuzzle = scrambledState.kpuzzle;
+  const positionOf = (slot: string) =>
+    F2L_POSITIONS.find((candidate) => slotInCubeFrame(rotation.orientation, candidate) === slot);
 
   let from = 0;
   let previousCumulative = 0;
@@ -345,24 +361,44 @@ export function analyseSolve(
     const startMs =
       index === 0 ? (turning[0]?.t ?? previousCumulative) : previousCumulative;
     const timeMs = Math.max(0, cumulativeMs - startMs);
-    const recognitionMs =
-      index === 0 ? 0 : recognitionTime(turning, previousCumulative, timeMs);
     const metrics = countTurns(recorded.map((m) => m.move));
-    // A case is whatever the solver was looking at when the step began.
     const slot = index >= 1 && index <= 4 ? (slots[index - 1] ?? null) : null;
     const insertion = slot && to > from
       ? grip
         ? { insertedAt: middleLayerSlot(slotInHeldFrame(grip.orientations[to - 1] ?? grip.orientations[0], slot)), insertedAtSource: "grip" as const }
         : { insertedAt: inferInsertionPosition(slotInHeldFrame(rotation.orientation, slot), reorientMoves(turned, rotation.orientation).map((m) => m.move)), insertedAtSource: "inferred" as const }
       : {};
-    const caseName =
-      name === "OLL"
-        ? boundaries.ollCase
-        : name === "PLL"
-          ? boundaries.pllCase
-          : slot
-            ? f2lCase(stateFacing(from), slot)
-            : null;
+    const input: StepInput = {
+      kpuzzle,
+      facing: stateFacing,
+      tokens: crossDown.slice(from, to),
+      moves: turned,
+      from,
+      to,
+      startMs: previousCumulative,
+    };
+    const recognitionMs = index === 0 ? 0 : recognitionTime(turning, previousCumulative, timeMs);
+    let caseName: string | null = null;
+    let execution: Pick<SolveStep, "caseAt" | "setupMoves" | "executedAlg" | "looks"> = {};
+    const position = slot ? positionOf(slot) : undefined;
+    if (position) {
+      const f2l = f2lExecution(input, position);
+      caseName = f2l.case;
+      if (to > from) execution = { caseAt: f2l.caseAt, setupMoves: f2l.setupMoves, executedAlg: f2l.executedAlg };
+    } else if (name === "OLL" || name === "PLL") {
+      // A case is whatever the solver was looking at when the step began; the looks
+      // say how they actually went about it.
+      caseName = name === "OLL" ? recogniseOll(kpuzzle, stateFacing(from)) : recognisePll(kpuzzle, stateFacing(from));
+      const looks = lastLayerLooks(input, name, (i) => isF2lSolved(stateFacing(i)), PAUSE_THRESHOLD_MS);
+      if (looks.length > 0) {
+        execution = {
+          looks,
+          executedAlg: looks.length === 1 && looks[0].alg
+            ? { family: name, alg: looks[0].alg, fromMove: looks[0].fromMove, toMove: looks[0].toMove }
+            : null,
+        };
+      }
+    }
     if (index >= 1 && index <= 4 && !slot) issues.push({ code: "unassigned-f2l-slot", step: name });
     if (turning.length > 0 && caseName === null) {
       if (name === "OLL") issues.push({ code: "unrecognized-oll" });
@@ -388,6 +424,8 @@ export function analyseSolve(
       ...insertion,
       fromMove: from,
       toMove: to,
+      ...(solvedDuring[index] ? { solvedDuring: solvedDuring[index] } : {}),
+      ...execution,
       ...metrics,
     });
 
@@ -417,7 +455,7 @@ export function analyseSolve(
     tps: solvingMs > 0 ? (totals.sliceTurns / solvingMs) * 1000 : 0,
     totalRecognitionMs: steps.reduce((sum, s) => sum + s.recognitionMs, 0),
     totalExecutionMs: steps.reduce((sum, s) => sum + s.executionMs, 0),
-    stepsSkipped: steps.filter((s) => s.skipped).length,
+    stepsSkipped: steps.filter((s) => s.skipped && !s.solvedDuring).length,
     turnsAfterSolution,
     pauses,
     ...totals,
@@ -443,6 +481,15 @@ function recognitionTime(
   return timeMs;
 }
 
+type Boundaries = {
+  crossFace: Face;
+  cuts: number[];
+  slots: (string | null)[];
+  /** Per step, the earlier step whose moves finished it, if any. */
+  solvedDuring: (StepName | undefined)[];
+  issues: CfopAnalysisIssue[];
+};
+
 type CfopCandidate = {
   crossFace: Face;
   cuts: number[];
@@ -453,6 +500,8 @@ type CfopCandidate = {
   endIdx: number;
   ollCase: string | null;
   pllCase: string | null;
+  /** Raw state support for Cross and each accumulated pair invariant (not a confidence score). */
+  support: number[];
   unassignedSlots: number;
   unrecognizedLastLayer: number;
   /** No independent phase progression or prepared pairs before the last-layer state appeared. */
@@ -497,6 +546,11 @@ function candidateForFace(states: StateFlags[], patterns: KPattern[], endIdx: nu
   return {
     crossFace: face, crossIdx, f2lIdx, ollIdx, endIdx, slots: slotNames,
     cuts: [crossIdx, ...slotCuts, ollIdx, endIdx], ollCase, pllCase,
+    support: [0, 1, 2, 3, 4].map(count => states.slice(0, endIdx + 1).filter(state =>
+      crossSolved(state) && slotNames.slice(0, count).every(name => {
+        const slot = slotDefs.find(slot => slot.name === name);
+        return slot !== undefined && isSlotSolved(state, slot);
+      })).length),
     unassignedSlots: slotNames.filter(slot => slot === null).length,
     unrecognizedLastLayer: Number(ollIdx > f2lIdx && ollCase === null) + Number(endIdx > ollIdx && pllCase === null),
     // Local/shared checkpoints and initial skips are fine. What lacks state support
@@ -510,26 +564,31 @@ function candidateForFace(states: StateFlags[], patterns: KPattern[], endIdx: nu
 /** A complete interpretation must be no worse in structural/case evidence to dominate. */
 function strongerCandidate(a: CfopCandidate, b: CfopCandidate): boolean {
   if (a.unassignedSlots > b.unassignedSlots || a.unrecognizedLastLayer > b.unrecognizedLastLayer) return false;
-  const left = [...a.cuts, a.unassignedSlots, a.unrecognizedLastLayer, Number(a.collapsedProgression)];
-  const right = [...b.cuts, b.unassignedSlots, b.unrecognizedLastLayer, Number(b.collapsedProgression)];
+  const left = [...a.cuts, a.unassignedSlots, a.unrecognizedLastLayer, Number(a.collapsedProgression), ...a.support.map(count => -count)];
+  const right = [...b.cuts, b.unassignedSlots, b.unrecognizedLastLayer, Number(b.collapsedProgression), ...b.support.map(count => -count)];
   return left.every((value, index) => value <= right[index]) && left.some((value, index) => value < right[index]);
 }
 
 /** State progression and physical evidence retain separate provenance. */
-function findPhaseBoundaries(states: StateFlags[], patterns: KPattern[], endIdx: number, evidence: CfopAnalysisEvidence): (CfopCandidate & { issues: CfopAnalysisIssue[] }) | null {
+function findPhaseBoundaries(states: StateFlags[], patterns: KPattern[], endIdx: number, evidence: CfopAnalysisEvidence): (CfopCandidate & Boundaries) | null {
   const candidates = FACES.flatMap(face => {
     const candidate = candidateForFace(states, patterns, endIdx, face);
     return candidate ? [candidate] : [];
   }).sort((a, b) => a.f2lIdx - b.f2lIdx || a.ollIdx - b.ollIdx || a.crossIdx - b.crossIdx);
   if (!candidates.length) return null;
-  const progressive = candidates.filter(candidate => !candidate.collapsedProgression);
+  const prepared = candidates.filter(candidate => candidate.f2lIdx === 0);
+  const progressive = prepared.length ? prepared : candidates.filter(candidate => !candidate.collapsedProgression);
   const stateFrontier = progressive.filter(candidate => !progressive.some(other => strongerCandidate(other, candidate)));
   const physicalConflict = evidence.observedStartBottomFace !== undefined && evidence.trackedBottomFace !== undefined
     && evidence.observedStartBottomFace !== evidence.trackedBottomFace;
   const bottom = physicalConflict ? undefined : evidence.observedStartBottomFace ?? evidence.trackedBottomFace;
   const source = evidence.observedStartBottomFace ? "solve-start" : "whole-solve-gyro";
   const matching = stateFrontier.find(candidate => candidate.crossFace === bottom);
-  const competing = stateFrontier;
+  // Sustained canonical invariants order the inspectable best-effort breakdown;
+  // incomparable candidates remain ambiguous rather than gaining numeric confidence.
+  const competing = [...stateFrontier].sort((a, b) =>
+    b.support[0] - a.support[0] || b.support[1] - a.support[1]
+      || b.support[2] - a.support[2] || b.support[3] - a.support[3] || b.support[4] - a.support[4]);
   const selected = matching ?? competing[0] ?? candidates[0];
   const issues: CfopAnalysisIssue[] = [];
   if (physicalConflict) issues.push({ code: "bottom-evidence-conflict", observedStart: evidence.observedStartBottomFace!, tracked: evidence.trackedBottomFace! });
@@ -540,7 +599,12 @@ function findPhaseBoundaries(states: StateFlags[], patterns: KPattern[], endIdx:
   if (bottom && selected.crossFace !== bottom) {
     issues.push({ code: "cross-face-conflict", observed: bottom, inferred: selected.crossFace, source });
   }
-  return { ...selected, issues };
+  const solvedDuring: (StepName | undefined)[] = STEP_NAMES.map(() => undefined);
+  for (let k = 1; k <= 4; k++) {
+    if (selected.cuts[k] === selected.cuts[k - 1]) solvedDuring[k] = solvedDuring[k - 1] ?? STEP_NAMES[k - 1];
+  }
+  if (selected.cuts[0] === 0) for (let k = 1; k <= 4; k++) if (solvedDuring[k] === "Cross") solvedDuring[k] = undefined;
+  return { ...selected, solvedDuring, issues };
 }
 
 /** Lightweight live check used by the timer to know when to stop. */

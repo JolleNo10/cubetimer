@@ -29,8 +29,13 @@ import { moveGuideForToken } from "../../../cube/moveGuide";
 import { CubeMoveGuide, DEFAULT_GUIDE_CAMERA, type GuideCamera } from "../../../shared/ui/CubeMoveGuide";
 import { CubeFrontMarker } from "../../../shared/ui/CubeFrontMarker";
 import { MoveSequence } from "../../../shared/ui/MoveSequence";
+import { handMoves } from "../../../cube/frames";
+import { physicalTurns } from "../../../cube/physicalTurns";
+import { SolveReviewPanel, type ReviewPreview } from "./SolveReviewPanel";
 
 const SPEEDS = [0.25, 0.5, 1, 2];
+/** An alternative has no recorded timing, so it is played at an even pace. */
+const PREVIEW_MOVE_MS = 400;
 /** How long the Front marker lingers after the camera stops moving. */
 const FRONT_MARKER_LINGER_MS = 1200;
 
@@ -39,11 +44,18 @@ export type ReplayViewState = {
   speed: number;
 };
 
+/** An alternative being shown, and where the replay was when it was asked for. */
+type Preview = ReviewPreview & { returnIndex: number };
+
 /**
- * Move-by-move replay of a recorded solve, at the speed it was actually turned.
- * Scrubbing forwards animates the individual turns; a jump rebuilds the state.
+ * Review of a recorded solve: a move-by-move replay at the speed it was actually turned,
+ * beside how each step went and what would have been better.
+ *
+ * Scrubbing forwards animates the individual turns; a jump rebuilds the state. Any
+ * alternative can be played on the same cube from the moment it starts, and the replay
+ * picks up where it was afterwards.
  */
-export function ReplayDialog({
+export function SolveReviewDialog({
   solve,
   onClose,
   onTrainStep,
@@ -64,6 +76,9 @@ export function ReplayDialog({
   const [speed, setSpeed] = useState(initialView?.speed ?? 1);
   const [camera, setCamera] = useState<GuideCamera>(DEFAULT_GUIDE_CAMERA);
   const [orbiting, setOrbiting] = useState(false);
+  const [preview, setPreview] = useState<Preview | null>(null);
+  /** Where to put the replay cursor once the cube has been rebuilt after a preview. */
+  const restoreRef = useRef<number | null>(null);
 
   const moves = solve.moves;
   const steps = solve.analysis?.steps;
@@ -114,15 +129,36 @@ export function ReplayDialog({
     ),
     [asHeld, moves],
   );
-  const visibleMoves = useMemo(() => replayActions.map(action => action.move), [replayActions]);
-  const currentAction = replayActions[index];
+  // An alternative starts from the cube as the replay showed it at that moment, and is
+  // written in the grip the cube was in there.
+  const previewStart = preview ? replayIndexForRawPosition(replayActions, preview.fromMove) : 0;
+  const setupMoves = useMemo(
+    () => (preview ? replayActions.slice(0, previewStart).map((action) => action.move) : []),
+    [preview, replayActions, previewStart],
+  );
+  const previewActions = useMemo<ReplayAction[]>(() => {
+    if (!preview) return [];
+    const held = physicalTurns([...opening, ...setupMoves].join(" ")).grip;
+    return handMoves(preview.cubeMoves, held).map((move, i) => ({
+      move,
+      rawIndex: -1,
+      rawTimeMs: 0,
+      playbackTimeMs: (i + 1) * PREVIEW_MOVE_MS,
+      completesRawMove: true,
+      source: "raw-turn" as const,
+    }));
+  }, [preview, opening, setupMoves]);
+  /** What the transport is driving: the recorded solve, or an alternative to it. */
+  const actions = preview ? previewActions : replayActions;
+  const visibleMoves = useMemo(() => actions.map(action => action.move), [actions]);
+  const currentAction = actions[index];
   // Actions are already in the visible held frame; do not apply grip again.
   const guideMove = currentAction ? moveGuideForToken(currentAction.move) : null;
-  const rawPosition = rawPositionAtReplayIndex(replayActions, index);
+  const rawPosition = preview ? preview.fromMove : rawPositionAtReplayIndex(replayActions, index);
   const activeStep = steps ? stepAt(steps, rawPosition) : -1;
   const currentStep = steps?.[activeStep];
   const activeReplayAction: ActiveReplayAction | undefined =
-    index > 0 ? replayActions[index - 1] : undefined;
+    !preview && index > 0 ? replayActions[index - 1] : undefined;
   const stickeringMask = solve.analysis
     ? replayStickeringMask(solve.analysis, activeStep)
     : NORMAL_REPLAY_STICKERING_MASK;
@@ -138,9 +174,7 @@ export function ReplayDialog({
       hintFacelets: "floating",
       backView: "top-right",
       experimentalSetupAnchor: "start",
-      experimentalSetupAlg: opening.length
-        ? new Alg(solve.scramble).concat(new Alg(opening.join(" ")))
-        : new Alg(solve.scramble),
+      experimentalSetupAlg: new Alg([solve.scramble, ...opening, ...setupMoves].join(" ")),
       cameraLatitude: 27,
       cameraLongitude: 32,
       tempoScale: 6,
@@ -149,6 +183,7 @@ export function ReplayDialog({
     host.appendChild(player);
     playerRef.current = player;
     appliedRef.current = 0;
+    setIndex(0);
     // The move guide is a flat overlay, so it has to be told where the camera went.
     setCamera(DEFAULT_GUIDE_CAMERA);
     setOrbiting(false);
@@ -170,7 +205,7 @@ export function ReplayDialog({
       player.remove();
       playerRef.current = null;
     };
-  }, [solve.scramble, opening]);
+  }, [solve.scramble, opening, setupMoves]);
 
   useEffect(() => {
     const player = playerRef.current;
@@ -182,21 +217,30 @@ export function ReplayDialog({
     (target: number) => {
       const player = playerRef.current;
       if (!player) return;
-      const clamped = Math.max(0, Math.min(replayActions.length, target));
+      const clamped = Math.max(0, Math.min(actions.length, target));
       const applied = appliedRef.current;
       if (clamped > applied && clamped - applied <= 4) {
-        for (const action of replayActions.slice(applied, clamped)) {
+        for (const action of actions.slice(applied, clamped)) {
           player.experimentalAddMove(action.move, { cancel: false });
         }
       } else if (clamped !== applied) {
-        player.alg = new Alg(replayActions.slice(0, clamped).map((action) => action.move).join(" "));
+        player.alg = new Alg(actions.slice(0, clamped).map((action) => action.move).join(" "));
         player.jumpToEnd({ flash: false });
       }
       appliedRef.current = clamped;
       setIndex(clamped);
     },
-    [replayActions],
+    [actions],
   );
+
+  // Back from a preview, the cube has been rebuilt from the scramble: put the cursor
+  // back where it was.
+  useEffect(() => {
+    if (restoreRef.current === null || preview || !playerRef.current) return;
+    const target = restoreRef.current;
+    restoreRef.current = null;
+    seek(target);
+  }, [preview, seek]);
 
   useEffect(() => {
     if (!initialView || initialViewRestoredRef.current || !playerRef.current) return;
@@ -211,21 +255,21 @@ export function ReplayDialog({
     if (!playing) return;
     const startIndex = appliedRef.current;
     const startWall = performance.now();
-    const startMs = startIndex === 0 ? 0 : replayActions[startIndex - 1].playbackTimeMs;
+    const startMs = startIndex === 0 ? 0 : actions[startIndex - 1].playbackTimeMs;
     let frame = requestAnimationFrame(function tick() {
       const elapsed = (performance.now() - startWall) * speed + startMs;
       const next = appliedRef.current;
-      if (next < replayActions.length && replayActions[next].playbackTimeMs <= elapsed) {
+      if (next < actions.length && actions[next].playbackTimeMs <= elapsed) {
         seek(next + 1);
       }
-      if (appliedRef.current >= replayActions.length) {
+      if (appliedRef.current >= actions.length) {
         setPlaying(false);
         return;
       }
       frame = requestAnimationFrame(tick);
     });
     return () => cancelAnimationFrame(frame);
-  }, [playing, replayActions, speed, seek]);
+  }, [playing, actions, speed, seek]);
 
   const navigate = useCallback((target: number) => {
     setPlaying(false);
@@ -233,13 +277,32 @@ export function ReplayDialog({
   }, [seek]);
 
   const togglePlaying = useCallback(() => {
-    if (!playing && appliedRef.current >= replayActions.length) seek(0);
+    if (!playing && appliedRef.current >= actions.length) seek(0);
     setPlaying(p => !p);
-  }, [playing, replayActions.length, seek]);
+  }, [playing, actions.length, seek]);
+
+  const showAlternative = useCallback((alternative: ReviewPreview) => {
+    setPlaying(false);
+    // The cube is rebuilt at the alternative's start, so the cursor starts there too.
+    setIndex(0);
+    // On a phone the cube is above the review; bring it back into view.
+    hostRef.current?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    setPreview((current) => ({ ...alternative, returnIndex: current ? current.returnIndex : appliedRef.current }));
+  }, []);
+
+  const endPreview = useCallback((returnTo?: number) => {
+    if (!preview) return;
+    setPlaying(false);
+    restoreRef.current = returnTo ?? preview.returnIndex;
+    setPreview(null);
+  }, [preview]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { onClose(); return; }
+      if (e.key === "Escape") {
+        if (preview) endPreview(); else onClose();
+        return;
+      }
       const target = e.target;
       if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey ||
           target instanceof HTMLElement && (target.isContentEditable ||
@@ -248,7 +311,7 @@ export function ReplayDialog({
       const destination = e.key === "ArrowRight" ? index + 1
         : e.key === "ArrowLeft" ? index - 1
         : e.key === "Home" ? 0
-        : e.key === "End" ? replayActions.length : null;
+        : e.key === "End" ? actions.length : null;
       if (destination !== null) {
         e.preventDefault();
         navigate(destination);
@@ -259,9 +322,9 @@ export function ReplayDialog({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [index, onClose, navigate, replayActions.length, togglePlaying]);
+  }, [index, onClose, navigate, actions.length, togglePlaying, preview, endPreview]);
 
-  const atMs = index === 0 ? 0 : replayActions[index - 1].playbackTimeMs;
+  const atMs = index === 0 ? 0 : (actions[index - 1]?.playbackTimeMs ?? 0);
 
   return (
     <div className="backdrop" onClick={onClose}>
@@ -270,11 +333,11 @@ export function ReplayDialog({
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
-        aria-label="Solve replay"
+        aria-label="Solve review"
       >
         <div className="dialog-head">
           <div className="row">
-            <h3>Replay</h3>
+            <h3>Review</h3>
             <span className="mono dim">{formatTime(effectiveMs(solve))}</span>
             <span className="faint small">
               {date(solve.createdAt)}
@@ -295,8 +358,8 @@ export function ReplayDialog({
             <CubeFrontMarker camera={camera} visible={orbiting} />
           </div>
           <MoveSequence moves={visibleMoves} currentIndex={index} completedCount={index}
-            onSelect={navigate} label="Replay moves" layout="scroll"
-            tokenKind={i => replayActions[i].source === "grip-rotation" ? "rotation" : undefined} />
+            onSelect={navigate} label={preview ? "Alternative moves" : "Replay moves"} layout="scroll"
+            tokenKind={i => actions[i].source === "grip-rotation" ? "rotation" : undefined} />
 
           <div className="row replay-transport">
             <button disabled={index === 0} onClick={() => navigate(0)} title="Back to start" aria-label="Back to start">
@@ -308,14 +371,14 @@ export function ReplayDialog({
             <button
               className="primary"
               onClick={togglePlaying}
-              disabled={!replayActions.length}
+              disabled={!actions.length}
             >
               {playing ? "Pause" : "Play"}
             </button>
-            <button onClick={() => navigate(index + 1)} disabled={index >= replayActions.length} aria-label="Next move">
+            <button onClick={() => navigate(index + 1)} disabled={index >= actions.length} aria-label="Next move">
               ▶
             </button>
-            <button onClick={() => navigate(replayActions.length)} disabled={index >= replayActions.length}
+            <button onClick={() => navigate(actions.length)} disabled={index >= actions.length}
               title="Jump to end" aria-label="Jump to end">⏭</button>
             <span className="grow" />
             <span className="mono small replay-time">{formatTime(atMs)}</span>
@@ -335,7 +398,7 @@ export function ReplayDialog({
           <input
             type="range"
             min={0}
-            max={replayActions.length}
+            max={actions.length}
             value={index}
             onChange={(e) => {
               navigate(Number(e.target.value));
@@ -344,32 +407,42 @@ export function ReplayDialog({
             aria-label="Move position"
           />
 
-          <div className="row small replay-context">
-            <span className="dim">
-              move {index} / {replayActions.length}
-            </span>
-            {currentStep ? (
-              <>
-                <span className="faint">·</span>
-                <span className="dim">
-                  {currentStep.name}
-                  {currentStep.case ? ` · ${currentStep.case}` : ""}
-                </span>
-              </>
-            ) : null}
-            {isUsableCfopAnalysis(solve) && currentStep && onTrainStep && canPracticeTrainingStep(currentStep) ? (
-              <button
-                type="button"
-                className="ghost small"
-                onClick={() => {
-                  setPlaying(false);
-                  onTrainStep(currentStep, { index, speed });
-                }}
-              >
-                Train this {currentStep.name.startsWith("F2L") ? "F2L" : currentStep.name}
-              </button>
-            ) : null}
-          </div>
+          {preview ? (
+            <div className="row small replay-context review-preview" role="status">
+              <span className="chip live"><span className="dot" />Previewing</span>
+              <span>{preview.label}</span>
+              <span className="dim">move {index} / {actions.length}</span>
+              <span className="grow" />
+              <button type="button" className="ghost small" onClick={() => endPreview()}>Back to your solve</button>
+            </div>
+          ) : (
+            <div className="row small replay-context">
+              <span className="dim">
+                move {index} / {replayActions.length}
+              </span>
+              {currentStep ? (
+                <>
+                  <span className="faint">·</span>
+                  <span className="dim">
+                    {currentStep.name}
+                    {currentStep.case ? ` · ${currentStep.case}` : ""}
+                  </span>
+                </>
+              ) : null}
+              {isUsableCfopAnalysis(solve) && currentStep && onTrainStep && canPracticeTrainingStep(currentStep) ? (
+                <button
+                  type="button"
+                  className="ghost small"
+                  onClick={() => {
+                    setPlaying(false);
+                    onTrainStep(currentStep, { index, speed });
+                  }}
+                >
+                  Train this {currentStep.name.startsWith("F2L") ? "F2L" : currentStep.name}
+                </button>
+              ) : null}
+            </div>
+          )}
           </div>
 
           {solve.analysis ? (
@@ -385,12 +458,18 @@ export function ReplayDialog({
                 // Jumping to a step means the state it started from: click F2L Slot 1
                 // and the cross is done with the first pair still to come.
                 onSelectStep={(step) => {
-                  navigate(replayIndexForRawPosition(replayActions, step.fromMove));
+                  const target = replayIndexForRawPosition(replayActions, step.fromMove);
+                  if (preview) endPreview(target);
+                  else navigate(target);
                 }}
               />
               <div className="small faint" style={{ marginTop: 10 }}>
                 Pick a step to jump to the moment it began.
               </div>
+              {isUsableCfopAnalysis(solve) ? (
+                <SolveReviewPanel solve={solve} analysis={solve.analysis} activeStep={activeStep}
+                  onPreview={showAlternative} />
+              ) : null}
             </div>
           ) : null}
         </div>

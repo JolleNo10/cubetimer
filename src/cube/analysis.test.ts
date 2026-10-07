@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { Alg } from "cubing/alg";
 import { ANALYSIS_VERSION, analyseSolve, inferInsertionPosition, type TimedMove } from "./analysis";
-import { IDENTITY } from "./orientation";
+import { IDENTITY, rotationForCrossFace } from "./orientation";
+import { physicalTurns } from "./physicalTurns";
+import { f2lExecution } from "./stepExecution";
+import type { Face } from "./moves";
 import { get3x3x3 } from "./puzzle";
 
 const kpuzzle = await get3x3x3();
@@ -91,6 +94,7 @@ describe("analyseSolve", () => {
     // Every F2L trigger here starts with a U, which is an AUF: recognition runs to the
     // second move, 400 ms after the previous step ended.
     expect(byName["F2L Slot 2"].recognitionMs).toBe(400);
+    expect(byName["F2L Slot 2"].executedAlg?.alg).toBeDefined();
     expect(analysis.totalRecognitionMs + analysis.totalExecutionMs).toBe(
       analysis.steps.reduce((sum, s) => sum + s.timeMs, 0),
     );
@@ -224,5 +228,103 @@ describe("analyseSolve", () => {
   it("returns null for a solve that does not finish solved", () => {
     expect(analyseSolve(scrambled, timed("R U"))).toBeNull();
     expect(analyseSolve(scrambled, [])).toBeNull();
+  });
+});
+
+describe("analyseSolve on the solves that used to be misread", () => {
+  /** Run a solution, held cross-down, from the state it solves. `pauses` are move indices preceded by a long think. */
+  function solveOf(solution: string, { face = "D" as Face, pauses = [] as number[], observed = false } = {}) {
+    const { moves } = physicalTurns(solution, rotationForCrossFace(face).orientation);
+    let t = 0;
+    const timedMoves = moves.map((move, i) => ({ move, t: (t += pauses.includes(i) ? 1200 : 150) }));
+    const scrambled = kpuzzle.defaultPattern().applyAlg(new Alg(moves.join(" ")).invert());
+    return analyseSolve(scrambled, timedMoves, null, observed ? { observedStartBottomFace: face } : {})!;
+  }
+  const step = (analysis: ReturnType<typeof solveOf>, name: string) => analysis.steps.find((s) => s.name === name)!;
+  const PAIRS = new Alg("R U R' U' L' U' L U L U L' U' R' U' R U").invert().toString();
+
+  it("does not take a last-layer coincidence on another face for the cross", () => {
+    // One move after the last pair the cube is a single turn from an F2L on B.
+    const analysis = solveOf(`${PAIRS} U R U2 R' U' R U2 L' U R' U' L`);
+    expect(analysis.crossFace).toBe("D");
+    expect(step(analysis, "PLL").case).toBe("Jb");
+  });
+
+  it("keeps genuine state trade-offs quarantined until independent orientation settles them", () => {
+    const solution = `${PAIRS} U R U2 R' U' R U2 L' U R' U' L`;
+    const unaided = solveOf(solution);
+    expect(unaided.crossFace).toBe("D");
+    expect(unaided.quality?.status).toBe("suspect");
+    expect(unaided.quality?.issues.some(issue => issue.code === "ambiguous-cross")).toBe(true);
+    expect(solveOf(solution, { observed: true }).quality).toEqual({ status: "trusted", issues: [] });
+  });
+
+  it("finds the cross face of a solve that skipped the whole last layer", () => {
+    const analysis = solveOf(PAIRS, { face: "L" });
+    expect(analysis.crossFace).toBe("L");
+    expect(step(analysis, "OLL").case).toBe("Solved");
+    expect(step(analysis, "PLL").case).toBe("Solved");
+  });
+
+  it("credits a pair knocked out and rebuilt to the rebuild", () => {
+    const rebuilt = solveOf(`U R U' R' R U R' U' ${new Alg("L U L' U' R' U' R U").invert()} U R U' R'`);
+    const last = step(rebuilt, "F2L Slot 4");
+    expect(last.slot).toBe("FR");
+    expect(last.toMove).toBe(20);
+  });
+
+  it("calls pairs that went in with the cross an xcross, not skips", () => {
+    // F2 restores the front cross edge and both front pairs at once.
+    const analysis = solveOf(`F2 ${new Alg("L U L' U' R' U' R U").invert()}`);
+    expect(step(analysis, "Cross").toMove).toBe(1);
+    const during = analysis.steps.filter((s) => s.solvedDuring === "Cross").map((s) => s.slot);
+    expect(during.sort()).toEqual(["FL", "FR"]);
+    expect(analysis.stepsSkipped).toBe(2); // the last layer, not the pairs
+  });
+
+  it("splits a two-look OLL into its looks", () => {
+    const analysis = solveOf(`${PAIRS} F R U R' U' F' U R U R' U R U2 R'`, { pauses: [22] });
+    const oll = step(analysis, "OLL");
+    expect(oll.looks?.map((look) => [look.kind, look.label])).toEqual([["edges", "I-Shape"], ["corners", "Sune"]]);
+    // The think before the second look, and the U that lines it up. The step's own
+    // recognition is still the look before its first turn.
+    expect(oll.looks![1].recognitionMs).toBe(1350);
+    expect(oll.recognitionMs).toBe(oll.looks![0].recognitionMs);
+  });
+
+  it("splits a two-look PLL into its looks", () => {
+    const analysis = solveOf(`${PAIRS} R U R' U' R' F R2 U' R' U' R U R' F' U R U' R U R U R U' R' U' R2`);
+    const pll = step(analysis, "PLL");
+    expect(pll.looks?.map((look) => look.kind)).toEqual(["corners", "edges"]);
+    expect(pll.looks![0].label).toBe("Headlights");
+    expect(["Ua", "Ub"]).toContain(pll.looks![1].label);
+  });
+
+  it("keeps a one-look algorithm as one look", () => {
+    const analysis = solveOf(`${PAIRS} U R U R' U' R' F R2 U' R' U' R U R' F'`);
+    const pll = step(analysis, "PLL");
+    expect(pll.looks).toHaveLength(1);
+    expect(pll.looks![0].kind).toBe("full");
+    expect(pll.executedAlg?.family).toBe("PLL");
+  });
+
+  it("names the case a pair began as, and the trigger that finished it after setup turns", () => {
+    const tokens = physicalTurns("L' U L U R U' R'").moves;
+    const patterns = [kpuzzle.defaultPattern().applyAlg(new Alg(tokens.join(" ")).invert())];
+    for (const move of tokens) patterns.push(patterns.at(-1)!.applyMove(move));
+    const execution = f2lExecution({
+      kpuzzle,
+      facing: (index) => patterns[index],
+      tokens,
+      moves: timed(tokens.join(" "), 150),
+      from: 0,
+      to: tokens.length,
+      startMs: 0,
+    }, "FR");
+    // L' U L only turns the last layer under the pair, so it is the same case throughout.
+    expect(execution.case).toBe("F2L 1");
+    expect(execution.caseAt).toBe(0);
+    expect(execution.executedAlg?.fromMove).toBe(3);
+    expect(execution.setupMoves).toBe(2);
   });
 });

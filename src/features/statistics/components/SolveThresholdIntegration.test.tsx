@@ -10,7 +10,7 @@ import { SolveResult } from "../../history/components/SolveResult";
 function History() {
   const { solves, lastSolve } = useSessionState();
   return <><StatsPanel solves={solves} /><SolveList solves={solves} selectedId={null} onSelect={() => {}} />
-    {lastSolve ? <SolveResult solve={lastSolve} solves={solves} onContinue={() => {}} onReplay={() => {}} onAnalyse={() => {}} /> : null}</>;
+    {lastSolve ? <SolveResult solve={lastSolve} solves={solves} onContinue={() => {}} onReplay={() => {}} /> : null}</>;
 }
 
 function setup() {

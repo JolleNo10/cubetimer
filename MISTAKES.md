@@ -539,3 +539,36 @@ A regression fixture assumed separate pair insertion triggers commute and would 
 two other slots solved while the first was broken. Actual cube states disproved that
 assumption. Verify witness states directly and use a legal fixed move sequence before
 asserting accumulated slot invariants; do not infer cube state from algorithm labels.
+## Step dating changed without checking real solves
+
+Milestone dating was changed to "when it stays in place" and pair steps were extended
+to the end of early-finishing algorithms, on the strength of synthetic fixtures alone.
+Against 2,995 recorded solves, step-boundary agreement with the exporting timer fell
+from 99.6% to 44% and recognition agreement from 80% to 4%: solvers turn the bottom
+layer while working on pairs, which keeps the cross out without undoing it. Reading
+F2L cases where the matched algorithm began had the same flaw, because almost every
+insertion ends in a catalogue trigger. Root cause: synthetic solves only exercise the
+cases they were built for. Prevention: run `scripts/compareAnalysis.ts` over a real
+export before and after any change to phase dating, recognition or case naming, and
+compare the tallies.
+
+
+## Staged renames swept into an unrelated commit
+
+A `git mv` and `git rm` for the Review dialog were staged while a separate analysis
+fix was committed with `git add <files> && git commit`, which commits the whole index.
+The fix commit (015acc7) therefore also renamed the Replay dialog and deleted the
+Analysis tools dialog, and does not build on its own; the next commit completed the
+change. Prevention: check `git diff --cached --stat` before every commit, and stage
+renames and deletions only when committing the change they belong to.
+
+
+## Merging simultaneous analysis contract changes
+
+Both branches introduced different internal version-5 analyses. Keeping version 5 would
+leave incompatible cached results classified as current. Use merged version 6 so either
+cache rebuilds. The incoming review merged Replay/Tools and moved alternatives into the
+cube domain; transfer application eligibility to the new Review boundary rather than
+resurrecting deleted UI or the old statistics-owned alternatives module. Recognition
+audit fixtures know the held face, so supply that independent fact when testing machine
+trust instead of assuming a mathematically generated solve has a unique unaided reading.

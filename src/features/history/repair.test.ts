@@ -126,9 +126,9 @@ it("reclassifies rebuildable v3 quality under the refined current interpretation
 });
 
 
-it("preserves manual exclusion through a version-4 to version-5 analysis rebuild", () => {
+it("preserves manual exclusion through a version-5 to merged version-6 analysis rebuild", () => {
   const current = analyseSolve(kpuzzle.defaultPattern().applyAlg(scramble),moves,null,{observedStartBottomFace:"D"})!;
-  const rebuilt = rebuildAnalysis(kpuzzle,solve({analysis:{...current,analysisVersion:4},cfopAnalysisExcluded:true,solveStartBottomFace:"D"}))!;
+  const rebuilt = rebuildAnalysis(kpuzzle,solve({analysis:{...current,analysisVersion:5},cfopAnalysisExcluded:true,solveStartBottomFace:"D"}))!;
   expect(rebuilt.cfopAnalysisExcluded).toBe(true);
-  expect(rebuilt.analysis).toMatchObject({analysisVersion:5,quality:{status:"trusted",issues:[]}});
+  expect(rebuilt.analysis).toMatchObject({analysisVersion:ANALYSIS_VERSION,quality:{status:"trusted",issues:[]}});
 });

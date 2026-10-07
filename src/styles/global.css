@@ -919,15 +919,37 @@ button.phase-row.selectable.active {
   min-width: 0;
   overflow-x: hidden;
 }
-.replay-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+/* The cube stays in view while the breakdown and its review scroll beside it. */
+.replay-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; position: sticky; top: 0; }
 .replay-stage { position: relative; height: 300px; min-width: 0; }
 .replay-cube-host { height: 100%; }
 .replay-transport { flex-wrap: wrap; }
 .replay-cube-host twisty-player { width: 100%; height: 100%; }
 .replay-steps { min-width: 0; border-left: 1px solid var(--border); padding-left: 18px; }
+/* Review: how each step went and what would have been better, beside the replay. */
+.review-panel { display: flex; flex-direction: column; gap: 14px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); min-width: 0; }
+.review-section { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.review-section > .panel-title { margin-bottom: 0; }
+.review-did, .review-better { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.review-alt { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: 8px; background: var(--panel-2); min-width: 0; }
+.review-alt > .row { gap: 8px; flex-wrap: wrap; }
+.review-alg { overflow-wrap: anywhere; }
+.review-count { display: inline-flex; align-items: center; gap: 6px; }
+.review-count .saving { color: var(--accent); }
+.review-play { padding: 3px 8px; white-space: nowrap; }
+.review-looks { margin: 0; padding-left: 18px; }
+.review-choices { width: 100%; border-collapse: collapse; }
+.review-choices caption { text-align: left; padding-bottom: 4px; }
+.review-choices th, .review-choices td { padding: 4px 6px; text-align: left; border-bottom: 1px solid var(--border); }
+.review-choices thead th { color: var(--text-faint); font-weight: 500; }
+.review-choices tbody th { font-weight: 500; white-space: nowrap; }
+.review-choices tbody th .chip { margin-left: 6px; padding: 1px 6px; font-size: 10px; }
+.review-choices tr.chosen { background: color-mix(in oklab, var(--accent) 8%, transparent); }
+.review-preview { gap: 8px; }
 
 @media (max-width: 1120px) {
   .dialog-body.replay-body { grid-template-columns: minmax(0, 1fr); }
+  .replay-main { position: static; }
   .replay-steps { border-left: none; border-top: 1px solid var(--border); padding: 14px 0 0; }
 }
 .dialog-head { display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; border-bottom: 1px solid var(--border); }
@@ -1390,6 +1412,7 @@ button.icon { display: inline-grid; place-items: center; padding: 8px; }
   .replay-context { flex-wrap: wrap; }
   .replay-context > .grow { display: none; }
   .replay-context > .mono { flex-basis: 100%; }
+  .review-play { min-height: 44px; }
   button.phase-row.selectable { min-height: 44px; }
   .analytics-row { grid-template-columns: minmax(0, 1fr) auto; }
   .analytics-verdict { grid-column: 1 / -1; }

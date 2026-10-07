@@ -181,9 +181,9 @@ export function StatisticsNavigation({ view, onSelect }: { view: StatisticsSubvi
   return <nav className="statistics-navigation" aria-label="Statistics views">{STATISTICS_VIEWS.map((item) => <button key={item} className="ghost" aria-pressed={view === item} onClick={() => onSelect(item)}>{item}</button>)}</nav>;
 }
 
-export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTools, onTrainCase, onScopeChange }: {
+export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrainCase, onScopeChange }: {
   currentEvent: EventId; activeSessionId: string | null;
-  onReplay: (solve: Solve) => void; onTools: (solve: Solve) => void;
+  onReplay: (solve: Solve) => void;
   onTrainCase: (family: LastLayerFamily, caseId: string) => void;
   onScopeChange: (solveIds: readonly string[]) => void;
 }) {
@@ -283,7 +283,7 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTool
           {view === "Cases" ? <StatisticsAnalysisTables key={`analysis:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} onTrainCase={onTrainCase} /> : null}
         </>
       ) : null}
-      {detailSolve && model?.scopeSolves.some((solve) => solve.id === detailSolve.id) ? <StatisticsSolveDetail solve={detailSolve} solves={model.scopeSolves} session={model.eventSessions.find((session) => session.id === detailSolve.sessionId)} onClose={() => setDetailSolve(null)} onReplay={onReplay} onTools={onTools} /> : null}
+      {detailSolve && model?.scopeSolves.some((solve) => solve.id === detailSolve.id) ? <StatisticsSolveDetail solve={detailSolve} solves={model.scopeSolves} session={model.eventSessions.find((session) => session.id === detailSolve.sessionId)} onClose={() => setDetailSolve(null)} onReplay={onReplay} /> : null}
     </main>
   );
 }

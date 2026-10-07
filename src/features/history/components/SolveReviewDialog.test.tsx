@@ -1,11 +1,12 @@
 import { ANALYSIS_VERSION } from "../../../cube/analysis";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { ReplayDialog } from "./ReplayDialog";
+import { SolveReviewDialog } from "./SolveReviewDialog";
 import { MoveSequence } from "../../../shared/ui/MoveSequence";
 import { CubeMoveGuide } from "../../../shared/ui/CubeMoveGuide";
 import { CubeFrontMarker } from "../../../shared/ui/CubeFrontMarker";
 import { DetailedStepBreakdown } from "./StepBreakdown";
+import { SolveReviewPanel } from "./SolveReviewPanel";
 import { describeGrip, GENERATORS, IDENTITY } from "../../../cube/orientation";
 import type { Solve } from "../../../app/types";
 import type { SolveStep } from "../../../cube/analysis";
@@ -16,7 +17,7 @@ const hooks = vi.hoisted(() => ({
   cursor: 0, slots: [] as unknown[], effects: [] as (() => void)[],
   cleanups: [] as (() => void)[],
   orbit: null as null | ((value: { latitude: number; longitude: number }) => void),
-  player: null as null | { moves: string[]; alg: { toString(): string }; experimentalAddMove: ReturnType<typeof vi.fn>; jumpToEnd: ReturnType<typeof vi.fn> },
+  player: null as null | { moves: string[]; setup: string; alg: { toString(): string }; experimentalAddMove: ReturnType<typeof vi.fn>; jumpToEnd: ReturnType<typeof vi.fn> },
 }));
 vi.mock("react", async original => {
   const memo = (make: () => unknown, deps: unknown[]) => {
@@ -64,7 +65,11 @@ vi.mock("cubing/twisty", () => ({ TwistyPlayer: class {
     addFreshListener: (listener: typeof hooks.orbit) => { hooks.orbit = listener; },
     removeFreshListener: vi.fn(),
   } } };
-  constructor() { hooks.player = this; }
+  setup: string;
+  constructor(options?: { experimentalSetupAlg?: { toString(): string } }) {
+    this.setup = String(options?.experimentalSetupAlg ?? "");
+    hooks.player = this;
+  }
 } }));
 
 type Node = ReactElement<Record<string, unknown>>;
@@ -121,7 +126,7 @@ function fixture(initialView?: { index: number; speed: number }, withAnalysis = 
       if (node.props.className === "replay-cube-host") (node.props.ref as { current: unknown }).current = { appendChild() {} };
       visit(node.props.children);
     };
-    visit(ReplayDialog({ solve: selectedSolve, onClose, onTrainStep, initialView }));
+    visit(SolveReviewDialog({ solve: selectedSolve, onClose, onTrainStep, initialView }));
     hooks.effects.splice(0).forEach(effect => effect());
     return {
       labels: nodes.filter(node => node.type === "button").map(node => Array.isArray(node.props.children) ? node.props.children.join("") : node.props.children),
@@ -131,6 +136,8 @@ function fixture(initialView?: { index: number; speed: number }, withAnalysis = 
       arrow: nodes.find(node => node.type === CubeMoveGuide)?.props as React.ComponentProps<typeof CubeMoveGuide> | undefined,
       marker: nodes.find(node => node.type === CubeFrontMarker)!.props as React.ComponentProps<typeof CubeFrontMarker>,
       breakdown: nodes.find(node => node.type === DetailedStepBreakdown)?.props as React.ComponentProps<typeof DetailedStepBreakdown> | undefined,
+      panel: nodes.find(node => node.type === SolveReviewPanel)?.props as React.ComponentProps<typeof SolveReviewPanel> | undefined,
+      text: () => nodes.flatMap(node => typeof node.props.children === "string" ? [node.props.children] : []),
       input: (label: string) => nodes.find(node => node.props["aria-label"] === label)!.props as { value: number; onChange(event: { target: { value: string } }): void },
     };
   }
@@ -288,9 +295,63 @@ it("keeps recorded grip authoritative even when the suspect Cross disagrees", ()
 it("manual veto uses raw replay without a track and withholds Training even for trusted analysis", () => {
   const view = fixture(undefined,true,true,{gripTrack:undefined,cfopAnalysisExcluded:true}).render();
   expect(view.sequence.moves).toEqual(["R","R"]);
+  expect(view.panel).toBeUndefined();
   expect(view.labels.some(label=>typeof label === "string" && label.startsWith("Train"))).toBe(false);
   expect(view.button("Play").disabled).not.toBe(true);
 });
 it("manual veto preserves raw replay's recorded grip", () => {
   expect(fixture(undefined,true,true,{cfopAnalysisExcluded:true}).render().sequence.moves).toEqual(["R","y","F"]);
+});
+describe("Review previews", () => {
+  it("only offers alternatives for a trusted analysis", () => {
+    expect(fixture(undefined, true).render().panel).toBeDefined();
+    expect(fixture(undefined, true, false).render().panel).toBeUndefined();
+    expect(fixture(undefined, true, true, { cfopAnalysisExcluded: true }).render().panel).toBeUndefined();
+    expect(fixture().render().panel).toBeUndefined();
+  });
+
+  it("plays an alternative from the moment it starts, then puts the replay back", () => {
+    const { render } = fixture(undefined, true);
+    let view = render();
+    view.sequence.onSelect!(3); view = render();
+    view.panel!.onPreview({ label: "Shorter", fromMove: 1, cubeMoves: ["U", "R'"] });
+    view = render();
+    // Rebuilt from the scramble and the first raw move, then the alternative itself.
+    expect(hooks.player!.setup).toBe("F R R");
+    expect(view.sequence.label).toBe("Alternative moves");
+    expect(view.sequence.moves).toEqual(["U", "R'"]);
+    expect(view.input("Move position").value).toBe(0);
+    expect(view.text()).toContain("Back to your solve");
+    view.button("Play").onClick(); view = render();
+    expect(view.button("Pause")).toBeDefined();
+
+    view.button("Back to your solve").onClick();
+    view = render(); view = render();
+    expect(view.sequence.label).toBe("Replay moves");
+    expect(view.sequence.moves).toEqual(["R", "y", "F"]);
+    expect(hooks.player!.setup).toBe("F R");
+    expect(view.input("Move position").value).toBe(3);
+  });
+
+  it("writes the alternative in the grip the replay is in at that point", () => {
+    const { render } = fixture(undefined, true);
+    let view = render();
+    // By the end the cube has been turned with a y: the cube's R is in front.
+    view.panel!.onPreview({ label: "Pair", fromMove: 2, cubeMoves: ["R", "U"] });
+    view = render();
+    expect(hooks.player!.setup).toBe("F R R y F");
+    expect(view.sequence.moves).toEqual(["F", "U"]);
+  });
+
+  it("leaves a preview with Escape before closing", () => {
+    const { render, key, onClose } = fixture(undefined, true);
+    const view = render();
+    view.panel!.onPreview({ label: "Shorter", fromMove: 0, cubeMoves: ["R"] });
+    render();
+    key("Escape");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(render().sequence.label).toBe("Replay moves");
+    key("Escape");
+    expect(onClose).toHaveBeenCalled();
+  });
 });
