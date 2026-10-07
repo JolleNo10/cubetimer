@@ -531,3 +531,11 @@ physical witnesses from state invariants and invert solutions for starting patte
 Adding bottom evidence to GripTrack exposed that the encoder's input unnecessarily
 required complete reconstruction metadata; it serializes only SolveGrip, so accept that
 projection with optional tracking metadata rather than fabricate raw evidence in callers.
+
+
+## Identity-preserving CFOP regression fixtures
+
+A regression fixture assumed separate pair insertion triggers commute and would leave
+two other slots solved while the first was broken. Actual cube states disproved that
+assumption. Verify witness states directly and use a legal fixed move sequence before
+asserting accumulated slot invariants; do not infer cube state from algorithm labels.

@@ -116,6 +116,8 @@ export type Solve = {
   scrambledFacelets?: string;
   /** Physical face observed underneath at solve start, independent of CFOP inference. */
   solveStartBottomFace?: Face;
+  /** User veto of CFOP interpretation; ordinary solve timing is unaffected. */
+  cfopAnalysisExcluded?: true;
   /**
    * How the cube was held for each move, when the gyroscope was there to say.
    *

@@ -1,6 +1,7 @@
+import { isUsableCfopAnalysis } from "../../../app/solveAnalysis";
 import { SolveOutlierNotice } from "./SolveOutlierNotice";
 import { SolveAnalysisReview } from "./SolveAnalysisReview";
-import { isTrustedCfopAnalysis, type SolveStep } from "../../../cube/analysis";
+import { type SolveStep } from "../../../cube/analysis";
 import { useController } from "../../../app/useController";
 import {
   practiceScrambleLabel,
@@ -34,7 +35,7 @@ export function SolveResult({
   const analysis = solve.analysis ?? null;
   const moveCount = analysis?.sliceTurns ?? solve.moves.length;
   const canReplay = solve.moves.length > 0;
-  const canAnalyse = Boolean(isTrustedCfopAnalysis(analysis) && solve.moves.length > 0);
+  const canAnalyse = Boolean(isUsableCfopAnalysis(solve) && solve.moves.length > 0);
   const slowSolve = isSlowSolve(solve);
   const specialLabel = practiceScrambleLabel(solve.scrambleProvider);
   const specialTitle = practiceScrambleTitle(solve.scrambleProvider);
@@ -96,6 +97,13 @@ export function SolveResult({
               ))}
             </div>
             <div className="result-tools">
+              {analysis ? <button className="ghost"
+                title={solve.cfopAnalysisExcluded
+                  ? "Remove your CFOP exclusion. Automatic quality checks still apply; solve timing is unchanged."
+                  : "Exclude this breakdown from CFOP statistics and CFOP-based tools. The solve time still counts normally."}
+                onClick={() => void controller.updateSolve(solve.id, { cfopAnalysisExcluded: solve.cfopAnalysisExcluded ? undefined : true })}>
+                {solve.cfopAnalysisExcluded ? "Undo CFOP exclusion" : "Mark CFOP wrong"}
+              </button> : null}
               {analysis && solve.moves.length > 0 ? (
                 <button
                   className="ghost"

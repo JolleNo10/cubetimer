@@ -111,8 +111,10 @@ export type SolveGrip = {
 };
 
 export type GripTrack = SolveGrip & {
-  /** Independent face kept underneath: supplied start observation or whole-solve gyro vote. */
+  /** Face used as the reconstruction constraint; may be a supplied prior. */
   bottomFace: Face;
+  /** Unique whole-solve raw gyro vote, independently computed even with a supplied prior. */
+  gyroBottomFace: Face | null;
   /** 0 when the readings settled nothing, 1 when every move was unambiguous. */
   confidence: number;
   warnings: string[];
@@ -127,22 +129,16 @@ export type GripTrack = SolveGrip & {
 function steadiestBottom(
   readings: readonly (Quat | null)[],
   reference: Quat,
-): Face {
+): Face | null {
   const tally = new Map<Face, number>();
   for (const pose of readings) {
     if (!pose) continue;
     const bottom = facesAtPositions(snapOrientation(pose, reference).orientation).D;
     tally.set(bottom, (tally.get(bottom) ?? 0) + 1);
   }
-  let best: Face = "D";
-  let bestCount = -1;
-  for (const [face, count] of tally) {
-    if (count > bestCount) {
-      bestCount = count;
-      best = face;
-    }
-  }
-  return best;
+  const top = Math.max(0, ...tally.values());
+  const winners = [...tally].filter(([, count]) => count === top);
+  return winners.length === 1 ? winners[0][0] : null;
 }
 
 /** Corrections smaller than this are the ordinary wobble of a hand, not drift. */
@@ -218,9 +214,10 @@ export function trackGrip(input: GripTrackInput): GripTrack {
   const states = ALL_ORIENTATIONS.length;
   const warnings: string[] = [];
 
-  const crossFace = input.crossFace ?? steadiestBottom(readings, reference);
+  const gyroBottomFace = steadiestBottom(readings, reference);
+  const crossFace = input.crossFace ?? gyroBottomFace ?? "D";
   if (moves.length === 0) {
-    return { orientations: [], inspection: [], bottomFace: crossFace, confidence: 0, warnings };
+    return { orientations: [], inspection: [], bottomFace: crossFace, gyroBottomFace, confidence: 0, warnings };
   }
 
   const anchors = new Set(
@@ -316,6 +313,7 @@ export function trackGrip(input: GripTrackInput): GripTrack {
   return {
     orientations,
     bottomFace: crossFace,
+    gyroBottomFace,
     inspection: rotationTokensBetween(IDENTITY, orientations[0]),
     confidence: confidenceOf(emission, path),
     warnings,

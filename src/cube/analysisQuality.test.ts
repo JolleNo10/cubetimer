@@ -19,8 +19,8 @@ afterEach(() => vi.restoreAllMocks());
 describe("CFOP quality", () => {
   it("keeps textbook CFOP trusted with explicit current quality", () => {
     const analysis = textbook();
-    expect(ANALYSIS_VERSION).toBe(4);
-    expect(analysis).toMatchObject({ crossFace: "D", analysisVersion: 4, quality: { status: "trusted", issues: [] } });
+    expect(ANALYSIS_VERSION).toBe(5);
+    expect(analysis).toMatchObject({ crossFace: "D", analysisVersion: 5, quality: { status: "trusted", issues: [] } });
     expect(isTrustedCfopAnalysis(analysis)).toBe(true);
     expect(isTrustedCfopAnalysis({ ...analysis, quality: undefined })).toBe(false);
     expect(isTrustedCfopAnalysis({ ...analysis, analysisVersion: 2 })).toBe(false);
@@ -95,7 +95,11 @@ it("uses gyro evidence to resolve competing candidates and preserves conflict pr
   expect(isTrustedCfopAnalysis(analyseSolve(scrambled, moves, null, { trackedBottomFace: "D" }))).toBe(true);
   const conflict = analyseSolve(puzzle.defaultPattern().applyAlg("R'"), timed("R"), null, { trackedBottomFace: "D" })!;
   expect(conflict.quality).toEqual({ status: "suspect", issues: [{ code: "cross-face-conflict", observed: "D", inferred: "L", source: "whole-solve-gyro" }] });
-  expect(analyseSolve(scrambled, moves, null, { observedStartBottomFace: "U", trackedBottomFace: "D" })!.crossFace).toBe("U");
+  const disagreement = analyseSolve(scrambled, moves, null, { observedStartBottomFace: "U", trackedBottomFace: "D" })!;
+  expect(disagreement.quality!.issues).toContainEqual({ code: "bottom-evidence-conflict", observedStart: "U", tracked: "D" });
+  expect(disagreement.quality!.issues).toContainEqual({ code: "ambiguous-cross", candidates: ["U", "D"] });
+  expect(isTrustedCfopAnalysis(disagreement)).toBe(false);
+  expect(isTrustedCfopAnalysis(analyseSolve(scrambled, moves, null, { observedStartBottomFace: "D", trackedBottomFace: "D" }))).toBe(true);
 });
 it("quarantines globally collapsed interpretation without a move or time threshold", () => {
   const alg = "R U F", moves = timed(alg);
@@ -137,5 +141,55 @@ it.each([true, false])("accepts a Cross with four prepared pairs, including OLL 
   const scrambled = puzzle.defaultPattern().applyAlg(new Alg(ll).invert()).applyAlg(new Alg(h).invert());
   const analysis = analyseSolve(scrambled, timed(`${h} ${ll}`), null, { observedStartBottomFace: "D" })!;
   expect(analysis.steps.slice(1, 5).every(step => step.skipped && step.toMove === analysis.steps[0].toMove)).toBe(true);
+  expect(isTrustedCfopAnalysis(analysis)).toBe(true);
+});
+
+
+it("waits for previously identified pair identities to be restored before advancing", () => {
+  const inverse = (alg: string) => new Alg(alg).invert().toString();
+  const prefix = `${inverse(extracts[3])} ${extracts[3]} U R U' R' U B U' B' U L U' L' R U R' U'`;
+  const solution = `${prefix} ${inverse(prefix)} ${f2l} ${oll} ${pll}`;
+  const moves = timed(solution);
+  const analysis = analyseSolve(start, moves, null, { observedStartBottomFace: "D" })!;
+  expect(analysis.steps[1]).toMatchObject({ slot: "FR", toMove: 4 });
+  const slotDefinitions = slots.f2lSlotsForCrossFace("D");
+  const first = slotDefinitions.find(slot => slot.name === analysis.steps[1].slot)!;
+  const witnesses = moves.slice(0, 32).flatMap((_, index) => {
+    const state = start.applyAlg(moves.slice(0, index + 1).map(m => m.move).join(" ")).patternData;
+    const solved = (slot: typeof first) => state.EDGES.pieces[slot.edge] === slot.edge && state.EDGES.orientation[slot.edge] === 0 && state.CORNERS.pieces[slot.corner] === slot.corner && state.CORNERS.orientation[slot.corner] === 0;
+    return !solved(first) && slots.EDGES_OF_FACE.D.every(e => state.EDGES.pieces[e] === e && state.EDGES.orientation[e] === 0) && slotDefinitions.filter(solved).length >= 2 ? [index + 1] : [];
+  });
+  expect(witnesses).toContain(24);
+  const completed: typeof slotDefinitions = [];
+  for (const step of analysis.steps.slice(1, 5)) {
+    completed.push(slotDefinitions.find(slot => slot.name === step.slot)!);
+    const state = start.applyAlg(moves.slice(0, step.toMove).map(m => m.move).join(" ")).patternData;
+    for (const slot of completed) {
+      expect(state.EDGES.pieces[slot.edge]).toBe(slot.edge);
+      expect(state.EDGES.orientation[slot.edge]).toBe(0);
+      expect(state.CORNERS.pieces[slot.corner]).toBe(slot.corner);
+      expect(state.CORNERS.orientation[slot.corner]).toBe(0);
+    }
+    expect(witnesses).not.toContain(step.toMove);
+  }
+  expect(isTrustedCfopAnalysis(analysis)).toBe(true);
+});
+
+
+it("dominates an alternative using intermediate pair identities even when major checkpoints tie", () => {
+  const scrambled = puzzle.defaultPattern().applyAlg("F2 R U R' U R U2 R' F2 U2 F2");
+  const moves = timed("D2 B2 B2' D2' F2' U2' F2' R U2' R' U' R U' R' F2'");
+  // D and L both reach Cross at 5 and full F2L/OLL at 15. Both have
+  // zero distinct intermediate checkpoints after Cross, but D completes
+  // its second actual pair at 5 while L cannot do so until 15.
+  const atCross = scrambled.applyAlg(moves.slice(0, 5).map(m => m.move).join(" ")).patternData;
+  const solvedSlots = (face: slots.Face) => slots.f2lSlotsForCrossFace(face).filter(slot =>
+    atCross.EDGES.pieces[slot.edge] === slot.edge && atCross.EDGES.orientation[slot.edge] === 0
+    && atCross.CORNERS.pieces[slot.corner] === slot.corner && atCross.CORNERS.orientation[slot.corner] === 0).length;
+  expect(solvedSlots("D")).toBe(2);
+  expect(solvedSlots("L")).toBe(1);
+  const analysis = analyseSolve(scrambled, moves)!;
+  expect(analysis.crossFace).toBe("D");
+  expect(analysis.steps.map(step => step.toMove)).toEqual([5, 5, 5, 15, 15, 15, 15]);
   expect(isTrustedCfopAnalysis(analysis)).toBe(true);
 });

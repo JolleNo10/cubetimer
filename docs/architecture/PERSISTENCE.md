@@ -172,6 +172,24 @@ enters CFOP analytics, comparisons or step-specific training. Ordinary timing el
 and statistics-outlier handling remain independent of CFOP quality.
 
 
+`Solve.cfopAnalysisExcluded?: true` is durable user-authored metadata: a reversible
+veto of the CFOP interpretation, separate from derived `SolveAnalysis.quality`.
+Rebuilds replace only analysis and retain this judgement. It can exclude, never force
+an automatically suspect interpretation into use. `isUsableCfopAnalysis(solve)` combines
+machine trust with this veto for analytics, comparisons, training, Tools and Replay's
+inferred-frame fallback. Normal solve timing/count/average/PB eligibility is unaffected.
+Result/History editing uses Controller and SolveHistory persistence; components do not
+write IndexedDB directly. Normal counted SmartCube rows show `CFOP excluded` before
+machine status; Slow Solve/Replay/practice keep their existing compact badges.
+
+Migration keeps only literal `true`, dropping other imported values. Whole-record
+IndexedDB persistence and JSON v7 preserve the field without a schema/format version
+bump (DB remains 5). CSV remains unchanged and does not carry the local veto.
+Rejected: storing the manual decision in `SolveAnalysis.quality`. Analysis is derived
+and rebuildable; user judgement must survive re-analysis and stay distinguishable from
+analyser output.
+
+
 ## Unusually slow normal solves
 
 Settings owns a multiplier (default 3) and handling (default exclude; Off or DNF

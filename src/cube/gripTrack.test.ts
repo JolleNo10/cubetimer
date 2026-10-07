@@ -492,3 +492,15 @@ it("exposes the independently selected bottom separately from replay orientation
   expect(trackGrip({ ...input, reference: REFERENCE }).bottomFace).toBe("U");
   expect(trackGrip({ ...input, reference: REFERENCE, crossFace: "D" }).bottomFace).toBe("D");
 });
+
+
+it("retains independent raw gyro evidence when a conflicting prior constrains reconstruction", () => {
+  const input = solve([["R", "z2", 0], ["U", "z2", 150], ["R", "z2", 300]]);
+  const result = trackGrip({ ...input, reference: REFERENCE, crossFace: "D" });
+  expect(result.bottomFace).toBe("D"); expect(result.gyroBottomFace).toBe("U");
+});
+it("does not manufacture physical evidence from no data or tied gyro votes", () => {
+  const moves = [{ move: "R", t: 0 }, { move: "U", t: 200 }];
+  expect(trackGrip({ moves, readings: [null, null], reference: REFERENCE }).gyroBottomFace).toBeNull();
+  expect(trackGrip({ moves, readings: [grip("").pose, grip("z2").pose], reference: REFERENCE, crossFace: "D" }).gyroBottomFace).toBeNull();
+});

@@ -656,7 +656,7 @@ export class TimerRuntime {
       gripTrack: grip ? encodeGripTrack(grip) : undefined,
       analysis:
         source === "smartcube"
-          ? analyseSolve(scrambledPattern, moves, grip, { observedStartBottomFace: solveStartBottomFace, trackedBottomFace: !solveStartBottomFace ? grip?.bottomFace : undefined })
+          ? analyseSolve(scrambledPattern, moves, grip, { observedStartBottomFace: solveStartBottomFace, trackedBottomFace: grip?.gyroBottomFace ?? undefined })
           : null,
     };
 

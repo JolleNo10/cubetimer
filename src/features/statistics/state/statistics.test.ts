@@ -717,10 +717,11 @@ describe("performance table sorting", () => {
 });
 
 
-it("quarantines suspect CFOP from every derived summary while keeping the solve in timing history", () => {
+it.each(["automatic", "manual"])("quarantines %s CFOP exclusion from every derived summary while keeping timing history", mode => {
   const trusted = Array.from({ length: 5 }, (_, i) => analysed(`good${i}`, "A", i));
   const bad = analysed("suspect", "A", 10);
-  bad.analysis!.quality = { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }] };
+  if (mode === "manual") bad.cfopAnalysisExcluded = true;
+  else bad.analysis!.quality = { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }] };
   bad.rawMs = 9000;
   const before = modelFor(trusted), after = modelFor([...trusted, bad]);
   expect(after.solveRows.some(row => row.solve.id === bad.id)).toBe(true);

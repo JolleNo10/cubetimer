@@ -1,7 +1,8 @@
+import { isUsableCfopAnalysis } from "./solveAnalysis";
 import type { KPattern } from "cubing/kpuzzle";
 import type { GanCubeMove } from "gan-web-bluetooth";
 import type { MacPrompt } from "../infrastructure/bluetooth/smartCube";
-import { isTrustedCfopAnalysis, type SolveStep } from "../cube/analysis";
+import { type SolveStep } from "../cube/analysis";
 import type { F2lPosition } from "../cube/f2lCases";
 import { f2lTrainingCatalogue, type F2lTrainingLibrary } from "../cube/f2lTrainingCases";
 import {
@@ -502,7 +503,7 @@ export class Controller {
     this.training.setF2lLibrary(library);
   }
   practiceSolveStep(solve: Solve, step: SolveStep): Promise<void> {
-    if (!isTrustedCfopAnalysis(solve.analysis)) return Promise.resolve();
+    if (!isUsableCfopAnalysis(solve)) return Promise.resolve();
     this.setArea("training");
     return this.training.practiceSolveStep(solve, step);
   }

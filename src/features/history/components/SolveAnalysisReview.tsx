@@ -1,6 +1,7 @@
+import { isUsableCfopAnalysis } from "../../../app/solveAnalysis";
 import { CfopAnalysisWarning } from "./CfopAnalysisQuality";
 import { formatTime } from "../../../shared/time";
-import { isTrustedCfopAnalysis, type SolveAnalysis, type SolveStep } from "../../../cube/analysis";
+import { type SolveAnalysis, type SolveStep } from "../../../cube/analysis";
 import { RECOGNITION_NOTE } from "../../statistics/state/statistics";
 import type { Solve } from "../../../app/types";
 import { DetailedStepBreakdown } from "./StepBreakdown";
@@ -15,7 +16,7 @@ export function SolveAnalysisReview({ solve, solves, analysis, onPracticeStep }:
   const pauseMs = analysis.pauses.reduce((sum, pause) => sum + pause.durationMs, 0);
   const history = useResultHistory(solve, solves);
   return <>
-    <CfopAnalysisWarning analysis={analysis} />
+    <CfopAnalysisWarning solve={solve} />
     <div className="result-metrics">
       <ReviewMetric label="Measured recognition" value={formatTime(analysis.totalRecognitionMs)} />
       <ReviewMetric label="Execution" value={formatTime(analysis.totalExecutionMs)} />
@@ -31,7 +32,7 @@ export function SolveAnalysisReview({ solve, solves, analysis, onPracticeStep }:
       <div className="result-analysis-body">
         <ResultCharts analysis={analysis} comparison={history.comparison} spread={history.spread}
           scope={history.scope} loading={history.loading} onScope={history.setScope} />
-        <DetailedStepBreakdown analysis={analysis} onPracticeStep={isTrustedCfopAnalysis(analysis) ? onPracticeStep : undefined}
+        <DetailedStepBreakdown analysis={analysis} onPracticeStep={isUsableCfopAnalysis(solve) ? onPracticeStep : undefined}
           comparison={history.comparison} slim />
       </div>
     </div>

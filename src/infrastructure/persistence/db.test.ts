@@ -521,3 +521,8 @@ describe("solve-start bottom observation", () => {
     expect(migrateSolve({ ...base, solveStartBottomFace: face } as unknown as Solve).solveStartBottomFace).toBeUndefined();
   });
 });
+
+
+it.each([true, false, undefined, null, "true", 1])("strictly normalizes manual CFOP veto %s", value => {
+  expect(migrateSolve({ ...base, cfopAnalysisExcluded: value } as unknown as Solve).cfopAnalysisExcluded).toBe(value === true ? true : undefined);
+});

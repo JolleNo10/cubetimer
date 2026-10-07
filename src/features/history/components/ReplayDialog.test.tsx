@@ -283,3 +283,14 @@ it("keeps recorded grip authoritative even when the suspect Cross disagrees", ()
   const analysed = { method: "CFOP", crossFace: "U", quality: { status: "suspect", issues: [] }, steps: [step("Cross", 0, 1), step("OLL", 1, 2)] } as unknown as Solve["analysis"];
   expect(fixture(undefined, true, false, { analysis: analysed }).render().sequence.moves).toEqual(["R", "y", "F"]);
 });
+
+
+it("manual veto uses raw replay without a track and withholds Training even for trusted analysis", () => {
+  const view = fixture(undefined,true,true,{gripTrack:undefined,cfopAnalysisExcluded:true}).render();
+  expect(view.sequence.moves).toEqual(["R","R"]);
+  expect(view.labels.some(label=>typeof label === "string" && label.startsWith("Train"))).toBe(false);
+  expect(view.button("Play").disabled).not.toBe(true);
+});
+it("manual veto preserves raw replay's recorded grip", () => {
+  expect(fixture(undefined,true,true,{cfopAnalysisExcluded:true}).render().sequence.moves).toEqual(["R","y","F"]);
+});

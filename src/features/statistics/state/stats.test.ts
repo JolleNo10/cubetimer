@@ -651,3 +651,17 @@ describe("CFOP quarantine leaves ordinary timing intact", () => {
     expect(validatedSolveFacts(legacy)).not.toBeNull();
   });
 });
+
+
+it("manual CFOP veto preserves counts, time, PBs and averages but removes metrics and comparison data", () => {
+  const history = Array.from({ length: 5 }, (_, i) => fullSolve(`good${i}`, "a", base, [null, null, null, null, null, "27", "T"], i));
+  const last = { ...fullSolve("veto", "a", base, [null, null, null, null, null, "27", "T"], 10), cfopAnalysisExcluded: true as const, rawMs: 9000 };
+  expect(validatedSolveFacts(last)).not.toBeNull(); expect(analysedSolveFacts(last)).toBeNull();
+  expect(sessionStats([...history, last])).toMatchObject({ count: 6, best: 9000 });
+  expect(sessionStats([...history, last]).cfop).toEqual(sessionStats(history).cfop);
+  expect(effectiveMs(last)).toBe(9000); expect(averageOf([...history.slice(0,4),last],5)).toBe(12000);
+  expect(compareSolveToHistory(last, [...history,last])).toBeNull(); expect(caseSpread(last,[...history,last])).toBeNull();
+  const next = fullSolve("next", "a", base, [], 20);
+  expect(compareSolveToHistory(next,[...history,last,next])!.sampleSize).toBe(5);
+  expect(caseSpread(next,[...history,last,next])).toEqual(caseSpread(next,[...history,next]));
+});

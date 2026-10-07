@@ -1583,6 +1583,23 @@ it("rejects untrusted solve-specific Training before changing area or delegating
   await controller.practiceSolveStep({ ...solveFor("A"), analysis }, analysis.steps[5]);
   expect(practice).not.toHaveBeenCalled(); expect(controller.snapshot().area).toBe("timer");
   const trusted = { ...analysis, quality: { status: "trusted" as const, issues: [] } };
+  await controller.practiceSolveStep({ ...solveFor("A"), analysis: trusted, cfopAnalysisExcluded: true }, trusted.steps[5]);
+  expect(practice).not.toHaveBeenCalled();
   await controller.practiceSolveStep({ ...solveFor("A"), analysis: trusted }, trusted.steps[5]);
   expect(practice).toHaveBeenCalledOnce(); expect(controller.snapshot().area).toBe("training");
+});
+
+
+it("updates durable CFOP veto and undo in active History and last Result without changing timing", async () => {
+  const recorded = solveFor("1");
+  const controller = readyController([session("1")], "1", [recorded]);
+  const save = vi.spyOn(db, "saveSolve").mockResolvedValue();
+  await controller.updateSolve(recorded.id, { cfopAnalysisExcluded: true });
+  expect(save).toHaveBeenLastCalledWith({ ...recorded, cfopAnalysisExcluded: true });
+  expect(controller.sessions.get().solves[0].cfopAnalysisExcluded).toBe(true);
+  expect(controller.sessions.get().lastSolve?.cfopAnalysisExcluded).toBe(true);
+  expect(controller.sessions.get().lastSolve?.rawMs).toBe(recorded.rawMs);
+  await controller.updateSolve(recorded.id, { cfopAnalysisExcluded: undefined });
+  expect(controller.sessions.get().solves[0].cfopAnalysisExcluded).toBeUndefined();
+  expect(controller.sessions.get().lastSolve?.cfopAnalysisExcluded).toBeUndefined();
 });

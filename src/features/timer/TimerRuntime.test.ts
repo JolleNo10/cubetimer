@@ -262,7 +262,8 @@ describe("independent solve-start evidence", () => {
     expect(track.mock.calls[0][0].crossFace).toBe(bottom ?? undefined);
     expect(analyse.mock.calls.every(call => call[3]?.observedStartBottomFace === (bottom ?? undefined))).toBe(true);
     expect(analyse.mock.calls[0][3]?.trackedBottomFace).toBeUndefined();
-    expect(analyse.mock.calls.at(-1)![3]?.trackedBottomFace).toBe(bottom === null ? "D" : undefined);
+    expect(analyse.mock.calls.at(-1)![3]?.trackedBottomFace).toBe("D");
+    if (bottom === "L") expect(saved.analysis!.quality!.issues).toContainEqual({ code: "bottom-evidence-conflict", observedStart: "L", tracked: "D" });
     if (bottom === null) {
       expect(track.mock.results[0].value.bottomFace).toBe("D");
       expect(saved.analysis).toMatchObject({ crossFace: "D", quality: { status: "trusted", issues: [] } });

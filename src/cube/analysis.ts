@@ -33,8 +33,9 @@ export type { TimedMove };
  * 2: F2L steps carry the catalogue case they started from.
  * 3: Canonical CFOP checkpoints and explicit evidence-based quality.
  * 4: Complete candidate coherence and independent gyro evidence.
+ * 5: Identity-preserving F2L milestones and independent physical-source conflicts.
  */
-export const ANALYSIS_VERSION = 4;
+export const ANALYSIS_VERSION = 5;
 
 export const STEP_NAMES = [
   "Cross",
@@ -98,6 +99,7 @@ export type SolveStep = TurnMetrics & {
 };
 
 export type CfopAnalysisIssue =
+  | { code: "bottom-evidence-conflict"; observedStart: Face; tracked: Face }
   | { code: "cross-face-conflict"; observed: Face; inferred: Face; source?: "solve-start" | "whole-solve-gyro" }
   | { code: "incoherent-cfop-progression" }
   | { code: "ambiguous-cross"; candidates: Face[] }
@@ -451,8 +453,6 @@ type CfopCandidate = {
   endIdx: number;
   ollCase: string | null;
   pllCase: string | null;
-  /** Distinct restored pair milestones between Cross and full F2L (shared checkpoints counted once). */
-  pairCheckpoints: number;
   unassignedSlots: number;
   unrecognizedLastLayer: number;
   /** No independent phase progression or prepared pairs before the last-layer state appeared. */
@@ -474,7 +474,10 @@ function candidateForFace(states: StateFlags[], patterns: KPattern[], endIdx: nu
   const filled = new Set<string>();
   let previous = crossIdx;
   for (let k = 1; k <= 4; k++) {
-    const idx = firstFrom(states, previous, state => crossSolved(state) && slotDefs.filter(slot => isSlotSolved(state, slot)).length >= k);
+    // Earlier pair identities must be restored before another completion is credited.
+    const idx = firstFrom(states, previous, state => crossSolved(state)
+      && slotDefs.filter(slot => filled.has(slot.name)).every(slot => isSlotSolved(state, slot))
+      && slotDefs.filter(slot => isSlotSolved(state, slot)).length >= k);
     if (idx === -1 || idx > endIdx) return null;
     const justFilled = slotDefs.find(slot => !filled.has(slot.name) && isSlotSolved(states[idx], slot)
       && (idx === 0 || !isSlotSolved(states[idx - 1], slot)))
@@ -494,7 +497,6 @@ function candidateForFace(states: StateFlags[], patterns: KPattern[], endIdx: nu
   return {
     crossFace: face, crossIdx, f2lIdx, ollIdx, endIdx, slots: slotNames,
     cuts: [crossIdx, ...slotCuts, ollIdx, endIdx], ollCase, pllCase,
-    pairCheckpoints: new Set(slotCuts.filter(cut => cut > crossIdx && cut < f2lIdx)).size,
     unassignedSlots: slotNames.filter(slot => slot === null).length,
     unrecognizedLastLayer: Number(ollIdx > f2lIdx && ollCase === null) + Number(endIdx > ollIdx && pllCase === null),
     // Local/shared checkpoints and initial skips are fine. What lacks state support
@@ -508,12 +510,8 @@ function candidateForFace(states: StateFlags[], patterns: KPattern[], endIdx: nu
 /** A complete interpretation must be no worse in structural/case evidence to dominate. */
 function strongerCandidate(a: CfopCandidate, b: CfopCandidate): boolean {
   if (a.unassignedSlots > b.unassignedSlots || a.unrecognizedLastLayer > b.unrecognizedLastLayer) return false;
-  // Once A has reached its last-layer permutation, B's first full F2L is a later
-  // accidental explanation, not an equally supported interpretation of the solve.
-  if (a.f2lIdx < b.f2lIdx && a.ollIdx <= b.f2lIdx) return true;
-  // Otherwise retain competing interpretations with genuinely different strengths.
-  const left = [a.crossIdx, a.f2lIdx, a.ollIdx, a.unassignedSlots, a.unrecognizedLastLayer];
-  const right = [b.crossIdx, b.f2lIdx, b.ollIdx, b.unassignedSlots, b.unrecognizedLastLayer];
+  const left = [...a.cuts, a.unassignedSlots, a.unrecognizedLastLayer, Number(a.collapsedProgression)];
+  const right = [...b.cuts, b.unassignedSlots, b.unrecognizedLastLayer, Number(b.collapsedProgression)];
   return left.every((value, index) => value <= right[index]) && left.some((value, index) => value < right[index]);
 }
 
@@ -526,17 +524,15 @@ function findPhaseBoundaries(states: StateFlags[], patterns: KPattern[], endIdx:
   if (!candidates.length) return null;
   const progressive = candidates.filter(candidate => !candidate.collapsedProgression);
   const stateFrontier = progressive.filter(candidate => !progressive.some(other => strongerCandidate(other, candidate)));
-  const bottom = evidence.observedStartBottomFace ?? evidence.trackedBottomFace;
+  const physicalConflict = evidence.observedStartBottomFace !== undefined && evidence.trackedBottomFace !== undefined
+    && evidence.observedStartBottomFace !== evidence.trackedBottomFace;
+  const bottom = physicalConflict ? undefined : evidence.observedStartBottomFace ?? evidence.trackedBottomFace;
   const source = evidence.observedStartBottomFace ? "solve-start" : "whole-solve-gyro";
   const matching = stateFrontier.find(candidate => candidate.crossFace === bottom);
-  // Restored pair progression breaks otherwise equal state-only interpretations.
-  // Physical evidence may still support legitimate shared/XCross pair checkpoints.
-  const competing = matching ? stateFrontier : stateFrontier.filter(candidate => !stateFrontier.some(other =>
-    other.crossIdx === candidate.crossIdx && other.f2lIdx === candidate.f2lIdx && other.ollIdx === candidate.ollIdx
-    && other.unassignedSlots <= candidate.unassignedSlots && other.unrecognizedLastLayer <= candidate.unrecognizedLastLayer
-    && other.pairCheckpoints > candidate.pairCheckpoints));
+  const competing = stateFrontier;
   const selected = matching ?? competing[0] ?? candidates[0];
   const issues: CfopAnalysisIssue[] = [];
+  if (physicalConflict) issues.push({ code: "bottom-evidence-conflict", observedStart: evidence.observedStartBottomFace!, tracked: evidence.trackedBottomFace! });
   if (selected.collapsedProgression) issues.push({ code: "incoherent-cfop-progression" });
   if (!matching && competing.length > 1) {
     issues.push({ code: "ambiguous-cross", candidates: competing.map(candidate => candidate.crossFace) });

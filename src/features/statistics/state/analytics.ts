@@ -1,4 +1,4 @@
-import { isTrustedCfopAnalysis } from "../../../cube/analysis";
+import { isUsableCfopAnalysis } from "../../../app/solveAnalysis";
 /**
  * What a solve could have been.
  *
@@ -90,10 +90,10 @@ export async function analyseAlternatives(
   scrambled: KPattern,
   onStep?: (step: StepAnalytics) => void,
 ): Promise<SolveAnalytics> {
-  const analysis = solve.analysis;
-  if (!isTrustedCfopAnalysis(analysis)) {
+  if (!isUsableCfopAnalysis(solve)) {
     return { grip: gripFaces(rotationForCrossFace("D").orientation), steps: [], cross: null, wholeSolve: null };
   }
+  const analysis = solve.analysis;
   const rotation = rotationForCrossFace(analysis.crossFace);
   const rotationAlg = new Alg(rotation.tokens.join(" "));
   const grip = gripFaces(rotation.orientation);

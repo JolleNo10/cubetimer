@@ -73,10 +73,20 @@ it("includes independent CFOP badges without changing counted rows or PB eligibi
 
 it.each([{ slowSolve: true }, { replay: true }, { practice: true }])("keeps existing practice badges without compact CFOP warnings %j", flags => {
   for (const analysis of [null, { method: "CFOP", quality: { status: "suspect", issues: [] } } as unknown as Solve["analysis"]]) {
-    const recorded = solve("practice", { source: "smartcube", moves: [{ move: "R", t: 0 }], analysis, ...flags });
+    const recorded = solve("practice", { source: "smartcube", moves: [{ move: "R", t: 0 }], analysis, cfopAnalysisExcluded: true, ...flags });
     const tree = SolveList({ solves: [recorded], selectedId: null, onSelect: vi.fn() });
     const badge = elements(tree).find(node => node.type === CfopAnalysisBadge)!;
     expect(CfopAnalysisBadge(badge.props as { solve: Solve })).toBeNull();
     if ("slowSolve" in flags || "replay" in flags) expect(elements(tree).some(node => node.props.children === ("slowSolve" in flags ? "slow" : "replay"))).toBe(true);
   }
+});
+
+
+it("shows manual exclusion ahead of automatic status while retaining PB eligibility", () => {
+  const excluded = solve("manual", { source: "smartcube", rawMs: 8000, cfopAnalysisExcluded: true,
+    analysis: { method: "CFOP", quality: { status: "suspect", issues: [] } } as unknown as Solve["analysis"] });
+  const tree = SolveList({ solves: [excluded], selectedId: null, onSelect: vi.fn() });
+  const badge = elements(tree).find(node => node.type === CfopAnalysisBadge)!;
+  expect(CfopAnalysisBadge(badge.props as { solve: Solve })?.props.children).toBe("CFOP excluded");
+  expect(elements(tree).some(node => node.props.children === "PB")).toBe(true);
 });

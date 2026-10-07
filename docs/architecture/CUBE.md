@@ -92,47 +92,52 @@ analysis; raw scramble/move facts remain authoritative. Current analysis with qu
 is left untouched, and successful repairs are persisted once. Missing quality also
 triggers repair when raw facts remain available.
 
-Version 3 introduced derived CFOP quality; version 4 refines complete candidate
-coherence and orientation provenance: `trusted` or `suspect` with machine-readable
-issues. `isTrustedCfopAnalysis` is the shared boundary for current, explicitly trusted
-CFOP analysis. Legacy analysis without quality remains readable but is untrusted.
-Suspect analysis stays inspectable in History, Result and Replay; it is excluded from
-CFOP metrics, comparisons, case statistics, training suggestions and step-specific
+Version 3 introduced derived CFOP quality; current version 5 preserves pair identities,
+compares full candidate progression and retains independent physical evidence:
+`trusted` or `suspect` with machine-readable issues. Automatic quality is derived and
+rebuildable. `isTrustedCfopAnalysis` answers only machine trust; application-level
+`isUsableCfopAnalysis(solve)` additionally rejects the durable user veto
+`Solve.cfopAnalysisExcluded`. Legacy analysis without quality remains readable but
+untrusted. Excluded breakdowns stay inspectable in History, Result and Replay, but cannot
+enter CFOP metrics, comparisons, case statistics, training suggestions or step-specific
 Training/Analysis tools. Ordinary timing, averages and PB eligibility are independent.
 
 `analysis.ts` is the sole CFOP interpreter. Candidate checkpoints accumulate invariants:
-Cross edges solved; each F2L milestone also has Cross plus the required solved pairs;
-OLL completion also retains full F2L and a uniform opposite face; PLL ends at solution.
-Shared XCross checkpoints are valid. Missing slot assignment or non-skipped last-layer
-recognition adds a quality issue; a null F2L catalogue case alone does not.
-Candidate selection evaluates complete phase coherence: canonical checkpoint order,
-concrete slot assignment and non-skipped OLL/PLL state recognition in each candidate
-frame. A candidate whose Cross/F2L/OLL all first collapse into one later state without
-already prepared pairs lacks reliable phase progression; local shared checkpoints,
-initial XCross/XXCross, four prepared pairs completed with the Cross, and LL
-skips remain valid. There are no maximum Cross move/time limits or penalties for slow,
-inefficient turning, transient Cross disruption, rotations or null F2L catalogue cases.
+Cross edges solved; each F2L milestone requires Cross, every previously assigned slot
+solved/restored, and another solved slot. Pair identities accumulate, not merely pair
+counts. Temporary disruption is allowed between milestones. OLL completion retains full
+F2L and a uniform opposite face; PLL ends at solution. Shared XCross/XXCross and simultaneous
+pair checkpoints are valid. Missing slot assignment or non-skipped last-layer recognition
+adds a quality issue; a null F2L catalogue case alone does not.
 
-Coherent candidates compete by deterministic dominance, not a probability score. An
-interpretation with no worse slot/LL evidence and earlier Cross/F2L/OLL checkpoints is
-stronger. A later candidate first reaching full F2L after the stronger interpretation's
-OLL completion is accidental evidence, not an equivalent CFOP explanation. Otherwise,
-interpretations with different strengths remain genuinely competing. Restored intermediate
-pair milestones strengthen otherwise equal state-only interpretations; physical evidence
-can still support legitimate shared pair checkpoints. Independent bottom
-evidence resolves those competitors; disagreement with clearly stronger state progression
-is suspect, with provenance on the conflict. Only one sufficiently coherent interpretation
-after considering physical evidence is trusted. Structurally collapsed interpretations
-and unresolved competitors remain inspectable but suspect.
+Candidate coherence includes concrete slots and OLL/PLL recognition in the candidate frame.
+Deterministic Pareto dominance compares the complete canonical vector: Cross, F2L1, F2L2,
+F2L3, F2L4, OLL and solution, plus unassigned slots, unrecognized last-layer states and
+collapsed-progression evidence. A stronger candidate must be no worse in every dimension
+and better in at least one. An isolated early checkpoint cannot compensate for worse
+later progression. Late accidental full-F2L states do not alone create ambiguity;
+interpretations trading off different strengths remain competing. Local shared checkpoints,
+prepared pairs and LL skips remain legitimate. A globally collapsed interpretation without
+supporting prepared pairs is suspect; identity-preserving milestones, full-vector comparison
+and physical conflicts provide further structural safeguards. There are no maximum move/time
+limits or penalties for inefficient turning, transient disruptions or rotations.
 
-Timer captures `solveStartBottomFace` before `holdBottom`; this exact observation is the
-strongest physical evidence. Without it, `trackGrip.bottomFace` exposes the independently
-inferred whole-solve gyro bottom and supplies it to final analysis. `CfopAnalysisEvidence`
-keeps observed-start and tracked-bottom provenance separate. The gyro fallback is not
-persisted as `solveStartBottomFace`. Only trusted preliminary boundaries may anchor drift
-correction, and an unaided CFOP Cross is never supplied as the grip prior. Old persisted
-grip tracks must not become independent historical observations: they may have used an
-inferred Cross prior. An analysis conclusion must never become evidence validating itself.
+Timer captures `solveStartBottomFace` before `holdBottom`; it remains the strongest exact
+physical observation. `trackGrip.bottomFace` is the reconstruction constraint, which may
+use that prior. Separately, `trackGrip.gyroBottomFace` always computes the whole-solve
+bottom vote from raw readings/reference, even when a start prior exists. No usable readings
+or a tied top vote produce no independent gyro evidence; internal reconstruction fallbacks
+must not masquerade as measurements. Final analysis receives both available sources through
+`CfopAnalysisEvidence`, without persisting the gyro vote as `solveStartBottomFace`.
+
+Agreeing physical sources can resolve competing state interpretations. A single source
+can do so too, but conflict with a stronger state candidate is suspect. Disagreeing start
+and gyro observations produce `bottom-evidence-conflict`; neither may then settle state
+ambiguity. State progression selects the best inspectable breakdown, always suspect in
+that conflict. Only trusted preliminary boundaries may anchor grip drift correction, and
+an unaided CFOP Cross is never supplied as the grip prior. Old persisted grip tracks are
+not independent historical evidence because they may have used an inferred Cross prior.
+An analysis conclusion must never become evidence validating itself.
 
 Rejected: using `Settings.crossColour` as ground truth (preference, not a per-solve fact),
 or inferred `analysis.crossFace` as independent truth (circular validation). Also rejected:
@@ -142,7 +147,8 @@ cube states create false ambiguity and do not represent equivalent CFOP explanat
 History quality badges are limited to counted SmartCube solves, using ordinary eligibility;
 Slow Solve and Replay/practice rows keep their existing badges. Detailed warnings remain
 available on those solves. Replay always prefers a recorded grip track; absent one, only
-trusted CFOP may supply the Cross-frame fallback. Untrusted analyses replay raw cube-frame
+usable CFOP (machine-trusted and not manually excluded) may supply the Cross-frame fallback.
+Unusable analyses replay raw cube-frame
 moves, without silently relabelling them by the suspect Cross.
 
 Native CFOP analysis consists of:

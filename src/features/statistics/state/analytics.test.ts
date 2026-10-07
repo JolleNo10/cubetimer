@@ -29,6 +29,12 @@ describe("analyseAlternatives", () => {
   const solve = buildSolve(new Alg(scramble).invert().toString(), scramble);
   const scrambled = kpuzzle.defaultPattern().applyAlg(new Alg(scramble));
 
+  it("rejects user-excluded trusted CFOP before searching alternatives", async () => {
+    const result = await analyseAlternatives(kpuzzle, { ...solve, cfopAnalysisExcluded: true }, scrambled);
+    expect(result.cross).toBeNull();
+    expect(result.steps).toEqual([]);
+  });
+
   it("finds the best cross available from the scramble", async () => {
     const result = await analyseAlternatives(kpuzzle, solve, scrambled);
     expect(result.cross).not.toBeNull();

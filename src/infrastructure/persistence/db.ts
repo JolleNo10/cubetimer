@@ -94,6 +94,7 @@ export function migrateSession(session: StoredSession): Session {
 export function migrateSolve(solve: StoredSolve): Solve {
   const { event: _legacyEvent, statisticsOutlier: _derivedOutlier, ...canonical } = solve;
   canonical.solveStartBottomFace = FACES.includes(solve.solveStartBottomFace as Face) ? solve.solveStartBottomFace : undefined;
+  canonical.cfopAnalysisExcluded = solve.cfopAnalysisExcluded === true ? true : undefined;
   const analysis = canonical.analysis as { steps?: unknown } | null | undefined;
   if (analysis && !Array.isArray(analysis.steps)) {
     return { ...canonical, analysis: null, moves: canonical.moves ?? [] };

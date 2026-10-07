@@ -205,3 +205,25 @@ describe("uncertain CFOP presentation", () => {
     expect(html).toMatch(/<button class="ghost">Replay<\/button>/);
   });
 });
+
+
+describe("manual CFOP veto in Result and Statistics detail", () => {
+  it.each(["trusted", "suspect"] as const)("shows exclusion and keeps Replay for %s machine quality; undo obeys machine quality", status => {
+    const reviewed = { ...solve, cfopAnalysisExcluded: true as const, analysis: { ...solve.analysis!, quality: { status, issues: [] } } };
+    const render = (current: Solve) => renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><SolveResult solve={current} solves={[current]} onContinue={() => {}} onReplay={() => {}} onAnalyse={() => {}} onPracticeStep={() => {}} /></ControllerContext.Provider>);
+    const excluded = render(reviewed);
+    expect(excluded).toContain("CFOP analysis excluded");
+    expect(excluded).toContain("You marked this breakdown as incorrect");
+    expect(excluded).toContain("Undo CFOP exclusion");
+    expect(excluded).toMatch(/<button[^>]*disabled=""[^>]*>Tools<\/button>/);
+    expect(excluded).toMatch(/<button class="ghost">Replay<\/button>/);
+    expect(excluded).not.toContain("Train");
+    const undone = render({ ...reviewed, cfopAnalysisExcluded: undefined });
+    expect(undone).toContain("Mark CFOP wrong");
+    expect(undone.includes('disabled=""')).toBe(status === "suspect");
+    expect(undone.includes("Train")).toBe(status === "trusted");
+    const detail = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}><StatisticsSolveDetail solve={reviewed} solves={[reviewed]} onClose={() => {}} onReplay={() => {}} onTools={() => {}} /></ControllerContext.Provider>);
+    expect(detail).toContain("CFOP analysis excluded");
+    expect(detail).toMatch(/<button[^>]*disabled=""[^>]*>Tools<\/button>/);
+  });
+});

@@ -328,3 +328,13 @@ it("preserves independent solve-start bottom evidence through a JSON v7 round tr
   expect(solveStore.get(recorded.id)?.solveStartBottomFace).toBe("D");
   expect(JSON.parse(await transfer.exportData()).solves[0].solveStartBottomFace).toBe("D");
 });
+
+
+it("preserves a durable manual CFOP veto through JSON v7 export/import", async () => {
+  const recorded: Solve = { ...solveFor("A"), source: "smartcube", cfopAnalysisExcluded: true };
+  const { solveStore } = storage(previous.sessions, [recorded]);
+  const backup = await transfer.exportData();
+  expect(JSON.parse(backup)).toMatchObject({ version: 7, solves: [{ cfopAnalysisExcluded: true }] });
+  solveStore.clear(); await transfer.importData(kpuzzle,previous,backup);
+  expect(solveStore.get(recorded.id)?.cfopAnalysisExcluded).toBe(true);
+});

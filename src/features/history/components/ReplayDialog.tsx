@@ -1,3 +1,4 @@
+import { isUsableCfopAnalysis } from "../../../app/solveAnalysis";
 import { CfopAnalysisWarning } from "./CfopAnalysisQuality";
 import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { formatTime } from "../../../shared/time";
@@ -12,7 +13,7 @@ import {
   stepAt,
   type ActiveReplayAction,
 } from "./StepBreakdown";
-import { isTrustedCfopAnalysis, type SolveStep } from "../../../cube/analysis";
+import { type SolveStep } from "../../../cube/analysis";
 import {
   NORMAL_REPLAY_STICKERING_MASK,
   replayStickeringMask,
@@ -68,9 +69,9 @@ export function ReplayDialog({
   const steps = solve.analysis?.steps;
 
   // Replay the solve the way it was held. With a recorded grip track that is exactly
-  // how it was held, rotations and all; without one, all that is known is which face
-  // the cross went on, so the cube is turned once and left there.
-  const crossFace = isTrustedCfopAnalysis(solve.analysis) ? solve.analysis.crossFace : undefined;
+  // how it was held, rotations and all. Without one, only usable CFOP can supply
+  // a Cross-frame fallback; excluded or uncertain analysis replays the raw frame.
+  const crossFace = isUsableCfopAnalysis(solve) ? solve.analysis.crossFace : undefined;
   const track = useMemo(
     () => (solve.gripTrack ? decodeGripTrack(solve.gripTrack) : null),
     [solve.gripTrack],
@@ -356,7 +357,7 @@ export function ReplayDialog({
                 </span>
               </>
             ) : null}
-            {isTrustedCfopAnalysis(solve.analysis) && currentStep && onTrainStep && canPracticeTrainingStep(currentStep) ? (
+            {isUsableCfopAnalysis(solve) && currentStep && onTrainStep && canPracticeTrainingStep(currentStep) ? (
               <button
                 type="button"
                 className="ghost small"
@@ -373,7 +374,7 @@ export function ReplayDialog({
 
           {solve.analysis ? (
             <div className="replay-steps">
-              <CfopAnalysisWarning analysis={solve.analysis} />
+              <CfopAnalysisWarning solve={solve} />
               <div className="panel-title" style={{ marginBottom: 8 }}>
                 Breakdown
               </div>

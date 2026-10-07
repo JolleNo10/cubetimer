@@ -90,3 +90,17 @@ describe("persisted Solve history", () => {
     expect(remove).toHaveBeenCalledExactlyOnceWith(solve.id);
   });
 });
+
+
+it("persists a reversible CFOP veto across history reload without changing solve timing", async () => {
+  let stored = rebuildAnalysis(kpuzzle, solve)!;
+  vi.spyOn(db, "saveSolve").mockImplementation(async record => { stored = record; });
+  vi.spyOn(db, "loadSolves").mockImplementation(async () => [stored]);
+  await history.updateSolve(stored, { cfopAnalysisExcluded: true });
+  const [reloaded] = await history.loadSessionHistory(kpuzzle, "1");
+  expect(reloaded.cfopAnalysisExcluded).toBe(true);
+  expect(reloaded.rawMs).toBe(solve.rawMs);
+  expect(reloaded.penalty).toBe("none");
+  await history.updateSolve(reloaded, { cfopAnalysisExcluded: undefined });
+  expect((await history.loadSessionHistory(kpuzzle, "1"))[0].cfopAnalysisExcluded).toBeUndefined();
+});

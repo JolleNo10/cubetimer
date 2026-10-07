@@ -1,4 +1,4 @@
-import { isTrustedCfopAnalysis } from "../../../cube/analysis";
+import { isUsableCfopAnalysis } from "../../../app/solveAnalysis";
 import { SolveOutlierNotice } from "../../history/components/SolveOutlierNotice";
 import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { formatTime } from "../../../shared/time";
@@ -12,7 +12,7 @@ export function StatisticsSolveDetail({ solve, solves, session, onClose, onRepla
 }) {
   const { date } = useDateTimeFormat();
   const facts = validatedSolveFacts(solve);
-  const canAnalyse = Boolean(facts && isTrustedCfopAnalysis(solve.analysis) && solve.moves.length > 0);
+  const canAnalyse = Boolean(facts && isUsableCfopAnalysis(solve) && solve.moves.length > 0);
   return <div className="backdrop" onClick={onClose}><div className="dialog wide statistics-solve-detail" role="dialog" aria-modal="true" aria-label="Statistics solve detail" onClick={(e) => e.stopPropagation()}>
     <div className="dialog-head"><h3>Historical solve · {formatSolveTime(solve)}</h3><button className="ghost" onClick={onClose} aria-label="Close solve detail">×</button></div>
     <div className="dialog-body">
