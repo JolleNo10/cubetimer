@@ -30,7 +30,7 @@ type TrainingReturnView =
 export function App() {
   const controller = useController();
   const state = { ...useAppState(), ...useSessionState(), settings: useSettings() };
-  const [statisticsEntryView, setStatisticsEntryView] = useState<StatisticsSubview>("Overview");
+  const [statisticsView, setStatisticsView] = useState<StatisticsSubview>("Overview");
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [connectionOpen, setConnectionOpen] = useState(false);
   const [replaySolve, setReplaySolve] = useState<Solve | null>(null);
@@ -89,7 +89,6 @@ export function App() {
 
   const selectArea = useCallback((area: AppArea) => {
     if (area === state.area) return;
-    if (area === "statistics") setStatisticsEntryView("Overview");
     const returnView = trainingReturnView;
     if ((state.area === "training" || state.area === "statistics") && area === "timer" && returnView) {
       const solve = state.solves.find((candidate) => candidate.id === returnView.solveId);
@@ -114,13 +113,14 @@ export function App() {
   }, [controller, state.area, state.solves, trainingReturnView]);
 
   const openStatistics = useCallback((view: StatisticsSubview) => {
+    setStatisticsView(view);
     selectArea("statistics");
-    setStatisticsEntryView(view);
   }, [selectArea]);
   const solveAgainFromStatistics = useCallback((solve: Solve) => {
     setReplaySolve(null); setReplayInitialView(null); setResultSolveId(null);
     setTrainingReturnView(null); setResumeTimerAfterTrainingReview(false);
-    controller.setArea("timer");
+    const returnedFromTraining = controller.returnToTimerReview();
+    if (!returnedFromTraining) controller.setArea("timer");
     if (controller.state.get().area === "timer") controller.replayScramble(solve.scramble, solve.scrambleProvider);
   }, [controller]);
 
@@ -298,11 +298,14 @@ export function App() {
       <Header
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenConnection={() => setConnectionOpen(true)}
-        onSelectArea={selectArea}
+        onSelectArea={(area) => {
+          if (area === "statistics") setStatisticsView("Overview");
+          selectArea(area);
+        }}
       />
 
       {state.area === "training" ? <Training /> : state.area === "statistics" ? (
-        <StatisticsView initialView={statisticsEntryView} onSolveAgain={solveAgainFromStatistics} currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} onReplay={openStatisticsReplay} onTrainCase={trainStatisticsCase} onScopeChange={statisticsScopeChanged} />
+        <StatisticsView view={statisticsView} onViewChange={setStatisticsView} onSolveAgain={solveAgainFromStatistics} currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} onReplay={openStatisticsReplay} onTrainCase={trainStatisticsCase} onScopeChange={statisticsScopeChanged} />
       ) : <div className="app-body">
         <div className="column left">
           <SolveList

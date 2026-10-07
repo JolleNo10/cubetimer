@@ -181,11 +181,12 @@ export function StatisticsNavigation({ view, onSelect }: { view: StatisticsSubvi
   return <nav className="statistics-navigation" aria-label="Statistics views">{STATISTICS_VIEWS.map((item) => <button key={item} className="ghost" aria-pressed={view === item} onClick={() => onSelect(item)}>{item}</button>)}</nav>;
 }
 
-export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrainCase, onScopeChange, onSolveAgain, initialView = "Overview" }: {
+export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrainCase, onScopeChange, onSolveAgain, view, onViewChange }: {
   currentEvent: EventId; activeSessionId: string | null;
   onReplay: (solve: Solve) => void;
   onSolveAgain: (solve: Solve) => void;
-  initialView?: StatisticsSubview;
+  view: StatisticsSubview;
+  onViewChange: (view: StatisticsSubview) => void;
   onTrainCase: (family: LastLayerFamily, caseId: string) => void;
   onScopeChange: (solveIds: readonly string[]) => void;
 }) {
@@ -199,7 +200,6 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrai
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detailSolve, setDetailSolve] = useState<Solve | null>(null);
-  const [view, setView] = useState<StatisticsSubview>(initialView);
 
   useEffect(() => {
     let active = true;
@@ -271,7 +271,7 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrai
         </div>
       </div>
 
-      <StatisticsNavigation view={view} onSelect={setView} />
+      <StatisticsNavigation view={view} onSelect={onViewChange} />
 
       {loading ? <div className="empty stats-loading">Loading statistics…</div> : null}
       {error ? <div className="notice error"><span className="grow">Could not load statistics: {error}</span><button className="ghost" onClick={refresh}>Retry</button></div> : null}
@@ -279,7 +279,7 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrai
         <>
           {model.ignoredSolveCount ? <div className="notice">{model.ignoredSolveCount} solve{model.ignoredSolveCount === 1 ? "" : "s"} could not be assigned to a known Session and {model.ignoredSolveCount === 1 ? "was" : "were"} omitted.</div> : null}
           {!model.eventSessions.length ? <div className="empty">No Sessions exist for this event.</div> : null}
-          {view === "Overview" ? <StatisticsOverview {...tabProps} onSelectSession={setSessionId} onOpenSolves={() => setView("Solves")} /> : null}
+          {view === "Overview" ? <StatisticsOverview {...tabProps} onSelectSession={setSessionId} onOpenSolves={() => onViewChange("Solves")} /> : null}
           {view === "Solves" ? <StatisticsRecords key={`records:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} /> : null}
           {view === "CFOP" ? <StatisticsCfop {...tabProps} onOpenSolve={setDetailSolve} /> : null}
           {view === "Cases" ? <StatisticsAnalysisTables key={`analysis:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} onTrainCase={onTrainCase} /> : null}

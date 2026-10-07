@@ -610,3 +610,24 @@ A Python edit used the Windows default encoding for a newly inserted middle-dot
 separator, producing a byte that Vite could not decode as UTF-8. A presentation
 test exposed the mismatched text. Prevention: explicitly read and write source
 files as UTF-8 instead of relying on the platform default encoding.
+
+
+## Statistics entry intent was captured only at mount
+
+App changed an entry prop around a synchronous Controller area transition, while
+Statistics copied it into local state only once. Tests checked the prop instead
+of the displayed subview. Prevention: control the subview at App and test the
+rendered navigation and records during external-store transitions.
+
+## Historical replay used Training's position-adopting exit
+
+Statistics Solve again used the generic Timer transition after a Training detour,
+allowing asynchronous physical-position adoption to race the historical scramble.
+Prevention: use the existing returnToTimerReview seam and test that adoption never
+starts before historical replay.
+
+## Test fixture replacement matched more than its intended test
+
+A text replacement inserted navigation-fixture setup into a second App test,
+where its solve list did not exist. The focused suite caught it. Prevention:
+anchor scripted replacements to the specific test and inspect the diff.

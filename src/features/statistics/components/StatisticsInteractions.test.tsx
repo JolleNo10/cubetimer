@@ -12,10 +12,11 @@ import { SolveAnalysisReview } from "../../history/components/SolveAnalysisRevie
 import { SolveActions } from "../../history/components/SolveActions";
 import { focusCases } from "../state/statistics";
 import { App } from "../../../app/App";
+import { CubeModel } from "../../../cube/model";
 import { Controller } from "../../../app/Controller";
 import { deriveStatistics, type StatisticsSnapshot } from "../state/statistics";
 import type { Solve } from "../../../app/types";
-import { StatisticsView, StatisticsNavigation, StatisticsOverview, StatisticsOverviewSummary, SessionTable } from "./StatisticsView";
+import { StatisticsView, StatisticsNavigation, StatisticsOverview, StatisticsOverviewSummary, SessionTable, type StatisticsSubview } from "./StatisticsView";
 import { Pagination, StatCard, StatsSection } from "./StatisticsPrimitives";
 import { StatisticsRecords, StatisticsRankingTable, StatisticsAverageDetail, StatisticsCfopRecords } from "./StatisticsRecords";
 import { analyseSolve } from "../../../cube/analysis";
@@ -32,9 +33,9 @@ vi.mock("react", async (original) => ({
   useContext: () => hooks.controller,
   useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown) => snapshot(),
   useState: (initial: unknown) => {
-    const index = hooks.cursor++;
-    if (!Object.hasOwn(hooks.values, index)) hooks.values[index] = typeof initial === "function" ? initial() : initial;
-    return [hooks.values[index], (next: unknown) => { hooks.values[index] = typeof next === "function" ? next(hooks.values[index]) : next; }];
+    const index = hooks.cursor++, values = hooks.values;
+    if (!Object.hasOwn(values, index)) values[index] = typeof initial === "function" ? initial() : initial;
+    return [values[index], (next: unknown) => { values[index] = typeof next === "function" ? next(values[index]) : next; }];
   },
   useMemo: (make: () => unknown) => make(), useCallback: (callback: unknown) => callback,
   useEffect: (effect: () => unknown, dependencies?: readonly unknown[]) => {
@@ -260,7 +261,7 @@ controller.sessions.update((state) => ({ ...state, sessionId: "A" }));
     const history: StatisticsSnapshot = { sessions: [...snapshot.sessions, { id: "C", name: "2x2", event: "222", createdAt: 3 }], solves: [...snapshot.solves, ...Array.from({ length: 104 }, (_, index) => item(`extra${index}`, "A", 15000, index + 6)), item("other-event", "C", 1000, 120)] };
     const load = vi.spyOn(controller, "loadStatisticsSnapshot").mockResolvedValue(history);
     const onScopeChange = vi.fn();
-    const props = { currentEvent: "333" as const, activeSessionId: "A", onReplay: vi.fn(), onSolveAgain: vi.fn(), onTrainCase: vi.fn(), onScopeChange };
+    const props = { currentEvent: "333" as const, activeSessionId: "A", view: "Overview" as StatisticsSubview, onViewChange: (view: StatisticsSubview) => { props.view = view; }, onReplay: vi.fn(), onSolveAgain: vi.fn(), onTrainCase: vi.fn(), onScopeChange };
     const render = () => renderRoot(() => StatisticsView(props));
     render(); for (const effect of hooks.effects) effect();
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
@@ -504,12 +505,26 @@ describe("case presentation contracts", () => {
 });
 
 describe("Statistics shortcuts", () => {
-  it.each(["counted", "Ao5", "Ao12", "Ao50", "Ao100"])("routes Timer %s to Solves, including projected long averages", label => {
+  it.each(["counted", "Ao5", "Ao12", "Ao50", "Ao100"])("routes Timer %s to Solves, including projected long averages", async label => {
     const controller = new Controller(); hooks.controller = controller;
     controller.state.update(state => ({ ...state, ready: true }));
     const solves = Array.from({ length: 12 }, (_, i) => item(`p${i}`, "A", 10000, i));
     controller.sessions.update(state => ({ ...state, sessions: snapshot.sessions, sessionId: "A", solves }));
-    const render = () => renderRoot(() => App());
+    const appValues: unknown[] = [], statisticsValues: unknown[] = [];
+    const appDependencies: (readonly unknown[] | undefined)[] = [], statisticsDependencies: (readonly unknown[] | undefined)[] = [];
+    const render = () => { hooks.values = appValues; hooks.dependencies = appDependencies; return renderRoot(() => App()); };
+    vi.spyOn(controller, "loadStatisticsSnapshot").mockResolvedValue({ sessions: snapshot.sessions, solves });
+    const renderStatistics = () => {
+      const props = find(render(), element => element.type === StatisticsView).props;
+      hooks.values = statisticsValues; hooks.dependencies = statisticsDependencies;
+      const result = renderRoot(() => StatisticsView(props as Parameters<typeof StatisticsView>[0]));
+      for (const effect of hooks.effects) effect();
+      return result;
+    };
+    // Reproduce a synchronous external-store render during the area transition.
+    const unsubscribe = controller.state.subscribe(() => {
+      if (controller.state.get().area === "statistics") renderStatistics();
+    });
     let tree = render();
     const panelProps = find(tree, element => element.type === StatsPanel).props;
     const panel = StatsPanel(panelProps as Parameters<typeof StatsPanel>[0]);
@@ -522,10 +537,18 @@ describe("Statistics shortcuts", () => {
     }
     tree = render();
     expect(controller.state.get().area).toBe("statistics");
-    expect(find(tree, element => element.type === StatisticsView).props.initialView).toBe("Solves");
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    let statistics = renderStatistics();
+    const navigation = StatisticsNavigation(find(statistics, element => element.type === StatisticsNavigation).props as Parameters<typeof StatisticsNavigation>[0]);
+    expect(find(navigation, element => element.props.children === "Solves").props["aria-pressed"]).toBe(true);
+    expect(find(statistics, element => element.type === StatisticsRecords)).toBeDefined();
     find(tree, element => element.type === Header).props.onSelectArea("timer");
     tree = render(); find(tree, element => element.type === Header).props.onSelectArea("statistics");
-    expect(find(render(), element => element.type === StatisticsView).props.initialView).toBe("Overview");
+    statistics = renderStatistics();
+    expect(find(statistics, element => element.type === StatisticsNavigation).props.view).toBe("Overview");
+    find(statistics, element => element.type === StatisticsOverview).props.onOpenSolves();
+    expect(find(renderStatistics(), element => element.type === StatisticsNavigation).props.view).toBe("Solves");
+    unsubscribe();
   });
   it("makes Counted and every Overview average a Solves shortcut", () => {
     const onOpenSolves = vi.fn();
@@ -550,7 +573,7 @@ describe("historical detail coherence", () => {
     const update = vi.spyOn(controller, "updateHistoricalSolve").mockImplementation(async (solve, changes) => ({ ...solve, ...changes }));
     const remove = vi.spyOn(controller, "deleteSolve").mockResolvedValue();
     const again = vi.fn();
-    const props = { currentEvent: "333" as const, activeSessionId: "A", initialView: "Solves" as const, onReplay: vi.fn(), onSolveAgain: again, onTrainCase: vi.fn(), onScopeChange: vi.fn() };
+    const props = { currentEvent: "333" as const, activeSessionId: "A", view: "Solves" as StatisticsSubview, onViewChange: vi.fn(), onReplay: vi.fn(), onSolveAgain: again, onTrainCase: vi.fn(), onScopeChange: vi.fn() };
     const render = () => renderRoot(() => StatisticsView(props));
     render(); for (const effect of hooks.effects) effect();
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
@@ -587,6 +610,27 @@ describe("historical detail coherence", () => {
     expect(remove).toHaveBeenCalledWith("s0");
     expect(update.mock.calls[0][0].sessionId).toBe("B");
     expect(controller.sessions.get().sessionId).toBe("A");
+  });
+  it("replays a historical scramble after a Training detour without physical-position adoption", async () => {
+    const controller = new Controller(new CubeModel(await get3x3x3())); hooks.controller = controller;
+    controller.state.update(state => ({ ...state, ready: true }));
+    controller.setArea("training");
+    await controller.setTrainingMode("virtual");
+    await controller.selectF2lCase("F2L 1");
+    expect(controller.training.state.get().target).not.toBeNull();
+    controller.setArea("statistics");
+    const returned = vi.spyOn(controller, "returnToTimerReview");
+    const adoption = vi.spyOn(controller.timer, "useCubeStateAsScramble").mockResolvedValue("applied");
+    const replay = vi.spyOn(controller, "replayScramble");
+    const historical = { ...snapshot.solves[0], scrambleProvider: "333-random-state" };
+    const tree = renderRoot(() => App());
+    find(tree, element => element.type === StatisticsView).props.onSolveAgain(historical);
+    expect(returned).toHaveReturnedWith(true);
+    expect(adoption).not.toHaveBeenCalled();
+    expect(controller.training.state.get()).toMatchObject({ phase: "selecting", target: null });
+    expect(controller.state.get().area).toBe("timer");
+    expect(controller.timer.state.get().scramble).toBe(historical.scramble);
+    expect(replay).toHaveBeenCalledWith(historical.scramble, historical.scrambleProvider);
   });
   it("routes historical Solve again through App to Timer with the original provider", () => {
     const controller = new Controller(); hooks.controller = controller;
