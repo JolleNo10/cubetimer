@@ -572,3 +572,19 @@ cube domain; transfer application eligibility to the new Review boundary rather 
 resurrecting deleted UI or the old statistics-owned alternatives module. Recognition
 audit fixtures know the held face, so supply that independent fact when testing machine
 trust instead of assuming a mathematically generated solve has a unique unaided reading.
+
+
+## Result-history test used the wrong Session store shape
+
+A new hook test set the Controller Session store to a bare Session array, so the
+hook could not read `state.sessions`. The store owns a Session-state object.
+Prevention: inspect the owning store contract and update its `sessions` field
+while preserving the other state, as the existing interaction fixtures do.
+
+
+## Browser harness assumed named exports from optimized dependencies
+
+The temporary layout harness imported `createRoot` as a named export from Vite's
+optimized CommonJS dependency URL. That URL exposed the API on its default export,
+so the initial harness stopped before rendering. Prevention: inspect the module's
+actual browser export shape when importing an optimized dependency directly.

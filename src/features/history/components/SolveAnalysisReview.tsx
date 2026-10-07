@@ -33,7 +33,7 @@ export function SolveAnalysisReview({ solve, solves, analysis, onPracticeStep }:
         <ResultCharts analysis={analysis} comparison={history.comparison} spread={history.spread}
           scope={history.scope} loading={history.loading} onScope={history.setScope} />
         <DetailedStepBreakdown analysis={analysis} onPracticeStep={isUsableCfopAnalysis(solve) ? onPracticeStep : undefined}
-          comparison={history.comparison} slim />
+          comparison={history.comparison} caseSpread={history.spread} slim />
       </div>
     </div>
     <p className="result-note">{RECOGNITION_NOTE}</p>

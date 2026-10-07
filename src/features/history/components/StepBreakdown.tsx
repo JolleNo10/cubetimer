@@ -5,7 +5,7 @@ import { faceColour, slotColours } from "../../../cube/colours";
 import { ollGroupForCase, pllGroupForCase } from "../../../cube/lastLayerCases";
 import { isRotation, parseMove } from "../../../cube/notation";
 import type { ReplayAction } from "./replayTimeline";
-import type { SolveComparison, StepComparison } from "../../statistics/state/stats";
+import type { CaseSpreadRow, SolveComparison, StepComparison } from "../../statistics/state/stats";
 import { formatComparisonDelta } from "./SolveComparison";
 
 export const STEP_COLORS: Record<string, string> = {
@@ -209,6 +209,7 @@ function StepRow({
   timeScale,
   activeReplayAction,
   comparison,
+  caseHistory,
   slim = false,
   onSelect,
   onPractice,
@@ -222,6 +223,7 @@ function StepRow({
   timeScale?: StepTimeScale;
   activeReplayAction?: ActiveReplayAction;
   comparison?: StepComparison;
+  caseHistory?: CaseSpreadRow;
   /** Narrow columns: paired figures share a column and the case sits under the name. */
   slim?: boolean;
   onSelect?: () => void;
@@ -356,11 +358,16 @@ function StepRow({
             />
             <span
               className="phase-median"
-              aria-hidden="true"
+              title={`Step median: ${formatTime(comparison.baselineMs)}s`}
               style={{ left: `${scalePositionPercent(comparison.baselineMs, timeScale)}%` }}
             />
           </>
         ) : null}
+        {caseHistory?.medianMs != null && timeScale ? <span
+          className="phase-case-median"
+          title={`${step.name === "Cross" ? "Category median" : "Case median"} (${caseHistory.label}): ${formatTime(caseHistory.medianMs)}s`}
+          style={{ left: `${scalePositionPercent(caseHistory.medianMs, timeScale)}%` }}
+        /> : null}
         <span
           className="recognition"
           style={{ width: `${recognitionWidth}%` }}
@@ -565,6 +572,7 @@ export function StepBreakdown({
   position,
   activeReplayAction,
   comparison,
+  caseSpread,
   slim = false,
   onPracticeStep,
 }: {
@@ -582,6 +590,7 @@ export function StepBreakdown({
   activeReplayAction?: ActiveReplayAction;
   /** Per-step difference from recent solves; its steps line up with `analysis.steps`. */
   comparison?: SolveComparison | null;
+  caseSpread?: readonly CaseSpreadRow[] | null;
   /** Narrow columns, for sharing the width with a chart. */
   slim?: boolean;
   onPracticeStep?: (step: SolveStep) => void;
@@ -589,7 +598,10 @@ export function StepBreakdown({
   const total = Math.max(1, analysis.solvingMs);
   // The scale also reaches your usual times, so the usual range fits on every bar.
   const timeScale = showTimeScale
-    ? stepTimeScale(analysis.steps, comparison ? comparison.steps.flatMap((step) => [step.p75Ms, step.baselineMs]) : [])
+    ? stepTimeScale(analysis.steps, [
+        ...(comparison?.steps.flatMap((step) => [step.p75Ms, step.baselineMs]) ?? []),
+        ...(caseSpread?.flatMap((row) => row.medianMs == null ? [] : [row.medianMs]) ?? []),
+      ])
     : undefined;
   const solution = fullSolution(analysis);
   return (
@@ -627,6 +639,7 @@ export function StepBreakdown({
             timeScale={timeScale}
             activeReplayAction={activeReplayAction}
             comparison={comparison?.steps[i]}
+            caseHistory={caseSpread?.find((row) => row.name === step.name)}
             slim={slim}
             onSelect={onSelectStep ? () => onSelectStep(step) : undefined}
             onPractice={onPracticeStep ? () => onPracticeStep(step) : undefined}
@@ -646,9 +659,10 @@ export function StepBreakdown({
         {comparison && timeScale ? (
           <>
             <span title="The middle half of your recent times for the step"><i className="legend-usual" />usual range</span>
-            <span title="Your median for the step"><i className="legend-median" />median</span>
+            <span title="Your median for the step"><i className="legend-median" />Step median</span>
           </>
         ) : null}
+        {timeScale && caseSpread?.some((row) => row.medianMs != null) ? <span title="Previous occurrences of the case; unrecognized cases and Cross use the labeled category fallback"><i className="legend-case-median" />Case / category median</span> : null}
         <span className="grow" />
         <span>
           {formatTime(analysis.totalRecognitionMs)} {showTimeScale ? "measured recognition" : "looking"} ·{" "}
@@ -682,6 +696,7 @@ export function DetailedStepBreakdown({
   onSelectStep,
   activeReplayAction,
   comparison,
+  caseSpread,
   slim = false,
   onPracticeStep,
 }: {
@@ -690,6 +705,7 @@ export function DetailedStepBreakdown({
   onSelectStep?: (step: SolveStep) => void;
   activeReplayAction?: ActiveReplayAction;
   comparison?: SolveComparison | null;
+  caseSpread?: readonly CaseSpreadRow[] | null;
   /** Paired figures share columns so the table can sit beside a chart. */
   slim?: boolean;
   onPracticeStep?: (step: SolveStep) => void;
@@ -722,6 +738,7 @@ export function DetailedStepBreakdown({
           onSelectStep={onSelectStep}
           activeReplayAction={activeReplayAction}
           comparison={comparison}
+          caseSpread={caseSpread}
           slim={slim}
           onPracticeStep={onPracticeStep}
           showMoves

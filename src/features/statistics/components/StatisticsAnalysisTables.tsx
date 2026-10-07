@@ -5,6 +5,10 @@ import { formatSolveTime } from "../state/stats";
 import { RECOGNITION_NOTE, sortPerformanceRows, type CasePerformance, type CaseSort, type PerformanceSummary, type SortDirection, type StatisticsViewModel } from "../state/statistics";
 import type { Solve } from "../../../app/types";
 import type { LastLayerFamily } from "../../../cube/lastLayerTraining";
+import { get3x3x3 } from "../../../cube/puzzle";
+import { buildLastLayerCatalogueTarget } from "../../../cube/lastLayerTraining";
+import { getLastLayerThumbnailModel, type LastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
+import { LastLayerCaseThumbnail } from "../../training/components/LastLayerCaseThumbnail";
 import { statisticsActivationProps } from "./statisticsInteraction";
 import { SplitBar, StatCard, StatsSection } from "./StatisticsPrimitives";
 
@@ -50,6 +54,23 @@ export function PerformanceTable({ rows, labelHeader = "Case / slot / order", so
     {row.label === expandedLabel && expanded ? <ExpandedRow label={row.label} columns={PERFORMANCE_COLUMNS.length + 1}>{expanded}</ExpandedRow> : null}</Fragment>)}</tbody></table></div>;
 }
 
+/** Resolve the same Full catalogue preview used by Training, outside statistics state. */
+export function StatisticsCaseDiagram({ family, caseId }: { family: LastLayerFamily; caseId: string }) {
+  const [preview, setPreview] = useState<{ family: LastLayerFamily; caseId: string; model: LastLayerThumbnailModel } | null>(null);
+  useEffect(() => {
+    let active = true;
+    void get3x3x3().then((kpuzzle) => {
+      const built = buildLastLayerCatalogueTarget(kpuzzle, family, caseId);
+      const model = getLastLayerThumbnailModel(family, built.pattern, built.info.trainingRotation, built.info.completionGoal);
+      if (active) setPreview({ family, caseId, model });
+    });
+    return () => { active = false; };
+  }, [family, caseId]);
+  return <div className="focus-case-diagram" role="img" aria-label={`${family.toUpperCase()} ${caseId} case diagram`}>
+    {preview?.family === family && preview.caseId === caseId ? <LastLayerCaseThumbnail model={preview.model} /> : null}
+  </div>;
+}
+
 export function StatisticsCaseTable({ family, rows, skipCount, focus = [], model, onOpenSolve, onTrainCase }: {
   family: LastLayerFamily; rows: readonly CasePerformance[]; skipCount: number; focus?: readonly CasePerformance[]; model: StatisticsViewModel;
   onOpenSolve: (solve: Solve) => void; onTrainCase: (family: LastLayerFamily, caseId: string) => void;
@@ -64,6 +85,7 @@ export function StatisticsCaseTable({ family, rows, skipCount, focus = [], model
     {focus.length ? <div className="focus-cases" role="group" aria-label={`Slowest ${family.toUpperCase()} cases`}>
       <span className="stat-label">Slowest cases</span>
       {focus.map((row) => <div className="focus-case" key={row.caseId}>
+        <StatisticsCaseDiagram family={family} caseId={row.caseId} />
         <strong>{family.toUpperCase()} {row.caseId}</strong><span className="mono">{formatTime(row.medianMs)}</span><span className="small faint">{row.count} samples</span>
         <button className="ghost small" onClick={() => setCaseId(row.caseId)}>View</button>
         <button className="small" onClick={() => onTrainCase(family, row.caseId)}>Train</button>
@@ -118,8 +140,10 @@ export function StatisticsF2lPerformance({ model, onOpenSolve }: { model: Statis
 export function StatisticsAnalysisTables({ model, onOpenSolve, onTrainCase }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void; onTrainCase: (family: LastLayerFamily, caseId: string) => void }) {
   return <>
     <StatisticsF2lPerformance model={model} onOpenSolve={onOpenSolve} />
+    <div className="statistics-case-layout">
     <StatisticsCaseTable family="oll" rows={model.ollCases} skipCount={model.ollSkips} focus={model.ollFocus} model={model} onOpenSolve={onOpenSolve} onTrainCase={onTrainCase} />
     <StatisticsCaseTable family="pll" rows={model.pllCases} skipCount={model.pllSkips} focus={model.pllFocus} model={model} onOpenSolve={onOpenSolve} onTrainCase={onTrainCase} />
+    </div>
   </>;
 }
 

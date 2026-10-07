@@ -107,3 +107,22 @@ describe("chart marks", () => {
     expect(renderToStaticMarkup(<DetailedStepBreakdown analysis={analysis} slim />)).not.toContain("phase-usual");
   });
 });
+
+describe("breakdown historical references", () => {
+  it("shows both medians by canonical name even when case rows are reordered", () => {
+    const rows = spread!.map(row => ({ ...row, medianMs: 9000 })).reverse();
+    const html = renderToStaticMarkup(<DetailedStepBreakdown analysis={analysis} comparison={comparison} caseSpread={rows} slim />);
+    expect(html.match(/class="phase-median"/g)).toHaveLength(7);
+    expect(html.match(/class="phase-case-median"/g)).toHaveLength(7);
+    expect(html).toContain("Step median:");
+    expect(html).toContain("Case median (OLL 27): 9.00s");
+    expect(html).toContain("Category median (all crosses): 9.00s");
+    expect(html).toMatch(/data-scale-max-ms="(?:9000|10000)"/);
+  });
+  it("does not fabricate a median without case samples", () => {
+    const html = renderToStaticMarkup(<DetailedStepBreakdown analysis={analysis} comparison={comparison} caseSpread={spread!.map(row => ({ ...row, medianMs: null, samples: [] }))} slim />);
+    expect(html.match(/class="phase-median"/g)).toHaveLength(7);
+    expect(html).not.toContain('class="phase-case-median"');
+    expect(html).not.toContain("Case / category median");
+  });
+});

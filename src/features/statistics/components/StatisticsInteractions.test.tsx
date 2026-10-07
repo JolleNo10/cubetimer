@@ -1,3 +1,8 @@
+import { renderToStaticMarkup } from "react-dom/server";
+import { get3x3x3 } from "../../../cube/puzzle";
+import { buildLastLayerCatalogueTarget } from "../../../cube/lastLayerTraining";
+import { getLastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
+import { LastLayerCaseThumbnail } from "../../training/components/LastLayerCaseThumbnail";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../../../app/App";
@@ -7,7 +12,9 @@ import type { Solve } from "../../../app/types";
 import { StatisticsView, StatisticsNavigation, StatisticsOverview, SessionTable } from "./StatisticsView";
 import { Pagination, StatCard, StatsSection } from "./StatisticsPrimitives";
 import { StatisticsRecords, StatisticsRankingTable, StatisticsAverageDetail, StatisticsCfopRecords } from "./StatisticsRecords";
-import { StatisticsCaseTable, StatisticsF2lPerformance, PerformanceTable, SortHeader } from "./StatisticsAnalysisTables";
+import { analyseSolve } from "../../../cube/analysis";
+import { useResultHistory } from "../../history/components/resultCharts/useResultHistory";
+import { StatisticsAnalysisTables, StatisticsCaseDiagram, StatisticsCaseTable, StatisticsF2lPerformance, PerformanceTable, SortHeader } from "./StatisticsAnalysisTables";
 import { StatisticsSolveDetail } from "./StatisticsSolveDetail";
 import { SolveReviewDialog } from "../../history/components/SolveReviewDialog";
 import { AverageProgressionChart, SolveTimeTrendChart } from "./StatisticsCharts";
@@ -365,20 +372,20 @@ controller.sessions.update((state) => ({ ...state, sessionId: "A", sessions: sna
     expect(statCards[4].props.onOpen).toBeUndefined();
   });
 
-  it("trains or reviews a suggested slow case", () => {
-    const rows = [{ caseId: "27", label: "27", count: 4, skipCount: 0, solveIds: ["s0"], samples: [], medianMs: 2000 }];
+  it.each([["oll", "27"], ["pll", "T"]] as const)("trains or reviews a suggested slow %s case", (family, caseId) => {
+    const rows = [{ caseId, label: caseId, count: 4, skipCount: 0, solveIds: ["s0"], samples: [], medianMs: 2000 }];
     const onTrainCase = vi.fn();
-    const render = () => renderRoot(() => StatisticsCaseTable({ family: "oll", rows, focus: rows, skipCount: 0, model, onOpenSolve: vi.fn(), onTrainCase }));
+    const render = () => renderRoot(() => StatisticsCaseTable({ family, rows, focus: rows, skipCount: 0, model, onOpenSolve: vi.fn(), onTrainCase }));
     let tree = render();
     find(tree, (element) => element.type === "button" && element.props.children === "Train").props.onClick();
-    expect(onTrainCase).toHaveBeenCalledWith("oll", "27");
+    expect(onTrainCase).toHaveBeenCalledWith(family, caseId);
     find(tree, (element) => element.type === "button" && element.props.children === "View").props.onClick();
     tree = render();
-    expect(find(tree, (element) => element.props["aria-label"] === "OLL case solves")).toBeDefined();
+    expect(find(tree, (element) => element.props["aria-label"] === `${family.toUpperCase()} case solves`)).toBeDefined();
     // The detail opens inside the table, under its own row, rather than after the whole table.
     const table = find(tree, (element) => element.type === PerformanceTable);
-    expect(table.props.expandedLabel).toBe("27");
-    expect(find(table.props.expanded, (element) => element.props["aria-label"] === "OLL case solves")).toBeDefined();
+    expect(table.props.expandedLabel).toBe(caseId);
+    expect(find(table.props.expanded, (element) => element.props["aria-label"] === `${family.toUpperCase()} case solves`)).toBeDefined();
     table.props.onSelect(rows[0]);
     tree = render();
     expect(find(tree, (element) => element.type === PerformanceTable).props.expandedLabel).toBeUndefined();
@@ -396,5 +403,61 @@ controller.sessions.update((state) => ({ ...state, sessionId: "A", sessions: sna
     const ranked = StatisticsRankingTable({ ...(table().props as Parameters<typeof StatisticsRankingTable>[0]), rows: model.records.single });
     const header = find(ranked, (element) => element.type === "th" && element.props["aria-sort"] !== undefined);
     expect(header.props["aria-sort"]).toBe("descending");
+  });
+});
+
+describe("slowest case diagrams", () => {
+  it.each([["oll", "27"], ["pll", "T"]] as const)("renders the canonical %s preview", async (family, caseId) => {
+    const render = () => renderRoot(() => StatisticsCaseDiagram({ family, caseId }));
+    render();
+    for (const effect of hooks.effects) effect();
+    await get3x3x3();
+    await Promise.resolve();
+    const tree = render();
+    const thumbnail = find(tree, element => element.type === LastLayerCaseThumbnail);
+    const built = buildLastLayerCatalogueTarget(await get3x3x3(), family, caseId);
+    expect(thumbnail.props.model).toEqual(getLastLayerThumbnailModel(family, built.pattern, built.info.trainingRotation, built.info.completionGoal));
+    expect(renderToStaticMarkup(tree)).toContain('data-region="top"');
+    expect(renderToStaticMarkup(tree)).toContain(`${family.toUpperCase()} ${caseId} case diagram`);
+  });
+});
+
+it("groups independent OLL and PLL tables below full-width F2L", () => {
+  const tree = StatisticsAnalysisTables({ model, onOpenSolve: vi.fn(), onTrainCase: vi.fn() });
+  const group = find(tree, element => element.props.className === "statistics-case-layout");
+  expect(elements(group).filter(element => element.type === StatisticsCaseTable).map(element => element.props.family)).toEqual(["oll", "pll"]);
+  expect(elements(group).some(element => element.type === StatisticsF2lPerformance)).toBe(false);
+});
+
+describe("shared result history", () => {
+  it.each(["exclude", "dnf"] as const)("feeds both references through Session/Event scope and %s filtering", async handling => {
+    const puzzle = await get3x3x3();
+    const moves = ["R", "U", "R'", "U", "R", "U2", "R'"].map((move, i) => ({ move, t: (i + 1) * 300 }));
+    const analysis = analyseSolve(puzzle.defaultPattern().applyAlg("R U2 R' U' R U' R'"), moves, null, { observedStartBottomFace: "D" });
+    if (!analysis) throw new Error("Expected CFOP fixture analysis");
+    const prior = Array.from({ length: 5 }, (_, i) => ({ ...item(`prior${i}`, "A", 2100, i), moves, analysis }));
+    const slow = { ...prior[0], id: "slow", createdAt: 6, rawMs: 20000, analysis: { ...analysis, steps: analysis.steps.map(step => ({ ...step, timeMs: step.timeMs * 10 })) } };
+    const other = { ...prior[0], id: "other", sessionId: "B", createdAt: 7 };
+    const current = { ...prior[0], id: "current", createdAt: 8 };
+    const controller = new Controller();
+    hooks.controller = controller;
+    controller.sessions.update(state => ({ ...state, sessions: snapshot.sessions }));
+    controller.settings.update(settings => ({ ...settings, slowSolveThreshold: 3, slowSolveHandling: handling }));
+    const local = [...prior, slow, current];
+    const read = () => { hooks.cursor = 0; hooks.effectCursor = 0; hooks.effects = []; return useResultHistory(current, local); };
+    let history = read();
+    expect(history.comparison?.sampleSize).toBe(5);
+    expect(history.spread?.find(row => row.name === "OLL")?.samples).toHaveLength(5);
+    controller.sessions.update(state => ({ ...state, sessions: state.sessions.map(session => ({ ...session, compareScope: "event" as const })) }));
+    vi.spyOn(controller, "loadStatisticsSnapshot").mockResolvedValue({ sessions: snapshot.sessions, solves: [...prior, slow, other, current] });
+    history = read();
+    expect(history.loading).toBe(true);
+    expect(history.spread).toBeNull();
+    for (const effect of hooks.effects) effect();
+    await Promise.resolve();
+    history = read();
+    expect(history.comparison?.sampleSize).toBe(6);
+    expect(history.spread?.find(row => row.name === "OLL")?.samples).toHaveLength(6);
+    expect(history.comparison?.steps.find(row => row.name === "OLL")?.baselineMs).toBe(history.spread?.find(row => row.name === "OLL")?.medianMs);
   });
 });
