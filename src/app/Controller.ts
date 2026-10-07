@@ -713,7 +713,7 @@ export class Controller {
   async importSolveCsv(
     text: string,
     onProgress?: (done: number, total: number) => void,
-  ): Promise<{ solves: number; sessions: number }> {
+  ): Promise<{ solves: number; sessions: number; skipped: number }> {
     if (!this.#beginSessionContextMutation()) {
       throw new Error("Cannot import while the timer or another Session operation is active.");
     }
@@ -721,7 +721,7 @@ export class Controller {
       return await this.#queueSessionMutation(async () => {
         const result = await dataTransfer.importSolveCsv(this.physical.model?.kpuzzle, this.snapshot(), text, onProgress);
         await this.#applySessionContext(result.context);
-        return { solves: result.solves, sessions: result.sessions };
+        return { solves: result.solves, sessions: result.sessions, skipped: result.skipped.count };
       });
     } finally {
       this.#endSessionContextMutation();

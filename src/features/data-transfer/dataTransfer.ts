@@ -1,12 +1,12 @@
 import type { KPuzzle } from "cubing/kpuzzle";
 import * as db from "../../infrastructure/persistence/db";
 import * as sessionService from "../sessions/sessionService";
-import { saveSolve } from "../history/solveHistory";
+import { saveSolve, saveSolves } from "../history/solveHistory";
 import * as drillPresets from "../training/trainingDrillPresets";
 import * as algorithmPreferences from "../training/trainingAlgorithmPreferences";
 import * as recognitionHistory from "../training/trainingRecognitionHistory";
 import * as trainingHistory from "../training/trainingHistory";
-import { countSolveCsvRows, solveCsvBatches, formatSolveCsv } from "./solveCsv";
+import { assertSolveCsvHeader, formatSolveCsv, mergeSolveCsvSessions, solveCsvBatches, solveCsvLines } from "./solveCsv";
 import type { Session, Solve, TrainingAlgorithmPreference } from "../../app/types";
 import type { SessionContext, SessionContextTransition } from "../sessions/sessionService";
 
@@ -91,34 +91,45 @@ export async function importData(
   return { sessions: sessions.length, solves: importedSolves.length, trainingAttempts: attempts.length, trainingRecognitionAttempts: recognition.length, trainingDrillPresets: presets.length, trainingAlgorithmPreferences: preferences.length, context };
 }
 
-/** Validate before writing, then yield to the browser between CSV batches. */
+/** Rows a CSV import could not read: how many, and the first few reasons. */
+export type SkippedCsvRows = {
+  count: number;
+  sample: { line: number; reason: string }[];
+};
+
+const SKIPPED_SAMPLE_SIZE = 20;
+
+/** Validate the whole file before writing, then yield to the browser between CSV batches. */
 export async function importSolveCsv(
   kpuzzle: KPuzzle | undefined,
   previous: SessionContext,
   text: string,
   onProgress?: (done: number, total: number) => void,
-): Promise<ImportResult> {
-  const total = countSolveCsvRows(text);
+): Promise<ImportResult & { skipped: SkippedCsvRows }> {
+  const lines = solveCsvLines(text);
+  assertSolveCsvHeader(lines[0]);
+
+  let total = 0;
+  const skipped: SkippedCsvRows = { count: 0, sample: [] };
   const incomingSessions = new Map<string, Session>();
   const incomingSolveSessionIds = new Set<string>();
-  for (const batch of solveCsvBatches(text)) {
-    for (const session of batch.sessions) incomingSessions.set(session.id, session);
+  for (const batch of solveCsvBatches(lines)) {
+    mergeSolveCsvSessions(incomingSessions, batch.sessions);
     for (const solve of batch.solves) incomingSolveSessionIds.add(solve.sessionId);
+    total += batch.solves.length;
+    skipped.count += batch.skipped.length;
+    skipped.sample.push(...batch.skipped.slice(0, SKIPPED_SAMPLE_SIZE - skipped.sample.length));
   }
   await sessionService.assertImportSessionCompatibility(
     [...incomingSessions.values()],
     incomingSolveSessionIds,
   );
 
-  const sessionIds = new Set<string>();
+  // Sessions as dated by the whole file, not by whichever batch met them first.
+  for (const session of incomingSessions.values()) await db.saveSession(session);
   let done = 0;
-  for (const batch of solveCsvBatches(text)) {
-    for (const session of batch.sessions) {
-      if (sessionIds.has(session.id)) continue;
-      sessionIds.add(session.id);
-      await db.saveSession(session);
-    }
-    for (const solve of batch.solves) await saveSolve(solve);
+  for (const batch of solveCsvBatches(lines)) {
+    await saveSolves(batch.solves);
     done += batch.solves.length;
     onProgress?.(done, total);
     // Let the browser paint between batches.
@@ -126,7 +137,7 @@ export async function importSolveCsv(
   }
 
   const context = await sessionService.reloadContext(kpuzzle, previous);
-  return { solves: done, sessions: sessionIds.size, context };
+  return { solves: done, sessions: incomingSessions.size, skipped, context };
 }
 
 export async function exportSolveCsv(

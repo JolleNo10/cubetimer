@@ -32,6 +32,10 @@ export async function saveSolve(solve: Solve): Promise<void> {
   await db.saveSolve(solve);
 }
 
+export async function saveSolves(solves: readonly Solve[]): Promise<void> {
+  await db.saveSolves(solves);
+}
+
 export async function updateSolve(solve: Solve, changes: Partial<Solve>): Promise<Solve> {
   const updated = { ...solve, ...changes };
   await saveSolve(updated);

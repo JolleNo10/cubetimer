@@ -40,6 +40,7 @@ function storage(sessions: Session[] = previous.sessions, solves: Solve[] = [], 
   vi.spyOn(db, "loadSolves").mockImplementation(async (id) => [...solveStore.values()].filter((value) => value.sessionId === id));
   vi.spyOn(db, "saveSession").mockImplementation(async (value) => { sessionStore.set(value.id, value); });
   vi.spyOn(db, "saveSolve").mockImplementation(async (value) => { solveStore.set(value.id, value); });
+  vi.spyOn(db, "saveSolves").mockImplementation(async (values) => { for (const value of values) solveStore.set(value.id, value); });
   return { recognitionStore, sessionStore, solveStore, attemptStore, presetStore, preferenceStore };
 }
 
@@ -168,7 +169,7 @@ describe("solve-analysis CSV workflow", () => {
     const { sessionStore, solveStore } = storage();
     const progress = vi.fn();
     const result = await transfer.importSolveCsv(kpuzzle, previous, csvFor(), progress);
-    expect(result).toMatchObject({ sessions: 1, solves: 1, context: { sessionId: "A", eventChanged: false } });
+    expect(result).toMatchObject({ sessions: 1, solves: 1, skipped: { count: 0, sample: [] }, context: { sessionId: "A", eventChanged: false } });
     await transfer.importSolveCsv(kpuzzle, result.context, csvFor());
     expect(sessionStore.size).toBe(2);
     expect(solveStore.size).toBe(1);
@@ -181,7 +182,7 @@ describe("solve-analysis CSV workflow", () => {
     storage([previous.sessions[0], { ...imported, event: "222" }], existingHistory ? [solveFor(imported.id)] : []);
     await expect(transfer.importSolveCsv(kpuzzle, previous, csvFor())).rejects.toThrow(/Cannot merge session/);
     expect(db.saveSession).not.toHaveBeenCalled();
-    expect(db.saveSolve).not.toHaveBeenCalled();
+    expect(db.saveSolves).not.toHaveBeenCalled();
   });
 
   it("validates later batches before writing any earlier batch", async () => {
@@ -191,7 +192,7 @@ describe("solve-analysis CSV workflow", () => {
     const csv = formatSolveCsv(rows, new Map([["other", "Other"], [imported.id, imported.name]]));
     await expect(transfer.importSolveCsv(kpuzzle, previous, csv)).rejects.toThrow(/Cannot merge session/);
     expect(db.saveSession).not.toHaveBeenCalled();
-    expect(db.saveSolve).not.toHaveBeenCalled();
+    expect(db.saveSolves).not.toHaveBeenCalled();
   });
 
   it("reports progress and yields to the browser between 200-row batches", async () => {
@@ -210,6 +211,40 @@ describe("solve-analysis CSV workflow", () => {
     expect(await importing).toMatchObject({ solves: 201, sessions: 1 });
     expect(progress.mock.calls).toEqual([[200, 201], [201, 201]]);
     expect(db.saveSession).toHaveBeenCalledOnce();
+  });
+
+  it("rejects an unrelated CSV before writing anything", async () => {
+    storage();
+    await expect(transfer.importSolveCsv(kpuzzle, previous, "name,score\nAda,3")).rejects.toThrow(
+      "This does not look like a solve-analysis CSV export.",
+    );
+    await expect(transfer.importSolveCsv(kpuzzle, previous, "")).rejects.toThrow(/solve-analysis CSV/);
+    expect(db.loadSessions).not.toHaveBeenCalled();
+    expect(db.saveSession).not.toHaveBeenCalled();
+    expect(db.saveSolves).not.toHaveBeenCalled();
+  });
+
+  it("dates each Session by its earliest solve across every batch", async () => {
+    const { sessionStore } = storage();
+    const rows = Array.from({ length: 401 }, (_, i) => ({ ...solveFor(imported.id, `row-${i}`), createdAt: (500 - i) * 1000 }));
+    // The earliest solve sits in the last batch; the first batch starts much later.
+    const result = await transfer.importSolveCsv(kpuzzle, previous, csvFor(rows));
+    expect(result).toMatchObject({ solves: 401, sessions: 1 });
+    expect(sessionStore.get(imported.id)?.createdAt).toBe(100 * 1000);
+    expect(db.saveSession).toHaveBeenCalledOnce();
+    expect(db.saveSolves).toHaveBeenCalledTimes(3);
+    expect(db.saveSolve).not.toHaveBeenCalled();
+  });
+
+  it("reports skipped rows and keeps progress totals to the rows it can import", async () => {
+    const { solveStore } = storage();
+    const rows = [0, 1, 2].map((i) => ({ ...solveFor(imported.id, `row-${i}`), createdAt: (i + 1) * 1000 }));
+    const csv = csvFor(rows).replace("1970-01-01 00:00:02 UTC", "not a date");
+    const progress = vi.fn();
+    const result = await transfer.importSolveCsv(kpuzzle, previous, csv, progress);
+    expect(result).toMatchObject({ solves: 2, sessions: 1, skipped: { count: 1, sample: [{ line: 3, reason: "invalid date" }] } });
+    expect([...solveStore.keys()]).toEqual(["row-0", "row-2"]);
+    expect(progress.mock.calls).toEqual([[2, 2]]);
   });
 
   it("exports active Session or all persisted Solves, ordered with Session names", async () => {

@@ -793,7 +793,7 @@ describe("Controller import runtime integration", () => {
     vi.spyOn(db, "loadSessions").mockImplementation(async () => [{ ...stored }]);
     vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
     vi.spyOn(db, "loadSolves").mockResolvedValue([]);
-    vi.spyOn(db, "saveSolve").mockResolvedValue();
+    vi.spyOn(db, "saveSolve").mockResolvedValue(); vi.spyOn(db, "saveSolves").mockResolvedValue();
     const save = vi.spyOn(db, "saveSession").mockImplementation(async (value) => {
       if (value.name === "Imported") {
         started.resolve();
@@ -946,7 +946,7 @@ describe("Controller import runtime integration", () => {
     vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
     vi.spyOn(db, "loadSolves").mockResolvedValue([]);
     vi.spyOn(db, "saveSession").mockReturnValue(saving.promise);
-    vi.spyOn(db, "saveSolve").mockResolvedValue();
+    vi.spyOn(db, "saveSolve").mockResolvedValue(); vi.spyOn(db, "saveSolves").mockResolvedValue();
     const controller = readyController([local], local.id, [], "ready");
 
     const importing = controller.importSolveCsv(csv);

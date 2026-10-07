@@ -16,7 +16,7 @@ import {
   parseTimedMoves,
   type TimedMove,
 } from "../../cube/notation";
-import { formatCsv, parseCsv, splitCsvLines } from "./csv";
+import { formatCsv, parseCsv, parseCsvLine, splitCsvLines } from "./csv";
 import type { Session, Solve } from "../../app/types";
 import { DEFAULT_EVENT_ID } from "../../cube/scramble";
 
@@ -54,6 +54,17 @@ export function looksLikeSolveCsv(text: string): boolean {
   return firstLine.startsWith("id,date,dnf,time,solving_method");
 }
 
+/** The columns a row cannot be read without; the rest are filled in when missing. */
+const REQUIRED_COLUMNS = ["id", "date", "dnf", "session_name", "timer_time", "solution", "scramble"];
+
+/** Reject a document that is not this export before anything is written from it. */
+export function assertSolveCsvHeader(headerLine: string | undefined): void {
+  const header = new Set(parseCsvLine(headerLine ?? ""));
+  if (!REQUIRED_COLUMNS.every((column) => header.has(column))) {
+    throw new Error("This does not look like a solve-analysis CSV export.");
+  }
+}
+
 // ------------------------------------------------------------------ reading
 
 /**
@@ -70,10 +81,9 @@ const num = (value: string): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-/** `2023-09-06 10:17:49 UTC` */
+/** `2023-09-06 10:17:49 UTC`, or `NaN` when it is not a date. */
 function parseDate(value: string): number {
-  const parsed = Date.parse(value.replace(" UTC", "Z").replace(" ", "T"));
-  return Number.isFinite(parsed) ? parsed : Date.now();
+  return Date.parse((value ?? "").replace(" UTC", "Z").replace(" ", "T"));
 }
 
 function formatDate(ms: number): string {
@@ -194,8 +204,13 @@ export type SolveCsvImport = {
   skipped: { line: number; reason: string }[];
 };
 
-/** Read a solve analysis export into sessions and solves. */
-export function parseSolveCsv(text: string): SolveCsvImport {
+/**
+ * Read a solve analysis export into sessions and solves.
+ *
+ * The export carries no session record, so each session is dated by its earliest
+ * solve; rows are not in date order.
+ */
+export function parseSolveCsv(text: string, firstLine = 2): SolveCsvImport {
   const rows = parseCsv(text);
   const sessions = new Map<string, Session>();
   const solves: Solve[] = [];
@@ -203,20 +218,27 @@ export function parseSolveCsv(text: string): SolveCsvImport {
 
   rows.forEach((row, index) => {
     if (!row.id) {
-      skipped.push({ line: index + 2, reason: "no solve id" });
+      skipped.push({ line: index + firstLine, reason: "no solve id" });
+      return;
+    }
+    const createdAt = parseDate(row.date);
+    if (!Number.isFinite(createdAt)) {
+      skipped.push({ line: index + firstLine, reason: "invalid date" });
       return;
     }
     const sessionName = row.session_name || "Imported";
     // A stable id means importing the same file twice merges instead of duplicating.
     const sessionId = `import:${sessionName}`;
-    const createdAt = parseDate(row.date);
-    if (!sessions.has(sessionId)) {
+    const session = sessions.get(sessionId);
+    if (!session) {
       sessions.set(sessionId, {
         id: sessionId,
         name: sessionName,
         event: DEFAULT_EVENT_ID,
         createdAt,
       });
+    } else if (createdAt < session.createdAt) {
+      session.createdAt = createdAt;
     }
 
     const moves = parseTimedMoves(row.solution ?? "");
@@ -258,28 +280,36 @@ export function parseSolveCsv(text: string): SolveCsvImport {
   return { sessions: [...sessions.values()], solves, skipped };
 }
 
-/** Number of data rows in a document, without parsing them. */
-export function countSolveCsvRows(text: string): number {
-  return Math.max(0, splitCsvLines(text).filter((l) => l.trim().length > 0).length - 1);
+/** The header and data lines of a document, split once so a large one is not re-split. */
+export function solveCsvLines(text: string): string[] {
+  return splitCsvLines(text).filter((line) => line.trim().length > 0);
 }
 
 /**
- * Read an export a batch at a time.
+ * Read an export a batch at a time, from lines split by `solveCsvLines`.
  *
  * A full archive runs to tens of thousands of solves and hundreds of megabytes, which
  * is far too much to parse and store in one go without the page going unresponsive.
  */
 export function* solveCsvBatches(
-  text: string,
+  lines: readonly string[],
   batchSize = 200,
 ): Generator<SolveCsvImport> {
-  const lines = splitCsvLines(text).filter((line) => line.trim().length > 0);
   if (lines.length < 2) return;
   const header = lines[0];
   for (let start = 1; start < lines.length; start += batchSize) {
     yield parseSolveCsv(
       [header, ...lines.slice(start, start + batchSize)].join("\n"),
+      start + 1,
     );
+  }
+}
+
+/** Fold one batch's sessions in, keeping each session's earliest date. */
+export function mergeSolveCsvSessions(into: Map<string, Session>, sessions: readonly Session[]): void {
+  for (const session of sessions) {
+    const known = into.get(session.id);
+    if (!known || session.createdAt < known.createdAt) into.set(session.id, session);
   }
 }
 

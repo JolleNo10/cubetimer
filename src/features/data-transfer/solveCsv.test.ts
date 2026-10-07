@@ -3,11 +3,16 @@ import { describe, expect, it } from "vitest";
 import {
   SOLVE_CSV_COLUMNS,
   formatSolveCsv,
+  assertSolveCsvHeader,
   looksLikeSolveCsv,
+  mergeSolveCsvSessions,
   parseSolveCsv,
+  solveCsvBatches,
+  solveCsvLines,
 } from "./solveCsv";
 import { parseCsv } from "./csv";
 import { DEFAULT_EVENT_ID } from "../../cube/scramble";
+import type { Session, Solve } from "../../app/types";
 
 const sample = readFileSync(
   new URL("./__fixtures__/solve-export-sample.csv", import.meta.url),
@@ -20,6 +25,15 @@ describe("solve analysis CSV", () => {
     expect(sample.split("\n")[0].split(",")).toEqual(SOLVE_CSV_COLUMNS);
     expect(looksLikeSolveCsv(sample)).toBe(true);
     expect(looksLikeSolveCsv("a,b,c\n1,2,3")).toBe(false);
+  });
+
+  it("recognises its header, wrapped rows or not, and rejects unrelated files", () => {
+    expect(() => assertSolveCsvHeader(solveCsvLines(sample)[0])).not.toThrow();
+    const wrapped = solveCsvLines(sample).map((line, i) => (i === 0 ? line : `"${line.replaceAll('"', '""')}"`)).join("\n");
+    expect(() => assertSolveCsvHeader(solveCsvLines(wrapped)[0])).not.toThrow();
+    expect(parseSolveCsv(wrapped).solves.map((solve) => solve.id)).toEqual(parseSolveCsv(sample).solves.map((solve) => solve.id));
+    expect(() => assertSolveCsvHeader("a,b,c")).toThrow("This does not look like a solve-analysis CSV export.");
+    expect(() => assertSolveCsvHeader(undefined)).toThrow(/solve-analysis CSV/);
   });
 
   const { solves, sessions, skipped } = parseSolveCsv(sample);
@@ -124,6 +138,28 @@ describe("solve analysis CSV", () => {
         ).toBe(original[column]);
       }
     }
+  });
+});
+
+describe("sessions read from unordered rows", () => {
+  const solve = (id: string, createdAt: number): Solve => ({
+    id, sessionId: "S", createdAt, rawMs: 1000, penalty: "none", scramble: "R U", source: "keyboard", moves: [],
+  });
+  const csv = formatSolveCsv([solve("a", 5000), solve("b", 2000), solve("c", 9000)], new Map([["S", "Evening"]]));
+
+  it("dates a session by its earliest solve", () => {
+    expect(parseSolveCsv(csv).sessions).toEqual([
+      { id: "import:Evening", name: "Evening", event: DEFAULT_EVENT_ID, createdAt: 2000 },
+    ]);
+  });
+
+  it("keeps the earliest date when merging batches, and numbers skipped lines in the file", () => {
+    const merged = new Map<string, Session>();
+    const broken = csv.replace("1970-01-01 00:00:09 UTC", "soon");
+    const batches = [...solveCsvBatches(solveCsvLines(broken), 1)];
+    for (const batch of batches) mergeSolveCsvSessions(merged, batch.sessions);
+    expect([...merged.values()].map((session) => session.createdAt)).toEqual([2000]);
+    expect(batches.flatMap((batch) => batch.skipped)).toEqual([{ line: 4, reason: "invalid date" }]);
   });
 });
 

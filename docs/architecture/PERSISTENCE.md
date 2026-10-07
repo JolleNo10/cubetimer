@@ -444,8 +444,15 @@ The CSV format has no event field.
 
 Sessions created from CSV imports therefore receive `DEFAULT_EVENT_ID`.
 
+The format also has no Session record, and rows are not in date order: an imported
+Session's `createdAt` is its earliest solve across the whole file, never the first
+row a batch happens to meet. Rows that cannot be read (no id, unparseable date) are
+skipped and counted, never filled in with invented values such as the current time.
+
 `dataTransfer.ts` owns CSV import/export orchestration, including stable-ID
-upserts, batched writes, progress callbacks, and browser yields between batches.
+upserts, batched writes (one IndexedDB transaction per batch), progress callbacks,
+and browser yields between batches. It splits the document once, rejects a header
+that is not this export, and validates the whole file before the first write.
 Both JSON and CSV workflows validate Session merge compatibility through
 `sessionService.ts` before any writes. After importing, SessionService reloads
 the persisted context, retaining the selected Session when available and using

@@ -164,6 +164,20 @@ export async function saveSolve(solve: Solve): Promise<void> {
   await promisify((await store("solves", "readwrite")).put(rawSolve));
 }
 
+/** Write many solves in one transaction; one transaction per solve is slow at import scale. */
+export async function saveSolves(solves: readonly Solve[]): Promise<void> {
+  if (solves.length === 0) return;
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction("solves", "readwrite");
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error ?? new Error("Solve write aborted."));
+    transaction.onerror = () => reject(transaction.error ?? new Error("Solve write failed."));
+    const objectStore = transaction.objectStore("solves");
+    for (const { statisticsOutlier: _derivedOutlier, ...rawSolve } of solves) objectStore.put(rawSolve);
+  });
+}
+
 export async function deleteSolve(id: string): Promise<void> {
   await promisify((await store("solves", "readwrite")).delete(id));
 }

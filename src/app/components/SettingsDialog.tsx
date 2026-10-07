@@ -324,8 +324,9 @@ async function importCsv(
       await file.text(),
       (done, total) => setProgress(`Imported ${done} of ${total} solves…`),
     );
+    const skipped = result.skipped > 0 ? `; skipped ${result.skipped} invalid rows` : "";
     setProgress(
-      `Imported ${result.solves} solves across ${result.sessions} sessions.`,
+      `Imported ${result.solves} solves across ${result.sessions} sessions${skipped}.`,
     );
   } catch (error) {
     setProgress(`Could not import that file: ${String(error)}`);

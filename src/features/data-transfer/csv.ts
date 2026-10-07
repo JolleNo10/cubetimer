@@ -39,28 +39,31 @@ export function formatCsvLine(fields: readonly string[]): string {
     .join(",");
 }
 
+const QUOTE = 34;
+const LF = 10;
+const CR = 13;
+
 /**
  * Split a CSV document into lines, treating newlines inside quoted fields as content.
  * Handles LF and CRLF.
  */
 export function splitCsvLines(text: string): string[] {
+  // Slicing rather than appending a character at a time: on a 100 MB export the
+  // appended version needs gigabytes of heap.
   const lines: string[] = [];
-  let line = "";
+  let start = 0;
   let quoted = false;
   for (let i = 0; i < text.length; i++) {
-    const char = text[i];
-    if (char === '"') {
+    const char = text.charCodeAt(i);
+    if (char === QUOTE) {
       quoted = !quoted;
-      line += char;
-    } else if (!quoted && (char === "\n" || char === "\r")) {
-      if (char === "\r" && text[i + 1] === "\n") i++;
-      lines.push(line);
-      line = "";
-    } else {
-      line += char;
+    } else if (!quoted && (char === LF || char === CR)) {
+      lines.push(text.slice(start, i));
+      if (char === CR && text.charCodeAt(i + 1) === LF) i++;
+      start = i + 1;
     }
   }
-  if (line.length > 0) lines.push(line);
+  if (start < text.length) lines.push(text.slice(start));
   return lines;
 }
 
