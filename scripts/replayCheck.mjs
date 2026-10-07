@@ -36,7 +36,7 @@ await page.waitForTimeout(300);
 // a jump.
 const durations = (
   await page.locator(".solve-result .phase-time").allInnerTexts()
-).map((t) => Number(t.trim()));
+).map((t) => (t.trim() === "—" ? 0 : Number(t.trim()))); // a skipped step takes no time
 const startTimes = durations.map((_, i) =>
   durations.slice(0, i).reduce((sum, d) => sum + d, 0),
 );
@@ -46,7 +46,7 @@ console.log("expected start times:", startTimes.map((t) => t.toFixed(2)).join(",
 await page.locator(".solve-result").getByRole("button", { name: "Review", exact: true }).click();
 await page.waitForTimeout(900);
 
-const dialog = page.locator(".dialog");
+const dialog = page.getByRole("dialog", { name: "Solve review" });
 const replayBreakdown = dialog.locator(".replay-steps .detailed-breakdown");
 const replayRows = replayBreakdown.locator(".phase-row");
 check("the replay shows the breakdown", await replayRows.count() === 7);

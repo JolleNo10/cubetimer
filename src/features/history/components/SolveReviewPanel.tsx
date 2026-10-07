@@ -22,6 +22,8 @@ export type ReviewPreview = {
   fromMove: number;
   /** Face turns of the cube's own frame. */
   cubeMoves: string[];
+  /** The algorithm as written, cross-down, rotations and wide moves included. */
+  alg?: string;
 };
 
 type Load = { result: SolveAlternatives | null; done: number; total: number; failed: string | null };
@@ -70,7 +72,7 @@ export function SolveReviewPanel({
   const step = analysis.steps[activeStep] as SolveStep | undefined;
   const better = result?.steps[activeStep];
   const play = (label: string, alternative: Alternative, fromMove = alternative.fromMove) =>
-    onPreview({ label, fromMove, cubeMoves: alternative.cubeMoves });
+    onPreview({ label, fromMove, cubeMoves: alternative.cubeMoves, alg: alternative.alg });
 
   return (
     <div className="review-panel">
@@ -226,7 +228,7 @@ function Better({ step, better, result, onPlay }: {
               .map((choice) => (
                 <tr key={choice.slot} className={choice.chosen ? "chosen" : undefined}>
                   <th scope="row">{f2lPositionLabel(choice.position)}{choice.chosen ? <span className="chip">yours</span> : null}</th>
-                  <td>{choice.case ?? <span className="faint">stuck</span>}</td>
+                  <td>{choice.case ?? <span className="faint">{choice.best ? "stuck — freed first" : "stuck"}</span>}</td>
                   <td className="mono">{choice.best ? choice.best.length : "—"}</td>
                   <td>{choice.best ? <PlayButton label={`${f2lPositionLabel(choice.position)} pair`}
                     onClick={() => onPlay(`${f2lPositionLabel(choice.position)} pair (${choice.case})`, choice.best!)} /> : null}</td>

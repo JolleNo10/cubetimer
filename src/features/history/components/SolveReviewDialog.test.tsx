@@ -343,6 +343,17 @@ describe("Review previews", () => {
     expect(view.sequence.moves).toEqual(["F", "U"]);
   });
 
+  it("plays the algorithm as written, after turning to the frame it is written in", () => {
+    const { render } = fixture(undefined, true);
+    let view = render();
+    // Held with a y by then; the algorithm is written cross-down, as the cube was held at the start.
+    view.panel!.onPreview({ label: "Pair", fromMove: 2, cubeMoves: ["L", "U"], alg: "r U" });
+    view = render();
+    expect(view.sequence.moves).toEqual(["y'", "r", "U"]);
+    expect(view.sequence.tokenKind!(0)).toBe("rotation");
+    expect(view.sequence.tokenKind!(1)).toBeUndefined();
+  });
+
   it("leaves a preview with Escape before closing", () => {
     const { render, key, onClose } = fixture(undefined, true);
     const view = render();

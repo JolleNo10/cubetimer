@@ -28,11 +28,11 @@ const result: TrainingResult = { moves: ["R", "U", "R'"], stm: 3, caseTimeMs: nu
   preferredAlg: null, recommendedAlg: "R U R'", matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0 };
 
 describe("shared Training presentation", () => {
-  it("places the case library before connection controls in DOM and focus order", async () => {
+  it("leads with the case library and leaves smart cube controls to the header", async () => {
     const controller = await selected();
     const html = render(controller, <TrainingWorkspace library={<button>Choose a Training case</button>} details={<div />} emptyMessage="Choose a case" />);
-    expect(html).toContain("Smart cube");
-    expect(html.indexOf("Choose a Training case")).toBeLessThan(html.indexOf('class="panel connection-panel"'));
+    expect(html).toMatch(/^<div class="app-body[^"]*"><div class="column left training-library-column"><button>Choose a Training case<\/button><\/div>/);
+    expect(html).not.toContain("connection-panel");
   });
 
   it("uses live state by default, and binds each preview move to its checkpoint and reset key", async () => {

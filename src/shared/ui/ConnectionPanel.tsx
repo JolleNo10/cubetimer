@@ -35,7 +35,8 @@ export function ConnectionPanel({ open, onClose }: { open: boolean; onClose: () 
   const supported = bluetoothAvailable();
 
   return (
-    <div className="backdrop" style={{ display: open || macRequest ? undefined : "none" }} onClick={() => { if (!macRequest) onClose(); }} onKeyDown={(event) => {
+    // Mounted while closed, so it is marked closed for styles that react to an open dialog.
+    <div className={`backdrop${open || macRequest ? "" : " closed"}`} style={{ display: open || macRequest ? undefined : "none" }} onClick={() => { if (!macRequest) onClose(); }} onKeyDown={(event) => {
       event.stopPropagation();
       if (event.key === "Escape") {
         if (!macRequest) onClose();

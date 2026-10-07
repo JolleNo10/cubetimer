@@ -32,6 +32,7 @@ import { F2L_POSITIONS, type F2lPosition } from "./f2lCases";
 import { EDGES_OF_FACE, type Face } from "./moves";
 import { findShorter, shortestWholeSolve, type Improvement } from "./optimise";
 import { gripFaces, rotationForCrossFace, slotInCubeFrame, type Orientation } from "./orientation";
+import { joinMoves } from "./notation";
 import { physicalTurns } from "./physicalTurns";
 import { reframe } from "./recognise";
 
@@ -105,12 +106,12 @@ const AUFS = ["", "U", "U2", "U'"];
 const PAIRS = F2L_SLOTS;
 const CROSS_EDGES = EDGES_OF_FACE.D;
 
-function crossSolved(pattern: KPattern): boolean {
+export function crossSolved(pattern: KPattern): boolean {
   const { EDGES } = pattern.patternData;
   return CROSS_EDGES.every((e) => EDGES.pieces[e] === e && EDGES.orientation[e] === 0);
 }
 
-function pairSolved(pattern: KPattern, index: number): boolean {
+export function pairSolved(pattern: KPattern, index: number): boolean {
   const { EDGES, CORNERS } = pattern.patternData;
   const { edge, corner } = PAIRS[index];
   return EDGES.pieces[edge] === edge && EDGES.orientation[edge] === 0
@@ -138,7 +139,18 @@ function algorithmsFor(caseName: string, position: F2lPosition): readonly string
  * cross and every pair already in. Checked by applying it, not looked up: whatever an
  * algorithm is filed under, either the pair goes in or it does not.
  */
-function bestPairAlgorithm(
+export function bestPairAlgorithm(
+  pattern: KPattern,
+  index: number,
+): { case: string | null; alg: string | null; length: number; after: KPattern | null } {
+  const direct = catalogueInsert(pattern, index);
+  if (direct.alg) return direct;
+  const freed = freeThenInsert(pattern, index);
+  return freed ? { case: direct.case, ...freed } : direct;
+}
+
+/** The shortest catalogue algorithm that puts pair `index` in from here, if there is one. */
+function catalogueInsert(
   pattern: KPattern,
   index: number,
 ): { case: string | null; alg: string | null; length: number; after: KPattern | null } {
@@ -149,7 +161,8 @@ function bestPairAlgorithm(
   let best: { alg: string; length: number; after: KPattern } | null = null;
   for (const algorithm of algorithmsFor(caseName, position)) {
     for (const auf of AUFS) {
-      const alg = auf ? `${auf} ${algorithm}` : algorithm;
+      // A lining-up turn runs into an algorithm that opens with one: `U'` and `U' F'` is `U2 F'`.
+      const alg = joinMoves(auf ? [auf] : [], algorithm.split(" ")).join(" ");
       const length = algorithmLength(alg);
       if (best && length >= best.length) continue;
       const after = applyHeld(pattern, alg);
@@ -159,6 +172,39 @@ function bestPairAlgorithm(
     }
   }
   return best ? { case: caseName, ...best } : { case: caseName, alg: null, length: 0, after: null };
+}
+
+/**
+ * Turns that take whatever is in a slot out to the last layer, per slot (FR, FL, BL,
+ * BR), the way a solver frees a stuck piece: up with the slot's side face, a U, back.
+ */
+export const PAIR_OUT: readonly (readonly string[])[] = [
+  ["R U R'", "R U' R'", "R U2 R'"],
+  ["L' U' L", "L' U L", "L' U2 L"],
+  ["L U L'", "L U' L'", "L U2 L'"],
+  ["R' U' R", "R' U R", "R' U2 R"],
+];
+
+/**
+ * For a pair with no catalogue answer — a piece stuck where no case applies — free one
+ * slot that is not done yet and insert from there: the shortest such pair-out and
+ * algorithm together, checked like any other.
+ */
+function freeThenInsert(pattern: KPattern, index: number): { alg: string; length: number; after: KPattern } | null {
+  let best: { alg: string; length: number; after: KPattern } | null = null;
+  for (const slot of PAIRS.map((_, i) => i).filter((i) => !pairSolved(pattern, i))) {
+    for (const out of PAIR_OUT[slot]) {
+      const freed = applyHeld(pattern, out);
+      if (!freed || !crossSolved(freed)) continue;
+      const insert = catalogueInsert(freed, index);
+      if (!insert.alg || !insert.after) continue;
+      const keep = PAIRS.map((_, i) => i).filter((i) => i !== index && pairSolved(pattern, i));
+      if (!keep.every((i) => pairSolved(insert.after!, i))) continue;
+      const length = algorithmLength(out) + insert.length;
+      if (!best || length < best.length) best = { alg: `${out} ${insert.alg}`, length, after: insert.after };
+    }
+  }
+  return best;
 }
 
 /** Last-layer goals: oriented with F2L kept, or solved but for an AUF. */
@@ -172,13 +218,13 @@ function lastLayerDone(pattern: KPattern, family: "OLL" | "PLL"): boolean {
   return true;
 }
 
-function bestLastLayerAlgorithm(pattern: KPattern, family: "OLL" | "PLL", caseName: string) {
+export function bestLastLayerAlgorithm(pattern: KPattern, family: "OLL" | "PLL", caseName: string) {
   const bank = family === "OLL" ? OLL_ALG_BANK : PLL_ALG_BANK;
   let best: { alg: string; length: number } | null = null;
   for (const algorithm of bank[caseName] ?? []) {
     for (const before of AUFS) {
       for (const after of family === "PLL" ? AUFS : [""]) {
-        const alg = [before, algorithm, after].filter(Boolean).join(" ");
+        const alg = joinMoves(before ? [before] : [], algorithm.split(" "), after ? [after] : []).join(" ");
         const length = algorithmLength(alg);
         if (best && length >= best.length) continue;
         const done = applyHeld(pattern, alg);

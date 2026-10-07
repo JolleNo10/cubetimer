@@ -27,7 +27,9 @@ const check = (name, ok, detail) => {
 
 await page.goto(base, { waitUntil: "networkidle" });
 await page.waitForSelector(".scramble-move");
-await page.locator('.panel', { hasText: 'SMART CUBE' }).locator('input[type="checkbox"]').check();
+await page.getByRole("button", { name: "Smart cube tools" }).click();
+await page.getByRole("dialog", { name: "Smart cube tools" }).locator('input[type="checkbox"]').first().check();
+await page.getByRole("button", { name: "Close smart cube tools" }).click();
 await page.waitForTimeout(400);
 
 const flash = page.locator(".cube-flash");

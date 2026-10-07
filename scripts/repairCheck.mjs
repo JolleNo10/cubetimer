@@ -4,7 +4,9 @@ import { chromium } from "playwright-core";
 import { readFileSync } from "node:fs";
 
 const base = process.env.BASE_URL ?? "http://localhost:5199/";
-const { scramble, moves } = JSON.parse(readFileSync("/tmp/legacysolve.json", "utf8"));
+// A recorded solve as `{ scramble, moves }`, or by default one made up below.
+const fixture = process.argv[2] ? JSON.parse(readFileSync(process.argv[2], "utf8")) : null;
+const SCRAMBLE = "D' L' B2 R' D L B U F2 U2 F B' U2 R2 B R2 D2 L2 D2 R2 U";
 
 const browser = await chromium.launch({ channel: "chrome", headless: true,
   args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
@@ -18,6 +20,14 @@ page.on("console", (m) => {
 await page.goto(base, { waitUntil: "networkidle" });
 await page.waitForSelector(".scramble-move");
 const sessionId = await page.locator('select[aria-label="Session"]').inputValue();
+// Without a recording, solve the scramble the CFOP way with the app's own modules, so
+// the rebuilt breakdown has real phases to find.
+const { scramble, moves } = fixture ?? {
+  scramble: SCRAMBLE,
+  moves: (await page.evaluate(
+    async (scramble) => (await import("/src/cube/cfopSolve.ts")).cfopSolutionForScramble(scramble), SCRAMBLE,
+  )).map((move, i) => ({ move, t: (i + 1) * 180 })),
+};
 
 // A solve as an older build would have written it: a breakdown shaped as "phases".
 await page.evaluate(
@@ -80,7 +90,8 @@ const stored = await page.evaluate(async () => {
 
 console.log(`\nstep rows: ${steps} | cases: ${cases.join(" ")} | steps saved to storage: ${stored}`);
 console.log("problems:", problems.join(" | ") || "none");
-const ok = steps === 7 && cases.includes("T") && stored === 7 && problems.length === 0;
+// Every pair and both last-layer steps named: the breakdown was rebuilt, not guessed.
+const ok = steps === 7 && cases.length >= 6 && stored === 7 && problems.length === 0;
 console.log(ok ? "REPAIR CHECK PASSED" : "REPAIR CHECK FAILED");
 await browser.close();
 process.exit(ok ? 0 : 1);

@@ -26,7 +26,9 @@ const check = (name, ok, detail) => {
 
 await page.goto(base, { waitUntil: "networkidle" });
 await page.waitForSelector(".scramble-move");
-await page.locator('.panel', { hasText: 'SMART CUBE' }).locator('input[type="checkbox"]').check();      // virtual cube
+await page.getByRole("button", { name: "Smart cube tools" }).click();
+await page.getByRole("dialog", { name: "Smart cube tools" }).locator('input[type="checkbox"]').first().check();
+await page.getByRole("button", { name: "Close smart cube tools" }).click();      // virtual cube
 await page.locator(".chip.toggle input").click();                   // the mode
 await page.waitForTimeout(300);
 check("the mode reads as on", (await page.locator(".chip.toggle.on").count()) === 1);
@@ -55,22 +57,24 @@ check("the solve is listed", (await page.locator(".solve-row").count()) === 1);
 check("it is marked as a slow solve",
       (await page.locator(".solve-row .phase-case").allInnerTexts()).includes("slow"));
 check("it has a breakdown", (await result.locator(".phase-row").count()) === 7);
-check("the live ScramblePanel is hidden while Result is open", await page.locator(".scramble-panel").count() === 0);
+check("the live ScramblePanel gives way to the next scramble while Result is open",
+  await page.locator(".scramble-panel:not(.next-scramble-panel)").count() === 0 && await page.locator(".next-scramble-panel").count() === 1);
 check("the slow Result omits its repeated move/TPS summary", await result.locator(".result-compact").count() === 0);
 
-const best = (await page.locator(".stat").nth(1).innerText()).split("\n")[1].trim();
-const count = (await page.locator(".stat").first().innerText()).split("\n")[1].trim();
+const stats = page.locator(".panel", { has: page.locator(".panel-title", { hasText: "Statistics" }) });
+const best = (await stats.locator(".stat", { has: page.locator(".label", { hasText: /^Best$/ }) }).locator(".value").innerText()).trim();
+const count = (await stats.locator(".panel-head .faint").innerText()).trim().split(" ")[0];
 check("it is not counted in the statistics", best === "—" && count === "0",
       `best ${best}, solves ${count}`);
 
-await result.getByRole("button", { name: "Back to timer" }).click();
-check("Back to timer restores the live ScramblePanel", await page.locator(".scramble-panel").count() === 1);
+await page.locator(".next-scramble-panel").getByRole("button", { name: "Next solve", exact: true }).click();
+check("Next solve restores the live ScramblePanel", await page.locator(".scramble-panel").count() === 1);
 
 // Turning the mode off and solving again gives an ordinary, counted solve.
 await page.locator(".chip.toggle input").click();
 await page.waitForTimeout(300);
 await solve();
-const best2 = (await page.locator(".stat").nth(1).innerText()).split("\n")[1].trim();
+const best2 = (await stats.locator(".stat", { has: page.locator(".label", { hasText: /^Best$/ }) }).locator(".value").innerText()).trim();
 check("an ordinary solve afterwards is counted", best2 !== "—", `best ${best2}`);
 check("both solves are still listed", (await page.locator(".solve-row").count()) === 2);
 
@@ -113,10 +117,10 @@ check(
   `${historicalElapsed} → ${await historicalResult.locator(".result-secondary").innerText()}`,
 );
 
-await historicalResult.getByRole("button", { name: "Back to timer" }).click();
-check("Back to timer closes the historical Result", (await page.locator(".solve-result").count()) === 0);
+await page.locator(".next-scramble-panel").getByRole("button", { name: "Next solve", exact: true }).click();
+check("Next solve closes the historical Result", (await page.locator(".solve-result").count()) === 0);
 check(
-  "Back to timer keeps the historical row selected",
+  "Next solve keeps the historical row selected",
   (await olderSolveRow.getAttribute("class"))?.includes("selected") === true,
 );
 

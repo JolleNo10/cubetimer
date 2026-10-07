@@ -1395,7 +1395,7 @@ button.icon { display: inline-grid; place-items: center; padding: 8px; }
   .dialog-head > button { flex-shrink: 0; min-width: 44px; }
   .dialog-body { flex: 1; min-height: 0; min-width: 0; padding: 12px calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left)); overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: contain; }
   .dialog-foot { flex: none; flex-wrap: wrap; padding: 10px calc(12px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left)); }
-  .app:has(.backdrop) > .app-body, .app:has(.backdrop) .training-screen, .app:has(.backdrop) .statistics-page { overflow-y: hidden; }
+  .app:has(.backdrop:not(.closed)) > .app-body, .app:has(.backdrop:not(.closed)) .training-screen, .app:has(.backdrop:not(.closed)) .statistics-page { overflow-y: hidden; }
   .dialog .field select, .dialog .field input { width: 100%; }
   .switch-row { min-height: 44px; align-items: flex-start; }
   .switch-row > span { min-width: 0; overflow-wrap: anywhere; }

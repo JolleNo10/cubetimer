@@ -5,7 +5,7 @@ import { formatTime } from "../../../shared/time";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alg } from "cubing/alg";
 import { TwistyPlayer } from "cubing/twisty";
-import { reorientMove, rotationForCrossFace } from "../../../cube/orientation";
+import { reorientMove, rotationForCrossFace, rotationTokensBetween } from "../../../cube/orientation";
 import { decodeGripTrack, rewriteWithRotations } from "../../../cube/gripTrack";
 import {
   DetailedStepBreakdown,
@@ -29,7 +29,7 @@ import { moveGuideForToken } from "../../../cube/moveGuide";
 import { CubeMoveGuide, DEFAULT_GUIDE_CAMERA, type GuideCamera } from "../../../shared/ui/CubeMoveGuide";
 import { CubeFrontMarker } from "../../../shared/ui/CubeFrontMarker";
 import { MoveSequence } from "../../../shared/ui/MoveSequence";
-import { handMoves } from "../../../cube/frames";
+import { expandedAlgorithmMoves, handMoves } from "../../../cube/frames";
 import { physicalTurns } from "../../../cube/physicalTurns";
 import { SolveReviewPanel, type ReviewPreview } from "./SolveReviewPanel";
 
@@ -139,15 +139,24 @@ export function SolveReviewDialog({
   const previewActions = useMemo<ReplayAction[]>(() => {
     if (!preview) return [];
     const held = physicalTurns([...opening, ...setupMoves].join(" ")).grip;
-    return handMoves(preview.cubeMoves, held).map((move, i) => ({
+    // Played as written when the frame it is written in is known: turn from the grip the
+    // replay is in to the cross-down one, then the algorithm, rotations and wide moves
+    // and all. Otherwise as the face turns the cube would report, in the replay's grip.
+    const written = preview.alg && crossFace
+      ? [
+          ...rotationTokensBetween(held, rotationForCrossFace(crossFace).orientation).map((move) => ({ move, rotation: true })),
+          ...expandedAlgorithmMoves(preview.alg).map((move) => ({ move, rotation: /^[xyz]/.test(move) })),
+        ]
+      : handMoves(preview.cubeMoves, held).map((move) => ({ move, rotation: false }));
+    return written.map(({ move, rotation }, i) => ({
       move,
       rawIndex: -1,
       rawTimeMs: 0,
       playbackTimeMs: (i + 1) * PREVIEW_MOVE_MS,
       completesRawMove: true,
-      source: "raw-turn" as const,
+      source: rotation ? "grip-rotation" as const : "raw-turn" as const,
     }));
-  }, [preview, opening, setupMoves]);
+  }, [preview, opening, setupMoves, crossFace]);
   /** What the transport is driving: the recorded solve, or an alternative to it. */
   const actions = preview ? previewActions : replayActions;
   const visibleMoves = useMemo(() => actions.map(action => action.move), [actions]);

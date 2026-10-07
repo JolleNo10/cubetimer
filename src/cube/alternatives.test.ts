@@ -142,3 +142,27 @@ describe("XCross suggestions", () => {
     expect(result.cross!.xxcross!.pairs.sort()).toEqual(["FL", "FR"]);
   });
 });
+
+describe("a pair stuck where no catalogue case applies", () => {
+  it("is freed from its slot and then inserted, keeping the pairs already in", async () => {
+    const { bestPairAlgorithm, pairSolved, PAIR_OUT } = await import("./alternatives");
+    const { recognizeAnyF2lSlot } = await import("./f2l");
+    const solved = kpuzzle.defaultPattern();
+    let stuck = 0;
+    // Pairs pushed round the back slots in every combination: some land where neither
+    // catalogue has a case for the front-right pair.
+    for (const first of PAIR_OUT.flat()) {
+      for (const second of PAIR_OUT.flat()) {
+        const state = solved.applyAlg(new Alg(physicalTurns(`R U R' ${first} ${second}`).moves.join(" ")));
+        if (pairSolved(state, 0) || recognizeAnyF2lSlot(kpuzzle, state, "FR")) continue;
+        stuck++;
+        const choice = bestPairAlgorithm(state, 0);
+        expect(choice.alg, `${first} / ${second}`).not.toBeNull();
+        const after = state.applyAlg(new Alg(physicalTurns(choice.alg!).moves.join(" ")));
+        expect(crossIn(after) && pairIn(after, 0)).toBe(true);
+        for (let i = 1; i < 4; i++) if (pairSolved(state, i)) expect(pairIn(after, i)).toBe(true);
+      }
+    }
+    expect(stuck).toBeGreaterThan(0);
+  });
+});

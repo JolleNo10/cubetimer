@@ -17,7 +17,8 @@ import { TrainingWorkspace, TrainingCubeStage, TrainingActions, TrainingReferenc
 import { TrainingPersonalPerformance } from "./TrainingPerformance";
 const hooks = vi.hoisted(() => ({ controller: null as Controller | null, inlineState: null as unknown[] | null, cursor: 0 }));
 vi.mock("react", async original => ({ ...await original<typeof import("react")>(),
-  useMemo: (make: () => unknown) => make(), useEffect: () => {},
+  useMemo: (make: () => unknown) => make(), useEffect: () => {}, useContext: () => null,
+  useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown) => snapshot(),
   useState: (initial: unknown) => {
     if (!hooks.inlineState) return [initial, () => {}];
     const index = hooks.cursor++;
@@ -26,7 +27,9 @@ vi.mock("react", async original => ({ ...await original<typeof import("react")>(
   }, useRef: () => ({ current: null }),
   memo: (component: unknown) => component,
 }));
-vi.mock("../../../app/useController", () => ({
+vi.mock("../../../app/useController", async original => ({
+  // The real context, so presentation that reads it standalone keeps working.
+  ControllerContext: (await original<typeof import("../../../app/useController")>()).ControllerContext,
   useController: () => hooks.controller,
   useTrainingState: () => hooks.controller!.training.state.get(),
   useSettings: () => hooks.controller!.settings.get(),

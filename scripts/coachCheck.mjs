@@ -48,7 +48,9 @@ await page.selectOption("#frontColour", "green");
 await page.locator(".dialog-foot button").click();
 await page.waitForTimeout(300);
 
-await page.locator(".panel", { hasText: "SMART CUBE" }).locator('input[type="checkbox"]').check();
+await page.getByRole("button", { name: "Smart cube tools" }).click();
+await page.getByRole("dialog", { name: "Smart cube tools" }).locator('input[type="checkbox"]').first().check();
+await page.getByRole("button", { name: "Close smart cube tools" }).click();
 await page.locator(".chip.toggle input").click();
 await page.waitForTimeout(300);
 
@@ -93,6 +95,9 @@ check(
   trainingBadges.includes("slow") && trainingBadges.includes("xcross ≤4"),
   trainingBadges.join(", "),
 );
+// The Result of that solve stands in for the live scramble until Next solve.
+const nextSolve = page.locator(".next-scramble-panel").getByRole("button", { name: "Next solve", exact: true });
+if (await nextSolve.count()) await nextSolve.click();
 await xCrossLimit.selectOption("5");
 
 // A scramble of our own rather than the generated one, so every run of this script
