@@ -1,9 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { FACE_COLOURS } from "../../../cube/colours";
-import { buildLastLayerCatalogueTarget } from "../../../cube/lastLayerTraining";
-import { getLastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
-import { get3x3x3 } from "../../../cube/puzzle";
+import { FACE_COLOURS } from "../../cube/colours";
+import { buildLastLayerCatalogueTarget } from "../../cube/lastLayerTraining";
+import { getLastLayerThumbnailModel } from "../../cube/lastLayerThumbnail";
+import { get3x3x3 } from "../../cube/puzzle";
 import { LastLayerCaseThumbnail } from "./LastLayerCaseThumbnail";
 
 const kpuzzle = await get3x3x3();

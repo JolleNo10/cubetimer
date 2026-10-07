@@ -1519,3 +1519,18 @@ button.icon { display: inline-grid; place-items: center; padding: 8px; }
 .training-workspace-column .facelet-net { align-self: center; }
 .training-workspace-column .facelet-face div { width: clamp(12px, 6cqw, 42px) !important; height: clamp(12px, 6cqw, 42px) !important; }
 @media (max-width: 820px) { .training-workspace-column .cube-view { height: clamp(260px, 48dvh, 460px); } }
+
+.statistics-f2l-layout { display: grid; gap: 18px; min-width: 0; }
+.f2l-performance-panel { min-width: 0; }
+.f2l-performance-panel h3 { font-size: 14px; margin: 0 0 10px; }
+@media (min-width: 1400px) { .statistics-f2l-layout { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.focus-cases { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); align-items: stretch; }
+.focus-case { grid-template-columns: 96px minmax(0, 1fr); align-content: start; }
+.focus-case-diagram { grid-row: span 6; }
+.focus-case > .stat-label { text-transform: none; }
+@media (min-width: 821px) { .dialog.wide.statistics-solve-detail { width: min(1480px, 100%); max-height: 92vh; max-height: 92dvh; } }
+.statistics-solve-detail .dialog-head { flex: none; }
+.statistics-solve-detail .dialog-body { min-height: 0; min-width: 0; grid-auto-rows: max-content; align-content: start; }
+.stats-shortcut { padding: 0; border: 0; text-align: left; background: transparent; color: inherit; font: inherit; border-radius: var(--radius-sm); }
+.stats-shortcut:not(:disabled):hover { background: var(--panel-2); }
+.stats-count-link { padding: 2px 4px; }

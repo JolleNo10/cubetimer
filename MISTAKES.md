@@ -588,3 +588,25 @@ The temporary layout harness imported `createRoot` as a named export from Vite's
 optimized CommonJS dependency URL. That URL exposed the API on its default export,
 so the initial harness stopped before rendering. Prevention: inspect the module's
 actual browser export shape when importing an optimized dependency directly.
+
+
+## Extracted actions retained a conditional tail
+
+While extracting the Result action block, changing Review from conditionally
+rendered to always present with a disabled state left a ternary tail behind.
+Typechecking caught the syntax error before validation. Prevention: inspect the
+complete JSX expression when changing its surrounding conditional.
+
+## Independent F2L panel test used an empty-analysis model
+
+The paired-panel interaction fixture reused a model with zero analysed solves,
+so it rendered empty states instead of tables. Prevention: make fixtures satisfy
+the component's analysis-availability contract before exercising table state.
+
+
+## Windows text encoding changed an inserted separator
+
+A Python edit used the Windows default encoding for a newly inserted middle-dot
+separator, producing a byte that Vite could not decode as UTF-8. A presentation
+test exposed the mismatched text. Prevention: explicitly read and write source
+files as UTF-8 instead of relying on the platform default encoding.

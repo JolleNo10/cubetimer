@@ -1,5 +1,5 @@
-import { FACE_COLOURS } from "../../../cube/colours";
-import type { LastLayerStickerPresentation, LastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
+import { FACE_COLOURS } from "../../cube/colours";
+import type { LastLayerStickerPresentation, LastLayerThumbnailModel } from "../../cube/lastLayerThumbnail";
 
 const CORE_SIZE = 10;
 const RIM_THICKNESS = 6;

@@ -1,4 +1,4 @@
-import { isUsableCfopAnalysis } from "../../../app/solveAnalysis";
+import { SolveActions } from "./SolveActions";
 import { SolveOutlierNotice } from "./SolveOutlierNotice";
 import { SolveAnalysisReview } from "./SolveAnalysisReview";
 import { type SolveStep } from "../../../cube/analysis";
@@ -8,13 +8,7 @@ import {
   practiceScrambleTitle,
 } from "../../../app/scrambleProvider";
 import { formatSolveTime, isSlowSolve } from "../../statistics/state/stats";
-import type { Penalty, Solve } from "../../../app/types";
-
-const PENALTIES: { value: Penalty; label: string }[] = [
-  { value: "none", label: "OK" },
-  { value: "+2", label: "+2" },
-  { value: "DNF", label: "DNF" },
-];
+import type { Solve } from "../../../app/types";
 
 export function SolveResult({
   solve,
@@ -33,8 +27,6 @@ export function SolveResult({
   const controller = useController();
   const analysis = solve.analysis ?? null;
   const moveCount = analysis?.sliceTurns ?? solve.moves.length;
-  const canReplay = solve.moves.length > 0;
-  const canAnalyse = Boolean(isUsableCfopAnalysis(solve) && solve.moves.length > 0);
   const slowSolve = isSlowSolve(solve);
   const specialLabel = practiceScrambleLabel(solve.scrambleProvider);
   const specialTitle = practiceScrambleTitle(solve.scrambleProvider);
@@ -77,65 +69,9 @@ export function SolveResult({
           ) : null}
         </div>
 
-        <div className="result-context">
-          <div className="result-scramble">
-            <span className="result-context-label">SOLVE SCRAMBLE</span>
-            <span className="mono">{solve.scramble}</span>
-          </div>
-          <div className="result-actions">
-            <div className="result-penalties">
-              <span className="result-context-label">Penalty</span>
-              {PENALTIES.map((penalty) => (
-                <button
-                  key={penalty.value}
-                  className={solve.penalty === penalty.value ? "primary" : ""}
-                  onClick={() => void controller.updateSolve(solve.id, { penalty: penalty.value })}
-                >
-                  {penalty.label}
-                </button>
-              ))}
-            </div>
-            <div className="result-tools">
-              {analysis ? <button className="ghost"
-                title={solve.cfopAnalysisExcluded
-                  ? "Remove your CFOP exclusion. Automatic quality checks still apply; solve timing is unchanged."
-                  : "Exclude this breakdown from CFOP statistics and CFOP-based tools. The solve time still counts normally."}
-                onClick={() => void controller.updateSolve(solve.id, { cfopAnalysisExcluded: solve.cfopAnalysisExcluded ? undefined : true })}>
-                {solve.cfopAnalysisExcluded ? "Undo CFOP exclusion" : "Mark CFOP wrong"}
-              </button> : null}
-              {canReplay ? (
-                <button className="ghost" onClick={() => onReplay(solve)}
-                  title={canAnalyse ? "Replay the solve, step by step, with better ways to have done each step" : "Replay the solve"}>
-                  Review
-                </button>
-              ) : null}
-              <button
-                className="ghost"
-                onClick={() => {
-                  controller.replayScramble(solve.scramble, solve.scrambleProvider);
-                  onContinue({ resumeTimer: false });
-                }}
-                title="Load this scramble so you can solve it again"
-              >
-                Solve again
-              </button>
-              <button
-                className="ghost danger"
-                onClick={() => void controller.deleteSolve(solve.id)}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-          <input
-            className="result-note-input"
-            placeholder="Add a note…"
-            defaultValue={solve.comment ?? ""}
-            key={solve.id}
-            onBlur={(event) => void controller.updateSolve(solve.id, { comment: event.target.value })}
-            aria-label="Solve note"
-          />
-        </div>
+        <SolveActions solve={solve} onUpdate={changes => controller.updateSolve(solve.id, changes)} onReplay={onReplay}
+          onSolveAgain={() => { controller.replayScramble(solve.scramble, solve.scrambleProvider); onContinue({ resumeTimer: false }); }}
+          onDelete={() => controller.deleteSolve(solve.id)} />
 
         {analysis ? (
           <SolveAnalysisReview solve={solve} solves={solves} analysis={analysis} onPracticeStep={onPracticeStep} />

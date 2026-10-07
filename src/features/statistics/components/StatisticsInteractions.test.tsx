@@ -2,19 +2,25 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { get3x3x3 } from "../../../cube/puzzle";
 import { buildLastLayerCatalogueTarget } from "../../../cube/lastLayerTraining";
 import { getLastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
-import { LastLayerCaseThumbnail } from "../../training/components/LastLayerCaseThumbnail";
+import { LastLayerCaseThumbnail } from "../../../shared/ui/LastLayerCaseThumbnail";
 import type { ReactElement } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as puzzleLoading from "../../../cube/puzzle";
+import { StatsPanel, Stat } from "./StatsPanel";
+import { Header } from "../../../app/components/Header";
+import { SolveAnalysisReview } from "../../history/components/SolveAnalysisReview";
+import { SolveActions } from "../../history/components/SolveActions";
+import { focusCases } from "../state/statistics";
 import { App } from "../../../app/App";
 import { Controller } from "../../../app/Controller";
 import { deriveStatistics, type StatisticsSnapshot } from "../state/statistics";
 import type { Solve } from "../../../app/types";
-import { StatisticsView, StatisticsNavigation, StatisticsOverview, SessionTable } from "./StatisticsView";
+import { StatisticsView, StatisticsNavigation, StatisticsOverview, StatisticsOverviewSummary, SessionTable } from "./StatisticsView";
 import { Pagination, StatCard, StatsSection } from "./StatisticsPrimitives";
 import { StatisticsRecords, StatisticsRankingTable, StatisticsAverageDetail, StatisticsCfopRecords } from "./StatisticsRecords";
 import { analyseSolve } from "../../../cube/analysis";
 import { useResultHistory } from "../../history/components/resultCharts/useResultHistory";
-import { StatisticsAnalysisTables, StatisticsCaseDiagram, StatisticsCaseTable, StatisticsF2lPerformance, PerformanceTable, SortHeader } from "./StatisticsAnalysisTables";
+import { StatisticsAnalysisTables, StatisticsCaseDiagram, StatisticsCaseTable, StatisticsF2lPerformance, StatisticsF2lPerformancePanel, PerformanceTable, SortHeader } from "./StatisticsAnalysisTables";
 import { StatisticsSolveDetail } from "./StatisticsSolveDetail";
 import { SolveReviewDialog } from "../../history/components/SolveReviewDialog";
 import { AverageProgressionChart, SolveTimeTrendChart } from "./StatisticsCharts";
@@ -203,18 +209,19 @@ describe("Statistics user interactions", () => {
     expect(elements(header).filter((element) => element.type === SortHeader).map((element) => element.props.label)).toEqual(["Case", "Samples", "Best", "Median", "Measured recognition median", "Measured execution median", "STM median", "Execution TPS", "Skips"]);
   });
 
-  it("expands an F2L position and opens its contributing solve from a row or solve time", () => {
+  it.each(["slot", "order"] as const)("expands F2L %s and opens its source solve by button, click, or keyboard", mode => {
     const onOpenSolve = vi.fn();
     const f2lModel = { ...model, analysisCount: 1, f2lSlots: model.f2lSlots.map((row, index) => index === 3 ? { ...row, count: 1, solveIds: ["s0"], samples: [{ solveId: "s0", timeMs: 1500, recognitionMs: 500, executionMs: 1000, moves: 6, tps: 6 }] } : row) };
-    const render = () => renderRoot(() => StatisticsF2lPerformance({ model: f2lModel, onOpenSolve }));
+    f2lModel.f2lPositions = f2lModel.f2lPositions.map((row, index) => ({ ...row, count: f2lModel.f2lSlots[index].count, samples: f2lModel.f2lSlots[index].samples }));
+    const render = () => renderRoot(() => StatisticsF2lPerformancePanel({ model: f2lModel, onOpenSolve, mode }));
     let tree = render();
     const performance = find(tree, (element) => element.type === PerformanceTable);
-    expect(find(tree, (element) => element.type === "p" && element.props.children === "Where each pair went in relative to how you held the cube, after any rotations")).toBeDefined();
+    expect(find(tree, (element) => element.type === "p" && element.props.children === (mode === "slot" ? "Where each pair went in relative to how you held the cube, after any rotations" : "Pair completion order · skipped/XCross pairs counted separately"))).toBeDefined();
     const summary = PerformanceTable(performance.props as Parameters<typeof PerformanceTable>[0]);
     const fourth = elements(summary).filter((element) => element.type === "tr" && element.props.tabIndex === 0)[3];
     fourth.props.onKeyDown(keyEvent("Enter"));
     tree = render();
-    expect(find(tree, (element) => element.props["aria-label"] === "F2L position solves")).toBeDefined();
+    expect(find(tree, (element) => element.props["aria-label"] === (mode === "slot" ? "F2L insertion position solves" : "F2L solve order solves"))).toBeDefined();
     expect(elements(tree).filter((element) => element.type === "th").map((element) => element.props.children)).toEqual(["Pair time", "Measured recognition", "Measured execution", "STM", "Execution TPS", "Solve time", "Session", "Date"]);
     const source = find(tree, (element) => element.type === "tr" && element.props.tabIndex === 0);
     expect(elements(source).filter((element) => element.type === "td").slice(0, 5).map((element) => element.props.children)).toEqual(["1.50", "0.50", "1.00", 6, "6.00"]);
@@ -222,18 +229,8 @@ describe("Statistics user interactions", () => {
     source.props.onClick(clickEvent()); source.props.onKeyDown(keyEvent(" "));
     expect(onOpenSolve).toHaveBeenCalledTimes(3);
     expect(onOpenSolve).toHaveBeenLastCalledWith(snapshot.solves[0]);
-    expect(find(tree, (element) => element.type === "h3").props.children[0]).toBe("BL");
-    find(tree, (element) => element.type === "button" && element.props.children === "By solve order").props.onClick();
-    tree = render();
-    expect(find(tree, (element) => element.type === "p" && element.props.children === "Pair completion order · skipped/XCross pairs counted separately")).toBeDefined();
-    expect(find(tree, (element) => element.type === PerformanceTable).props.rows.map((row: { label: string }) => row.label)).toEqual(["1st pair", "2nd pair", "3rd pair", "4th pair"]);
-    expect(elements(tree).some((element) => element.props["aria-label"] === "F2L position solves")).toBe(false);
-    find(tree, (element) => element.type === "button" && element.props.children === "By insertion position").props.onClick();
-    expect(find(render(), (element) => element.type === PerformanceTable).props.rows.map((row: { label: string }) => row.label)).toEqual(["FR", "FL", "BR", "BL"]);
-    find(render(), (element) => element.type === PerformanceTable).props.sort.onSort("count");
-    find(render(), (element) => element.type === PerformanceTable).props.sort.onSort("count");
-    expect(find(render(), (element) => element.type === PerformanceTable).props.rows[0].label).toBe("BL");
-    expect(find(render(), (element) => element.type === "p" && element.props.children === "Where each pair went in relative to how you held the cube, after any rotations")).toBeDefined();
+    expect(elements(tree).some(element => element.type === "h3" && Array.isArray(element.props.children) && element.props.children[0] === (mode === "slot" ? "BL" : "4th pair"))).toBe(true);
+
   });
 
   it("opens singles, PBs, outliers, and DNFs from accessible chart points", () => {
@@ -263,7 +260,7 @@ controller.sessions.update((state) => ({ ...state, sessionId: "A" }));
     const history: StatisticsSnapshot = { sessions: [...snapshot.sessions, { id: "C", name: "2x2", event: "222", createdAt: 3 }], solves: [...snapshot.solves, ...Array.from({ length: 104 }, (_, index) => item(`extra${index}`, "A", 15000, index + 6)), item("other-event", "C", 1000, 120)] };
     const load = vi.spyOn(controller, "loadStatisticsSnapshot").mockResolvedValue(history);
     const onScopeChange = vi.fn();
-    const props = { currentEvent: "333" as const, activeSessionId: "A", onReplay: vi.fn(), onTrainCase: vi.fn(), onScopeChange };
+    const props = { currentEvent: "333" as const, activeSessionId: "A", onReplay: vi.fn(), onSolveAgain: vi.fn(), onTrainCase: vi.fn(), onScopeChange };
     const render = () => renderRoot(() => StatisticsView(props));
     render(); for (const effect of hooks.effects) effect();
     await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
@@ -375,7 +372,7 @@ controller.sessions.update((state) => ({ ...state, sessionId: "A", sessions: sna
   it.each([["oll", "27"], ["pll", "T"]] as const)("trains or reviews a suggested slow %s case", (family, caseId) => {
     const rows = [{ caseId, label: caseId, count: 4, skipCount: 0, solveIds: ["s0"], samples: [], medianMs: 2000 }];
     const onTrainCase = vi.fn();
-    const render = () => renderRoot(() => StatisticsCaseTable({ family, rows, focus: rows, skipCount: 0, model, onOpenSolve: vi.fn(), onTrainCase }));
+    const render = () => renderRoot(() => StatisticsCaseTable({ family, rows, focus: rows.map(row => ({ reason: "total" as const, row })), skipCount: 0, model, onOpenSolve: vi.fn(), onTrainCase }));
     let tree = render();
     find(tree, (element) => element.type === "button" && element.props.children === "Train").props.onClick();
     expect(onTrainCase).toHaveBeenCalledWith(family, caseId);
@@ -459,5 +456,146 @@ describe("shared result history", () => {
     expect(history.comparison?.sampleSize).toBe(6);
     expect(history.spread?.find(row => row.name === "OLL")?.samples).toHaveLength(6);
     expect(history.comparison?.steps.find(row => row.name === "OLL")?.baselineMs).toBe(history.spread?.find(row => row.name === "OLL")?.medianMs);
+  });
+});
+
+describe("case presentation contracts", () => {
+  it("renders both F2L datasets with independent sorting and expansion", () => {
+    const both = StatisticsF2lPerformance({ model, onOpenSolve: vi.fn() });
+    expect(elements(both).filter(element => element.type === StatisticsF2lPerformancePanel).map(element => element.props.mode)).toEqual(["slot", "order"]);
+    const pairedModel = { ...model, analysisCount: 1 };
+    const render = () => renderRoot(() => <>{StatisticsF2lPerformancePanel({ mode: "slot", model: pairedModel, onOpenSolve: vi.fn() })}{StatisticsF2lPerformancePanel({ mode: "order", model: pairedModel, onOpenSolve: vi.fn() })}</>);
+    let tables = elements(render()).filter(element => element.type === PerformanceTable);
+    expect(tables[0].props.rows).toBe(model.f2lSlots);
+    expect(tables[1].props.rows).toBe(model.f2lPositions);
+    tables[0].props.onSelect(model.f2lSlots[0]);
+    tables[1].props.onSelect(model.f2lPositions[1]);
+    tables[0].props.sort.onSort("median");
+    tables = elements(render()).filter(element => element.type === PerformanceTable);
+    expect(tables[0].props.expandedLabel).toBe("FR");
+    expect(tables[1].props.expandedLabel).toBe("2nd pair");
+    expect(tables[0].props.sort.column).toBe("median");
+    expect(tables[1].props.sort.column).toBeNull();
+    expect(tables[0].props.expanded.props["aria-label"]).toBe("F2L insertion position solves");
+    expect(tables[1].props.expanded.props["aria-label"]).toBe("F2L solve order solves");
+    tables[1].props.onSelect(model.f2lPositions[1]);
+    expect(elements(render()).filter(element => element.type === PerformanceTable)[0].props.expandedLabel).toBe("FR");
+  });
+  it.each(["oll", "pll"] as const)("explains all three %s weaknesses, allowing repeated cases", family => {
+    const caseId = family === "oll" ? "27" : "T";
+    const row = { caseId, label: caseId, count: 5, skipCount: 0, solveIds: [], samples: [], medianMs: 3840, recognitionMs: 1210, executionMs: 2630 };
+    const html = renderToStaticMarkup(StatisticsCaseTable({ family, rows: [row], focus: focusCases([row]), skipCount: 0, model, onOpenSolve: vi.fn(), onTrainCase: vi.fn() }));
+    for (const label of ["Worst total", "Worst recognition", "Worst execution", "Total 3.84", "Recognition 1.21", "Execution 2.63"]) expect(html).toContain(label);
+    expect(html.match(/class="focus-case"/g)).toHaveLength(3);
+  });
+  it.each(["invalid case", "loading rejection"])("omits a thumbnail safely after %s", async failure => {
+    if (failure === "loading rejection") vi.spyOn(puzzleLoading, "get3x3x3").mockRejectedValue(new Error("Unavailable"));
+    const render = () => renderRoot(() => StatisticsCaseDiagram({ family: "oll", caseId: "not-in-catalogue" }));
+    render(); for (const effect of hooks.effects) effect();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    const tree = render();
+    expect(elements(tree).some(element => element.type === LastLayerCaseThumbnail)).toBe(false);
+    expect(tree.props["aria-label"]).toBe("OLL not-in-catalogue case diagram");
+    const row = { caseId: "not-in-catalogue", label: "not-in-catalogue", count: 3, skipCount: 0, solveIds: [], samples: [], medianMs: 2000 };
+    const table = renderRoot(() => StatisticsCaseTable({ family: "oll", rows: [row], focus: focusCases([row]), skipCount: 0, model, onOpenSolve: vi.fn(), onTrainCase: vi.fn() }));
+    expect(find(table, element => element.type === PerformanceTable).props.rows).toEqual([row]);
+    expect(elements(table).some(element => element.type === "button" && element.props.children === "View")).toBe(true);
+  });
+});
+
+describe("Statistics shortcuts", () => {
+  it.each(["counted", "Ao5", "Ao12", "Ao50", "Ao100"])("routes Timer %s to Solves, including projected long averages", label => {
+    const controller = new Controller(); hooks.controller = controller;
+    controller.state.update(state => ({ ...state, ready: true }));
+    const solves = Array.from({ length: 12 }, (_, i) => item(`p${i}`, "A", 10000, i));
+    controller.sessions.update(state => ({ ...state, sessions: snapshot.sessions, sessionId: "A", solves }));
+    const render = () => renderRoot(() => App());
+    let tree = render();
+    const panelProps = find(tree, element => element.type === StatsPanel).props;
+    const panel = StatsPanel(panelProps as Parameters<typeof StatsPanel>[0]);
+    if (label === "counted") find(panel, element => element.props["aria-label"] === "View counted solves").props.onClick();
+    else {
+      const shortcut = find(panel, element => element.type === Stat && element.props.label === label);
+      if (label === "Ao50" || label === "Ao100") expect(shortcut.props.sub).toContain("Projected average");
+      const button = Stat(shortcut.props as Parameters<typeof Stat>[0]);
+      expect(button.type).toBe("button"); button.props.onClick();
+    }
+    tree = render();
+    expect(controller.state.get().area).toBe("statistics");
+    expect(find(tree, element => element.type === StatisticsView).props.initialView).toBe("Solves");
+    find(tree, element => element.type === Header).props.onSelectArea("timer");
+    tree = render(); find(tree, element => element.type === Header).props.onSelectArea("statistics");
+    expect(find(render(), element => element.type === StatisticsView).props.initialView).toBe("Overview");
+  });
+  it("makes Counted and every Overview average a Solves shortcut", () => {
+    const onOpenSolves = vi.fn();
+    const local = deriveStatistics({ ...snapshot, solves: Array.from({ length: 12 }, (_, i) => item(`p${i}`, "A", 10000, i)) }, { event: "333", sessionId: "A" }, "A");
+    const summary = StatisticsOverviewSummary({ model: local, onOpenSolves });
+    const cards = elements(summary).filter(element => element.type === StatCard && element.props.onOpen);
+    expect(cards.map(card => card.props.label)).toEqual(["Counted solves", "Ao5", "Ao12", "Projected Ao50", "Projected Ao100"]);
+    for (const card of cards) card.props.onOpen();
+    expect(onOpenSolves).toHaveBeenCalledTimes(5);
+  });
+});
+
+describe("historical detail coherence", () => {
+  it("updates the snapshot and open detail, then deletes without changing Timer scope", async () => {
+    const controller = new Controller(); hooks.controller = controller;
+    controller.sessions.update(state => ({ ...state, sessionId: "A", sessions: snapshot.sessions, solves: [snapshot.solves[1]] }));
+    const puzzle = await get3x3x3();
+    const moves = [{ move: "R", t: 1000 }];
+    const analysis = analyseSolve(puzzle.defaultPattern().applyAlg("R'"), moves, null, { observedStartBottomFace: "D" });
+    const historical = { ...snapshot.solves[0], moves, analysis };
+    vi.spyOn(controller, "loadStatisticsSnapshot").mockResolvedValue({ ...snapshot, solves: [historical, ...snapshot.solves.slice(1)] });
+    const update = vi.spyOn(controller, "updateHistoricalSolve").mockImplementation(async (solve, changes) => ({ ...solve, ...changes }));
+    const remove = vi.spyOn(controller, "deleteSolve").mockResolvedValue();
+    const again = vi.fn();
+    const props = { currentEvent: "333" as const, activeSessionId: "A", initialView: "Solves" as const, onReplay: vi.fn(), onSolveAgain: again, onTrainCase: vi.fn(), onScopeChange: vi.fn() };
+    const render = () => renderRoot(() => StatisticsView(props));
+    render(); for (const effect of hooks.effects) effect();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    let tree = render();
+    find(tree, element => element.type === StatisticsRecords).props.onOpenSolve(historical);
+    const detail = () => find(render(), element => element.type === StatisticsSolveDetail);
+    const controls = () => {
+      const current = detail();
+      const body = StatisticsSolveDetail(current.props as Parameters<typeof StatisticsSolveDetail>[0]);
+      return SolveActions(find(body, element => element.type === SolveActions).props as Parameters<typeof SolveActions>[0]);
+    };
+    for (const penalty of ["+2", "DNF", "OK"]) {
+      find(controls(), element => element.type === "button" && element.props.children === penalty).props.onClick();
+      await Promise.resolve(); await Promise.resolve();
+      expect(detail().props.solve.penalty).toBe(penalty === "OK" ? "none" : penalty);
+      expect(find(render(), element => element.type === StatisticsRecords).props.model.scopeSolves.find((solve: Solve) => solve.id === "s0").penalty).toBe(penalty === "OK" ? "none" : penalty);
+    }
+    find(controls(), element => element.type === "button" && element.props.children === "Mark CFOP wrong").props.onClick();
+    await Promise.resolve(); await Promise.resolve();
+    expect(detail().props.solve.cfopAnalysisExcluded).toBe(true);
+    expect(find(controls(), element => element.props.children === "Review").props.disabled).toBe(false);
+    expect(elements(StatisticsSolveDetail(detail().props as Parameters<typeof StatisticsSolveDetail>[0])).some(element => element.type === SolveAnalysisReview)).toBe(true);
+    find(controls(), element => element.type === "button" && element.props.children === "Undo CFOP exclusion").props.onClick();
+    await Promise.resolve(); await Promise.resolve();
+    expect(detail().props.solve.cfopAnalysisExcluded).toBeUndefined();
+    find(controls(), element => element.type === "input").props.onBlur({ target: { value: "Updated note" } });
+    await Promise.resolve(); await Promise.resolve();
+    expect(detail().props.solve.comment).toBe("Updated note");
+    detail().props.onSolveAgain(); expect(again).toHaveBeenCalledWith(detail().props.solve);
+    await detail().props.onDelete();
+    tree = render();
+    expect(elements(tree).some(element => element.type === StatisticsSolveDetail)).toBe(false);
+    expect(find(tree, element => element.type === StatisticsRecords).props.model.scopeSolves.some((solve: Solve) => solve.id === "s0")).toBe(false);
+    expect(remove).toHaveBeenCalledWith("s0");
+    expect(update.mock.calls[0][0].sessionId).toBe("B");
+    expect(controller.sessions.get().sessionId).toBe("A");
+  });
+  it("routes historical Solve again through App to Timer with the original provider", () => {
+    const controller = new Controller(); hooks.controller = controller;
+    controller.state.update(state => ({ ...state, ready: true, area: "statistics" }));
+    const replay = vi.spyOn(controller, "replayScramble").mockImplementation(() => {});
+    const historical = { ...snapshot.solves[0], scrambleProvider: "333-random-state" };
+    const tree = renderRoot(() => App());
+    find(tree, element => element.type === StatisticsView).props.onSolveAgain(historical);
+    expect(controller.state.get().area).toBe("timer");
+    expect(replay).toHaveBeenCalledWith(historical.scramble, historical.scrambleProvider);
   });
 });

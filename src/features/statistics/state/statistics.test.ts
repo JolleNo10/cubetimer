@@ -680,12 +680,15 @@ describe("Statistics insights", () => {
     expect(modelFor(solves.slice(0, 5)).averageStandings.ao5).toMatchObject({ isBest: true, sourceSessionId: "A" });
   });
 
-  it("suggests the slowest sufficiently sampled cases", () => {
-    const row = (caseId: string, count: number, medianMs: number, recognitionMs = 0) =>
-      ({ caseId, label: caseId, count, skipCount: 0, solveIds: [], samples: [], medianMs, recognitionMs });
-    const rows = [row("1", 5, 1000), row("2", 2, 9000), row("3", 3, 2000, 100), row("4", 4, 2000, 300), row("5", 9, 1500)];
-    expect(focusCases(rows).map((item) => item.caseId)).toEqual(["4", "3", "5"]);
-    expect(focusCases(rows, { minSamples: 1, limit: 1 })[0].caseId).toBe("2");
+  it("selects each timing weakness independently with three samples required", () => {
+    const row = (caseId: string, count: number, medianMs: number, recognitionMs?: number, executionMs?: number) =>
+      ({ caseId, label: caseId, count, skipCount: 0, solveIds: [], samples: [], medianMs, recognitionMs, executionMs });
+    const rows = [row("1", 5, 4000, 500, 3500), row("2", 2, 9000, 8000, 9000), row("3", 3, 3000, 1500, 1500), row("4", 4, 3900, 100, 3800)];
+    expect(focusCases(rows).map(({ reason, row }) => [reason, row.caseId])).toEqual([["total", "1"], ["recognition", "3"], ["execution", "4"]]);
+    expect(focusCases(rows, { minSamples: 1 }).every(focus => focus.row.caseId === "2")).toBe(true);
+    expect(focusCases([rows[0]]).map(focus => focus.row.caseId)).toEqual(["1", "1", "1"]);
+    expect(focusCases([row("5", 3, 2000)]).map(focus => focus.reason)).toEqual(["total"]);
+    expect(focusCases([rows[1]])).toEqual([]);
   });
 
   it("slices every chart series to the same counted window", () => {

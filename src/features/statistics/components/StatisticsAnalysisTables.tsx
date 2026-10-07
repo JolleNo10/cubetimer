@@ -2,13 +2,13 @@ import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { formatTime } from "../../../shared/time";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { formatSolveTime } from "../state/stats";
-import { RECOGNITION_NOTE, sortPerformanceRows, type CasePerformance, type CaseSort, type PerformanceSummary, type SortDirection, type StatisticsViewModel } from "../state/statistics";
+import { RECOGNITION_NOTE, sortPerformanceRows, type CaseFocus, type CasePerformance, type CaseSort, type PerformanceSummary, type SortDirection, type StatisticsViewModel } from "../state/statistics";
 import type { Solve } from "../../../app/types";
 import type { LastLayerFamily } from "../../../cube/lastLayerTraining";
 import { get3x3x3 } from "../../../cube/puzzle";
 import { buildLastLayerCatalogueTarget } from "../../../cube/lastLayerTraining";
 import { getLastLayerThumbnailModel, type LastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
-import { LastLayerCaseThumbnail } from "../../training/components/LastLayerCaseThumbnail";
+import { LastLayerCaseThumbnail } from "../../../shared/ui/LastLayerCaseThumbnail";
 import { statisticsActivationProps } from "./statisticsInteraction";
 import { SplitBar, StatCard, StatsSection } from "./StatisticsPrimitives";
 
@@ -63,6 +63,8 @@ export function StatisticsCaseDiagram({ family, caseId }: { family: LastLayerFam
       const built = buildLastLayerCatalogueTarget(kpuzzle, family, caseId);
       const model = getLastLayerThumbnailModel(family, built.pattern, built.info.trainingRotation, built.info.completionGoal);
       if (active) setPreview({ family, caseId, model });
+    }).catch(() => {
+      if (active) setPreview(null);
     });
     return () => { active = false; };
   }, [family, caseId]);
@@ -72,7 +74,7 @@ export function StatisticsCaseDiagram({ family, caseId }: { family: LastLayerFam
 }
 
 export function StatisticsCaseTable({ family, rows, skipCount, focus = [], model, onOpenSolve, onTrainCase }: {
-  family: LastLayerFamily; rows: readonly CasePerformance[]; skipCount: number; focus?: readonly CasePerformance[]; model: StatisticsViewModel;
+  family: LastLayerFamily; rows: readonly CasePerformance[]; skipCount: number; focus?: readonly CaseFocus[]; model: StatisticsViewModel;
   onOpenSolve: (solve: Solve) => void; onTrainCase: (family: LastLayerFamily, caseId: string) => void;
 }) {
   const { date } = useDateTimeFormat();
@@ -82,14 +84,24 @@ export function StatisticsCaseTable({ family, rows, skipCount, focus = [], model
   const selected = rows.find((row) => row.caseId === caseId);
   const members = new Map(model.scopeSolves.map((solve) => [solve.id, solve]));
   return <StatsSection id={`${family}-cases`} title={`${family.toUpperCase()} cases`} description={`${rows.length} recognised cases · ${skipCount} skips (${model.analysisCount ? (skipCount / model.analysisCount * 100).toFixed(1) : "—"}% of analysed solves)`}>
-    {focus.length ? <div className="focus-cases" role="group" aria-label={`Slowest ${family.toUpperCase()} cases`}>
-      <span className="stat-label">Slowest cases</span>
-      {focus.map((row) => <div className="focus-case" key={row.caseId}>
-        <StatisticsCaseDiagram family={family} caseId={row.caseId} />
-        <strong>{family.toUpperCase()} {row.caseId}</strong><span className="mono">{formatTime(row.medianMs)}</span><span className="small faint">{row.count} samples</span>
-        <button className="ghost small" onClick={() => setCaseId(row.caseId)}>View</button>
-        <button className="small" onClick={() => onTrainCase(family, row.caseId)}>Train</button>
-      </div>)}
+    {focus.length ? <div className="focus-cases" role="group" aria-label={`Worst ${family.toUpperCase()} cases`}>
+      {focus.map(({ reason, row }) => {
+        const primary = reason === "total" ? row.medianMs : reason === "recognition" ? row.recognitionMs : row.executionMs;
+        const label = reason === "total" ? "Total" : reason === "recognition" ? "Recognition" : "Execution";
+        const secondary = reason === "total" ? `Recognition ${formatTime(row.recognitionMs)} · Exec ${formatTime(row.executionMs)}`
+          : reason === "recognition" ? `Total ${formatTime(row.medianMs)} · Exec ${formatTime(row.executionMs)}`
+            : `Total ${formatTime(row.medianMs)} · Recognition ${formatTime(row.recognitionMs)}`;
+        return <div className="focus-case" key={reason}>
+          <StatisticsCaseDiagram family={family} caseId={row.caseId} />
+          <span className="stat-label">Worst {reason}</span>
+          <strong>{family.toUpperCase()} {row.caseId}</strong>
+          <strong className="mono">{label} {formatTime(primary)}</strong>
+          <span className="small faint">{secondary}</span>
+          <span className="small faint">{row.count} samples</span>
+          <div className="row"><button className="ghost small" onClick={() => setCaseId(row.caseId)}>View</button>
+          <button className="small" onClick={() => onTrainCase(family, row.caseId)}>Train</button></div>
+        </div>;
+      })}
     </div> : null}
     <p className="small faint">{RECOGNITION_NOTE}</p>
     {rows.length ? <PerformanceTable rows={sorted} labelHeader="Case" sort={sort} onSelect={(row) => setCaseId((current) => current === (row as CasePerformance).caseId ? null : (row as CasePerformance).caseId)} expandedLabel={selected?.label} expanded={selected ? <div className="stats-detail" role="region" aria-label={`${family.toUpperCase()} case solves`}>
@@ -102,25 +114,21 @@ export function StatisticsCaseTable({ family, rows, skipCount, focus = [], model
   </StatsSection>;
 }
 
-export function StatisticsF2lPerformance({ model, onOpenSolve }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void }) {
+export function StatisticsF2lPerformancePanel({ model, onOpenSolve, mode }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void; mode: "slot" | "order" }) {
   const { date } = useDateTimeFormat();
   const [position, setPosition] = useState<string | null>(null);
-  const [mode, setMode] = useState<"slot" | "order">("slot");
   const sort = usePerformanceSort(null);
   const natural = mode === "slot" ? model.f2lSlots : model.f2lPositions;
   const rows = sort.column ? sortPerformanceRows(natural, sort.column, sort.direction) : natural;
   const selected = rows.find((row) => row.label === position);
   const members = new Map(model.scopeSolves.map((solve) => [solve.id, solve]));
-  return <StatsSection id="f2l" title="F2L performance">
+  return <section className="f2l-performance-panel" aria-label={mode === "slot" ? "By insertion position" : "By solve order"}>
+    <h3>{mode === "slot" ? "By insertion position" : "By solve order"}</h3>
     <p className="small faint">{mode === "slot" ? "Where each pair went in relative to how you held the cube, after any rotations" : "Pair completion order · skipped/XCross pairs counted separately"}</p>
     <p className="small faint">{RECOGNITION_NOTE}</p>
-    <div className="statistics-mode" role="group" aria-label="F2L grouping">
-      <button className="ghost" aria-pressed={mode === "slot"} onClick={() => { setMode("slot"); setPosition(null); }}>By insertion position</button>
-      <button className="ghost" aria-pressed={mode === "order"} onClick={() => { setMode("order"); setPosition(null); }}>By solve order</button>
-    </div>
     {mode === "slot" && model.f2lInferredCount ? <p className="small faint">{model.f2lInferredCount} insertions were recorded without grip data and are inferred from the turns: the slot face turned most is taken as your R or L, so front-face or back-slot inserts may read as their mirror.</p> : null}
     {mode === "slot" && model.f2lUnassignedCount ? <p className="small faint">{model.f2lUnassignedCount} pairs have no known insertion position and are left out here; solve order includes them.</p> : null}
-    {model.analysisCount ? <PerformanceTable rows={rows} labelHeader={mode === "slot" ? "Inserted at" : "Pair"} sort={sort} onSelect={(row) => setPosition((current) => current === row.label ? null : row.label)} expandedLabel={selected?.label} expanded={selected ? <div className="stats-detail" role="region" aria-label="F2L position solves">
+    {model.analysisCount ? <PerformanceTable rows={rows} labelHeader={mode === "slot" ? "Inserted at" : "Pair"} sort={sort} onSelect={(row) => setPosition((current) => current === row.label ? null : row.label)} expandedLabel={selected?.label} expanded={selected ? <div className="stats-detail" role="region" aria-label={mode === "slot" ? "F2L insertion position solves" : "F2L solve order solves"}>
       <div className="section-heading"><h3>{selected.label} · {selected.count} contributing solves</h3><button className="ghost" onClick={() => setPosition(null)}>Close pair</button></div>
       {selected.samples.length ? <div className="table-scroll"><table className="stats-table">
         <thead><tr><th>Pair time</th><th>Measured recognition</th><th>Measured execution</th><th>STM</th><th>Execution TPS</th><th>Solve time</th>{model.sessionId === null ? <th>Session</th> : null}<th>Date</th></tr></thead>
@@ -134,6 +142,15 @@ export function StatisticsF2lPerformance({ model, onOpenSolve }: { model: Statis
         })}</tbody>
       </table></div> : <div className="chart-empty">No non-skipped samples for this position.</div>}
     </div> : undefined} /> : <div className="chart-empty">No usable CFOP analysis in this scope.</div>}
+  </section>;
+}
+
+export function StatisticsF2lPerformance({ model, onOpenSolve }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void }) {
+  return <StatsSection id="f2l" title="F2L performance">
+    <div className="statistics-f2l-layout">
+      <StatisticsF2lPerformancePanel mode="slot" model={model} onOpenSolve={onOpenSolve} />
+      <StatisticsF2lPerformancePanel mode="order" model={model} onOpenSolve={onOpenSolve} />
+    </div>
   </StatsSection>;
 }
 

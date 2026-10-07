@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { analyseSolve } from "../../../cube/analysis";
 import { get3x3x3 } from "../../../cube/puzzle";
 import type { Solve } from "../../../app/types";
+import { SolveActions } from "./SolveActions";
 import { SolveResult } from "./SolveResult";
 
 const controller = vi.hoisted(() => ({ updateSolve: vi.fn().mockResolvedValue(undefined) }));
@@ -12,6 +13,7 @@ function elements(value: unknown): Element[] {
   if (Array.isArray(value)) return value.flatMap(elements);
   if (!value || typeof value !== "object" || !("props" in value)) return [];
   const node = value as Element;
+  if (node.type === SolveActions) return elements(SolveActions(node.props as Parameters<typeof SolveActions>[0]));
   return [node, ...elements(node.props.children)];
 }
 const puzzle = await get3x3x3();

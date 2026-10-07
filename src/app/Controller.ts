@@ -554,14 +554,34 @@ export class Controller {
 
   // ------------------------------------------------------------------ solves
 
+  #solveUpdates = new Map<string, Promise<Solve>>();
+
   async updateSolve(id: string, changes: Partial<Solve>): Promise<void> {
     const solve = this.sessions.get().solves.find((s) => s.id === id);
     if (!solve) return;
-    const updated = await solveHistory.updateSolve(solve, changes);
-    this.sessions.update((s) => ({ ...s, solves: s.solves.map((x) => (x.id === id ? updated : x)), lastSolve: s.lastSolve?.id === id ? updated : s.lastSolve }));
+    await this.updateHistoricalSolve(solve, changes);
+  }
+
+  /** Edit known history without selecting its Session or changing Timer context. */
+  async updateHistoricalSolve(solve: Solve, changes: Partial<Solve>): Promise<Solve> {
+    const previous = this.#solveUpdates.get(solve.id);
+    const operation = (async () => {
+      const latest = previous ? await previous.catch(() => solve) : solve;
+      const current = this.sessions.get().solves.find(candidate => candidate.id === solve.id) ?? latest;
+      const updated = await solveHistory.updateSolve(current, changes);
+      this.sessions.update(state => ({ ...state,
+        solves: state.solves.map(candidate => candidate.id === solve.id ? updated : candidate),
+        lastSolve: state.lastSolve?.id === solve.id ? updated : state.lastSolve,
+      }));
+      return updated;
+    })();
+    this.#solveUpdates.set(solve.id, operation);
+    try { return await operation; }
+    finally { if (this.#solveUpdates.get(solve.id) === operation) this.#solveUpdates.delete(solve.id); }
   }
 
   async deleteSolve(id: string): Promise<void> {
+    await this.#solveUpdates.get(id)?.catch(() => undefined);
     await solveHistory.deleteSolve(id);
     this.sessions.update((s) => {
       const solves = s.solves.filter((x) => x.id !== id);

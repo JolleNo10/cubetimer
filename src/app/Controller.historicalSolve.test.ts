@@ -1,0 +1,62 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { Controller } from "./Controller";
+import type { Solve } from "./types";
+import * as db from "../infrastructure/persistence/db";
+import * as solveHistory from "../features/history/solveHistory";
+const solve = (id: string, sessionId: string): Solve => ({ id, sessionId, createdAt: 1, rawMs: 1000, penalty: "none", source: "keyboard", moves: [], scramble: "R U" });
+afterEach(() => vi.restoreAllMocks());
+describe("historical Solve mutations", () => {
+  it("persists another Session's Solve and returns it without selecting that Session", async () => {
+    const saved = vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const update = vi.spyOn(solveHistory, "updateSolve");
+    const controller = new Controller();
+    const active = solve("active", "A"), historical = solve("historical", "B");
+    controller.sessions.update(state => ({ ...state, sessionId: "A", solves: [active], lastSolve: active }));
+    const before = controller.sessions.get();
+    const updated = await controller.updateHistoricalSolve(historical, { penalty: "+2", comment: "Edited" });
+    expect(updated).toEqual({ ...historical, penalty: "+2", comment: "Edited" });
+    expect(update).toHaveBeenCalledWith(historical, { penalty: "+2", comment: "Edited" });
+    expect(saved).toHaveBeenCalledWith(updated);
+    expect(controller.sessions.get()).toEqual(before);
+  });
+  it("shares current/historical editing and synchronizes active history and lastSolve", async () => {
+    vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const controller = new Controller(), active = solve("active", "A");
+    controller.sessions.update(state => ({ ...state, sessionId: "A", solves: [active], lastSolve: active }));
+    await controller.updateHistoricalSolve(active, { cfopAnalysisExcluded: true });
+    await controller.updateSolve(active.id, { comment: "Note" });
+    expect(controller.sessions.get().lastSolve).toMatchObject({ cfopAnalysisExcluded: true, comment: "Note" });
+    expect(controller.sessions.get().solves[0]).toBe(controller.sessions.get().lastSolve);
+    const remove = vi.spyOn(db, "deleteSolve").mockResolvedValue();
+    await controller.deleteSolve(active.id);
+    expect(remove).toHaveBeenCalledWith(active.id);
+    expect(controller.sessions.get()).toMatchObject({ sessionId: "A", solves: [], lastSolve: null });
+  });
+  it("retains overlapping note and penalty changes for an inactive Solve", async () => {
+    vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const controller = new Controller(), historical = solve("historical", "B");
+    const note = controller.updateHistoricalSolve(historical, { comment: "Note" });
+    const penalty = controller.updateHistoricalSolve(historical, { penalty: "DNF" });
+    await note;
+    expect(await penalty).toMatchObject({ comment: "Note", penalty: "DNF" });
+  });
+  it("waits for pending edits before deletion so they cannot restore the deleted Solve", async () => {
+    let finish!: () => void;
+    const pending = new Promise<void>(resolve => { finish = resolve; });
+    const save = vi.spyOn(db, "saveSolve").mockReturnValue(pending);
+    const remove = vi.spyOn(db, "deleteSolve").mockResolvedValue();
+    const controller = new Controller(), historical = solve("historical", "B");
+    const editing = controller.updateHistoricalSolve(historical, { comment: "Note" });
+    const deleting = controller.deleteSolve(historical.id);
+    expect(remove).not.toHaveBeenCalled();
+    finish(); await editing; await deleting;
+    expect(save.mock.invocationCallOrder[0]).toBeLessThan(remove.mock.invocationCallOrder[0]);
+  });
+  it("does not publish failed persistence", async () => {
+    vi.spyOn(db, "saveSolve").mockRejectedValue(new Error("write failed"));
+    const controller = new Controller(), active = solve("active", "A");
+    controller.sessions.update(state => ({ ...state, solves: [active], lastSolve: active }));
+    await expect(controller.updateHistoricalSolve(active, { penalty: "DNF" })).rejects.toThrow("write failed");
+    expect(controller.sessions.get().lastSolve).toBe(active);
+  });
+});

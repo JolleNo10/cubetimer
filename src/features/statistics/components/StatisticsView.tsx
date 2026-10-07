@@ -30,37 +30,37 @@ function value(value: number | null | undefined): string {
   return formatTime(value);
 }
 
-function averageCard(standing: AverageStanding, model: StatisticsViewModel) {
+function averageCard(standing: AverageStanding, model: StatisticsViewModel, onOpen?: () => void) {
   const allSessions = model.sessionId === null;
   const { size, status } = standing;
   const best = `Best ${value(standing.bestMs)}`;
   if (allSessions) {
     const source = model.eventSessions.find((session) => session.id === standing.sourceSessionId)?.name;
-    return <StatCard key={size} label={`Latest Ao${size}`} value={value(standing.value)} tone={standing.isBest ? "pb" : status === "unavailable" ? "unavailable" : undefined}
+    return <StatCard key={size} onOpen={onOpen} openLabel={`View Ao${size} solve history`} label={`Latest Ao${size}`} value={value(standing.value)} tone={standing.isBest ? "pb" : status === "unavailable" ? "unavailable" : undefined}
       detail={`${source ? `${source} · ` : "No achieved window · "}${best}`} />;
   }
   if (status === "projected") {
-    return <StatCard key={size} label={`Projected Ao${size}`} value={value(standing.value)} tone="projected"
+    return <StatCard key={size} onOpen={onOpen} openLabel={`View Ao${size} solve history`} label={`Projected Ao${size}`} value={value(standing.value)} tone="projected"
       title="Remaining solves are assumed at the median of the latest up-to-20 finished counted solves."
       detail={`${standing.count} / ${size} solves · ${best}`} />;
   }
   if (status === "unavailable") {
     const detail = size >= 50 && model.stats.solved < 10 ? "Needs 10 finished solves for a projection" : `Needs ${size} counted solves`;
-    return <StatCard key={size} label={`Ao${size}`} value={value(standing.value)} tone="unavailable" detail={`${detail} · ${best}`} />;
+    return <StatCard key={size} onOpen={onOpen} openLabel={`View Ao${size} solve history`} label={`Ao${size}`} value={value(standing.value)} tone="unavailable" detail={`${detail} · ${best}`} />;
   }
-  return <StatCard key={size} label={`Ao${size}`} value={value(standing.value)} tone={standing.isBest ? "pb" : undefined}
+  return <StatCard key={size} onOpen={onOpen} openLabel={`View Ao${size} solve history`} label={`Ao${size}`} value={value(standing.value)} tone={standing.isBest ? "pb" : undefined}
     detail={standing.isBest ? `Personal best · ${best}` : <>{best} · <Delta ms={standing.deltaToBestMs} /></>} />;
 }
 
-export function StatisticsOverviewSummary({ model }: { model: StatisticsViewModel }) {
+export function StatisticsOverviewSummary({ model, onOpenSolves }: { model: StatisticsViewModel; onOpenSolves?: () => void }) {
   const { dateOnly } = useDateTimeFormat();
   const single = model.records.single[0];
   const singleSession = single ? model.eventSessions.find((session) => session.id === single.sessionId)?.name : undefined;
   return <div className="kpi-grid overview-summary">
-    <StatCard label="Counted solves" value={String(model.stats.count)} detail={`${model.stats.solved} finished · ${model.dnfCount} DNF (${Math.round(model.dnfRate * 100)}%)`} />
+    <StatCard onOpen={onOpenSolves} openLabel="View counted solves" label="Counted solves" value={String(model.stats.count)} detail={`${model.stats.solved} finished · ${model.dnfCount} DNF (${Math.round(model.dnfRate * 100)}%)`} />
     <StatCard label="Best single" value={value(model.stats.best)} detail={single ? `${dateOnly(single.createdAt)}${model.sessionId === null && singleSession ? ` · ${singleSession}` : ""}` : undefined} />
     <StatCard label="Median" value={value(model.medianMs)} detail={model.meanFinishedMs === undefined ? undefined : `Mean of finished ${value(model.meanFinishedMs)}`} />
-    {(["ao5", "ao12", "ao50", "ao100"] as const).map((metric) => averageCard(model.averageStandings[metric], model))}
+    {(["ao5", "ao12", "ao50", "ao100"] as const).map((metric) => averageCard(model.averageStandings[metric], model, onOpenSolves))}
   </div>;
 }
 
@@ -111,10 +111,10 @@ type TabProps = {
   scopeLabel: string; sessionNames?: SessionNames; onOpenSolveId: (solveId: string) => void;
 };
 
-export function StatisticsOverview({ model, series, chartWindow, onChartWindowChange, scopeLabel, sessionNames, onOpenSolveId, onSelectSession }: TabProps & { onSelectSession: (id: string) => void }) {
+export function StatisticsOverview({ model, series, chartWindow, onChartWindowChange, scopeLabel, sessionNames, onOpenSolveId, onSelectSession, onOpenSolves }: TabProps & { onSelectSession: (id: string) => void; onOpenSolves?: () => void }) {
   const [chart, setChart] = useState<"times" | "averages">("times");
   return <>
-    <StatisticsOverviewSummary model={model} />
+    <StatisticsOverviewSummary model={model} onOpenSolves={onOpenSolves} />
     <StatisticsRecentForm model={model} />
     <StatsSection id="progress" title="Progress" className="trend-section"
       description={`${chart === "times" ? "Singles with Ao5/Ao12" : "Actual Ao5–Ao100 windows"} · ${chartWindow === "all" ? "all" : `last ${chartWindow}`} counted solves · select a point to review its solve`}
@@ -181,9 +181,11 @@ export function StatisticsNavigation({ view, onSelect }: { view: StatisticsSubvi
   return <nav className="statistics-navigation" aria-label="Statistics views">{STATISTICS_VIEWS.map((item) => <button key={item} className="ghost" aria-pressed={view === item} onClick={() => onSelect(item)}>{item}</button>)}</nav>;
 }
 
-export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrainCase, onScopeChange }: {
+export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrainCase, onScopeChange, onSolveAgain, initialView = "Overview" }: {
   currentEvent: EventId; activeSessionId: string | null;
   onReplay: (solve: Solve) => void;
+  onSolveAgain: (solve: Solve) => void;
+  initialView?: StatisticsSubview;
   onTrainCase: (family: LastLayerFamily, caseId: string) => void;
   onScopeChange: (solveIds: readonly string[]) => void;
 }) {
@@ -197,7 +199,7 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrai
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [detailSolve, setDetailSolve] = useState<Solve | null>(null);
-  const [view, setView] = useState<StatisticsSubview>("Overview");
+  const [view, setView] = useState<StatisticsSubview>(initialView);
 
   useEffect(() => {
     let active = true;
@@ -277,13 +279,28 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrai
         <>
           {model.ignoredSolveCount ? <div className="notice">{model.ignoredSolveCount} solve{model.ignoredSolveCount === 1 ? "" : "s"} could not be assigned to a known Session and {model.ignoredSolveCount === 1 ? "was" : "were"} omitted.</div> : null}
           {!model.eventSessions.length ? <div className="empty">No Sessions exist for this event.</div> : null}
-          {view === "Overview" ? <StatisticsOverview {...tabProps} onSelectSession={setSessionId} /> : null}
+          {view === "Overview" ? <StatisticsOverview {...tabProps} onSelectSession={setSessionId} onOpenSolves={() => setView("Solves")} /> : null}
           {view === "Solves" ? <StatisticsRecords key={`records:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} /> : null}
           {view === "CFOP" ? <StatisticsCfop {...tabProps} onOpenSolve={setDetailSolve} /> : null}
           {view === "Cases" ? <StatisticsAnalysisTables key={`analysis:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} onTrainCase={onTrainCase} /> : null}
         </>
       ) : null}
-      {detailSolve && model?.scopeSolves.some((solve) => solve.id === detailSolve.id) ? <StatisticsSolveDetail solve={detailSolve} solves={model.scopeSolves} session={model.eventSessions.find((session) => session.id === detailSolve.sessionId)} onClose={() => setDetailSolve(null)} onReplay={onReplay} /> : null}
+      {detailSolve && model?.scopeSolves.some((solve) => solve.id === detailSolve.id) ? <StatisticsSolveDetail solve={detailSolve} solves={model.scopeSolves} session={model.eventSessions.find((session) => session.id === detailSolve.sessionId)} onClose={() => setDetailSolve(null)} onReplay={onReplay}
+        onSolveAgain={() => onSolveAgain(detailSolve)}
+        onUpdate={async changes => {
+          try {
+            const updated = await controller.updateHistoricalSolve(detailSolve, changes);
+            setSnapshot(current => current ? { ...current, solves: current.solves.map(solve => solve.id === updated.id ? updated : solve) } : current);
+            setDetailSolve(current => current?.id === updated.id ? updated : current);
+          } catch (mutationError) { setError(String(mutationError)); }
+        }}
+        onDelete={async () => {
+          try {
+            await controller.deleteSolve(detailSolve.id);
+            setSnapshot(current => current ? { ...current, solves: current.solves.filter(solve => solve.id !== detailSolve.id) } : current);
+            setDetailSolve(current => current?.id === detailSolve.id ? null : current);
+          } catch (mutationError) { setError(String(mutationError)); }
+        }} /> : null}
     </main>
   );
 }

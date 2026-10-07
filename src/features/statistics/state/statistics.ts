@@ -125,8 +125,8 @@ export type StatisticsViewModel = {
   f2lInferredCount: number;
   recentForm: RecentForm | null;
   averageStandings: Record<AverageMetric, AverageStanding>;
-  ollFocus: CasePerformance[];
-  pllFocus: CasePerformance[];
+  ollFocus: CaseFocus[];
+  pllFocus: CaseFocus[];
 };
 
 /** Descriptive comparison of the latest counted solves with the window before them. */
@@ -224,6 +224,8 @@ export type PerformanceSummary = {
   bestMs?: number; medianMs?: number; recognitionMs?: number; executionMs?: number; moves?: number; tps?: number;
 };
 export type CasePerformance = PerformanceSummary & { caseId: string };
+export type CaseFocusReason = "total" | "recognition" | "execution";
+export type CaseFocus = { reason: CaseFocusReason; row: CasePerformance };
 /** Sortable performance-table columns; "case" is the row label (case, slot or pair order). */
 export type CaseSort = "case" | "count" | "best" | "median" | "recognition" | "execution" | "moves" | "tps" | "skips";
 export type PauseStats = {
@@ -822,10 +824,14 @@ function averageStandings(
   return result;
 }
 
-/** The slowest well-sampled cases by median, as training suggestions. */
-export function focusCases(rows: readonly CasePerformance[], { minSamples = 3, limit = 3 }: { minSamples?: number; limit?: number } = {}): CasePerformance[] {
-  return rows
-    .filter((row) => row.count >= minSamples && row.medianMs !== undefined)
-    .sort((a, b) => b.medianMs! - a.medianMs! || (b.recognitionMs ?? 0) - (a.recognitionMs ?? 0) || a.caseId.localeCompare(b.caseId, undefined, { numeric: true }))
-    .slice(0, limit);
+/** The worst well-sampled case for each independent timing dimension. */
+export function focusCases(rows: readonly CasePerformance[], { minSamples = 3 }: { minSamples?: number } = {}): CaseFocus[] {
+  const dimensions = [
+    ["total", "medianMs"], ["recognition", "recognitionMs"], ["execution", "executionMs"],
+  ] as const;
+  return dimensions.flatMap(([reason, metric]) => {
+    const eligible = rows.filter(row => row.count >= minSamples && row[metric] !== undefined && Number.isFinite(row[metric]));
+    const row = eligible.sort((a, b) => b[metric]! - a[metric]! || a.caseId.localeCompare(b.caseId, undefined, { numeric: true }))[0];
+    return row ? [{ reason, row }] : [];
+  });
 }

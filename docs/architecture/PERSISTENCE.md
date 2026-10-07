@@ -178,7 +178,7 @@ Rebuilds replace only analysis and retain this judgement. It can exclude, never 
 an automatically suspect interpretation into use. `isUsableCfopAnalysis(solve)` combines
 machine trust with this veto for analytics, comparisons, training, Tools and Replay's
 inferred-frame fallback. Normal solve timing/count/average/PB eligibility is unaffected.
-Result/History editing uses Controller and SolveHistory persistence; components do not
+Result/History and Statistics historical editing use Controller and SolveHistory persistence; components do not
 write IndexedDB directly. Normal counted SmartCube rows show `CFOP excluded` before
 machine status; Slow Solve/Replay/practice keep their existing compact badges.
 
@@ -516,6 +516,11 @@ Overview, Solves, CFOP, and Cases navigation is local React presentation state.
 Chart windows affect visible charts only, not rankings or summaries.
 
 Solve-result comparison uses prior compatible solves from the same `sessionId`, rather than attempting to recover event compatibility from a duplicated field on each Solve.
+
+Historical Statistics presentation may edit/delete a known Solve through
+Controller -> SolveHistory without selecting that Solve's Session or mutating
+Timer Session/Event context. Controller synchronizes active history when present;
+Statistics updates its own loaded snapshot after successful persistence.
 
 ## Rejected alternatives
 

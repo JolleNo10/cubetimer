@@ -3,22 +3,23 @@ import { useMemo } from "react";
 import { sessionStats, type LongAverage } from "../state/stats";
 import type { Solve } from "../../../app/types";
 
-export function StatsPanel({ solves }: { solves: Solve[] }) {
+export function StatsPanel({ solves, onOpenStatistics }: { solves: Solve[]; onOpenStatistics?: (view: "Solves") => void }) {
   const stats = useMemo(() => sessionStats(solves), [solves]);
 
+  const openSolves = onOpenStatistics ? () => onOpenStatistics("Solves") : undefined;
   return (
     <div className="panel">
       <div className="panel-head">
         <span className="panel-title">Statistics</span>
-        <span className="faint small" title="Selected session; slow / replay excluded">{stats.count} counted</span>
+        <button type="button" className="ghost small stats-count-link" title="Selected session; slow / replay excluded" onClick={openSolves} aria-label="View counted solves">{stats.count} counted</button>
       </div>
       <div className="panel-body">
         <div className="stats-sections">
           <section className="stats-current" aria-label="Current averages">
             <h3 className="stats-section-title">Current</h3>
             <div className="stat-grid">
-              <Stat label="Ao5" value={formatTime(stats.ao5)} sub={labelBest(stats.bestAo5)} />
-              <Stat label="Ao12" value={formatTime(stats.ao12)} sub={labelBest(stats.bestAo12)} />
+              <Stat onOpen={openSolves} label="Ao5" value={formatTime(stats.ao5)} sub={labelBest(stats.bestAo5)} />
+              <Stat onOpen={openSolves} label="Ao12" value={formatTime(stats.ao12)} sub={labelBest(stats.bestAo12)} />
             </div>
           </section>
           <section aria-label="Overall session performance">
@@ -31,8 +32,8 @@ export function StatsPanel({ solves }: { solves: Solve[] }) {
           <section aria-label="Long averages">
             <h3 className="stats-section-title">Long averages</h3>
             <div className="stat-grid">
-              <Stat label="Ao50" value={formatTime(stats.ao50.value)} sub={longAverageLabel(stats.ao50)} />
-              <Stat label="Ao100" value={formatTime(stats.ao100.value)} sub={longAverageLabel(stats.ao100)} />
+              <Stat onOpen={openSolves} label="Ao50" value={formatTime(stats.ao50.value)} sub={longAverageLabel(stats.ao50)} />
+              <Stat onOpen={openSolves} label="Ao100" value={formatTime(stats.ao100.value)} sub={longAverageLabel(stats.ao100)} />
             </div>
           </section>
           {stats.solving && (
@@ -64,14 +65,10 @@ export function StatsPanel({ solves }: { solves: Solve[] }) {
   );
 }
 
-function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
-  return (
-    <div className="stat">
-      <span className="label">{label}</span>
-      <span className="value">{value}</span>
-      {sub && <span className="sub">{sub}</span>}
-    </div>
-  );
+export function Stat({ label, value, sub, onOpen }: { label: string; value: string; sub?: string; onOpen?: () => void }) {
+  const content = <><span className="label">{label}</span><span className="value">{value}</span>{sub && <span className="sub">{sub}</span>}</>;
+  return onOpen ? <button type="button" className="stat stats-shortcut" onClick={onOpen} aria-label={`View ${label} solve history`}>{content}</button>
+    : <div className="stat">{content}</div>;
 }
 
 function longAverageLabel(average: LongAverage): string {

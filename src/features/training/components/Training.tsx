@@ -10,7 +10,7 @@ import { buildLastLayerCatalogueTarget, lastLayerCaseCatalogue, lastLayerCaseNam
 import { get3x3x3 } from "../../../cube/puzzle";
 import { useController, useStore, useStoreValue } from "../../../app/useController";
 import { F2LTraining } from "./F2LTraining";
-import { LastLayerCaseThumbnail } from "./LastLayerCaseThumbnail";
+import { LastLayerCaseThumbnail } from "../../../shared/ui/LastLayerCaseThumbnail";
 import { TrainingWorkspace } from "./TrainingWorkspace";
 import { trainingCaseKey, trainingStatsByCase } from "../trainingPerformance";
 import { DrillPoolActions } from "./TrainingDrill";
