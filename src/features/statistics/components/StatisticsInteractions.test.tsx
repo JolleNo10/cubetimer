@@ -504,6 +504,118 @@ describe("case presentation contracts", () => {
   });
 });
 
+describe("visible exact average dialogs", () => {
+  const history = {
+    sessions: snapshot.sessions,
+    solves: Array.from({ length: 100 }, (_, index) => [
+      item(`a${index}`, "A", 20000 - index * 10, index * 2),
+      item(`b${index}`, "B", 30000 - index * 10, index * 2 + 1),
+    ]).flat(),
+  };
+  it.each([5, 12, 50, 100] as const)("opens Ao%i from the top page as a modal with every chronological Session-local member", size => {
+    const local = deriveStatistics(history, { event: "333", sessionId: null }, "A");
+    const onOpenSolve = vi.fn();
+    const render = () => renderRoot(() => StatisticsRecords({ model: local, onOpenSolve }));
+    let tree = render();
+    const solves = find(tree, element => element.type === StatsSection && element.props.id === "solves");
+    expect(elements(solves).filter(element => element.type === "tr" && element.props.tabIndex === 0)).toHaveLength(50);
+    // The outer table is time-sorted; the newest A solve is at the top.
+    find(solves, element => element.props["aria-label"] === `View Ao${size} window ending at a99`).props.onClick({ stopPropagation: vi.fn() });
+    tree = render();
+    const selected = find(tree, element => element.type === StatisticsAverageDetail);
+    const expected = local.solveRows.find(row => row.solve.id === "a99")!.averages[`ao${size}`]!;
+    expect(selected.props.window).toBe(expected);
+    const detail = StatisticsAverageDetail(selected.props as Parameters<typeof StatisticsAverageDetail>[0]);
+    expect(detail.props.className).toBe("backdrop");
+    const dialog = find(detail, element => element.props.role === "dialog");
+    expect(dialog.props["aria-modal"]).toBe("true");
+    expect(dialog.props.className).toContain("statistics-average-detail");
+    const rows = elements(dialog).filter(element => element.type === "tr" && element.props.tabIndex === 0);
+    expect(rows).toHaveLength(size);
+    expect(rows.map(row => row.key)).toEqual(expected.entries.map(entry => entry.solveId));
+    expect(expected.entries.every(entry => entry.solveId.startsWith("a"))).toBe(true);
+    const statuses = elements(dialog).filter(element => element.props.className?.includes("average-status-"));
+    expect(statuses.map(status => status.props.children)).toEqual(expected.entries.map(entry => entry.trim === "kept" ? "Counted" : `Discarded ${entry.trim}`));
+    find(rows[0], element => element.type === "button").props.onClick();
+    expect(onOpenSolve).toHaveBeenCalledWith(local.scopeSolves.find(solve => solve.id === expected.entries[0].solveId));
+    expect(elements(render()).some(element => element.type === StatisticsAverageDetail)).toBe(false);
+  });
+  it.each([5, 12, 50, 100] as const)("uses the same Ao%i dialog for PB cards and PB history", size => {
+    const local = deriveStatistics(history, { event: "333", sessionId: null }, "A");
+    const render = () => renderRoot(() => StatisticsRecords({ model: local, onOpenSolve: vi.fn() }));
+    let tree = render();
+    const summary = find(tree, element => typeof element.type === "function" && element.props.onOpenAverage);
+    const cards = (summary.type as (props: any) => Element)(summary.props);
+    find(cards, element => element.type === StatCard && element.props.label === `Best Ao${size}`).props.onOpen();
+    const modal = () => {
+      const selected = find(render(), element => element.type === StatisticsAverageDetail);
+      const detail = StatisticsAverageDetail(selected.props as Parameters<typeof StatisticsAverageDetail>[0]);
+      expect(find(detail, element => element.props.role === "dialog").props["aria-modal"]).toBe("true");
+      return detail;
+    };
+    find(modal(), element => element.type === "button" && element.props.children === "Close average").props.onClick();
+    tree = render();
+    find(tree, element => element.type === "select").props.onChange({ target: { value: `ao${size}` } });
+    const pb = find(render(), element => element.type === StatsSection && element.props.id === "pb-history");
+    find(pb, element => element.type === "tr" && element.props.tabIndex === 0).props.onClick(clickEvent());
+    modal();
+  });
+  it("explains missing averages without buttons and preserves the single Time action", () => {
+    const local = deriveStatistics(snapshot, { event: "333", sessionId: null }, "A");
+    const onOpenSolve = vi.fn();
+    const tree = renderRoot(() => StatisticsRecords({ model: local, onOpenSolve }));
+    const row = find(tree, element => element.type === "tr" && element.props.tabIndex === 0);
+    const missing = find(row, element => element.type === "span" && element.props.title?.startsWith("No Ao50"));
+    expect(missing.props.title).toContain("50 counted solves in the same Session");
+    expect(elements(missing).some(element => element.type === "button")).toBe(false);
+    find(row, element => element.type === "button").props.onClick();
+    expect(onOpenSolve).toHaveBeenCalledWith(local.scopeSolves[5]);
+    expect(elements(tree).some(element => element.type === StatisticsAverageDetail)).toBe(false);
+  });
+  it("replaces the average modal with the existing historical solve modal", async () => {
+    const controller = new Controller(); hooks.controller = controller;
+    vi.spyOn(controller, "loadStatisticsSnapshot").mockResolvedValue(history);
+    const viewValues: unknown[] = [], recordValues: unknown[] = [];
+    const viewDependencies: (readonly unknown[] | undefined)[] = [];
+    const props = { currentEvent: "333" as const, activeSessionId: "A", view: "Solves" as const, onViewChange: vi.fn(), onReplay: vi.fn(), onSolveAgain: vi.fn(), onTrainCase: vi.fn(), onScopeChange: vi.fn() };
+    const renderView = () => {
+      hooks.values = viewValues; hooks.dependencies = viewDependencies;
+      return renderRoot(() => StatisticsView(props));
+    };
+    renderView(); for (const effect of hooks.effects) effect();
+    await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+    const renderRecords = () => {
+      const records = find(renderView(), element => element.type === StatisticsRecords);
+      hooks.values = recordValues; hooks.dependencies = [];
+      return renderRoot(() => StatisticsRecords(records.props as Parameters<typeof StatisticsRecords>[0]));
+    };
+    find(renderRecords(), element => element.props["aria-label"] === "View Ao5 window ending at a99").props.onClick({ stopPropagation: vi.fn() });
+    const selected = find(renderRecords(), element => element.type === StatisticsAverageDetail);
+    const average = StatisticsAverageDetail(selected.props as Parameters<typeof StatisticsAverageDetail>[0]);
+    find(average, element => element.type === "tr" && element.props.tabIndex === 0).props.onKeyDown(keyEvent("Enter"));
+    expect(elements(renderRecords()).some(element => element.type === StatisticsAverageDetail)).toBe(false);
+    const historical = find(renderView(), element => element.type === StatisticsSolveDetail);
+    expect(historical.props.solve.id).toBe("a95");
+    const detail = StatisticsSolveDetail(historical.props as Parameters<typeof StatisticsSolveDetail>[0]);
+    expect(elements(detail).filter(element => element.props["aria-modal"] === "true")).toHaveLength(1);
+  });
+  it.each(["size", "length", "order"])("rejects a stale selected window when its %s changes", change => {
+    let local = deriveStatistics(history, { event: "333", sessionId: "A" }, "A");
+    const render = () => renderRoot(() => StatisticsRecords({ model: local, onOpenSolve: vi.fn() }));
+    find(render(), element => element.props["aria-label"] === "View Ao5 window ending at a99").props.onClick({ stopPropagation: vi.fn() });
+    expect(find(render(), element => element.type === StatisticsAverageDetail)).toBeDefined();
+    local = { ...local, solveRows: local.solveRows.map(row => {
+      if (row.solve.id !== "a99") return row;
+      const window = row.averages.ao5!;
+      return { ...row, averages: { ...row.averages, ao5: { ...window,
+        size: change === "size" ? 12 : window.size,
+        entries: change === "length" ? window.entries.slice(0, -1) : change === "order" ? [...window.entries].reverse() : window.entries,
+      } } };
+    }) };
+    expect(elements(render()).some(element => element.type === StatisticsAverageDetail)).toBe(false);
+  });
+});
+
 describe("Statistics shortcuts", () => {
   it.each(["counted", "Ao5", "Ao12", "Ao50", "Ao100"])("routes Timer %s to Solves, including projected long averages", async label => {
     const controller = new Controller(); hooks.controller = controller;

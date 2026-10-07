@@ -1534,3 +1534,15 @@ button.icon { display: inline-grid; place-items: center; padding: 8px; }
 .stats-shortcut { padding: 0; border: 0; text-align: left; background: transparent; color: inherit; font: inherit; border-radius: var(--radius-sm); }
 .stats-shortcut:not(:disabled):hover { background: var(--panel-2); }
 .stats-count-link { padding: 2px 4px; }
+
+/* Exact average windows use a viewport overlay, independently of table pagination. */
+@media (min-width: 821px) {
+  .dialog.wide.statistics-average-detail { width: min(1080px, 100%); max-height: 90vh; max-height: 90dvh; }
+}
+.statistics-average-detail .dialog-head { flex: none; }
+.statistics-average-detail .dialog-body { min-height: 0; min-width: 0; overflow-y: auto; overscroll-behavior: contain; }
+.statistics-average-detail .table-scroll { flex-shrink: 0; }
+.statistics-page:has(.statistics-average-detail) { overflow-y: hidden; }
+.average-status-kept { font-weight: 600; }
+.average-status-best { border: 1px solid var(--border); }
+.average-status-worst { border: 1px dashed var(--border); }

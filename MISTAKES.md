@@ -631,3 +631,16 @@ starts before historical replay.
 A text replacement inserted navigation-fixture setup into a second App test,
 where its solve list did not exist. The focused suite caught it. Prevention:
 anchor scripted replacements to the specific test and inspect the diff.
+
+
+## Average detail was outside the visible interaction area
+
+The selected exact average window rendered after a 50-row table, so clicks near
+the top appeared ineffective. Prevention: show the existing detail in a viewport
+dialog and assert modal markup and complete members in interaction tests.
+
+## PowerShell piped source lost Unicode display characters
+
+A Python script received question marks for Unicode literals piped through the
+Windows shell, despite UTF-8 file writes. Prevention: use ASCII Unicode escapes
+in piped scripts or a file-based patch when adding non-ASCII source text.

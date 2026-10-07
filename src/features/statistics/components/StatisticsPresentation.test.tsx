@@ -86,7 +86,10 @@ describe("Statistics presentation", () => {
     const solves = Array.from({ length: 5 }, (_, index) => ({ ...solve, id: `s${index}`, createdAt: index, rawMs: (index + 1) * 1000, penalty: index > 2 ? "DNF" as const : "none" as const }));
     const html = renderToStaticMarkup(<StatisticsAverageDetail window={averageWindow(solves, 5)!} solves={solves} sessions={sessions} onOpenSolve={() => {}} onClose={() => {}} />);
     expect(html).toContain("Ao5 · DNF"); expect(html).toContain("Discarded best"); expect(html).toContain("Discarded worst");
-    expect(html).toContain("causes DNF average"); expect(html.match(/History Session/g)).toHaveLength(5);
+    expect(html).toContain("causes DNF average"); expect(html.match(/History Session/g)).toHaveLength(6);
+    expect(html).toContain('role="dialog"'); expect(html).toContain('aria-modal="true"');
+    expect(html).toContain("statistics-average-detail");
+    for (const status of ["kept", "best", "worst"]) expect(html).toContain(`average-status-${status}`);
     expect(html).toContain("1.00"); expect(html).toContain("DNF(4.00)");
   });
 
@@ -108,7 +111,7 @@ describe("Statistics presentation", () => {
     const html = renderToStaticMarkup(<StatisticsRecords model={model} onOpenSolve={() => {}} />);
     const row = html.match(/<tr tabindex="0"[^>]*>[\s\S]*?<\/tr>/)![0];
     expect(row).toContain("2.10");
-    expect(row.match(/>—<\/td>/g)).toHaveLength(10);
+    expect(row.match(/>—<\/(?:td|span)>/g)).toHaveLength(10);
     expect(html).not.toContain("NaN");
   });
 

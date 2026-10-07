@@ -21,15 +21,21 @@ export function StatisticsAverageDetail({ window, solves, sessions, onOpenSolve,
   const names = new Map(sessions.map((session) => [session.id, session.name]));
   const first = members.get(window.entries[0]?.solveId);
   const last = members.get(window.entries.at(-1)?.solveId ?? "");
-  return <div className="stats-detail" role="region" aria-label="Average detail">
-    <div className="section-heading"><div><h3>Ao{window.size} · {formatTime(window.value)}</h3><p>{first ? date(first.createdAt) : "—"} → {last ? date(last.createdAt) : "—"}</p></div><button className="ghost" onClick={onClose}>Close average</button></div>
-    <p className="small dim">Exact chronological window. The best and worst results are discarded.</p>
-    <div className="table-scroll"><table className="stats-table"><thead><tr><th>#</th><th>Result</th><th>Session</th><th>Date</th><th>Average membership</th></tr></thead><tbody>
-      {window.entries.map((entry, index) => {
-        const solve = members.get(entry.solveId);
-        return <tr key={entry.solveId} {...statisticsActivationProps(solve ? () => onOpenSolve(solve) : undefined, `View solve ${formatTime(entry.time)} · ${solve ? date(solve.createdAt) : ""}`)}><td>{index + 1}</td><td><button className="ghost small stats-open-link" disabled={!solve} onClick={() => solve && onOpenSolve(solve)}>{solve ? formatSolveTime(solve) : formatTime(entry.time)}</button></td><td>{solve ? names.get(solve.sessionId) ?? "Unknown Session" : "—"}</td><td>{solve ? date(solve.createdAt) : "—"}</td><td>{entry.trim === "kept" ? "Counted" : `Discarded ${entry.trim}`}{entry.causesDnf ? " · causes DNF average" : ""}</td></tr>;
-      })}
-    </tbody></table></div>
+  const openMember = (solve: Solve) => { onClose(); onOpenSolve(solve); };
+  return <div className="backdrop" onClick={onClose}>
+    <div className="dialog wide statistics-average-detail" role="dialog" aria-modal="true" aria-label={`Ao${window.size} average detail`} onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); onClose(); } }}>
+      <div className="dialog-head"><h3>Ao{window.size} · {formatTime(window.value)}</h3><button className="ghost" autoFocus onClick={onClose} aria-label="Close average detail">Close average</button></div>
+      <div className="dialog-body">
+        <p>{window.entries.length} solves · {first ? date(first.createdAt) : "—"} → {last ? date(last.createdAt) : "—"}<br />{first ? names.get(first.sessionId) ?? "Unknown Session" : "Unknown Session"}</p>
+        <p className="small dim">Exact chronological window. The fastest and slowest results are discarded.</p>
+        <div className="table-scroll"><table className="stats-table"><thead><tr><th>#</th><th>Result</th><th>Average status</th><th>Session</th><th>Date</th></tr></thead><tbody>
+          {window.entries.map((entry, index) => {
+            const solve = members.get(entry.solveId);
+            return <tr key={entry.solveId} {...statisticsActivationProps(solve ? () => openMember(solve) : undefined, `View solve ${formatTime(entry.time)} · ${solve ? date(solve.createdAt) : ""}`)}><td>{index + 1}</td><td><button className="ghost small stats-open-link" disabled={!solve} onClick={() => solve && openMember(solve)}>{solve ? formatSolveTime(solve) : formatTime(entry.time)}</button></td><td><span className={`stats-badge average-status average-status-${entry.trim}`}>{entry.trim === "kept" ? "Counted" : `Discarded ${entry.trim}`}</span>{entry.causesDnf ? <span className="small"> · causes DNF average</span> : null}</td><td>{solve ? names.get(solve.sessionId) ?? "Unknown Session" : "—"}</td><td>{solve ? date(solve.createdAt) : "—"}</td></tr>;
+          })}
+        </tbody></table></div>
+      </div>
+    </div>
   </div>;
 }
 
@@ -79,7 +85,10 @@ export function StatisticsRecords({ model, onOpenSolve }: { model: StatisticsVie
   const lastPage = Math.max(0, Math.ceil(rows.length / PAGE_SIZE) - 1);
   const currentPage = Math.min(page, lastPage);
   const currentAverage = average ? model.solveRows.find((row) => row.solve.id === average.entries.at(-1)?.solveId)?.averages[`ao${average.size}` as AverageMetric] : undefined;
-  const averageInScope = currentAverage && average && currentAverage.entries.every((entry, index) => entry.solveId === average.entries[index]?.solveId);
+  const averageInScope = currentAverage && average
+    && currentAverage.size === average.size
+    && currentAverage.entries.length === average.entries.length
+    && currentAverage.entries.every((entry, index) => entry.solveId === average.entries[index].solveId);
   const openPb = (row: RankingRow) => {
     if (row.kind === "average") setAverage(row.window);
     else { const solve = model.scopeSolves.find((solve) => solve.id === row.solveId); if (solve) onOpenSolve(solve); }
@@ -93,7 +102,7 @@ export function StatisticsRecords({ model, onOpenSolve }: { model: StatisticsVie
         {columns.map(({ id }) => {
           if (id.startsWith("ao")) {
             const window = row.averages[id as AverageMetric];
-            return <td key={id} className="number">{window ? <button className="ghost small mono stats-open-link" aria-label={`View Ao${window.size} window ending at ${row.solve.id}`} onClick={(event) => { event.stopPropagation(); setAverage(window); }}>{formatTime(window.value)}</button> : "—"}</td>;
+            return <td key={id} className="number">{window ? <button className="ghost small mono stats-open-link" aria-label={`View Ao${window.size} window ending at ${row.solve.id}`} onClick={(event) => { event.stopPropagation(); setAverage(window); }}>{formatTime(window.value)}</button> : <span title={`No Ao${id.slice(2)} window ends at this solve. Ao${id.slice(2)} requires ${id.slice(2)} counted solves in the same Session.`}>—</span>}</td>;
           }
           return <td key={id} className={id === "session" || id === "date" ? undefined : "number"}>
             {id === "time" ? <button className="ghost small mono stats-open-link" onClick={() => onOpenSolve(row.solve)}>{formatSolveTime(row.solve)}</button>
