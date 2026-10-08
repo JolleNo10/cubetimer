@@ -1,4 +1,4 @@
-import { isUsableCfopAnalysis } from "../../../app/solveAnalysis";
+import { isUsableCfopAnalysis, solveForCfopInterpretation } from "../../../app/solveAnalysis";
 import { CfopAnalysisWarning } from "./CfopAnalysisQuality";
 import { useDateTimeFormat } from "../../../shared/ui/useDateTimeFormat";
 import { formatTime } from "../../../shared/time";
@@ -13,7 +13,8 @@ import {
   stepAt,
   type ActiveReplayAction,
 } from "./StepBreakdown";
-import { type SolveStep } from "../../../cube/analysis";
+import { isTrustedCfopAnalysis, type SolveAnalysis, type SolveStep } from "../../../cube/analysis";
+import { faceColour } from "../../../cube/colours";
 import {
   NORMAL_REPLAY_STICKERING_MASK,
   replayStickeringMask,
@@ -56,15 +57,17 @@ type Preview = ReviewPreview & { returnIndex: number };
  * picks up where it was afterwards.
  */
 export function SolveReviewDialog({
-  solve,
+  solve: storedSolve,
   onClose,
   onTrainStep,
   initialView,
+  correctionPreview,
 }: {
   solve: Solve;
   onClose: () => void;
   onTrainStep?: (step: SolveStep, view: ReplayViewState) => void;
   initialView?: ReplayViewState;
+  correctionPreview?: { analysis: SolveAnalysis; onApply: () => Promise<boolean> };
 }) {
   const { date } = useDateTimeFormat();
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -77,6 +80,10 @@ export function SolveReviewDialog({
   const [camera, setCamera] = useState<GuideCamera>(DEFAULT_GUIDE_CAMERA);
   const [orbiting, setOrbiting] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
+  const solve = useMemo(() => solveForCfopInterpretation(storedSolve, correctionPreview?.analysis), [storedSolve, correctionPreview?.analysis]);
+  const canInterpret = correctionPreview ? isTrustedCfopAnalysis(correctionPreview.analysis) : isUsableCfopAnalysis(storedSolve);
   /** Where to put the replay cursor once the cube has been rebuilt after a preview. */
   const restoreRef = useRef<number | null>(null);
 
@@ -86,7 +93,7 @@ export function SolveReviewDialog({
   // Replay the solve the way it was held. With a recorded grip track that is exactly
   // how it was held, rotations and all. Without one, only usable CFOP can supply
   // a Cross-frame fallback; excluded or uncertain analysis replays the raw frame.
-  const crossFace = isUsableCfopAnalysis(solve) ? solve.analysis.crossFace : undefined;
+  const crossFace = canInterpret ? solve.analysis?.crossFace : undefined;
   const track = useMemo(
     () => (solve.gripTrack ? decodeGripTrack(solve.gripTrack) : null),
     [solve.gripTrack],
@@ -346,7 +353,7 @@ export function SolveReviewDialog({
       >
         <div className="dialog-head">
           <div className="row">
-            <h3>Review</h3>
+            <h3>{correctionPreview ? "Correction preview" : "Review"}</h3>
             <span className="mono dim">{formatTime(effectiveMs(solve))}</span>
             <span className="faint small">
               {date(solve.createdAt)}
@@ -357,6 +364,15 @@ export function SolveReviewDialog({
           </button>
         </div>
         <div className="dialog-body replay-body">
+        {correctionPreview ? <div className="notice" role="status" style={{ display: "block", gridColumn: "1 / -1" }}>
+          <p>This is a proposed state-only reconstruction. Recorded moves, gyro/grip data and the original analysis have not been changed.</p>
+          <p>Original Cross: {storedSolve.analysis ? faceColour(storedSolve.analysis.crossFace).name : "unavailable"}. Proposed Cross: {faceColour(correctionPreview.analysis.crossFace).name}.</p>
+          <div className="small">Original quality issues:</div>
+          {!storedSolve.analysis ? <p className="small">No original CFOP analysis was available.</p> : isTrustedCfopAnalysis(storedSolve.analysis) ? <p className="small">None recorded under current quality checks.</p> : <CfopAnalysisWarning solve={{ analysis: storedSolve.analysis }} />}
+          <p>{isTrustedCfopAnalysis(correctionPreview.analysis) ? "Proposed analysis: automatically trusted under current CFOP quality checks." : "Automatic correction could not produce a reliable alternative."}</p>
+          <CorrectionChanges original={storedSolve.analysis} proposed={correctionPreview.analysis} />
+          {applyError ? <p role="alert">{applyError}</p> : null}
+        </div> : null}
           <div className="replay-main">
           <div className="mono small dim" style={{ wordBreak: "break-word" }}>
             {solve.scramble}
@@ -438,7 +454,7 @@ export function SolveReviewDialog({
                   </span>
                 </>
               ) : null}
-              {isUsableCfopAnalysis(solve) && currentStep && onTrainStep && canPracticeTrainingStep(currentStep) ? (
+              {!correctionPreview && canInterpret && currentStep && onTrainStep && canPracticeTrainingStep(currentStep) ? (
                 <button
                   type="button"
                   className="ghost small"
@@ -456,7 +472,7 @@ export function SolveReviewDialog({
 
           {solve.analysis ? (
             <div className="replay-steps">
-              <CfopAnalysisWarning solve={solve} />
+              {!correctionPreview ? <CfopAnalysisWarning solve={storedSolve} /> : null}
               <div className="panel-title" style={{ marginBottom: 8 }}>
                 Breakdown
               </div>
@@ -475,14 +491,41 @@ export function SolveReviewDialog({
               <div className="small faint" style={{ marginTop: 10 }}>
                 Pick a step to jump to the moment it began.
               </div>
-              {isUsableCfopAnalysis(solve) ? (
+              {canInterpret ? (
                 <SolveReviewPanel solve={solve} analysis={solve.analysis} activeStep={activeStep}
+                  correctionPreview={!!correctionPreview}
                   onPreview={showAlternative} />
               ) : null}
             </div>
           ) : null}
         </div>
+        {correctionPreview ? <div className="dialog-foot" style={{ flexShrink: 0 }}>
+          <button onClick={onClose}>Cancel</button>
+          {isTrustedCfopAnalysis(correctionPreview.analysis) ? <button className="primary" disabled={applying} onClick={async () => {
+            setApplying(true); setApplyError(null);
+            try {
+              if (await correctionPreview.onApply()) onClose();
+              else setApplyError("Automatic correction could not produce a reliable alternative from the current solve. Nothing was applied.");
+            } catch {
+              setApplyError("The correction could not be saved. Please try again.");
+            } finally { setApplying(false); }
+          }}>{applying ? "Applying…" : "Apply correction"}</button> : null}
+        </div> : null}
       </div>
     </div>
   );
+}
+
+function CorrectionChanges({ original, proposed }: { original: SolveAnalysis | null | undefined; proposed: SolveAnalysis }) {
+  if (!original) return null;
+  const changes = proposed.steps.flatMap(step => {
+    const before = original.steps.find(candidate => candidate.name === step.name);
+    if (!before) return [];
+    const changed: string[] = [];
+    if (before.toMove !== step.toMove) changed.push(`${step.name} boundary: move ${before.toMove} → move ${step.toMove}`);
+    if (before.case !== step.case) changed.push(`${step.name} case: ${before.case ?? "unrecognized"} → ${step.case ?? "unrecognized"}`);
+    if (before.slot !== step.slot) changed.push(`${step.name} slot: ${before.slot ?? "unassigned"} → ${step.slot ?? "unassigned"}`);
+    return changed;
+  });
+  return changes.length ? <ul className="small">{changes.map(change => <li key={change}>{change}</li>)}</ul> : null;
 }

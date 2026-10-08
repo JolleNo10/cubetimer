@@ -5,8 +5,9 @@ import { get3x3x3 } from "../../../cube/puzzle";
 import type { Solve } from "../../../app/types";
 import { SolveActions } from "./SolveActions";
 import { SolveResult } from "./SolveResult";
+import { SolveAnalysisReview } from "./SolveAnalysisReview";
 
-const controller = vi.hoisted(() => ({ updateSolve: vi.fn().mockResolvedValue(undefined) }));
+const controller = vi.hoisted(() => ({ updateSolve: vi.fn().mockResolvedValue(undefined), clearCfopCorrection: vi.fn().mockResolvedValue(undefined) }));
 vi.mock("../../../app/useController", () => ({ useController: () => controller }));
 type Element = ReactElement<Record<string, any>>;
 function elements(value: unknown): Element[] {
@@ -38,4 +39,20 @@ describe("Result manual CFOP exclusion actions", () => {
     expect(controller.updateSolve).toHaveBeenLastCalledWith(solve.id, { cfopAnalysisExcluded: undefined });
     expect(button(render(reviewed), "Review").props.title).toBe(status === "suspect" ? "Replay the solve" : "Replay the solve, step by step, with better ways to have done each step");
   });
+});
+
+it("opens an attempt through presentation and shows/undoes the effective correction through Controller", () => {
+  const onAttemptCorrection = vi.fn();
+  const original: Solve = { ...solve, analysis: { ...solve.analysis!, quality: { status: "suspect", issues: [] } } };
+  const before = elements(SolveResult({ solve: original, solves: [original], onContinue: vi.fn(), onReplay: vi.fn(), onAttemptCorrection }));
+  before.find(node => node.type === "button" && node.props.children === "Attempt correction")!.props.onClick();
+  expect(onAttemptCorrection).toHaveBeenCalledExactlyOnceWith(original);
+  const correctedAnalysis = { ...original.analysis!, tps: 3.14, quality: { status: "trusted" as const, issues: [] } };
+  const accepted: Solve = { ...original, cfopAnalysisCorrection: { mode: "state-only", acceptedAt: 1, analysis: correctedAnalysis } };
+  const after = elements(SolveResult({ solve: accepted, solves: [accepted], onContinue: vi.fn(), onReplay: vi.fn(), onAttemptCorrection }));
+  expect(after.find(node => node.type === SolveAnalysisReview)!.props.analysis).toBe(correctedAnalysis);
+  expect(after.some(node => node.type === "button" && node.props.children === "Attempt correction")).toBe(false);
+  after.find(node => node.type === "button" && node.props.children === "Undo correction")!.props.onClick();
+  expect(controller.clearCfopCorrection).toHaveBeenCalledExactlyOnceWith(original.id);
+  expect(accepted.analysis).toBe(original.analysis);
 });

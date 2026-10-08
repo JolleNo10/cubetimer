@@ -1,4 +1,6 @@
 import { buildLastLayerCatalogueTarget } from "../../cube/lastLayerTraining";
+import { analyseSolve } from "../../cube/analysis";
+import { Alg } from "cubing/alg";
 import { catalogueIdentityForTarget, trainingCatalogueKey } from "../../app/trainingCatalogue";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { get3x3x3 } from "../../cube/puzzle";
@@ -47,6 +49,24 @@ function storage(sessions: Session[] = previous.sessions, solves: Solve[] = [], 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("JSON backup workflow", () => {
+  it("round-trips correction overlays through JSON v7 and migration without adding them to CSV", async () => {
+    const solution = new Alg("R U R' U R U2 R'");
+    const moves = Array.from(solution.childAlgNodes()).map((node, i) => ({ move: node.toString(), t: (i + 1) * 200 }));
+    const start = kpuzzle.defaultPattern().applyAlg(solution.invert());
+    const analysis = analyseSolve(start, moves, null, { observedStartBottomFace: "L", trackedBottomFace: "D" })!;
+    const candidate = analyseSolve(start, moves, null, {})!;
+    const original: Solve = { ...solveFor("A"), source: "smartcube", scramble: solution.invert().toString(), moves, analysis,
+      solveStartBottomFace: "L", gripTrack: `|${"LF".repeat(moves.length)}`, cfopAnalysisExcluded: true,
+      cfopAnalysisCorrection: { mode: "state-only", acceptedAt: 321, analysis: candidate } };
+    const { solveStore } = storage([session("A")], [original]);
+    const exported = await transfer.exportData();
+    expect(JSON.parse(exported)).toMatchObject({ version: 7, solves: [original] });
+    solveStore.clear();
+    await transfer.importData(kpuzzle, previous, exported);
+    expect(solveStore.get(original.id)).toEqual(original);
+    const { cfopAnalysisCorrection: _correction, ...without } = original;
+    expect(formatSolveCsv([original], new Map())).toBe(formatSolveCsv([without], new Map()));
+  });
   it("imports v3 history as Single/null and exports current Drill fields in v7, keeping stable IDs", async () => {
     const old = { id: "old-training", createdAt: 10, mode: "virtual",
       target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 4", position: "FR" },

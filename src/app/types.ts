@@ -101,6 +101,13 @@ export type Session = {
   compareScope?: CompareScope;
 };
 
+/** Reviewed interpretation decision; original facts and machine analysis are retained. */
+export type CfopAnalysisCorrection = {
+  mode: "state-only";
+  acceptedAt: number;
+  analysis: SolveAnalysis;
+};
+
 export type Solve = {
   id: string;
   sessionId: string;
@@ -118,6 +125,7 @@ export type Solve = {
   solveStartBottomFace?: Face;
   /** User veto of CFOP interpretation; ordinary solve timing is unaffected. */
   cfopAnalysisExcluded?: true;
+  cfopAnalysisCorrection?: CfopAnalysisCorrection;
   /**
    * How the cube was held for each move, when the gyroscope was there to say.
    *

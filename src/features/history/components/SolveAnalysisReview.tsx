@@ -1,4 +1,4 @@
-import { isUsableCfopAnalysis } from "../../../app/solveAnalysis";
+import { effectiveCfopAnalysis, isUsableCfopAnalysis } from "../../../app/solveAnalysis";
 import { CfopAnalysisWarning } from "./CfopAnalysisQuality";
 import { formatTime } from "../../../shared/time";
 import { type SolveAnalysis, type SolveStep } from "../../../cube/analysis";
@@ -9,10 +9,11 @@ import { ResultCharts } from "./resultCharts/ResultCharts";
 import { useResultHistory } from "./resultCharts/useResultHistory";
 
 /** Shared analytical presentation; callers own navigation and mutation actions. */
-export function SolveAnalysisReview({ solve, solves, analysis, onPracticeStep }: {
+export function SolveAnalysisReview({ solve, solves, analysis: suppliedAnalysis, onPracticeStep }: {
   solve: Solve; solves: readonly Solve[]; analysis: SolveAnalysis;
   onPracticeStep?: (step: SolveStep) => void;
 }) {
+  const analysis = effectiveCfopAnalysis(solve) ?? suppliedAnalysis;
   const pauseMs = analysis.pauses.reduce((sum, pause) => sum + pause.durationMs, 0);
   const history = useResultHistory(solve, solves);
   return <>

@@ -1,5 +1,11 @@
 # Mistakes
 
+## 2026-10-09 — Correction validation and Replay Undo fixture
+
+- What happened: focused runs caught a missing closing parenthesis in migration validation, an in-place Replay Undo fixture mutation, an assumed suspect one-turn fixture that the analyser actually trusts, a CSV assertion missing the session-name argument, and a partial status-test Solve rejected by typecheck.
+- Root cause: nested checks were extended without balancing the outer predicate, and test fixtures/calls assumed behavior instead of matching the store, analyser and codec contracts.
+- Prevention: verify structural-validation edits immediately, model store updates with new Solve objects, use demonstrated ambiguous progression fixtures, and check codec signatures before adding interchange assertions.
+
 ## 2026-10-06 — Statistics redesign review and CSS replacement
 
 - What happened: the review reported unmatched pauses being attributed to F2L, but validation already rejects any pause outside the contiguous step range; a first fix added unreachable "unattributed" fields. Replacing the Statistics CSS block also removed the shared `.table-scroll` rule, and two stale chart outline rules outside the block kept drawing a focus box on hover.

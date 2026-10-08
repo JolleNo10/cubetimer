@@ -1,18 +1,20 @@
-import { isUsableCfopAnalysis } from "../../../app/solveAnalysis";
+import { effectiveCfopAnalysis, isUsableCfopAnalysis } from "../../../app/solveAnalysis";
 import type { Penalty, Solve } from "../../../app/types";
 const PENALTIES: { value: Penalty; label: string }[] = [
   { value: "none", label: "OK" }, { value: "+2", label: "+2" }, { value: "DNF", label: "DNF" },
 ];
 
 /** Solve-management presentation; persistence and navigation belong to callers. */
-export function SolveActions({ solve, onUpdate, onReplay, onSolveAgain, onDelete }: {
+export function SolveActions({ solve, onUpdate, onReplay, onSolveAgain, onDelete, onAttemptCorrection, onUndoCorrection }: {
   solve: Solve;
   onUpdate: (changes: Partial<Solve>) => void | Promise<unknown>;
   onReplay: (solve: Solve) => void;
   onSolveAgain: () => void;
   onDelete: () => void | Promise<unknown>;
+  onAttemptCorrection?: () => void;
+  onUndoCorrection?: () => void | Promise<unknown>;
 }) {
-  const analysis = solve.analysis;
+  const analysis = effectiveCfopAnalysis(solve);
   const canReplay = solve.moves.length > 0;
   const canAnalyse = isUsableCfopAnalysis(solve) && canReplay;
   return (
@@ -35,6 +37,9 @@ export function SolveActions({ solve, onUpdate, onReplay, onSolveAgain, onDelete
           ))}
         </div>
         <div className="result-tools">
+          {solve.cfopAnalysisCorrection ? (onUndoCorrection ? <button className="ghost" onClick={() => void onUndoCorrection()}>Undo correction</button> : null)
+            : onAttemptCorrection && canReplay && (solve.scrambledFacelets || solve.scramble) && !isUsableCfopAnalysis(solve)
+              ? <button className="ghost" onClick={onAttemptCorrection}>Attempt correction</button> : null}
           {analysis ? <button className="ghost"
             title={solve.cfopAnalysisExcluded
               ? "Remove your CFOP exclusion. Automatic quality checks still apply; solve timing is unchanged."

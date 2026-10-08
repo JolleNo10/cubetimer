@@ -5,6 +5,9 @@ import type { Solve, TrainingAttempt, TrainingDrillPreset, TrainingAlgorithmPref
 
 import { f2lTrainingCatalogue } from "../../cube/f2lTrainingCases";
 import { lastLayerCaseIds } from "../../cube/lastLayerTraining";
+import { analyseSolve } from "../../cube/analysis";
+import { get3x3x3 } from "../../cube/puzzle";
+import { Alg } from "cubing/alg";
 
 const base = {
   id: "1",
@@ -47,6 +50,33 @@ describe("migrateSolve", () => {
   it("gives a solve with no move stream an empty one", () => {
     const noMoves = { ...base, moves: undefined } as unknown as Solve;
     expect(migrateSolve(noMoves).moves).toEqual([]);
+  });
+});
+
+describe("correction migration", async () => {
+  const kpuzzle = await get3x3x3();
+  const solution = new Alg("R U R' U R U2 R'");
+  const moves = Array.from(solution.childAlgNodes()).map((node, i) => ({ move: node.toString(), t: (i + 1) * 200 }));
+  const analysis = analyseSolve(kpuzzle.defaultPattern().applyAlg(solution.invert()), moves)!;
+  const correction = { mode: "state-only" as const, acceptedAt: 123, analysis };
+  it("preserves readable correction snapshots independently of obsolete base analysis", () => {
+    const migrated = migrateSolve({ ...base, analysis: { cross: "legacy" }, cfopAnalysisCorrection: correction } as unknown as Solve);
+    expect(migrated.analysis).toBeNull();
+    expect(migrated.cfopAnalysisCorrection).toEqual(correction);
+    expect(migrated.moves).toBe(base.moves);
+    const legacy = { ...correction, analysis: { ...analysis, analysisVersion: 1, quality: undefined } };
+    expect(migrateSolve({ ...base, cfopAnalysisCorrection: legacy }).cfopAnalysisCorrection).toEqual(legacy);
+  });
+  it.each([null, [], "state-only", {}, { ...correction, mode: "unknown" }, { ...correction, acceptedAt: -1 },
+    { ...correction, acceptedAt: NaN }, { ...correction, acceptedAt: Infinity }, { ...correction, acceptedAt: "123" },
+    { ...correction, analysis: null }, { ...correction, analysis: { steps: [] } },
+    { ...correction, analysis: { ...analysis, steps: [null] } },
+    { ...correction, analysis: { ...analysis, quality: { status: "trusted", issues: [null] } } },
+    { ...correction, analysis: { ...analysis, pauses: [null] } },
+  ])("drops malformed or unknown corrections %j without modifying base analysis", malformed => {
+    const migrated = migrateSolve({ ...base, analysis, cfopAnalysisCorrection: malformed } as unknown as Solve);
+    expect(migrated).not.toHaveProperty("cfopAnalysisCorrection");
+    expect(migrated.analysis).toBe(analysis);
   });
 });
 

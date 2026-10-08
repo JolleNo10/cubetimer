@@ -665,3 +665,25 @@ it("manual CFOP veto preserves counts, time, PBs and averages but removes metric
   expect(compareSolveToHistory(next,[...history,last,next])!.sampleSize).toBe(5);
   expect(caseSpread(next,[...history,last,next])).toEqual(caseSpread(next,[...history,next]));
 });
+
+it("uses correction snapshots for comparisons, cases, phases and recognition/execution, preserving ordinary timing", () => {
+  const history = Array.from({ length: 5 }, (_, i) => fullSolve(`history-${i}`, "a", base, [null, "F2L 5", null, null, null, "27", "T"], i));
+  const current = fullSolve("corrected", "a", [900, 1500, 1600, 1700, 1800, 1900, 2000], [null, "F2L 5", null, null, null, "27", "T"], 10);
+  const overlay = (solve: Solve): Solve => ({ ...solve,
+    analysis: { ...solve.analysis!, crossFace: "L", quality: { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["L", "D"] }] },
+      steps: solve.analysis!.steps.map(step => ({ ...step, case: "different", timeMs: 99999, recognitionMs: 99999 })) },
+    cfopAnalysisCorrection: { mode: "state-only", acceptedAt: 123, analysis: solve.analysis! },
+  });
+  const corrected = overlay(current);
+  const correctedHistory = history.map(overlay);
+  expect(compareSolveToHistory(corrected, [...correctedHistory, corrected])).toEqual(compareSolveToHistory(current, [...history, current]));
+  expect(caseSpread(corrected, [...correctedHistory, corrected])).toEqual(caseSpread(current, [...history, current]));
+  expect(analysedSolveFacts(corrected)).toEqual(analysedSolveFacts(current));
+  expect(validatedSolveFacts(corrected)).toEqual(validatedSolveFacts(current));
+  expect(sessionStats([...correctedHistory, corrected])).toEqual(sessionStats([...history, current]));
+  const uncorrected = { ...corrected, cfopAnalysisCorrection: undefined };
+  expect(sessionStats([uncorrected])).toMatchObject({ count: 1, best: current.rawMs });
+  expect(effectiveMs(corrected)).toBe(effectiveMs(uncorrected));
+  expect(averageOf([...history.slice(0, 4), corrected], 5)).toBe(averageOf([...history.slice(0, 4), uncorrected], 5));
+  expect(analysedSolveFacts({ ...corrected, cfopAnalysisExcluded: true })).toBeNull();
+});

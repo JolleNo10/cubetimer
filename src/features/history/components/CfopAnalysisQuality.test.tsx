@@ -3,6 +3,7 @@ import { expect, it } from "vitest";
 import { CfopAnalysisBadge, CfopAnalysisWarning } from "./CfopAnalysisQuality";
 import type { Solve } from "../../../app/types";
 import type { SolveAnalysis } from "../../../cube/analysis";
+import { ANALYSIS_VERSION } from "../../../cube/analysis";
 const analysis = { method: "CFOP", analysisVersion: 3, quality: { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }, { code: "unassigned-f2l-slot", step: "F2L Slot 2" }, { code: "unrecognized-oll" }, { code: "unrecognized-pll" }] } } as SolveAnalysis;
 it("shows a compact independent badge for suspect and unavailable CFOP analysis", () => {
   expect(renderToStaticMarkup(<CfopAnalysisBadge solve={{ analysis, source: "smartcube" } as Solve} />)).toContain("CFOP uncertain");
@@ -49,4 +50,17 @@ it("explains disagreement between the two independent physical observations", ()
   ] } };
   const html = renderToStaticMarkup(<CfopAnalysisWarning solve={{ analysis: conflicting }} />);
   expect(html).toContain("solve-start bottom yellow disagrees with the whole-solve gyro bottom white");
+});
+
+it("labels an accepted correction as preserving evidence, with manual exclusion taking precedence", () => {
+  const trusted = { ...analysis, analysisVersion: ANALYSIS_VERSION, quality: { status: "trusted" as const, issues: [] } };
+  const corrected: Solve = { id: "corrected", sessionId: "s", createdAt: 0, rawMs: 1000, penalty: "none", scramble: "R", moves: [],
+    source: "smartcube", analysis, cfopAnalysisCorrection: { mode: "state-only", acceptedAt: 1, analysis: trusted } };
+  const html = renderToStaticMarkup(<CfopAnalysisWarning solve={corrected} />);
+  expect(html).toContain("CFOP correction applied");
+  expect(html).toContain("original analysis and recorded orientation data are preserved");
+  expect(html).not.toContain("CFOP analysis uncertain");
+  expect(renderToStaticMarkup(<CfopAnalysisBadge solve={corrected} />)).toContain("CFOP corrected");
+  expect(renderToStaticMarkup(<CfopAnalysisWarning solve={{ ...corrected, cfopAnalysisExcluded: true }} />)).toContain("CFOP analysis excluded");
+  expect(renderToStaticMarkup(<CfopAnalysisBadge solve={{ ...corrected, cfopAnalysisExcluded: true }} />)).toContain("CFOP excluded");
 });

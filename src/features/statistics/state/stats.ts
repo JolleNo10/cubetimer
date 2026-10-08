@@ -1,4 +1,4 @@
-import { isUsableCfopAnalysis } from "../../../app/solveAnalysis";
+import { effectiveCfopAnalysis, isUsableCfopAnalysis } from "../../../app/solveAnalysis";
 import { formatTime } from "../../../shared/time";
 import { STEP_NAMES, PAUSE_THRESHOLD_MS, type StepName, type SolveStep, type SolveAnalysis } from "../../../cube/analysis";
 import { effectiveMs, type CompareScope, type Session, type Solve } from "../../../app/types";
@@ -144,15 +144,15 @@ export function compareSolveToHistory(
   solves: readonly Solve[],
   options: ComparisonOptions = {},
 ): SolveComparison | null {
-  if (!isUsableCfopAnalysis(currentSolve)) return null;
-  const currentAnalysis = currentSolve.analysis;
+  const currentAnalysis = effectiveCfopAnalysis(currentSolve);
+  if (!currentAnalysis || !isUsableCfopAnalysis(currentSolve)) return null;
 
   const prior = priorInScope(currentSolve, solves, options);
   if (!prior) return null;
 
   const comparisonSolves = prior
     .filter((solve) => {
-      const analysis = solve.analysis;
+      const analysis = effectiveCfopAnalysis(solve);
       return !solve.statisticsOutlier && solve.replay !== true
         && isSlowSolve(solve) === isSlowSolve(currentSolve)
         && analysis !== null
@@ -168,7 +168,7 @@ export function compareSolveToHistory(
     sampleSize: comparisonSolves.length,
     scope: effectiveScope(currentSolve, options),
     steps: currentAnalysis.steps.map((step, index) => {
-      const history = comparisonSolves.map((solve) => solve.analysis!.steps[index]);
+      const history = comparisonSolves.map((solve) => effectiveCfopAnalysis(solve)!.steps[index]);
       const series = history.map((candidate) => candidate.timeMs);
       const turned = history.filter((candidate) => !candidate.skipped);
       const baselineMs = median(series);
@@ -220,11 +220,11 @@ export function caseSpread(
   solves: readonly Solve[],
   options: ComparisonOptions = {},
 ): CaseSpreadRow[] | null {
-  const analysis = current.analysis;
+  const analysis = effectiveCfopAnalysis(current);
   if (!analysis || !isUsableCfopAnalysis(current) || !compatibleAnalysis(analysis, analysis)) return null;
   const prior = priorInScope(current, solves, options);
   if (!prior) return null;
-  const history = prior.flatMap((solve) => (analysedSolveFacts(solve) ? [solve.analysis!.steps] : []));
+  const history = prior.flatMap((solve) => (analysedSolveFacts(solve) ? [effectiveCfopAnalysis(solve)!.steps] : []));
 
   return analysis.steps.map((step, index) => {
     const f2l = F2L_STEPS.includes(index);
@@ -397,7 +397,7 @@ export function analysedSolveFacts(solve: Solve): AnalysedSolveFacts | null {
 
 /** Validate recorded analysis for read-only review, independently of ranking eligibility. */
 export function validatedSolveFacts(solve: Solve): AnalysedSolveFacts | null {
-  const analysis = solve.analysis;
+  const analysis = effectiveCfopAnalysis(solve);
   if (!analysis) return null;
   const nonnegative = (value: number) => Number.isFinite(value) && value >= 0;
   if (

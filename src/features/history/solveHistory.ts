@@ -1,6 +1,7 @@
 import type { KPuzzle } from "cubing/kpuzzle";
 import * as db from "../../infrastructure/persistence/db";
-import { rebuildAnalysis } from "./repair";
+import { buildStateOnlyCfopAnalysis, rebuildAnalysis } from "./repair";
+import { isTrustedCfopAnalysis, type SolveAnalysis } from "../../cube/analysis";
 import type { StatisticsSnapshot } from "../statistics/state/statistics";
 import type { Solve } from "../../app/types";
 
@@ -18,6 +19,11 @@ async function repairLoadedSolves(kpuzzle: KPuzzle | undefined, solves: Solve[])
 
 export async function loadSessionHistory(kpuzzle: KPuzzle | undefined, sessionId: string): Promise<Solve[]> {
   return repairLoadedSolves(kpuzzle, await db.loadSolves(sessionId));
+}
+
+/** Read a record outside the active Session without derived repair or writes. */
+export async function findSolve(id: string): Promise<Solve | undefined> {
+  return (await db.loadAllSolves()).find(solve => solve.id === id);
 }
 
 /** All-history loading has no dependency on the active runtime context. */
@@ -40,6 +46,24 @@ export async function updateSolve(solve: Solve, changes: Partial<Solve>): Promis
   const updated = { ...solve, ...changes };
   await saveSolve(updated);
   return updated;
+}
+
+export function previewCfopCorrection(kpuzzle: KPuzzle | undefined, solve: Solve): { mode: "state-only"; analysis: SolveAnalysis } | null {
+  const analysis = kpuzzle ? buildStateOnlyCfopAnalysis(kpuzzle, solve) : null;
+  return analysis ? { mode: "state-only", analysis } : null;
+}
+
+/** Recompute from raw facts at acceptance; a UI preview is never authoritative. */
+export async function applyCfopCorrection(kpuzzle: KPuzzle | undefined, solve: Solve): Promise<Solve | null> {
+  const candidate = previewCfopCorrection(kpuzzle, solve);
+  if (!candidate || !isTrustedCfopAnalysis(candidate.analysis)) return null;
+  return updateSolve(solve, { cfopAnalysisCorrection: { ...candidate, acceptedAt: Date.now() } });
+}
+
+export async function clearCfopCorrection(solve: Solve): Promise<Solve> {
+  const { cfopAnalysisCorrection: _correction, ...original } = solve;
+  await saveSolve(original);
+  return original;
 }
 
 export async function deleteSolve(id: string): Promise<void> {

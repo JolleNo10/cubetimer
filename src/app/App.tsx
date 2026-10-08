@@ -19,6 +19,7 @@ import { DEFAULT_EVENT_ID } from "../cube/scramble";
 import { useAppState, useController, useSessionState, useSettings } from "./useController";
 import type { AppArea } from "./Controller";
 import type { Solve } from "./types";
+import { isTrustedCfopAnalysis, type SolveAnalysis } from "../cube/analysis";
 
 /** How long space must be held before a keyboard-timed solve will start. */
 const HOLD_MS = 350;
@@ -42,6 +43,22 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [holding, setHolding] = useState(false);
   const [holdReady, setHoldReady] = useState(false);
+  const [correctionPreview, setCorrectionPreview] = useState<{ solve: Solve; analysis: SolveAnalysis; onApplied?: () => void } | null>(null);
+  const [correctionError, setCorrectionError] = useState<string | null>(null);
+  const correctionSolve = correctionPreview ? state.solves.find(solve => solve.id === correctionPreview.solve.id) ?? correctionPreview.solve : undefined;
+  const attemptCorrection = async (solve: Solve, onApplied?: () => void) => {
+    try {
+      const candidate = await controller.previewCfopCorrection(solve.id);
+      if (!candidate || !isTrustedCfopAnalysis(candidate.analysis)) {
+        setCorrectionError("Automatic correction could not produce a reliable alternative. The original interpretation is unchanged.");
+        return;
+      }
+      setCorrectionError(null);
+      setCorrectionPreview({ solve, analysis: candidate.analysis, onApplied });
+    } catch {
+      setCorrectionError("Automatic correction could not reconstruct this solve. The original interpretation is unchanged.");
+    }
+  };
 
   const openStatisticsReplay = useCallback((solve: Solve) => {
     setReplayOrigin("statistics");
@@ -211,7 +228,7 @@ export function App() {
   }, [controller, setHoldingBoth, setHoldReadyBoth]);
 
   useEffect(() => {
-    if (replaySolve || settingsOpen || connectionOpen) return;
+    if (replaySolve || correctionPreview || correctionError || settingsOpen || connectionOpen) return;
 
     /** Text fields swallow every key; a focused checkbox should only swallow space. */
     const isTextEntry = (target: EventTarget | null) => {
@@ -265,7 +282,7 @@ export function App() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [closeResult, controller, pressStart, pressEnd, replaySolve, resultSolveId, settingsOpen, connectionOpen]);
+  }, [closeResult, controller, pressStart, pressEnd, replaySolve, correctionPreview, correctionError, resultSolveId, settingsOpen, connectionOpen]);
 
   useEffect(
     () =>
@@ -305,7 +322,7 @@ export function App() {
       />
 
       {state.area === "training" ? <Training /> : state.area === "statistics" ? (
-        <StatisticsView view={statisticsView} onViewChange={setStatisticsView} onSolveAgain={solveAgainFromStatistics} currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} onReplay={openStatisticsReplay} onTrainCase={trainStatisticsCase} onScopeChange={statisticsScopeChanged} />
+        <StatisticsView view={statisticsView} onViewChange={setStatisticsView} onAttemptCorrection={attemptCorrection} onSolveAgain={solveAgainFromStatistics} currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} onReplay={openStatisticsReplay} onTrainCase={trainStatisticsCase} onScopeChange={statisticsScopeChanged} />
       ) : <div className="app-body">
         <div className="column left">
           <SolveList
@@ -338,6 +355,7 @@ export function App() {
                 solve={resultSolve}
                 solves={state.solves}
                 onContinue={closeResult}
+                onAttemptCorrection={attemptCorrection}
                 onReplay={(solve) => {
                   setReplayOrigin("timer");
                   setReplayInitialView(null);
@@ -376,9 +394,24 @@ export function App() {
       {settingsOpen ? (
         <SettingsDialog settings={state.settings} onClose={() => setSettingsOpen(false)} />
       ) : null}
+      {correctionError ? <div className="backdrop" onClick={() => setCorrectionError(null)}>
+        <div className="dialog" role="dialog" aria-modal="true" aria-label="Attempt correction" onClick={event => event.stopPropagation()}>
+          <div className="dialog-body"><p role="alert">{correctionError}</p></div>
+          <div className="dialog-foot"><button onClick={() => setCorrectionError(null)}>Close</button></div>
+        </div>
+      </div> : null}
+      {correctionPreview && correctionSolve ? <SolveReviewDialog
+        solve={correctionSolve}
+        correctionPreview={{ analysis: correctionPreview.analysis, onApply: async () => {
+          const applied = await controller.applyCfopCorrection(correctionSolve.id);
+          if (applied) correctionPreview.onApplied?.();
+          return applied;
+        } }}
+        onClose={() => setCorrectionPreview(null)}
+      /> : null}
       {replaySolve ? (
         <SolveReviewDialog
-          solve={replaySolve}
+          solve={state.solves.find(solve => solve.id === replaySolve.id) ?? replaySolve}
           initialView={replayInitialView ?? undefined}
           onClose={() => {
             setReplaySolve(null);

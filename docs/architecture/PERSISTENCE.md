@@ -190,6 +190,35 @@ and rebuildable; user judgement must survive re-analysis and stay distinguishabl
 analyser output.
 
 
+## Reviewed CFOP correction overlays
+
+A user-accepted `Solve.cfopAnalysisCorrection` is a reversible interpretation overlay:
+`{ mode: "state-only", acceptedAt, analysis }`. Raw solve facts and the original
+machine `Solve.analysis` are retained unchanged. Consumers obtain the effective CFOP
+analysis through `src/app/solveAnalysis.ts`; its transient Solve projection filters
+physical orientation evidence (`gripTrack` and `solveStartBottomFace`) for state-only
+CFOP interpretation, Replay and exact Training without deleting that evidence.
+Undo removes only the overlay and immediately restores the original interpretation.
+
+Attempt correction reconstructs from the recorded starting state/scramble and raw moves
+without grip or physical bottom priors. App owns the ephemeral Review preview; opening
+or cancelling it causes no writes. Controller/SolveHistory recompute at Apply and persist
+only a current automatically trusted candidate. `cfopAnalysisExcluded` remains a separate
+manual veto with precedence, and accepting or undoing correction does not clear it.
+
+Base and corrected analyses are independently rebuilt on version/quality changes. The
+correction's mode and acceptance timestamp survive; a newly suspect snapshot remains
+overlaid but is quarantined by current machine quality checks. If reconstruction is
+impossible, the correction decision is retained for explicit Undo.
+
+Whole-record IndexedDB (schema 5) and JSON backup/import (version 7) preserve the additive
+correction field. Migration drops malformed/unknown modes. CSV does not carry local review
+decisions and remains unchanged.
+
+Rejected: replacing `Solve.analysis`, deleting `gripTrack`, or rewriting raw Solve facts
+on correction. Correction must be inspectable and reversible, and must not destroy the
+evidence that caused the original interpretation.
+
 ## Unusually slow normal solves
 
 Settings owns a multiplier (default 3) and handling (default exclude; Off or DNF

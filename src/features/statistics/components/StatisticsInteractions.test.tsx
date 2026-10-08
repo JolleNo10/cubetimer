@@ -20,6 +20,8 @@ import { StatisticsView, StatisticsNavigation, StatisticsOverview, StatisticsOve
 import { Pagination, StatCard, StatsSection } from "./StatisticsPrimitives";
 import { StatisticsRecords, StatisticsRankingTable, StatisticsAverageDetail, StatisticsCfopRecords } from "./StatisticsRecords";
 import { analyseSolve } from "../../../cube/analysis";
+import * as db from "../../../infrastructure/persistence/db";
+import { Alg } from "cubing/alg";
 import { useResultHistory } from "../../history/components/resultCharts/useResultHistory";
 import { StatisticsAnalysisTables, StatisticsCaseDiagram, StatisticsCaseTable, StatisticsF2lPerformance, StatisticsF2lPerformancePanel, PerformanceTable, SortHeader } from "./StatisticsAnalysisTables";
 import { StatisticsSolveDetail } from "./StatisticsSolveDetail";
@@ -75,6 +77,40 @@ const clickEvent = () => ({ target: { closest: () => null } });
 const keyEvent = (key: string) => { const target = {}; return { key, target, currentTarget: target, preventDefault: vi.fn() }; };
 
 beforeEach(() => { hooks.values = []; hooks.cursor = 0; hooks.effectCursor = 0; hooks.dependencies = []; hooks.effects = []; vi.restoreAllMocks(); });
+
+it("App owns correction preview, cancellation and explicit acceptance without automatic persistence", async () => {
+  const kpuzzle = await get3x3x3();
+  const solution = new Alg("R U R' U R U2 R'");
+  const moves = Array.from(solution.childAlgNodes()).map((node, i) => ({ move: node.toString(), t: (i + 1) * 200 }));
+  const analysis = analyseSolve(kpuzzle.defaultPattern().applyAlg(solution.invert()), moves)!;
+  const original: Solve = { ...snapshot.solves[0], scramble: solution.invert().toString(), moves };
+  const controller = new Controller(); hooks.controller = controller;
+  controller.state.update(state => ({ ...state, ready: true, area: "statistics" }));
+  const preview = vi.spyOn(controller, "previewCfopCorrection").mockResolvedValue({ mode: "state-only", analysis });
+  const apply = vi.spyOn(controller, "applyCfopCorrection").mockResolvedValue(true);
+  const save = vi.spyOn(db, "saveSolve").mockResolvedValue();
+  const onApplied = vi.fn();
+  const render = () => renderRoot(() => App());
+  const attempt = () => find(render(), element => element.type === StatisticsView).props.onAttemptCorrection(original, onApplied);
+  await attempt();
+  let dialog = find(render(), element => element.type === SolveReviewDialog);
+  expect(dialog.props.correctionPreview.analysis).toBe(analysis);
+  expect(dialog.props.onTrainStep).toBeUndefined();
+  expect(apply).not.toHaveBeenCalled(); expect(save).not.toHaveBeenCalled();
+  dialog.props.onClose();
+  expect(elements(render()).some(element => element.type === SolveReviewDialog)).toBe(false);
+  expect(apply).not.toHaveBeenCalled(); expect(save).not.toHaveBeenCalled();
+  await attempt();
+  dialog = find(render(), element => element.type === SolveReviewDialog);
+  expect(await dialog.props.correctionPreview.onApply()).toBe(true);
+  expect(apply).toHaveBeenCalledExactlyOnceWith(original.id);
+  expect(onApplied).toHaveBeenCalledOnce();
+  dialog.props.onClose();
+  preview.mockResolvedValue({ mode: "state-only", analysis: { ...analysis, quality: { status: "suspect", issues: [] } } });
+  await attempt();
+  expect(elements(render()).some(element => element.type === SolveReviewDialog)).toBe(false);
+  expect(find(render(), element => element.props.role === "alert").props.children).toContain("could not produce a reliable alternative");
+});
 
 describe("Statistics user interactions", () => {
   it("opens the exact solve from its time button, whole row and keyboard", () => {

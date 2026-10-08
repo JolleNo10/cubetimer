@@ -1,6 +1,6 @@
 import { Alg } from "cubing/alg";
 import type { KPattern, KPuzzle } from "cubing/kpuzzle";
-import { ANALYSIS_VERSION, analyseSolve } from "../../cube/analysis";
+import { ANALYSIS_VERSION, analyseSolve, type SolveAnalysis } from "../../cube/analysis";
 import { decodeGripTrack } from "../../cube/gripTrack";
 import { faceletsToPattern } from "../../cube/facelets";
 import type { Solve } from "../../app/types";
@@ -28,6 +28,19 @@ export function startingPattern(kpuzzle: KPuzzle, solve: Solve): KPattern | null
   }
 }
 
+/** State-only candidate always comes from original facts, never orientation or prior analysis. */
+export function buildStateOnlyCfopAnalysis(kpuzzle: KPuzzle, solve: Solve): SolveAnalysis | null {
+  if (solve.moves.length === 0) return null;
+  const from = startingPattern(kpuzzle, solve);
+  if (!from) return null;
+  try { return analyseSolve(from, solve.moves, null, {}); }
+  catch { return null; }
+}
+
+function isCurrent(analysis: SolveAnalysis | null | undefined): boolean {
+  return !!analysis && (analysis.analysisVersion ?? 1) >= ANALYSIS_VERSION && analysis.quality !== undefined;
+}
+
 /**
  * Rebuild a solve's analysis from the moves it recorded.
  *
@@ -39,14 +52,23 @@ export function startingPattern(kpuzzle: KPuzzle, solve: Solve): KPattern | null
  * `null` when there is nothing to do.
  */
 export function rebuildAnalysis(kpuzzle: KPuzzle, solve: Solve): Solve | null {
-  const current = solve.analysis && (solve.analysis.analysisVersion ?? 1) >= ANALYSIS_VERSION && solve.analysis.quality !== undefined;
-  if (current || solve.moves.length === 0) return null;
+  const correction = solve.cfopAnalysisCorrection;
+  const rebuildBase = !isCurrent(solve.analysis);
+  const rebuildCorrection = correction && !isCurrent(correction.analysis);
+  if ((!rebuildBase && !rebuildCorrection) || solve.moves.length === 0) return null;
   const from = startingPattern(kpuzzle, solve);
   if (!from) return null;
+  let rebuilt: Solve | null = null;
   // The readings are long gone, but what they were taken to mean was kept, so the
   // rebuilt breakdown still names the faces the solver was actually looking at.
-  const grip = solve.gripTrack ? decodeGripTrack(solve.gripTrack) : null;
-  const analysis = analyseSolve(from, solve.moves, grip, { observedStartBottomFace: solve.solveStartBottomFace });
-  if (!analysis) return null;
-  return { ...solve, analysis };
+  if (rebuildBase) {
+    const grip = solve.gripTrack ? decodeGripTrack(solve.gripTrack) : null;
+    const analysis = analyseSolve(from, solve.moves, grip, { observedStartBottomFace: solve.solveStartBottomFace });
+    if (analysis) rebuilt = { ...solve, analysis };
+  }
+  if (rebuildCorrection) {
+    const analysis = buildStateOnlyCfopAnalysis(kpuzzle, solve);
+    if (analysis) rebuilt = { ...(rebuilt ?? solve), cfopAnalysisCorrection: { ...correction, analysis } };
+  }
+  return rebuilt;
 }

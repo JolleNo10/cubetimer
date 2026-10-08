@@ -1,4 +1,4 @@
-import { isUsableCfopAnalysis } from "../../../app/solveAnalysis";
+import { effectiveCfopAnalysis, isUsableCfopAnalysis } from "../../../app/solveAnalysis";
 import { useEffect, useState } from "react";
 import { formatTime } from "../../../shared/time";
 import { GripLabel } from "../../../shared/ui/GripLabel";
@@ -12,7 +12,7 @@ import {
   type SolveAlternatives,
   type StepAlternatives,
 } from "../../../cube/alternatives";
-import type { SolveAnalysis, SolveStep } from "../../../cube/analysis";
+import { isTrustedCfopAnalysis, type SolveAnalysis, type SolveStep } from "../../../cube/analysis";
 import { startingPattern } from "../repair";
 import type { Solve } from "../../../app/types";
 
@@ -29,10 +29,10 @@ export type ReviewPreview = {
 type Load = { result: SolveAlternatives | null; done: number; total: number; failed: string | null };
 
 /** The alternatives for a solve, worked out once the panel is shown and streamed in as they come. */
-function useAlternatives(solve: Solve, analysis: SolveAnalysis): Load {
+function useAlternatives(solve: Solve, analysis: SolveAnalysis, correctionPreview: boolean): Load {
   const [load, setLoad] = useState<Load>({ result: null, done: 0, total: analysis.steps.length + 3, failed: null });
   useEffect(() => {
-    if (!isUsableCfopAnalysis(solve)) return;
+    if (!(correctionPreview ? isTrustedCfopAnalysis(analysis) : isUsableCfopAnalysis(solve))) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -47,7 +47,7 @@ function useAlternatives(solve: Solve, analysis: SolveAnalysis): Load {
       }
     })();
     return () => { cancelled = true; };
-  }, [solve, analysis]);
+  }, [solve, analysis, correctionPreview]);
   return load;
 }
 
@@ -59,16 +59,19 @@ function useAlternatives(solve: Solve, analysis: SolveAnalysis): Load {
  */
 export function SolveReviewPanel({
   solve,
-  analysis,
+  analysis: suppliedAnalysis,
   activeStep,
   onPreview,
+  correctionPreview = false,
 }: {
   solve: Solve;
   analysis: SolveAnalysis;
   activeStep: number;
   onPreview: (preview: ReviewPreview) => void;
+  correctionPreview?: boolean;
 }) {
-  const { result, done, total, failed } = useAlternatives(solve, analysis);
+  const analysis = correctionPreview ? suppliedAnalysis : effectiveCfopAnalysis(solve) ?? suppliedAnalysis;
+  const { result, done, total, failed } = useAlternatives(solve, analysis, correctionPreview);
   const step = analysis.steps[activeStep] as SolveStep | undefined;
   const better = result?.steps[activeStep];
   const play = (label: string, alternative: Alternative, fromMove = alternative.fromMove) =>

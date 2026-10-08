@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { get3x3x3 } from "../../cube/puzzle";
 import * as db from "../../infrastructure/persistence/db";
 import { rebuildAnalysis } from "./repair";
+import { Alg } from "cubing/alg";
 import * as history from "./solveHistory";
 import type { Session, Solve } from "../../app/types";
 
@@ -89,6 +90,26 @@ describe("persisted Solve history", () => {
     await history.deleteSolve(solve.id);
     expect(remove).toHaveBeenCalledExactlyOnceWith(solve.id);
   });
+});
+
+it("keeps state-only preview pure, requires trust on Apply, and persists Undo independently", async () => {
+  const solution = "R U R' U R U2 R'";
+  const original: Solve = { ...solve, scramble: new Alg(solution).invert().toString(),
+    moves: Array.from(new Alg(solution).childAlgNodes()).map((node, i) => ({ move: node.toString(), t: (i + 1) * 200 })),
+    solveStartBottomFace: "L", gripTrack: "|LF", cfopAnalysisExcluded: true };
+  const save = vi.spyOn(db, "saveSolve").mockResolvedValue();
+  expect(history.previewCfopCorrection(kpuzzle, original)?.analysis.quality?.status).toBe("trusted");
+  expect(save).not.toHaveBeenCalled();
+  const accepted = await history.applyCfopCorrection(kpuzzle, original);
+  expect(accepted?.cfopAnalysisCorrection).toBeDefined();
+  expect(accepted?.cfopAnalysisExcluded).toBe(true);
+  expect(await history.clearCfopCorrection(accepted!)).toEqual(original);
+  save.mockClear();
+  const ambiguous = { ...solve, scramble: "F2 R2 F2 R2", moves: ["R2", "F2", "R2", "F2"].map((move, i) => ({ move, t: (i + 1) * 200 })) };
+  expect(history.previewCfopCorrection(kpuzzle, ambiguous)?.analysis.quality?.status).toBe("suspect");
+  expect(await history.applyCfopCorrection(kpuzzle, ambiguous)).toBeNull();
+  expect(await history.applyCfopCorrection(undefined, original)).toBeNull();
+  expect(save).not.toHaveBeenCalled();
 });
 
 

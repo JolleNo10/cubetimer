@@ -181,10 +181,11 @@ export function StatisticsNavigation({ view, onSelect }: { view: StatisticsSubvi
   return <nav className="statistics-navigation" aria-label="Statistics views">{STATISTICS_VIEWS.map((item) => <button key={item} className="ghost" aria-pressed={view === item} onClick={() => onSelect(item)}>{item}</button>)}</nav>;
 }
 
-export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrainCase, onScopeChange, onSolveAgain, view, onViewChange }: {
+export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrainCase, onScopeChange, onSolveAgain, view, onViewChange, onAttemptCorrection }: {
   currentEvent: EventId; activeSessionId: string | null;
   onReplay: (solve: Solve) => void;
   onSolveAgain: (solve: Solve) => void;
+  onAttemptCorrection?: (solve: Solve, onApplied: () => void) => void;
   view: StatisticsSubview;
   onViewChange: (view: StatisticsSubview) => void;
   onTrainCase: (family: LastLayerFamily, caseId: string) => void;
@@ -208,6 +209,7 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrai
     void controller.loadStatisticsSnapshot().then((loaded) => {
       if (!active) return;
       setSnapshot(loaded);
+      setDetailSolve(current => current ? loaded.solves.find(solve => solve.id === current.id) ?? null : null);
     }).catch((loadError: unknown) => {
       if (active) setError(String(loadError));
     }).finally(() => {
@@ -287,6 +289,11 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrai
       ) : null}
       {detailSolve && model?.scopeSolves.some((solve) => solve.id === detailSolve.id) ? <StatisticsSolveDetail solve={detailSolve} solves={model.scopeSolves} session={model.eventSessions.find((session) => session.id === detailSolve.sessionId)} onClose={() => setDetailSolve(null)} onReplay={onReplay}
         onSolveAgain={() => onSolveAgain(detailSolve)}
+        onAttemptCorrection={onAttemptCorrection ? () => onAttemptCorrection(detailSolve, () => setRefreshToken(value => value + 1)) : undefined}
+        onUndoCorrection={async () => {
+          try { await controller.clearCfopCorrection(detailSolve.id); setRefreshToken(value => value + 1); }
+          catch (mutationError) { setError(String(mutationError)); }
+        }}
         onUpdate={async changes => {
           try {
             const updated = await controller.updateHistoricalSolve(detailSolve, changes);

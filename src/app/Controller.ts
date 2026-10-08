@@ -1,4 +1,4 @@
-import { isUsableCfopAnalysis } from "./solveAnalysis";
+import { effectiveCfopAnalysis, isUsableCfopAnalysis, solveForCfopInterpretation } from "./solveAnalysis";
 import type { KPattern } from "cubing/kpuzzle";
 import type { GanCubeMove } from "gan-web-bluetooth";
 import type { MacPrompt } from "../infrastructure/bluetooth/smartCube";
@@ -503,9 +503,12 @@ export class Controller {
     this.training.setF2lLibrary(library);
   }
   practiceSolveStep(solve: Solve, step: SolveStep): Promise<void> {
-    if (!isUsableCfopAnalysis(solve)) return Promise.resolve();
+    const current = this.sessions.get().solves.find(candidate => candidate.id === solve.id) ?? solve;
+    if (!isUsableCfopAnalysis(current)) return Promise.resolve();
+    const effectiveStep = effectiveCfopAnalysis(current)?.steps.find(candidate => candidate.name === step.name);
+    if (!effectiveStep) return Promise.resolve();
     this.setArea("training");
-    return this.training.practiceSolveStep(solve, step);
+    return this.training.practiceSolveStep(solveForCfopInterpretation(current), effectiveStep);
   }
   setTrainingMode(mode: TrainingMode): Promise<void> { return this.training.setTrainingMode(mode); }
   againTraining(): void { this.training.againTraining(); }
@@ -556,6 +559,36 @@ export class Controller {
 
   #solveUpdates = new Map<string, Promise<Solve>>();
 
+  async #findCorrectionSolve(id: string) {
+    return this.sessions.get().solves.find(candidate => candidate.id === id) ?? await solveHistory.findSolve(id);
+  }
+
+  async previewCfopCorrection(id: string) {
+    const solve = await this.#findCorrectionSolve(id);
+    return solve ? solveHistory.previewCfopCorrection(this.physical.model?.kpuzzle, solve) : null;
+  }
+
+  async applyCfopCorrection(id: string): Promise<boolean> {
+    const solve = await this.#findCorrectionSolve(id);
+    if (!solve) return false;
+    let applied = false;
+    await this.#mutateHistoricalSolve(solve, async current => {
+      const latest = await this.#findCorrectionSolve(id);
+      const updated = latest ? await solveHistory.applyCfopCorrection(this.physical.model?.kpuzzle, latest) : null;
+      applied = updated !== null;
+      return updated ?? current;
+    });
+    return applied;
+  }
+
+  async clearCfopCorrection(id: string): Promise<void> {
+    const solve = await this.#findCorrectionSolve(id);
+    if (solve) await this.#mutateHistoricalSolve(solve, async current => {
+      const latest = await this.#findCorrectionSolve(id);
+      return latest ? solveHistory.clearCfopCorrection(latest) : current;
+    });
+  }
+
   async updateSolve(id: string, changes: Partial<Solve>): Promise<void> {
     const solve = this.sessions.get().solves.find((s) => s.id === id);
     if (!solve) return;
@@ -564,11 +597,15 @@ export class Controller {
 
   /** Edit known history without selecting its Session or changing Timer context. */
   async updateHistoricalSolve(solve: Solve, changes: Partial<Solve>): Promise<Solve> {
+    return this.#mutateHistoricalSolve(solve, current => solveHistory.updateSolve(current, changes));
+  }
+
+  async #mutateHistoricalSolve(solve: Solve, mutate: (current: Solve) => Promise<Solve>): Promise<Solve> {
     const previous = this.#solveUpdates.get(solve.id);
     const operation = (async () => {
       const latest = previous ? await previous.catch(() => solve) : solve;
       const current = this.sessions.get().solves.find(candidate => candidate.id === solve.id) ?? latest;
-      const updated = await solveHistory.updateSolve(current, changes);
+      const updated = await mutate(current);
       this.sessions.update(state => ({ ...state,
         solves: state.solves.map(candidate => candidate.id === solve.id ? updated : candidate),
         lastSolve: state.lastSolve?.id === solve.id ? updated : state.lastSolve,

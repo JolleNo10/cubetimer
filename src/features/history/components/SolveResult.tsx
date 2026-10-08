@@ -1,4 +1,5 @@
 import { SolveActions } from "./SolveActions";
+import { effectiveCfopAnalysis } from "../../../app/solveAnalysis";
 import { SolveOutlierNotice } from "./SolveOutlierNotice";
 import { SolveAnalysisReview } from "./SolveAnalysisReview";
 import { type SolveStep } from "../../../cube/analysis";
@@ -16,6 +17,7 @@ export function SolveResult({
   onContinue,
   onReplay,
   onPracticeStep,
+  onAttemptCorrection,
 }: {
   solve: Solve;
   solves: readonly Solve[];
@@ -23,9 +25,10 @@ export function SolveResult({
   /** Open the review: the replay, how each step went and what would have been better. */
   onReplay: (solve: Solve) => void;
   onPracticeStep?: (step: SolveStep) => void;
+  onAttemptCorrection?: (solve: Solve) => void;
 }) {
   const controller = useController();
-  const analysis = solve.analysis ?? null;
+  const analysis = effectiveCfopAnalysis(solve) ?? null;
   const moveCount = analysis?.sliceTurns ?? solve.moves.length;
   const slowSolve = isSlowSolve(solve);
   const specialLabel = practiceScrambleLabel(solve.scrambleProvider);
@@ -70,6 +73,7 @@ export function SolveResult({
         </div>
 
         <SolveActions solve={solve} onUpdate={changes => controller.updateSolve(solve.id, changes)} onReplay={onReplay}
+          onAttemptCorrection={onAttemptCorrection ? () => onAttemptCorrection(solve) : undefined} onUndoCorrection={() => controller.clearCfopCorrection(solve.id)}
           onSolveAgain={() => { controller.replayScramble(solve.scramble, solve.scrambleProvider); onContinue({ resumeTimer: false }); }}
           onDelete={() => controller.deleteSolve(solve.id)} />
 

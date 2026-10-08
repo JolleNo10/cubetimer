@@ -7,7 +7,7 @@ import { CubeMoveGuide } from "../../../shared/ui/CubeMoveGuide";
 import { CubeFrontMarker } from "../../../shared/ui/CubeFrontMarker";
 import { DetailedStepBreakdown } from "./StepBreakdown";
 import { SolveReviewPanel } from "./SolveReviewPanel";
-import { describeGrip, GENERATORS, IDENTITY } from "../../../cube/orientation";
+import { describeGrip, GENERATORS, IDENTITY, reorientMove, rotationForCrossFace } from "../../../cube/orientation";
 import type { Solve } from "../../../app/types";
 import type { SolveStep } from "../../../cube/analysis";
 
@@ -106,9 +106,9 @@ const solve: Solve = {
   gripTrack: `|${describeGrip(IDENTITY)}${describeGrip(GENERATORS.y)}`,
 };
 
-function fixture(initialView?: { index: number; speed: number }, withAnalysis = false, trusted = true, changes: Partial<Solve> = {}) {
+function fixture(initialView?: { index: number; speed: number }, withAnalysis = false, trusted = true, changes: Partial<Solve> = {}, correctionPreview?: React.ComponentProps<typeof SolveReviewDialog>["correctionPreview"]) {
   const onClose = vi.fn(), onTrainStep = vi.fn();
-  const selectedSolve: Solve = withAnalysis ? { ...solve, analysis: {
+  let selectedSolve: Solve = withAnalysis ? { ...solve, analysis: {
     analysisVersion: ANALYSIS_VERSION, quality: trusted ? { status: "trusted", issues: [] } : { status: "suspect", issues: [{ code: "ambiguous-cross", candidates: ["D", "L"] }] },
     method: "CFOP", crossFace: "D", rotation: "DB", steps: [step("Cross", 0, 1), step("OLL", 1, 2)],
     solvingMs: 1000, tps: 2, totalRecognitionMs: 200, totalExecutionMs: 800, stepsSkipped: 0,
@@ -126,12 +126,12 @@ function fixture(initialView?: { index: number; speed: number }, withAnalysis = 
       if (node.props.className === "replay-cube-host") (node.props.ref as { current: unknown }).current = { appendChild() {} };
       visit(node.props.children);
     };
-    visit(SolveReviewDialog({ solve: selectedSolve, onClose, onTrainStep, initialView }));
+    visit(SolveReviewDialog({ solve: selectedSolve, onClose, onTrainStep, initialView, correctionPreview }));
     hooks.effects.splice(0).forEach(effect => effect());
     return {
       labels: nodes.filter(node => node.type === "button").map(node => Array.isArray(node.props.children) ? node.props.children.join("") : node.props.children),
       button: (label: string) => nodes.find(node => node.type === "button" &&
-        (node.props["aria-label"] === label || (Array.isArray(node.props.children) ? node.props.children.join("") : node.props.children) === label))!.props as { onClick(): void; disabled?: boolean },
+      (node.props["aria-label"] === label || (Array.isArray(node.props.children) ? node.props.children.join("") : node.props.children) === label))!.props as { onClick(): void | Promise<void>; disabled?: boolean },
       sequence: nodes.find(node => node.type === MoveSequence)!.props as React.ComponentProps<typeof MoveSequence>,
       arrow: nodes.find(node => node.type === CubeMoveGuide)?.props as React.ComponentProps<typeof CubeMoveGuide> | undefined,
       marker: nodes.find(node => node.type === CubeFrontMarker)!.props as React.ComponentProps<typeof CubeFrontMarker>,
@@ -146,7 +146,7 @@ function fixture(initialView?: { index: number; speed: number }, withAnalysis = 
     keyListener({ key: value, target, preventDefault } as unknown as KeyboardEvent);
     return preventDefault;
   };
-  return { render, key, onClose, onTrainStep };
+  return { render, key, onClose, onTrainStep, selectedSolve, replaceSolve: (solve: Solve) => { selectedSolve = solve; } };
 }
 
 describe("Replay instruction cursor", () => {
@@ -260,6 +260,73 @@ describe("Replay instruction cursor", () => {
     }
     expect(key(" ", new Control("button"))).not.toHaveBeenCalled();
     key("Escape", new Control("input")); expect(onClose).toHaveBeenCalledOnce();
+  });
+});
+
+describe("state-only correction Review", () => {
+  it("filters recorded grip, uses the corrected Cross for Replay, and restores raw Replay after Undo", () => {
+    const candidate = { ...fixture(undefined, true).selectedSolve.analysis!, crossFace: "U" as const };
+    const { render, selectedSolve, replaceSolve } = fixture(undefined, true, false, {
+      solveStartBottomFace: "L", cfopAnalysisCorrection: { mode: "state-only", acceptedAt: 1, analysis: candidate },
+    });
+    const base = selectedSolve.analysis;
+    const track = selectedSolve.gripTrack;
+    let view = render();
+    const frame = rotationForCrossFace("U");
+    expect(view.sequence.moves).toEqual(selectedSolve.moves.map(move => reorientMove(move.move, frame.orientation)));
+    expect(hooks.player!.setup).toBe([selectedSolve.scramble, ...frame.tokens].join(" "));
+    expect(view.breakdown!.analysis).toBe(candidate);
+    expect(view.panel!.solve.gripTrack).toBeUndefined();
+    expect(selectedSolve.gripTrack).toBe(track);
+    expect(selectedSolve.analysis).toBe(base);
+    expect(selectedSolve.solveStartBottomFace).toBe("L");
+    const { cfopAnalysisCorrection: _correction, ...undone } = selectedSolve;
+    replaceSolve(undone);
+    view = render();
+    expect(view.sequence.moves).toEqual(["R", "y", "F"]);
+    expect(hooks.player!.setup).toBe(selectedSolve.scramble);
+    expect(view.breakdown!.analysis).toBe(base);
+  });
+  it("labels a non-persistent preview, enables trusted alternatives despite manual veto, and Cancels without Apply", () => {
+    const candidate = { ...fixture(undefined, true).selectedSolve.analysis!, crossFace: "U" as const };
+    const onApply = vi.fn().mockResolvedValue(true);
+    const { render, onClose, selectedSolve } = fixture(undefined, true, false, { cfopAnalysisExcluded: true }, { analysis: candidate, onApply });
+    const view = render();
+    expect(view.text()).toContain("Correction preview");
+    expect(view.text().join(" ")).toContain("original analysis have not been changed");
+    expect(view.text().join(" ")).toContain("automatically trusted");
+    expect(view.labels).toContain("Apply correction");
+    expect(view.labels).not.toContain("Train this OLL");
+    expect(view.panel!.correctionPreview).toBe(true);
+    expect(view.panel!.analysis).toBe(candidate);
+    expect(view.panel!.solve.gripTrack).toBeUndefined();
+    expect(selectedSolve.cfopAnalysisCorrection).toBeUndefined();
+    view.button("Cancel").onClick();
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onApply).not.toHaveBeenCalled();
+  });
+  it("offers Apply only for a trusted candidate and closes only after successful acceptance", async () => {
+    const candidate = fixture(undefined, true).selectedSolve.analysis!;
+    const onApply = vi.fn().mockResolvedValue(false);
+    const { render, onClose } = fixture(undefined, true, false, {}, { analysis: candidate, onApply });
+    await render().button("Apply correction").onClick();
+    expect(onApply).toHaveBeenCalledOnce();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(render().text().join(" ")).toContain("Nothing was applied");
+    onApply.mockResolvedValue(true);
+    await render().button("Apply correction").onClick();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+  it("does not authorize a suspect preview for Apply, alternatives or Training", () => {
+    const candidate = fixture(undefined, true, false).selectedSolve.analysis!;
+    const onApply = vi.fn();
+    const { render } = fixture(undefined, true, false, {}, { analysis: candidate, onApply });
+    const view = render();
+    expect(view.labels).not.toContain("Apply correction");
+    expect(view.panel).toBeUndefined();
+    expect(view.text().join(" ")).toContain("could not produce a reliable alternative");
+    view.button("Cancel").onClick();
+    expect(onApply).not.toHaveBeenCalled();
   });
 });
 

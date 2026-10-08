@@ -13,6 +13,7 @@ import { normaliseLastLayerTrainingSet, normaliseSolveThreshold } from "../../ap
 import { F2L_POSITIONS } from "../../cube/f2lCases";
 import { findF2lTrainingCase, f2lTrainingCatalogue } from "../../cube/f2lTrainingCases";
 import { lastLayerCaseIds } from "../../cube/lastLayerTraining";
+import { STEP_NAMES, type SolveAnalysis } from "../../cube/analysis";
 
 const DB_NAME = "cubetimer";
 const DB_VERSION = 5;
@@ -92,14 +93,61 @@ export function migrateSession(session: StoredSession): Session {
  * are dropped rather than half-read, so the solve simply shows no breakdown.
  */
 export function migrateSolve(solve: StoredSolve): Solve {
-  const { event: _legacyEvent, statisticsOutlier: _derivedOutlier, ...canonical } = solve;
+  const { event: _legacyEvent, statisticsOutlier: _derivedOutlier, cfopAnalysisCorrection: correction, ...canonical } = solve;
   canonical.solveStartBottomFace = FACES.includes(solve.solveStartBottomFace as Face) ? solve.solveStartBottomFace : undefined;
   canonical.cfopAnalysisExcluded = solve.cfopAnalysisExcluded === true ? true : undefined;
+  const migrated: Solve = { ...canonical, moves: canonical.moves ?? [] };
+  if (isRecord(correction) && correction.mode === "state-only"
+    && typeof correction.acceptedAt === "number" && Number.isFinite(correction.acceptedAt) && correction.acceptedAt >= 0
+    && isReadableCorrectionAnalysis(correction.analysis)) {
+    migrated.cfopAnalysisCorrection = { mode: "state-only", acceptedAt: correction.acceptedAt, analysis: correction.analysis };
+  }
   const analysis = canonical.analysis as { steps?: unknown } | null | undefined;
   if (analysis && !Array.isArray(analysis.steps)) {
-    return { ...canonical, analysis: null, moves: canonical.moves ?? [] };
+    return { ...migrated, analysis: null };
   }
-  return { ...canonical, moves: canonical.moves ?? [] };
+  return migrated;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Structural readability only; current analyser version/quality independently gate use. */
+function isReadableCorrectionAnalysis(value: unknown): value is SolveAnalysis {
+  const numbers = (record: Record<string, unknown>, keys: string[]) => keys.every(key => typeof record[key] === "number" && Number.isFinite(record[key]));
+  const face = (value: unknown) => FACES.includes(value as Face);
+  const nullableText = (value: unknown) => value === null || typeof value === "string";
+  const issue = (value: unknown) => {
+    if (!isRecord(value)) return false;
+    switch (value.code) {
+      case "bottom-evidence-conflict": return face(value.observedStart) && face(value.tracked);
+      case "cross-face-conflict": return face(value.observed) && face(value.inferred) && (value.source === undefined || value.source === "solve-start" || value.source === "whole-solve-gyro");
+      case "ambiguous-cross": return Array.isArray(value.candidates) && value.candidates.every(face);
+      case "unassigned-f2l-slot": return STEP_NAMES.includes(value.step as typeof STEP_NAMES[number]);
+      case "incoherent-cfop-progression": case "unrecognized-oll": case "unrecognized-pll": return true;
+      default: return false;
+    }
+  };
+  if (!isRecord(value) || value.method !== "CFOP" || !face(value.crossFace) || typeof value.rotation !== "string"
+    || !numbers(value, ["faceTurns", "quarterTurns", "sliceTurns", "solvingMs", "tps", "totalRecognitionMs", "totalExecutionMs", "stepsSkipped", "turnsAfterSolution"])
+    || (value.analysisVersion !== undefined && !numbers(value, ["analysisVersion"]))
+    || !Array.isArray(value.steps) || value.steps.length !== STEP_NAMES.length
+    || !value.steps.every((step, index) => isRecord(step) && step.name === STEP_NAMES[index]
+      && typeof step.moves === "string" && typeof step.skipped === "boolean" && typeof step.hasTurns === "boolean"
+      && (step.case === null || typeof step.case === "string") && (step.slot === null || typeof step.slot === "string")
+      && numbers(step, ["faceTurns", "quarterTurns", "sliceTurns", "timeMs", "recognitionMs", "executionMs", "cumulativeMs", "tps", "fromMove", "toMove"])
+      && Array.isArray(step.recordedMoves) && step.recordedMoves.every(move => isRecord(move) && typeof move.move === "string" && numbers(move, ["t"]))
+      && (step.executedAlg === undefined || step.executedAlg === null || (isRecord(step.executedAlg)
+        && ["F2L", "OLL", "PLL"].includes(step.executedAlg.family as string) && typeof step.executedAlg.alg === "string"
+        && numbers(step.executedAlg, ["fromMove", "toMove"])))
+      && (step.looks === undefined || (Array.isArray(step.looks) && step.looks.every(look => isRecord(look)
+        && ["full", "edges", "corners"].includes(look.kind as string) && nullableText(look.case) && nullableText(look.label)
+        && nullableText(look.alg) && numbers(look, ["fromMove", "toMove", "recognitionMs"])))))
+    || !Array.isArray(value.pauses) || !value.pauses.every(pause => isRecord(pause) && numbers(pause, ["afterMove", "startMs", "durationMs"]))) return false;
+  return value.quality === undefined || (isRecord(value.quality)
+    && (value.quality.status === "trusted" || value.quality.status === "suspect")
+    && Array.isArray(value.quality.issues) && value.quality.issues.every(issue));
 }
 
 export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
