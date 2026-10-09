@@ -1,7 +1,7 @@
 import type { KPuzzle } from "cubing/kpuzzle";
 import * as db from "../../infrastructure/persistence/db";
 import * as sessionService from "../sessions/sessionService";
-import { saveSolve, saveSolves } from "../history/solveHistory";
+import { saveSolves } from "../history/solveHistory";
 import * as drillPresets from "../training/trainingDrillPresets";
 import * as algorithmPreferences from "../training/trainingAlgorithmPreferences";
 import * as recognitionHistory from "../training/trainingRecognitionHistory";
@@ -82,7 +82,9 @@ export async function importData(
   );
 
   for (const session of sessions) await db.saveSession(session);
-  for (const solve of importedSolves) await saveSolve(solve);
+  for (let offset = 0; offset < importedSolves.length; offset += 200) {
+    await saveSolves(importedSolves.slice(offset, offset + 200));
+  }
   for (const attempt of attempts) await trainingHistory.saveTrainingAttempt(attempt);
   for (const attempt of recognition) await recognitionHistory.saveTrainingRecognitionAttempt(attempt);
   for (const preset of presets) await drillPresets.saveTrainingDrillPreset(preset);

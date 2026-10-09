@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_EVENT_ID } from "../../cube/scramble";
 import { mergeSettings, migrateSession, migrateSolve, normalizeTrainingAttempt, normalizeTrainingDrillPreset, normalizeTrainingAlgorithmPreference, normalizeTrainingRecognitionAttempt } from "./db";
-import type { Solve, TrainingAttempt, TrainingDrillPreset, TrainingAlgorithmPreference, TrainingRecognitionAttempt } from "../../app/types";
+import type { Session, Solve, TrainingAttempt, TrainingDrillPreset, TrainingAlgorithmPreference, TrainingRecognitionAttempt } from "../../app/types";
 
 import { f2lTrainingCatalogue } from "../../cube/f2lTrainingCases";
 import { lastLayerCaseIds } from "../../cube/lastLayerTraining";
@@ -20,6 +20,181 @@ const base = {
   source: "smartcube",
   moves: [{ move: "R", t: 10 }],
 } as unknown as Solve;
+
+/** Focused key-only adapter double: staged writes commit together, requests run in active tasks. */
+function historyDatabase(sessions: Session[], solves: Solve[]) {
+  const sessionStore = new Map(sessions.map(row => [row.id, row]));
+  const solveStore = new Map(solves.map(row => [row.id, row]));
+  const requests: Array<() => void> = [];
+  let active = true;
+  let started!: () => void;
+  const transactionStarted = new Promise<void>(resolve => { started = resolve; });
+  const tx = {
+    error: null as Error | null,
+    oncomplete: null as null | (() => void),
+    onerror: null as null | (() => void),
+    onabort: null as null | (() => void),
+    objectStore: (name: string) => name === "sessions" ? sessionObjectStore : solveObjectStore,
+  };
+  const stagedSessions = new Map(sessionStore);
+  const stagedSolves = new Map(solveStore);
+  const request = <T>(read: () => T) => {
+    const req = { result: undefined as T | undefined, onsuccess: null as null | (() => void) };
+    requests.push(() => { req.result = read(); req.onsuccess?.(); });
+    return req;
+  };
+  const deletesSucceeded = vi.fn();
+  const remove = (name: string, id: string) => {
+    expect(active).toBe(true);
+    return request(() => {
+      (name === "sessions" ? stagedSessions : stagedSolves).delete(id);
+      deletesSucceeded(name, id);
+      return undefined;
+    });
+  };
+  const sessionObjectStore = { delete: vi.fn((id: string) => remove("sessions", id)) };
+  const openKeyCursor = vi.fn((query: string | null, direction?: string) => {
+    let keys = [...stagedSolves.values()]
+      .filter(row => query === null || row.sessionId === query)
+      .map(row => ({ key: row.sessionId, primaryKey: row.id }))
+      .sort((a, b) => a.key.localeCompare(b.key) || a.primaryKey.localeCompare(b.primaryKey));
+    if (direction === "nextunique") keys = keys.filter((row, i) => i === 0 || keys[i - 1].key !== row.key);
+    let position = 0;
+    const req = { result: null as null | { key: string; primaryKey: string; continue: () => void }, onsuccess: null as null | (() => void) };
+    const next = () => {
+      expect(active).toBe(true);
+      requests.push(() => {
+        const key = keys[position++];
+        req.result = key ? { ...key, continue: next } : null;
+        req.onsuccess?.();
+      });
+    };
+    next();
+    return req;
+  });
+  const solveObjectStore = {
+    delete: vi.fn((id: string) => remove("solves", id)),
+    get: vi.fn((id: string) => request(() => solveStore.get(id))),
+    // A record scan, value cursor or getAllKeys is intentionally unsupported.
+    index: vi.fn((name: string) => { expect(name).toBe("sessionId"); return { openKeyCursor }; }),
+  };
+  const transaction = vi.fn((_names: string | string[], _mode: string) => { started(); return tx; });
+  const open = vi.fn(() => {
+    const req = { result: { transaction }, onsuccess: null as null | (() => void) };
+    queueMicrotask(() => req.onsuccess?.());
+    return req;
+  });
+  vi.stubGlobal("indexedDB", { open });
+  vi.resetModules();
+  return {
+    sessionStore, solveStore, transactionStarted, transaction, openKeyCursor, solveObjectStore, deletesSucceeded,
+    drain(limit = Infinity) {
+      active = false;
+      while (requests.length && limit-- > 0) {
+        active = true;
+        requests.shift()!();
+        active = false;
+      }
+    },
+    complete() {
+      expect(requests).toHaveLength(0);
+      sessionStore.clear(); stagedSessions.forEach((value, key) => sessionStore.set(key, value));
+      solveStore.clear(); stagedSolves.forEach((value, key) => solveStore.set(key, value));
+      tx.oncomplete?.();
+    },
+    abort(error: Error | null = null, emitError = false) {
+      requests.length = 0;
+      tx.error = error;
+      if (emitError) tx.onerror?.();
+      tx.onabort?.();
+    },
+  };
+}
+
+describe("Session and Solve IndexedDB operations", () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+  const sessions: Session[] = [
+    { id: "s", name: "Target", event: "333", createdAt: 0 },
+    { id: "other", name: "Other", event: "222", createdAt: 1 },
+  ];
+  const solves = [base, { ...base, id: "2" }, { ...base, id: "3", sessionId: "other" }];
+
+  it("deletes a Session and its indexed solves only when the entire transaction commits", async () => {
+    const database = historyDatabase(sessions, solves);
+    const adapter = await import("./db");
+    let completed = false;
+    const deleting = adapter.deleteSession("s").then(() => { completed = true; });
+    await database.transactionStarted;
+    database.drain();
+    await Promise.resolve();
+    expect(database.transaction).toHaveBeenCalledExactlyOnceWith(["sessions", "solves"], "readwrite");
+    expect(database.openKeyCursor).toHaveBeenCalledExactlyOnceWith("s");
+    expect(database.deletesSucceeded.mock.calls).toEqual([["solves", "1"], ["solves", "2"], ["sessions", "s"]]);
+    expect(completed).toBe(false);
+    expect([...database.sessionStore.values()]).toEqual(sessions);
+    expect([...database.solveStore.values()]).toEqual(solves);
+    database.complete();
+    await deleting;
+    expect([...database.sessionStore.values()]).toEqual([sessions[1]]);
+    expect([...database.solveStore.values()]).toEqual([solves[2]]);
+    expect(database.solveObjectStore.get).not.toHaveBeenCalled();
+  });
+
+  it("deletes an empty Session successfully without touching other history", async () => {
+    const database = historyDatabase(sessions, [solves[2]]);
+    const adapter = await import("./db");
+    const deleting = adapter.deleteSession("s");
+    await database.transactionStarted;
+    database.drain(); database.complete(); await deleting;
+    expect([...database.sessionStore.values()]).toEqual([sessions[1]]);
+    expect([...database.solveStore.values()]).toEqual([solves[2]]);
+    expect(database.solveObjectStore.delete).not.toHaveBeenCalled();
+  });
+
+  it.each(["abort", "error", "partial"])("rejects transaction %s after successful deletes without committing partial history", async kind => {
+    const database = historyDatabase(sessions, solves);
+    const adapter = await import("./db");
+    const deleting = adapter.deleteSession("s");
+    await database.transactionStarted;
+    database.drain(kind === "partial" ? 2 : Infinity);
+    expect(database.deletesSucceeded).toHaveBeenCalledTimes(kind === "partial" ? 1 : 3);
+    const error = kind === "abort" ? null : new Error("Delete failed");
+    const rejected = error ? expect(deleting).rejects.toBe(error) : expect(deleting).rejects.toThrow("Session deletion aborted.");
+    database.abort(error, kind !== "abort");
+    await rejected;
+    expect([...database.sessionStore.values()]).toEqual(sessions);
+    expect([...database.solveStore.values()]).toEqual(solves);
+  });
+
+  it.each([true, false])("loads one primary key with migration, present: %s", async present => {
+    const legacy = { ...base, moves: undefined, analysis: { cross: "obsolete" } } as unknown as Solve;
+    const database = historyDatabase(sessions, present ? [legacy, solves[2]] : [solves[2]]);
+    const adapter = await import("./db");
+    const loading = adapter.loadSolve("1");
+    await database.transactionStarted;
+    // store() returns across one microtask before get() is enqueued.
+    await Promise.resolve();
+    database.drain();
+    expect(await loading).toEqual(present ? migrateSolve(legacy) : undefined);
+    expect(database.transaction).toHaveBeenCalledExactlyOnceWith("solves", "readonly");
+    expect(database.solveObjectStore.get).toHaveBeenCalledExactlyOnceWith("1");
+    expect(database.solveObjectStore.index).not.toHaveBeenCalled();
+    expect([...database.solveStore.values()]).toEqual(present ? [legacy, solves[2]] : [solves[2]]);
+  });
+
+  it.each([{ rows: solves }, { rows: [] }])("reads only distinct Session index keys: %j", async ({ rows }) => {
+    const database = historyDatabase(sessions, rows);
+    const adapter = await import("./db");
+    const loading = adapter.loadSessionIdsWithSolves();
+    await database.transactionStarted;
+    database.drain(); database.complete();
+    expect(await loading).toEqual(new Set(rows.length ? ["s", "other"] : []));
+    expect(database.transaction).toHaveBeenCalledExactlyOnceWith("solves", "readonly");
+    expect(database.openKeyCursor).toHaveBeenCalledExactlyOnceWith(null, "nextunique");
+    expect(database.solveObjectStore.get).not.toHaveBeenCalled();
+    expect(database.solveObjectStore.delete).not.toHaveBeenCalled();
+  });
+});
 
 describe("migrateSolve", () => {
   it("drops the legacy event while preserving canonical solve facts", () => {

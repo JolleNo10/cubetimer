@@ -9,11 +9,19 @@ import type { Solve } from "../../app/types";
 async function repairLoadedSolves(kpuzzle: KPuzzle | undefined, solves: Solve[]): Promise<Solve[]> {
   if (!kpuzzle) return solves;
   const result: Solve[] = [];
+  let repairs: Solve[] = [];
   for (const solve of solves) {
     const rebuilt = rebuildAnalysis(kpuzzle, solve);
-    if (rebuilt) await saveSolve(rebuilt);
+    if (rebuilt) {
+      repairs.push(rebuilt);
+      if (repairs.length === 200) {
+        await saveSolves(repairs);
+        repairs = [];
+      }
+    }
     result.push(rebuilt ?? solve);
   }
+  if (repairs.length > 0) await saveSolves(repairs);
   return result;
 }
 
@@ -23,7 +31,7 @@ export async function loadSessionHistory(kpuzzle: KPuzzle | undefined, sessionId
 
 /** Read a record outside the active Session without derived repair or writes. */
 export async function findSolve(id: string): Promise<Solve | undefined> {
-  return (await db.loadAllSolves()).find(solve => solve.id === id);
+  return db.loadSolve(id);
 }
 
 /** All-history loading has no dependency on the active runtime context. */

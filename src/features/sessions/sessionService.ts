@@ -133,11 +133,10 @@ export async function assertImportSessionCompatibility(
   incomingSessions: Session[],
   incomingSolveSessionIds: Set<string>,
 ): Promise<void> {
-  const [existingSessions, existingSolves] = await Promise.all([
-    db.loadSessions(), db.loadAllSolves(),
+  const [existingSessions, existingHistory] = await Promise.all([
+    db.loadSessions(), db.loadSessionIdsWithSolves(),
   ]);
   const existingById = new Map(existingSessions.map((session) => [session.id, session]));
-  const existingHistory = new Set(existingSolves.map((solve) => solve.sessionId));
   const incomingById = new Map<string, Session>();
   for (const session of incomingSessions) {
     const previous = incomingById.get(session.id);

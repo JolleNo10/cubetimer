@@ -165,15 +165,18 @@ describe("Session import compatibility", () => {
     ["222", false, true, true],
   ] as const)("merges event %s with existing history %s and incoming history %s", async (event, existingHistory, incomingHistory, rejected) => {
     vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]);
-    vi.spyOn(db, "loadAllSolves").mockResolvedValue(existingHistory ? [solve] : []);
+    const indexed = vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set(existingHistory ? ["1"] : []));
+    const fullHistory = vi.spyOn(db, "loadAllSolves").mockRejectedValue(new Error("Full history must not be loaded"));
     const operation = service.assertImportSessionCompatibility([session("1", event)], new Set(incomingHistory ? ["1"] : []));
     if (rejected) await expect(operation).rejects.toThrow(/different events while solve history exists/);
     else await expect(operation).resolves.toBeUndefined();
+    expect(indexed).toHaveBeenCalledOnce();
+    expect(fullHistory).not.toHaveBeenCalled();
   });
 
   it("rejects conflicting definitions within one incoming import even without history", async () => {
     vi.spyOn(db, "loadSessions").mockResolvedValue([]);
-    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+    vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set());
     await expect(service.assertImportSessionCompatibility([session("1"), session("1", "222")], new Set())).rejects.toThrow(/conflicting events/);
   });
 });

@@ -1,5 +1,17 @@
 # Mistakes
 
+## 2026-10-09 — IndexedDB cursor test parameterization
+
+- What happened: the first focused run passed Solve records instead of Solve arrays into two new distinct-index tests.
+- Root cause: Vitest treats array entries in `it.each` as argument tuples, so a history array was spread into callback arguments.
+- Prevention: wrap array-valued fixtures in named objects before parameterizing tests.
+
+## 2026-10-09 — Controller Session-event assertions
+
+- What happened: four new Controller integration assertions expected an event field on the runtime snapshot.
+- Root cause: the tests assumed a duplicated event field instead of following the documented Session-owned EventId contract.
+- Prevention: assert event preservation through the selected Session record and check snapshot contracts before adding integration assertions.
+
 ## 2026-10-09 — Correction validation and Replay Undo fixture
 
 - What happened: focused runs caught a missing closing parenthesis in migration validation, an in-place Replay Undo fixture mutation, an assumed suspect one-turn fixture that the analyser actually trusts, a CSV assertion missing the session-name argument, and a partial status-test Solve rejected by typecheck.

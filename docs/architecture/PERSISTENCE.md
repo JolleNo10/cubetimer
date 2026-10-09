@@ -240,6 +240,15 @@ flags or manual penalties is rejected because changing policy must be reversible
 
 `src/infrastructure/persistence/db.ts` owns IndexedDB access.
 
+Deleting a Session and its associated solves is one atomic persistence operation.
+The adapter uses one readwrite transaction covering `sessions` and `solves`,
+deletes the matching Solve primary keys through the `sessionId` index, and reports
+success only after the entire transaction completes. Application selection and
+fallback transitions remain owned by SessionService and Controller.
+
+Rejected: deleting the Session first and then removing solves through independent
+transactions. Partial failure can leave orphaned history.
+
 The current database is:
 
 ```text

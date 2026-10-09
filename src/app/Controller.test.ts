@@ -623,7 +623,7 @@ describe("Controller Session-context synchronization", () => {
         storage.set(value.id, { ...value });
       });
       vi.spyOn(db, "loadSessions").mockImplementation(async () => [...storage.values()]);
-      vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+      vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set());
       vi.spyOn(db, "loadSolves").mockResolvedValue([]);
       vi.spyOn(controller, "newScramble").mockResolvedValue();
       const renaming = controller.renameSession("1", "Renamed");
@@ -784,6 +784,28 @@ describe("Controller import runtime integration", () => {
     return JSON.stringify({ format: "cubetimer", version: 2, sessions, solves });
   }
 
+  it.each(["json", "csv"] as const)("rejects %s indexed history event conflicts before writes and releases the lock", async format => {
+    stubTimerLoop();
+    const local = { ...session("import:Imported", "222"), name: "Imported" };
+    const incoming = { ...local, event: "333" as const };
+    vi.spyOn(db, "loadSessions").mockResolvedValue([local]);
+    const indexed = vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set([local.id]));
+    const fullHistory = vi.spyOn(db, "loadAllSolves").mockRejectedValue(new Error("Unexpected history scan"));
+    const saveSession = vi.spyOn(db, "saveSession").mockResolvedValue();
+    const saveSolves = vi.spyOn(db, "saveSolves").mockResolvedValue();
+    const controller = readyController([local], local.id, [], "ready");
+    const operation = format === "json" ? controller.importData(jsonExport([incoming]))
+      : controller.importSolveCsv(formatSolveCsv([solveFor(incoming.id)], new Map([[incoming.id, incoming.name]])));
+    await expect(operation).rejects.toThrow(/different events while solve history exists/);
+    expect(indexed).toHaveBeenCalledOnce();
+    expect(fullHistory).not.toHaveBeenCalled();
+    expect(saveSession).not.toHaveBeenCalled();
+    expect(saveSolves).not.toHaveBeenCalled();
+    expect(controller.snapshot()).toMatchObject({ sessionId: local.id, sessions: [local], solves: [] });
+    controller.startFromKeyboard();
+    expect(controller.snapshot().phase).toBe("solving");
+  });
+
   it.each(["json", "csv"] as const)("queues rename through %s import context reload and scramble consequences", async (format) => {
     let stored = session("import:Imported");
     const controller = readyController([stored], stored.id);
@@ -791,7 +813,7 @@ describe("Controller import runtime integration", () => {
     const write = deferred<void>();
     const started = deferred<void>();
     vi.spyOn(db, "loadSessions").mockImplementation(async () => [{ ...stored }]);
-    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+    vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set());
     vi.spyOn(db, "loadSolves").mockResolvedValue([]);
     vi.spyOn(db, "saveSolve").mockResolvedValue(); vi.spyOn(db, "saveSolves").mockResolvedValue();
     const save = vi.spyOn(db, "saveSession").mockImplementation(async (value) => {
@@ -819,7 +841,7 @@ describe("Controller import runtime integration", () => {
     vi.spyOn(db, "loadSessions")
       .mockResolvedValueOnce([before])
       .mockResolvedValueOnce([after]);
-    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+    vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set());
     vi.spyOn(db, "loadSolves").mockResolvedValue([]);
     vi.spyOn(db, "saveSession").mockResolvedValue();
     const controller = readyController([before], before.id, [], "ready");
@@ -845,7 +867,7 @@ describe("Controller import runtime integration", () => {
     const local = session("A");
     const historical = solveFor(local.id);
     vi.spyOn(db, "loadSessions").mockResolvedValue([local]);
-    vi.spyOn(db, "loadAllSolves").mockResolvedValue([historical]);
+    vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set([historical.sessionId]));
     vi.spyOn(db, "loadSolves").mockResolvedValue([historical]);
     vi.spyOn(db, "saveSession").mockResolvedValue();
     const controller = readyController([local], local.id);
@@ -866,7 +888,7 @@ describe("Controller import runtime integration", () => {
     const before = session("A");
     const after = { ...before, event: "222" as const };
     vi.spyOn(db, "loadSessions").mockResolvedValueOnce([before]).mockResolvedValueOnce([after]);
-    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+    vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set());
     vi.spyOn(db, "saveSession").mockResolvedValue();
     const historyStarted = deferred<void>();
     const history = deferred<Solve[]>();
@@ -912,7 +934,7 @@ describe("Controller import runtime integration", () => {
     vi.spyOn(db, "loadSessions")
       .mockResolvedValueOnce([local])
       .mockResolvedValueOnce([local, imported]);
-    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+    vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set());
     vi.spyOn(db, "loadSolves").mockResolvedValue([]);
     vi.spyOn(db, "saveSession").mockReturnValue(saving.promise);
     const controller = readyController([local], local.id, [], "ready");
@@ -943,7 +965,7 @@ describe("Controller import runtime integration", () => {
     vi.spyOn(db, "loadSessions")
       .mockResolvedValueOnce([local])
       .mockResolvedValueOnce([local, imported]);
-    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+    vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set());
     vi.spyOn(db, "loadSolves").mockResolvedValue([]);
     vi.spyOn(db, "saveSession").mockReturnValue(saving.promise);
     vi.spyOn(db, "saveSolve").mockResolvedValue(); vi.spyOn(db, "saveSolves").mockResolvedValue();
@@ -1135,7 +1157,7 @@ describe("Controller Training history composition", () => {
     vi.spyOn(db, "saveTrainingAttempt").mockImplementation(async row => { stored = [row]; });
     vi.spyOn(db, "loadTrainingAttempts").mockImplementation(async () => stored);
     vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]);
-    vi.spyOn(db, "loadAllSolves").mockResolvedValue([]); vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set()); vi.spyOn(db, "loadSolves").mockResolvedValue([]);
     const result = await controller.importData(JSON.stringify({ version: 3, sessions: [], solves: [], trainingAttempts: [attempt] }));
     expect(result).toEqual({ sessions: 0, solves: 0, trainingAttempts: 1, trainingRecognitionAttempts: 0, trainingDrillPresets: 0, trainingAlgorithmPreferences: 0 });
     expect(controller.trainingAttempts.get()).toEqual([attempt]);
@@ -1340,7 +1362,7 @@ describe("Controller Saved Drill composition", () => {
   });
   it("refreshes imported presets and returns their count", async () => {
     const controller = presetController(); const preset = savedDrill();
-    vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]); vi.spyOn(db, "loadAllSolves").mockResolvedValue([]); vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]); vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set()); vi.spyOn(db, "loadSolves").mockResolvedValue([]);
     vi.spyOn(db, "saveTrainingDrillPreset").mockImplementation(async () => { vi.mocked(db.loadTrainingDrillPresets).mockResolvedValue([preset]); });
     expect(await controller.importData(JSON.stringify({ version: 5, sessions: [], solves: [], trainingDrillPresets: [preset] })))
       .toEqual({ sessions: 0, solves: 0, trainingAttempts: 0, trainingRecognitionAttempts: 0, trainingDrillPresets: 1, trainingAlgorithmPreferences: 0 });
@@ -1564,7 +1586,7 @@ describe("Controller Recognition history composition", () => {
       target: { family: "oll" as const, trainingSet: "full" as const, caseId: "27" }, answerCaseId: "26", responseMs: 600 };
     vi.mocked(db.loadTrainingRecognitionAttempts).mockResolvedValue([attempt]);
     vi.spyOn(db, "loadSettings").mockResolvedValue(DEFAULT_SETTINGS); vi.spyOn(db, "loadSessions").mockResolvedValue([session("1")]);
-    vi.spyOn(db, "loadSolves").mockResolvedValue([]); vi.spyOn(db, "loadAllSolves").mockResolvedValue([]);
+    vi.spyOn(db, "loadSolves").mockResolvedValue([]); vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set());
     const controller = new Controller(); vi.spyOn(controller, "newScramble").mockResolvedValue(); await controller.init();
     expect(controller.trainingRecognitionAttempts.get()).toEqual([attempt]); expect(controller.trainingAttempts.get()).toEqual([]);
     const result = await controller.importData(JSON.stringify({ version: 7, sessions: [], solves: [], trainingRecognitionAttempts: [attempt] }));
@@ -1589,6 +1611,39 @@ it("rejects untrusted solve-specific Training before changing area or delegating
   expect(practice).toHaveBeenCalledOnce(); expect(controller.snapshot().area).toBe("training");
 });
 
+
+it.each([true, false])("uses active history first or direct persisted lookup for CFOP correction, active: %s", async active => {
+  const solution = new Alg("R U R' U R U2 R'");
+  const recorded: Solve = { ...solveFor("other"), source: "smartcube", scramble: solution.invert().toString(),
+    moves: Array.from(solution.childAlgNodes()).map((node, i) => ({ move: node.toString(), t: (i + 1) * 200 })),
+    solveStartBottomFace: "L", gripTrack: "|LF", cfopAnalysisExcluded: true };
+  let stored = recorded;
+  const activeRecord = solveFor("1");
+  const controller = readyController([session("1"), session("other")], active ? "other" : "1", active ? [recorded] : [activeRecord]);
+  controller.timer.state.update(state => ({ ...state, scramble: "R U" }));
+  const before = controller.snapshot();
+  const load = vi.spyOn(db, "loadSolve").mockImplementation(async id => id === stored.id ? stored : undefined);
+  const all = vi.spyOn(db, "loadAllSolves").mockRejectedValue(new Error("Unexpected history scan"));
+  const save = vi.spyOn(db, "saveSolve").mockImplementation(async row => { stored = row; });
+  expect((await controller.previewCfopCorrection(recorded.id))?.analysis.quality?.status).toBe("trusted");
+  expect(save).not.toHaveBeenCalled();
+  expect(await controller.applyCfopCorrection(recorded.id)).toBe(true);
+  expect(stored.cfopAnalysisCorrection).toBeDefined();
+  expect(stored.cfopAnalysisExcluded).toBe(true);
+  expect(stored.moves).toBe(recorded.moves);
+  await controller.clearCfopCorrection(recorded.id);
+  expect(stored).toEqual(recorded);
+  expect(all).not.toHaveBeenCalled();
+  if (active) expect(load).not.toHaveBeenCalled();
+  else expect(load).toHaveBeenCalledWith(recorded.id);
+  expect(controller.snapshot()).toMatchObject({ sessionId: before.sessionId, sessions: before.sessions, scramble: before.scramble, phase: before.phase });
+  expect(controller.snapshot().solves).toEqual(before.solves);
+  expect(controller.snapshot().lastSolve).toEqual(before.lastSolve);
+  if (!active) {
+    expect(await controller.previewCfopCorrection("missing")).toBeNull();
+    expect(await controller.applyCfopCorrection("missing")).toBe(false);
+  }
+});
 
 it("updates durable CFOP veto and undo in active History and last Result without changing timing", async () => {
   const recorded = solveFor("1");

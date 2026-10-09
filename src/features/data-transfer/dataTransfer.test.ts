@@ -39,6 +39,7 @@ function storage(sessions: Session[] = previous.sessions, solves: Solve[] = [], 
   vi.spyOn(db, "saveTrainingAttempt").mockImplementation(async value => { attemptStore.set(value.id, value); });
   vi.spyOn(db, "loadSessions").mockImplementation(async () => [...sessionStore.values()]);
   vi.spyOn(db, "loadAllSolves").mockImplementation(async () => [...solveStore.values()]);
+  vi.spyOn(db, "loadSessionIdsWithSolves").mockImplementation(async () => new Set([...solveStore.values()].map(value => value.sessionId)));
   vi.spyOn(db, "loadSolves").mockImplementation(async (id) => [...solveStore.values()].filter((value) => value.sessionId === id));
   vi.spyOn(db, "saveSession").mockImplementation(async (value) => { sessionStore.set(value.id, value); });
   vi.spyOn(db, "saveSolve").mockImplementation(async (value) => { solveStore.set(value.id, value); });
@@ -49,6 +50,47 @@ function storage(sessions: Session[] = previous.sessions, solves: Solve[] = [], 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("JSON backup workflow", () => {
+  it.each([1, 401])("imports %s Solves with bounded batches and stable upserts", async count => {
+    const { solveStore } = storage(previous.sessions, [{ ...solveFor("A", "row-0"), rawMs: 9999 }]);
+    const rows = Array.from({ length: count }, (_, i) => ({ ...solveFor("A", `row-${i}`), rawMs: 1000 + i }));
+    const archive = jsonExport(previous.sessions, rows);
+    const result = await transfer.importData(kpuzzle, previous, archive);
+    expect(result).toMatchObject({ solves: count, sessions: 1, trainingAttempts: 0, trainingRecognitionAttempts: 0,
+      trainingDrillPresets: 0, trainingAlgorithmPreferences: 0, context: { sessionId: "A", eventChanged: false } });
+    expect(result.context.solves).toEqual(rows.map(db.migrateSolve));
+    const batches = vi.mocked(db.saveSolves).mock.calls.map(([batch]) => batch);
+    expect(batches.map(batch => batch.length)).toEqual(count === 1 ? [1] : [200, 200, 1]);
+    expect(batches.flat()).toEqual(rows.map(db.migrateSolve));
+    expect(vi.mocked(db.saveSession).mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(db.saveSolves).mock.invocationCallOrder[0]);
+    expect(solveStore.get("row-0")?.rawMs).toBe(1000);
+    await transfer.importData(kpuzzle, result.context, archive);
+    expect(solveStore.size).toBe(count);
+    expect([...solveStore.values()]).toEqual(rows.map(db.migrateSolve));
+    expect(db.saveSolve).not.toHaveBeenCalled();
+    expect(db.loadAllSolves).not.toHaveBeenCalled();
+    expect(db.loadSessionIdsWithSolves).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not write an empty Solve collection", async () => {
+    storage();
+    expect(await transfer.importData(kpuzzle, previous, jsonExport([]))).toMatchObject({ solves: 0, context: { sessionId: "A" } });
+    expect(db.saveSolves).not.toHaveBeenCalled();
+    expect(db.saveSolve).not.toHaveBeenCalled();
+  });
+
+  it("propagates batch failure before later collections or context reload", async () => {
+    storage();
+    const error = new Error("Import write failed");
+    vi.mocked(db.saveSolves).mockRejectedValueOnce(error);
+    await expect(transfer.importData(kpuzzle, previous, jsonExport(previous.sessions, [solveFor("A")]))).rejects.toBe(error);
+    expect(db.loadSessions).toHaveBeenCalledOnce();
+    expect(db.loadSolves).not.toHaveBeenCalled();
+    expect(db.saveTrainingAttempt).not.toHaveBeenCalled();
+    expect(db.saveTrainingRecognitionAttempt).not.toHaveBeenCalled();
+    expect(db.saveTrainingDrillPreset).not.toHaveBeenCalled();
+    expect(db.saveTrainingAlgorithmPreference).not.toHaveBeenCalled();
+  });
+
   it("round-trips correction overlays through JSON v7 and migration without adding them to CSV", async () => {
     const solution = new Alg("R U R' U R U2 R'");
     const moves = Array.from(solution.childAlgNodes()).map((node, i) => ({ move: node.toString(), t: (i + 1) * 200 }));
@@ -124,6 +166,7 @@ describe("JSON backup workflow", () => {
     ], history === "incoming" ? [solveFor("A")] : []))).rejects.toThrow(/Cannot merge session/);
     expect(db.saveSession).not.toHaveBeenCalled();
     expect(db.saveSolve).not.toHaveBeenCalled();
+    expect(db.saveSolves).not.toHaveBeenCalled();
   });
 
   it("rejects conflicting incoming definitions before writing", async () => {
@@ -131,6 +174,7 @@ describe("JSON backup workflow", () => {
     await expect(transfer.importData(kpuzzle, previous, jsonExport([session("B"), session("B", "222")]))).rejects.toThrow(/conflicting events/);
     expect(db.saveSession).not.toHaveBeenCalled();
     expect(db.saveSolve).not.toHaveBeenCalled();
+    expect(db.saveSolves).not.toHaveBeenCalled();
   });
 
   it("returns the selected imported event transition and retains selection over newer Sessions", async () => {
@@ -177,6 +221,7 @@ describe("JSON backup workflow", () => {
     await expect(transfer.importData(kpuzzle, previous, '{"sessions":[]}')).rejects.toThrow("This does not look like a cubetimer export.");
     expect(db.saveSession).not.toHaveBeenCalled();
     expect(db.saveSolve).not.toHaveBeenCalled();
+    expect(db.saveSolves).not.toHaveBeenCalled();
   });
 });
 

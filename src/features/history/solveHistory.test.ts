@@ -14,10 +14,74 @@ const solve: Solve = {
 afterEach(() => vi.restoreAllMocks());
 
 describe("persisted Solve history", () => {
+  it.each([solve, undefined])("finds one persisted Solve without loading active or full history: %j", async record => {
+    const load = vi.spyOn(db, "loadSolve").mockResolvedValue(record);
+    const all = vi.spyOn(db, "loadAllSolves").mockRejectedValue(new Error("Unexpected history scan"));
+    const active = vi.spyOn(db, "loadSolves").mockRejectedValue(new Error("Unexpected active history load"));
+    expect(await history.findSolve(solve.id)).toBe(record);
+    expect(load).toHaveBeenCalledExactlyOnceWith(solve.id);
+    expect(all).not.toHaveBeenCalled();
+    expect(active).not.toHaveBeenCalled();
+  });
+
+  it.each([2, 401])("persists %s repairs in bounded batches, retaining order and raw facts", async count => {
+    const correction = { mode: "state-only" as const, acceptedAt: 123, analysis: rebuildAnalysis(kpuzzle, solve)!.analysis! };
+    const rows = Array.from({ length: count }, (_, i) => ({ ...solve, id: `repair-${i}`, createdAt: count - i,
+      penalty: "+2" as const, gripTrack: "|DF", solveStartBottomFace: "D" as const,
+      cfopAnalysisExcluded: true as const, cfopAnalysisCorrection: correction }));
+    const unchanged = rebuildAnalysis(kpuzzle, solve)!;
+    const unrepairable = { ...solve, id: "bad", scramble: "invalid" };
+    const input = [rows[0], unchanged, unrepairable, ...rows.slice(1)];
+    vi.spyOn(db, "loadSolves").mockResolvedValue(input);
+    const save = vi.spyOn(db, "saveSolves").mockResolvedValue();
+    const individual = vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const result = await history.loadSessionHistory(kpuzzle, "1");
+    expect(result.map(row => row.id)).toEqual(input.map(row => row.id));
+    expect(result[1]).toBe(unchanged);
+    expect(result[2]).toBe(unrepairable);
+    const batches = save.mock.calls.map(([batch]) => batch);
+    expect(batches.map(batch => batch.length)).toEqual(count === 2 ? [2] : [200, 200, 1]);
+    expect(batches.flat()).toEqual(result.filter(row => row.id.startsWith("repair-")));
+    for (const row of batches.flat()) {
+      const { analysis: _analysis, ...facts } = row;
+      expect(facts).toEqual(rows.find(original => original.id === row.id));
+      expect(row.moves).toBe(solve.moves);
+      expect(row.cfopAnalysisCorrection).toBe(correction);
+      expect(row.analysis).toBeTruthy();
+    }
+    expect(individual).not.toHaveBeenCalled();
+  });
+
+  it("waits for repaired history to be persisted before returning", async () => {
+    vi.spyOn(db, "loadSolves").mockResolvedValue([solve]);
+    let release!: () => void;
+    const pending = new Promise<void>(resolve => { release = resolve; });
+    let started!: () => void;
+    const writing = new Promise<void>(resolve => { started = resolve; });
+    vi.spyOn(db, "saveSolves").mockImplementation(() => { started(); return pending; });
+    let returned = false;
+    const loading = history.loadSessionHistory(kpuzzle, "1").then(rows => { returned = true; return rows; });
+    await writing;
+    expect(returned).toBe(false);
+    release();
+    expect((await loading)[0].analysis).toBeTruthy();
+  });
+
+  it.each(["session", "statistics"] as const)("propagates a failed repair batch from %s history", async scope => {
+    const rows = Array.from({ length: 201 }, (_, i) => ({ ...solve, id: `repair-${i}` }));
+    vi.spyOn(db, "loadSolves").mockResolvedValue(rows);
+    vi.spyOn(db, "loadAllSolves").mockResolvedValue(rows);
+    vi.spyOn(db, "loadSessions").mockResolvedValue([]);
+    const error = new Error("Repair write failed");
+    const save = vi.spyOn(db, "saveSolves").mockResolvedValueOnce().mockRejectedValueOnce(error);
+    await expect(scope === "session" ? history.loadSessionHistory(kpuzzle, "1") : history.loadStatisticsSnapshot(kpuzzle)).rejects.toBe(error);
+    expect(save.mock.calls.map(([batch]) => batch.length)).toEqual([200, 1]);
+  });
+
   it("loads only the requested Session history", async () => {
     const keyboard = { ...solve, source: "keyboard" as const, moves: [] };
     const load = vi.spyOn(db, "loadSolves").mockResolvedValue([keyboard]);
-    const save = vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const save = vi.spyOn(db, "saveSolves").mockResolvedValue();
     expect(await history.loadSessionHistory(kpuzzle, "1")).toEqual([keyboard]);
     expect(load).toHaveBeenCalledExactlyOnceWith("1");
     expect(save).not.toHaveBeenCalled();
@@ -27,12 +91,12 @@ describe("persisted Solve history", () => {
     // Storage migration discards obsolete analysis before the history boundary.
     let stored = db.migrateSolve({ ...solve, analysis } as unknown as Solve);
     vi.spyOn(db, "loadSolves").mockImplementation(async () => [stored]);
-    const save = vi.spyOn(db, "saveSolve").mockImplementation(async (repaired) => { stored = repaired; });
+    const save = vi.spyOn(db, "saveSolves").mockImplementation(async ([repaired]) => { stored = repaired; });
     const [repaired] = await history.loadSessionHistory(kpuzzle, "1");
     expect(repaired.analysis).toBeTruthy();
     expect(repaired.moves).toBe(solve.moves);
     expect(repaired.scramble).toBe(solve.scramble);
-    expect(save).toHaveBeenCalledExactlyOnceWith(repaired);
+    expect(save).toHaveBeenCalledExactlyOnceWith([repaired]);
     expect(await history.loadSessionHistory(kpuzzle, "1")).toEqual([repaired]);
     expect(save).toHaveBeenCalledOnce();
   });
@@ -41,7 +105,7 @@ describe("persisted Solve history", () => {
     const valid = rebuildAnalysis(kpuzzle, solve)!;
     const unrepairable = { ...solve, id: "bad", scramble: "invalid" };
     vi.spyOn(db, "loadSolves").mockResolvedValue([valid, unrepairable]);
-    const save = vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const save = vi.spyOn(db, "saveSolves").mockResolvedValue();
     const result = await history.loadSessionHistory(kpuzzle, "1");
     expect(result[0]).toBe(valid);
     expect(result[1]).toBe(unrepairable);
@@ -50,7 +114,7 @@ describe("persisted Solve history", () => {
 
   it("preserves loading without a puzzle before Controller initialization", async () => {
     vi.spyOn(db, "loadSolves").mockResolvedValue([solve]);
-    const save = vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const save = vi.spyOn(db, "saveSolves").mockResolvedValue();
     expect(await history.loadSessionHistory(undefined, "1")).toEqual([solve]);
     expect(save).not.toHaveBeenCalled();
   });
@@ -65,12 +129,12 @@ describe("persisted Solve history", () => {
     vi.spyOn(db, "loadSessions").mockResolvedValue(sessions);
     vi.spyOn(db, "loadAllSolves").mockResolvedValue([solve, other, older]);
     const activeLoad = vi.spyOn(db, "loadSolves").mockResolvedValue([]);
-    const save = vi.spyOn(db, "saveSolve").mockResolvedValue();
+    const save = vi.spyOn(db, "saveSolves").mockResolvedValue();
     const snapshot = await history.loadStatisticsSnapshot(kpuzzle);
     expect(snapshot.sessions).toEqual(sessions);
     expect(snapshot.solves.map((record) => record.id)).toEqual(["z", "a", "solve-1"]);
     expect(snapshot.solves[2].analysis).toBeTruthy();
-    expect(save).toHaveBeenCalledExactlyOnceWith(snapshot.solves[2]);
+    expect(save).toHaveBeenCalledExactlyOnceWith([snapshot.solves[2]]);
     expect(activeLoad).not.toHaveBeenCalled();
     expect(solve.analysis).toBeUndefined();
   });

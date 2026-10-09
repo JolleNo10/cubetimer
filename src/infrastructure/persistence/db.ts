@@ -186,10 +186,50 @@ export async function saveSession(session: Session): Promise<void> {
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  await promisify((await store("sessions", "readwrite")).delete(id));
-  for (const solve of await loadSolves(id)) {
-    await deleteSolve(solve.id);
-  }
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(["sessions", "solves"], "readwrite");
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error ?? new Error("Session deletion aborted."));
+    transaction.onerror = () => reject(transaction.error ?? new Error("Session deletion failed."));
+    const solves = transaction.objectStore("solves");
+    const request = solves.index("sessionId").openKeyCursor(id);
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (cursor) {
+        solves.delete(cursor.primaryKey);
+        cursor.continue();
+      } else {
+        transaction.objectStore("sessions").delete(id);
+      }
+    };
+  });
+}
+
+/** Read distinct Session index keys without loading Solve records or move streams. */
+export async function loadSessionIdsWithSolves(): Promise<Set<string>> {
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction("solves", "readonly");
+    const sessionIds = new Set<string>();
+    transaction.oncomplete = () => resolve(sessionIds);
+    transaction.onabort = () => reject(transaction.error ?? new Error("Session history lookup aborted."));
+    transaction.onerror = () => reject(transaction.error ?? new Error("Session history lookup failed."));
+    const request = transaction.objectStore("solves").index("sessionId").openKeyCursor(null, "nextunique");
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      sessionIds.add(cursor.key as string);
+      cursor.continue();
+    };
+  });
+}
+
+export async function loadSolve(id: string): Promise<Solve | undefined> {
+  const solve = await promisify(
+    (await store("solves", "readonly")).get(id) as IDBRequest<Solve | undefined>,
+  );
+  return solve === undefined ? undefined : migrateSolve(solve);
 }
 
 export async function loadSolves(sessionId: string): Promise<Solve[]> {
