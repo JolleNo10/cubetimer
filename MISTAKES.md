@@ -662,3 +662,18 @@ dialog and assert modal markup and complete members in interaction tests.
 A Python script received question marks for Unicode literals piped through the
 Windows shell, despite UTF-8 file writes. Prevention: use ASCII Unicode escapes
 in piped scripts or a file-based patch when adding non-ASCII source text.
+
+## F2L statistics fixtures bypassed existing analysis contracts
+
+New tests initially treated any zero-STM pair as skipped and used a one-move
+analysis with no elapsed solving span. The existing skip helper also requires
+an empty move range, and trusted statistics require positive solving time.
+Prevention: use canonical skipped-step fixtures and valid multi-move analyses;
+compare computed TPS approximately to account for floating-point rounding.
+
+## Exact F2L practice omitted a required analysis fact
+
+The initial availability guard checked raw moves, start state, slot and range,
+but missed the Cross face required by the existing exact-target builder.
+Review caught the gap. Prevention: check all required builder inputs when
+offering an action, and cover missing Cross face alongside analysis-only imports.

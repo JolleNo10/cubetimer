@@ -89,7 +89,8 @@ describe("Controller CFOP correction workflow", () => {
   it("uses current persisted historical facts outside the active Session without switching context", async () => {
     let stored = recorded();
     const controller = new Controller(new CubeModel(kpuzzle));
-    vi.spyOn(db, "loadAllSolves").mockImplementation(async () => [stored]);
+    const lookup = vi.spyOn(db, "loadSolve").mockImplementation(async id => id === stored.id ? stored : undefined);
+    const all = vi.spyOn(db, "loadAllSolves");
     const save = vi.spyOn(db, "saveSolve").mockImplementation(async solve => { stored = solve; });
     expect((await controller.previewCfopCorrection(stored.id))?.analysis.quality?.status).toBe("trusted");
     expect(save).not.toHaveBeenCalled();
@@ -97,6 +98,8 @@ describe("Controller CFOP correction workflow", () => {
     expect(stored.cfopAnalysisCorrection).toBeDefined();
     await controller.clearCfopCorrection(stored.id);
     expect(stored).toEqual(recorded());
+    expect(lookup).toHaveBeenCalledWith(stored.id);
+    expect(all).not.toHaveBeenCalled();
     expect(controller.sessions.get().solves).toEqual([]);
     expect(controller.state.get().area).toBe("timer");
   });

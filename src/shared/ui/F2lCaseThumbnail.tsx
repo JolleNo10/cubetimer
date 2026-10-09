@@ -1,7 +1,7 @@
 import type { JSX } from "react";
-import { FACE_COLOURS } from "../../../cube/colours";
-import { FACE_OFFSET, type Face } from "../../../cube/moves";
-import type { F2lThumbnailModel } from "../../../cube/f2lThumbnail";
+import { FACE_COLOURS } from "../../cube/colours";
+import { FACE_OFFSET, type Face } from "../../cube/moves";
+import type { F2lThumbnailModel } from "../../cube/f2lThumbnail";
 
 type Point = { x: number; y: number };
 type Vector = Point;

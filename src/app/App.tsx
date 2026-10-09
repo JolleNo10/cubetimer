@@ -14,7 +14,9 @@ import { StatsPanel } from "../features/statistics/components/StatsPanel";
 import { TimerDisplay } from "../features/timer/components/TimerDisplay";
 import { Training } from "../features/training/components/Training";
 import { VIRTUAL_CUBE_KEYS } from "../shared/ui/VirtualCubeKeys";
-import type { LastLayerFamily } from "../cube/lastLayerTraining";
+import type { TrainingFamily } from "../features/training/TrainingRuntime";
+import type { StepName } from "../cube/analysis";
+import { effectiveCfopAnalysis } from "./solveAnalysis";
 import { DEFAULT_EVENT_ID } from "../cube/scramble";
 import { useAppState, useController, useSessionState, useSettings } from "./useController";
 import type { AppArea } from "./Controller";
@@ -72,14 +74,29 @@ export function App() {
       setReplaySolve(null); setReplayInitialView(null);
     }
   }, [replayOrigin, replaySolve]);
-  const trainStatisticsCase = useCallback((family: LastLayerFamily, caseId: string) => {
+  const trainStatisticsCase = useCallback((family: TrainingFamily, caseId: string) => {
     setTrainingReturnView(null);
     setResumeTimerAfterTrainingReview(false);
     setReplaySolve(null); setReplayInitialView(null);
     controller.setArea("training");
-    void controller.selectLastLayerCase(family, caseId, "full");
+    if (family === "f2l") {
+      controller.setTrainingActivity("single");
+      controller.setF2lLibrary("basic");
+      void controller.selectF2lCase(caseId);
+    } else {
+      void controller.selectLastLayerCase(family, caseId, "full");
+    }
   }, [controller]);
 
+
+  const practiceStatisticsPair = useCallback((solve: Solve, stepName: StepName) => {
+    const step = effectiveCfopAnalysis(solve)?.steps.find(candidate => candidate.name === stepName);
+    if (!step) return;
+    setTrainingReturnView(null);
+    setResumeTimerAfterTrainingReview(false);
+    setReplaySolve(null); setReplayInitialView(null);
+    void controller.practiceSolveStep(solve, step);
+  }, [controller]);
 
   const resultSolve = useMemo(
     () =>
@@ -322,7 +339,7 @@ export function App() {
       />
 
       {state.area === "training" ? <Training /> : state.area === "statistics" ? (
-        <StatisticsView view={statisticsView} onViewChange={setStatisticsView} onAttemptCorrection={attemptCorrection} onSolveAgain={solveAgainFromStatistics} currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} onReplay={openStatisticsReplay} onTrainCase={trainStatisticsCase} onScopeChange={statisticsScopeChanged} />
+        <StatisticsView view={statisticsView} onViewChange={setStatisticsView} onAttemptCorrection={attemptCorrection} onSolveAgain={solveAgainFromStatistics} currentEvent={state.sessions.find((session) => session.id === state.sessionId)?.event ?? DEFAULT_EVENT_ID} activeSessionId={state.sessionId} onReplay={openStatisticsReplay} onTrainCase={trainStatisticsCase} onPracticePair={practiceStatisticsPair} onScopeChange={statisticsScopeChanged} />
       ) : <div className="app-body">
         <div className="column left">
           <SolveList

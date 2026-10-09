@@ -7,7 +7,7 @@ import { F2L_POSITIONS, f2lPositionLabel } from "../../../cube/f2lCases";
 import { getF2lThumbnailModel } from "../../../cube/f2lThumbnail";
 import { F2L_TRAINING_CATALOGUES, f2lTrainingCatalogue, shortF2lCaseLabel, type F2lTrainingCase, type F2lTrainingLibrary } from "../../../cube/f2lTrainingCases";
 import { useController, useStore, useStoreValue } from "../../../app/useController";
-import { F2lCaseThumbnail } from "./F2lCaseThumbnail";
+import { F2lCaseThumbnail } from "../../../shared/ui/F2lCaseThumbnail";
 import { TrainingWorkspace } from "./TrainingWorkspace";
 import { trainingCaseKey, trainingStatsByCase, type TrainingCaseStats } from "../trainingPerformance";
 import { DrillPoolActions } from "./TrainingDrill";

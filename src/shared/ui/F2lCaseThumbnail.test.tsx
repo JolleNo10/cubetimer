@@ -1,11 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import { SOLVED_FACELETS } from "../../../cube/facelets";
-import { FACE_OFFSET, type Face } from "../../../cube/moves";
-import { FACE_COLOURS } from "../../../cube/colours";
-import { F2L_POSITIONS } from "../../../cube/f2lCases";
-import { f2lTrainingCatalogue } from "../../../cube/f2lTrainingCases";
-import { getF2lThumbnailModel } from "../../../cube/f2lThumbnail";
+import { SOLVED_FACELETS } from "../../cube/facelets";
+import { FACE_OFFSET, type Face } from "../../cube/moves";
+import { FACE_COLOURS } from "../../cube/colours";
+import { F2L_POSITIONS } from "../../cube/f2lCases";
+import { f2lTrainingCatalogue } from "../../cube/f2lTrainingCases";
+import { getF2lThumbnailModel } from "../../cube/f2lThumbnail";
 import { F2lCaseThumbnail } from "./F2lCaseThumbnail";
 
 const VISIBLE_FACELETS = [

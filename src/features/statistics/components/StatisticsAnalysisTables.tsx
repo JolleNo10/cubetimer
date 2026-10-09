@@ -9,6 +9,11 @@ import { get3x3x3 } from "../../../cube/puzzle";
 import { buildLastLayerCatalogueTarget } from "../../../cube/lastLayerTraining";
 import { getLastLayerThumbnailModel, type LastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
 import { LastLayerCaseThumbnail } from "../../../shared/ui/LastLayerCaseThumbnail";
+import { F2lCaseThumbnail } from "../../../shared/ui/F2lCaseThumbnail";
+import { getF2lThumbnailModel } from "../../../cube/f2lThumbnail";
+import { STEP_NAMES, type SolveStep, type StepName } from "../../../cube/analysis";
+import { effectiveCfopAnalysis } from "../../../app/solveAnalysis";
+import type { TrainingFamily } from "../../training/TrainingRuntime";
 import { statisticsActivationProps } from "./statisticsInteraction";
 import { SplitBar, StatCard, StatsSection } from "./StatisticsPrimitives";
 
@@ -42,16 +47,18 @@ function ExpandedRow({ label, columns, children }: { label: string; columns: num
   return <tr className="stats-expanded" ref={ref}><td colSpan={columns}>{children}</td></tr>;
 }
 
-export function PerformanceTable({ rows, labelHeader = "Case / slot / order", sort, onSelect, expandedLabel, expanded }: {
+export function PerformanceTable({ rows, labelHeader = "Case / slot / order", sort, onSelect, expandedLabel, expanded, hideSkips = false, renderLabel }: {
   rows: readonly PerformanceSummary[]; labelHeader?: string; sort?: PerformanceSortState; onSelect?: (row: PerformanceSummary) => void;
   /** Detail shown directly under the row with this label. */
   expandedLabel?: string; expanded?: ReactNode;
+  hideSkips?: boolean; renderLabel?: (row: PerformanceSummary) => ReactNode;
 }) {
+  const columns = hideSkips ? PERFORMANCE_COLUMNS.filter(column => column.id !== "skips") : PERFORMANCE_COLUMNS;
   return <div className="table-scroll"><table className="stats-table"><thead><tr>
     <SortHeader id="case" label={labelHeader} sort={sort} />
-    {PERFORMANCE_COLUMNS.map((column) => <SortHeader key={column.id} id={column.id} label={column.label} sort={sort} />)}
-  </tr></thead><tbody>{rows.map((row) => <Fragment key={row.label}><tr className={row.label === expandedLabel ? "selected" : undefined} aria-expanded={onSelect ? row.label === expandedLabel : undefined} {...statisticsActivationProps(onSelect ? () => onSelect(row) : undefined, `View ${row.label} samples`)}><td>{onSelect ? <button className="ghost small stats-open-link" onClick={() => onSelect(row)}>{row.label}</button> : row.label}</td><td className="stats-samples">{row.count}{row.count > 0 && row.count < 3 ? <span className="stats-badge small-sample" title="Fewer than 3 observations; medians describe a very small sample.">small sample</span> : null}</td><td className="number">{formatTime(row.bestMs)}</td><td className="number">{formatTime(row.medianMs)}</td><td className="number">{formatTime(row.recognitionMs)}</td><td className="number">{formatTime(row.executionMs)}</td><td className="number">{row.moves ?? "—"}</td><td className="number">{row.tps?.toFixed(2) ?? "—"}</td><td className="number">{row.skipCount}</td></tr>
-    {row.label === expandedLabel && expanded ? <ExpandedRow label={row.label} columns={PERFORMANCE_COLUMNS.length + 1}>{expanded}</ExpandedRow> : null}</Fragment>)}</tbody></table></div>;
+    {columns.map((column) => <SortHeader key={column.id} id={column.id} label={column.label} sort={sort} />)}
+  </tr></thead><tbody>{rows.map((row) => <Fragment key={row.label}><tr className={row.label === expandedLabel ? "selected" : undefined} aria-expanded={onSelect ? row.label === expandedLabel : undefined} {...statisticsActivationProps(onSelect ? () => onSelect(row) : undefined, `View ${row.label} samples`)}><td>{onSelect ? <button className="ghost small stats-open-link" onClick={() => onSelect(row)}>{renderLabel ? renderLabel(row) : row.label}</button> : renderLabel ? renderLabel(row) : row.label}</td><td className="stats-samples">{row.count}{row.count > 0 && row.count < 3 ? <span className="stats-badge small-sample" title="Fewer than 3 observations; medians describe a very small sample.">small sample</span> : null}</td><td className="number">{formatTime(row.bestMs)}</td><td className="number">{formatTime(row.medianMs)}</td><td className="number">{formatTime(row.recognitionMs)}</td><td className="number">{formatTime(row.executionMs)}</td><td className="number">{row.moves ?? "—"}</td><td className="number">{row.tps?.toFixed(2) ?? "—"}</td>{hideSkips ? null : <td className="number">{row.skipCount}</td>}</tr>
+    {row.label === expandedLabel && expanded ? <ExpandedRow label={row.label} columns={columns.length + 1}>{expanded}</ExpandedRow> : null}</Fragment>)}</tbody></table></div>;
 }
 
 /** Resolve the same Full catalogue preview used by Training, outside statistics state. */
@@ -75,7 +82,7 @@ export function StatisticsCaseDiagram({ family, caseId }: { family: LastLayerFam
 
 export function StatisticsCaseTable({ family, rows, skipCount, focus = [], model, onOpenSolve, onTrainCase }: {
   family: LastLayerFamily; rows: readonly CasePerformance[]; skipCount: number; focus?: readonly CaseFocus[]; model: StatisticsViewModel;
-  onOpenSolve: (solve: Solve) => void; onTrainCase: (family: LastLayerFamily, caseId: string) => void;
+  onOpenSolve: (solve: Solve) => void; onTrainCase: (family: TrainingFamily, caseId: string) => void;
 }) {
   const { date } = useDateTimeFormat();
   const sort = usePerformanceSort("case");
@@ -154,9 +161,73 @@ export function StatisticsF2lPerformance({ model, onOpenSolve }: { model: Statis
   </StatsSection>;
 }
 
-export function StatisticsAnalysisTables({ model, onOpenSolve, onTrainCase }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void; onTrainCase: (family: LastLayerFamily, caseId: string) => void }) {
+/** Raw source facts must cover the exact pair; analysis-only imports cannot supply them. */
+function canPracticeRecordedPair(solve: Solve, step: SolveStep): boolean {
+  return Boolean(effectiveCfopAnalysis(solve)?.crossFace && STEP_NAMES.slice(1, 5).includes(step.name) && !step.skipped && step.slot &&
+    Number.isInteger(step.fromMove) && Number.isInteger(step.toMove) && step.fromMove >= 0 && step.toMove > step.fromMove &&
+    solve.moves && solve.moves.length >= step.toMove && (solve.scrambledFacelets || solve.scramble.trim()));
+}
+
+function F2lCaseDiagram({ caseId }: { caseId: string }) {
+  return <span className="stats-f2l-diagram" role="img" aria-label={`${caseId} canonical front-right case diagram`}>
+    <F2lCaseThumbnail model={getF2lThumbnailModel("basic", caseId, "FR")} />
+  </span>;
+}
+
+export function StatisticsF2lCaseTable({ model, onOpenSolve, onTrainCase, onPracticePair }: {
+  model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void;
+  onTrainCase: (family: TrainingFamily, caseId: string) => void;
+  onPracticePair?: (solve: Solve, stepName: StepName) => void;
+}) {
+  const { date } = useDateTimeFormat();
+  const sort = usePerformanceSort("case");
+  const [caseId, setCaseId] = useState<string | null>(null);
+  const rows = sortPerformanceRows(model.f2lCases, sort.column ?? "case", sort.direction);
+  const selected = model.f2lCases.find(row => row.caseId === caseId);
+  const members = new Map(model.scopeSolves.map(solve => [solve.id, solve]));
+  const occurrenceCount = model.f2lCases.reduce((sum, row) => sum + row.count, 0);
+  return <StatsSection id="f2l-cases" className="statistics-f2l-cases" title="F2L cases" description={`${model.f2lCases.length} recognised standard F2L cases · ${occurrenceCount} recognised pair occurrences · ${model.f2lUnrecognizedCount} unrecognised performed pairs · ${model.f2lSkippedCount} skipped/XCross pairs`}>
+    <p className="small faint">Times describe the recorded pair step, including any setup before the standard case was recognised. They are not pure algorithm-execution measurements. Diagrams show the representative front-right case, not the historical insertion orientation.</p>
+    <p className="small faint">{RECOGNITION_NOTE}</p>
+    {model.f2lFocus.length ? <div className="focus-cases" role="group" aria-label="Worst F2L cases">
+      {model.f2lFocus.map(({ reason, row }) => <div className="focus-case" key={reason}>
+        <F2lCaseDiagram caseId={row.caseId} />
+        <span className="stat-label">Worst {reason === "total" ? "total time" : reason}</span>
+        <strong>{row.caseId}</strong>
+        <strong className="mono">{reason === "total" ? "Total pair-step" : reason === "recognition" ? "Recognition" : "Execution"} {formatTime(reason === "total" ? row.medianMs : reason === "recognition" ? row.recognitionMs : row.executionMs)}</strong>
+        <span className="small faint">Median total {formatTime(row.medianMs)} · Recognition {formatTime(row.recognitionMs)} · Execution {formatTime(row.executionMs)}</span>
+        <span className="small faint">{row.count} pair occurrences</span>
+        <div className="row"><button className="ghost small" onClick={() => setCaseId(row.caseId)}>View</button><button className="small" onClick={() => onTrainCase("f2l", row.caseId)}>Train</button></div>
+      </div>)}
+    </div> : <p className="small faint">Worst-case recommendations need at least 3 pair occurrences per case.</p>}
+    {rows.length ? <PerformanceTable rows={rows} labelHeader="Case" sort={sort} hideSkips
+      renderLabel={row => <span className="stats-f2l-case-label"><F2lCaseDiagram caseId={row.label} />{row.label}</span>}
+      onSelect={row => setCaseId(current => current === row.label ? null : row.label)} expandedLabel={selected?.label}
+      expanded={selected ? <div className="stats-detail" role="region" aria-label="F2L case pair occurrences">
+        <div className="section-heading"><h3>{selected.caseId} · {selected.count} pair occurrences</h3><div className="row"><button onClick={() => onTrainCase("f2l", selected.caseId)}>Train case</button><button className="ghost" onClick={() => setCaseId(null)}>Close case</button></div></div>
+        <div className="table-scroll"><table className="stats-table"><thead><tr><th>Pair order</th><th>Recorded position</th><th>Pair-step time</th><th>Measured recognition</th><th>Measured execution</th><th>STM</th><th>Execution TPS</th><th>Solve time</th>{model.sessionId === null ? <th>Session</th> : null}<th>Date</th><th>Actions</th></tr></thead>
+          <tbody>{selected.samples.map(sample => {
+            const solve = members.get(sample.solveId);
+            const step = solve && effectiveCfopAnalysis(solve)?.steps.find(candidate => candidate.name === sample.stepName);
+            if (!solve || !step) return null;
+            const order = ["1st", "2nd", "3rd", "4th"][STEP_NAMES.indexOf(step.name) - 1];
+            return <tr key={`${sample.solveId}:${step.name}`} {...statisticsActivationProps(() => onOpenSolve(solve), `Review solve ${formatSolveTime(solve)} · ${order} pair`)}>
+              <td>{order} pair</td><td>{[step.slot ? `Cube slot ${step.slot}` : "", step.insertedAt ? `Inserted at ${step.insertedAt}${step.insertedAtSource === "inferred" ? " (inferred)" : ""}` : ""].filter(Boolean).join(" · ") || "—"}</td>
+              <td>{formatTime(sample.timeMs)}</td><td>{formatTime(sample.recognitionMs)}</td><td>{formatTime(sample.executionMs)}</td><td>{sample.moves}</td><td>{sample.tps?.toFixed(2) ?? "—"}</td><td>{formatSolveTime(solve)}</td>
+              {model.sessionId === null ? <td>{model.eventSessions.find(session => session.id === solve.sessionId)?.name}</td> : null}<td>{date(solve.createdAt)}</td>
+              <td><button className="ghost small" onClick={() => onOpenSolve(solve)}>Review Solve</button>{onPracticePair && canPracticeRecordedPair(solve, step) ? <button className="small" onClick={() => onPracticePair(solve, step.name)}>Practice recorded pair</button> : null}</td>
+            </tr>;
+          })}</tbody>
+        </table></div>
+      </div> : undefined}
+    /> : <div className="chart-empty">No recognised non-skipped standard F2L cases in this scope. Record solves with usable CFOP analysis to see pair occurrences.</div>}
+  </StatsSection>;
+}
+
+export function StatisticsAnalysisTables({ model, onOpenSolve, onTrainCase, onPracticePair }: { model: StatisticsViewModel; onOpenSolve: (solve: Solve) => void; onTrainCase: (family: TrainingFamily, caseId: string) => void; onPracticePair?: (solve: Solve, stepName: StepName) => void }) {
   return <>
     <StatisticsF2lPerformance model={model} onOpenSolve={onOpenSolve} />
+    <StatisticsF2lCaseTable model={model} onOpenSolve={onOpenSolve} onTrainCase={onTrainCase} onPracticePair={onPracticePair} />
     <div className="statistics-case-layout">
     <StatisticsCaseTable family="oll" rows={model.ollCases} skipCount={model.ollSkips} focus={model.ollFocus} model={model} onOpenSolve={onOpenSolve} onTrainCase={onTrainCase} />
     <StatisticsCaseTable family="pll" rows={model.pllCases} skipCount={model.pllSkips} focus={model.pllFocus} model={model} onOpenSolve={onOpenSolve} onTrainCase={onTrainCase} />

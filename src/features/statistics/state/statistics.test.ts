@@ -67,6 +67,63 @@ function analysed(id: string, sessionId: string, createdAt: number): Solve {
   });
 }
 
+describe("standard F2L case occurrences", () => {
+  const derive = (solves: Solve[], sessionId: string | null = null) => deriveStatistics({ sessions: [session("A"), session("B"), session("C", "222")], solves }, { event: "333", sessionId }, "A");
+  function pairs(id: string, sessionId = "A") {
+    const value = analysed(id, sessionId, 1);
+    ["F2L 12", "F2L 12", "F2L 2", "F2L 10"].forEach((caseId, index) => { value.analysis!.steps[index + 1].case = caseId; });
+    return value;
+  }
+  it("keeps repeated cases as distinct canonical steps with pair-step metrics and natural case order", () => {
+    const value = pairs("same");
+    Object.assign(value.analysis!.steps[1], { timeMs: 1000, recognitionMs: 100, executionMs: 900, sliceTurns: 3 });
+    Object.assign(value.analysis!.steps[2], { timeMs: 3000, recognitionMs: 300, executionMs: 2700, sliceTurns: 9 });
+    const model = derive([value]);
+    expect(model.f2lCases.map(row => row.caseId)).toEqual(["F2L 2", "F2L 10", "F2L 12"]);
+    const repeated = model.f2lCases[2];
+    expect(repeated).toMatchObject({ count: 2, bestMs: 1000, medianMs: 2000, recognitionMs: 200, executionMs: 1800, moves: 6, solveIds: ["same", "same"] });
+    expect(repeated.tps).toBeCloseTo(12 / 3.6);
+    expect(repeated.samples.map(sample => [sample.solveId, sample.stepName])).toEqual([["same", "F2L Slot 1"], ["same", "F2L Slot 2"]]);
+    expect(model.f2lPositions[0].samples[0]).not.toHaveProperty("stepName");
+    expect(model.ollCases[0].samples[0]).not.toHaveProperty("stepName");
+    expect(model.f2lFocus).toEqual([]);
+  });
+  it("counts skipped and zero-move pairs separately and never guesses missing or Advanced identities", () => {
+    const value = pairs("mixed");
+    value.analysis!.steps[1].skipped = true;
+    skipStep(value, 2);
+    value.analysis!.steps[3].case = null;
+    value.analysis!.steps[4].case = "Advanced F2L 12";
+    expect(derive([value])).toMatchObject({ f2lCases: [], f2lSkippedCount: 2, f2lUnrecognizedCount: 2 });
+    expect(derive([])).toMatchObject({ f2lCases: [], f2lFocus: [], f2lSkippedCount: 0, f2lUnrecognizedCount: 0 });
+  });
+  it("uses the existing Event, Session, timing and CFOP trust population", () => {
+    const included = pairs("included"), otherSession = pairs("other", "B"), otherEvent = pairs("event", "C");
+    const excluded = [
+      { ...pairs("manual"), cfopAnalysisExcluded: true as const },
+      { ...pairs("practice"), practice: true }, { ...pairs("replay"), replay: true },
+      { ...pairs("slow"), slowSolve: true }, { ...pairs("dnf"), penalty: "DNF" as const },
+      { ...pairs("no-analysis"), analysis: null },
+    ];
+    const suspect = pairs("suspect"); suspect.analysis!.quality = { status: "suspect", issues: [] };
+    const invalid = pairs("invalid"); invalid.analysis!.totalRecognitionMs = -1;
+    const all = derive([included, otherSession, otherEvent, ...excluded, suspect, invalid]);
+    expect(all.f2lCases.find(row => row.caseId === "F2L 12")?.count).toBe(4);
+    expect(derive([included, otherSession, otherEvent, ...excluded, suspect, invalid], "A").f2lCases.find(row => row.caseId === "F2L 12")?.count).toBe(2);
+    expect(all.stats.count).toBeGreaterThan(all.analysisCount);
+  });
+  it("uses accepted corrections, restores base cases on undo, and keeps overlapping worst categories", () => {
+    const value = pairs("corrected");
+    const corrected = { ...value.analysis!, steps: value.analysis!.steps.map((step, index) => ({ ...step, ...(index >= 1 && index <= 4 ? { case: "F2L 41" } : {}) })) };
+    const accepted = { ...value, cfopAnalysisCorrection: { mode: "state-only" as const, acceptedAt: 1, analysis: corrected } };
+    const model = derive([accepted]);
+    expect(model.f2lCases.map(row => row.caseId)).toEqual(["F2L 41"]);
+    expect(model.f2lFocus.map(focus => [focus.reason, focus.row.caseId])).toEqual([["total", "F2L 41"], ["recognition", "F2L 41"], ["execution", "F2L 41"]]);
+    expect(derive([{ ...accepted, cfopAnalysisCorrection: undefined }]).f2lCases.map(row => row.caseId)).toEqual(["F2L 2", "F2L 10", "F2L 12"]);
+    expect(derive([{ ...accepted, cfopAnalysisExcluded: true }]).f2lCases).toEqual([]);
+  });
+});
+
 describe("recent analysed performance comparison", () => {
   it("requires five per equal chronological window and uses the latest up-to-ten plus immediately previous window", () => {
     const facts = Array.from({ length: 23 }, (_, i) => ({ ...analysedSolveFacts(analysed(`s${i}`, "A", i))!, solvingMs: i * 100,

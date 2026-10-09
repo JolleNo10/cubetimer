@@ -21,7 +21,8 @@ import { StatisticsAnalysisTables, StatisticsConsistency, StatisticsPauses } fro
 import { StatisticsSolveDetail } from "./StatisticsSolveDetail";
 import { ChartWindowSelect, Delta, DeltaCard, SegmentedControl, SplitBar, StatCard, StatsSection } from "./StatisticsPrimitives";
 import { statisticsActivationProps } from "./statisticsInteraction";
-import type { LastLayerFamily } from "../../../cube/lastLayerTraining";
+import type { TrainingFamily } from "../../training/TrainingRuntime";
+import type { StepName } from "../../../cube/analysis";
 
 type ChartSeries = ReturnType<typeof chartWindowSeries>;
 type SessionNames = ReadonlyMap<string, string>;
@@ -181,14 +182,15 @@ export function StatisticsNavigation({ view, onSelect }: { view: StatisticsSubvi
   return <nav className="statistics-navigation" aria-label="Statistics views">{STATISTICS_VIEWS.map((item) => <button key={item} className="ghost" aria-pressed={view === item} onClick={() => onSelect(item)}>{item}</button>)}</nav>;
 }
 
-export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrainCase, onScopeChange, onSolveAgain, view, onViewChange, onAttemptCorrection }: {
+export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrainCase, onPracticePair, onScopeChange, onSolveAgain, view, onViewChange, onAttemptCorrection }: {
   currentEvent: EventId; activeSessionId: string | null;
   onReplay: (solve: Solve) => void;
   onSolveAgain: (solve: Solve) => void;
   onAttemptCorrection?: (solve: Solve, onApplied: () => void) => void;
   view: StatisticsSubview;
   onViewChange: (view: StatisticsSubview) => void;
-  onTrainCase: (family: LastLayerFamily, caseId: string) => void;
+  onTrainCase: (family: TrainingFamily, caseId: string) => void;
+  onPracticePair?: (solve: Solve, stepName: StepName) => void;
   onScopeChange: (solveIds: readonly string[]) => void;
 }) {
   const controller = useController();
@@ -284,7 +286,7 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrai
           {view === "Overview" ? <StatisticsOverview {...tabProps} onSelectSession={setSessionId} onOpenSolves={() => onViewChange("Solves")} /> : null}
           {view === "Solves" ? <StatisticsRecords key={`records:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} /> : null}
           {view === "CFOP" ? <StatisticsCfop {...tabProps} onOpenSolve={setDetailSolve} /> : null}
-          {view === "Cases" ? <StatisticsAnalysisTables key={`analysis:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} onTrainCase={onTrainCase} /> : null}
+          {view === "Cases" ? <StatisticsAnalysisTables key={`analysis:${model.event}:${model.sessionId ?? "all"}`} model={model} onOpenSolve={setDetailSolve} onTrainCase={onTrainCase} onPracticePair={onPracticePair} /> : null}
         </>
       ) : null}
       {detailSolve && model?.scopeSolves.some((solve) => solve.id === detailSolve.id) ? <StatisticsSolveDetail solve={detailSolve} solves={model.scopeSolves} session={model.eventSessions.find((session) => session.id === detailSolve.sessionId)} onClose={() => setDetailSolve(null)} onReplay={onReplay}

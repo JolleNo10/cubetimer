@@ -23,7 +23,7 @@ import { analyseSolve } from "../../../cube/analysis";
 import * as db from "../../../infrastructure/persistence/db";
 import { Alg } from "cubing/alg";
 import { useResultHistory } from "../../history/components/resultCharts/useResultHistory";
-import { StatisticsAnalysisTables, StatisticsCaseDiagram, StatisticsCaseTable, StatisticsF2lPerformance, StatisticsF2lPerformancePanel, PerformanceTable, SortHeader } from "./StatisticsAnalysisTables";
+import { StatisticsAnalysisTables, StatisticsF2lCaseTable, StatisticsCaseDiagram, StatisticsCaseTable, StatisticsF2lPerformance, StatisticsF2lPerformancePanel, PerformanceTable, SortHeader } from "./StatisticsAnalysisTables";
 import { StatisticsSolveDetail } from "./StatisticsSolveDetail";
 import { SolveReviewDialog } from "../../history/components/SolveReviewDialog";
 import { AverageProgressionChart, SolveTimeTrendChart } from "./StatisticsCharts";
@@ -497,6 +497,91 @@ describe("shared result history", () => {
 });
 
 describe("case presentation contracts", () => {
+  async function f2lHistory() {
+    const puzzle = await get3x3x3();
+    const solution = new Alg("R U R' U R U2 R'");
+    const moves = Array.from(solution.childAlgNodes()).map((node, index) => ({ move: node.toString(), t: (index + 1) * 300 }));
+    const base = analyseSolve(puzzle.defaultPattern().applyAlg(solution.invert()), moves, null, { observedStartBottomFace: "D" })!;
+    const analysis = { ...base, steps: base.steps.map((step, index) => ({ ...step, skipped: false, timeMs: 1000, recognitionMs: 200, executionMs: 800, sliceTurns: 2, fromMove: index * 2, toMove: index * 2 + 2, case: index >= 1 && index <= 4 ? "F2L 12" : step.case, slot: "FR", insertedAt: "FL", insertedAtSource: "grip" as const })) };
+    const solve = { ...snapshot.solves[0], analysis, moves: Array.from({ length: 14 }, (_, i) => ({ move: "R", t: (i + 1) * 200 })) };
+    return { solve, model: deriveStatistics({ ...snapshot, solves: [solve] }, { event: "333", sessionId: null }, "A") };
+  }
+  it("lists every repeated pair, opens review by mouse and keyboard, and practices the exact step", async () => {
+    const history = await f2lHistory();
+    const onOpenSolve = vi.fn(), onTrainCase = vi.fn(), onPracticePair = vi.fn();
+    const render = () => renderRoot(() => StatisticsF2lCaseTable({ model: history.model, onOpenSolve, onTrainCase, onPracticePair }));
+    const table = () => find(render(), element => element.type === PerformanceTable);
+    table().props.onSelect(history.model.f2lCases[0]);
+    const tree = render();
+    const samples = elements(tree).filter(element => element.type === "tr" && element.props.tabIndex === 0);
+    expect(samples.map(row => row.key)).toEqual(["s0:F2L Slot 1", "s0:F2L Slot 2", "s0:F2L Slot 3", "s0:F2L Slot 4"]);
+    for (const [index, row] of samples.entries()) {
+      find(row, element => element.props.children === "Review Solve").props.onClick();
+      row.props.onKeyDown(keyEvent("Enter"));
+      find(row, element => element.props.children === "Practice recorded pair").props.onClick();
+      expect(onPracticePair).toHaveBeenNthCalledWith(index + 1, history.solve, `F2L Slot ${index + 1}`);
+    }
+    expect(onOpenSolve).toHaveBeenCalledTimes(8);
+    expect(onOpenSolve.mock.calls.every(([solve]) => solve === history.solve)).toBe(true);
+    find(tree, element => element.props.children === "Train case").props.onClick();
+    expect(onTrainCase).toHaveBeenCalledWith("f2l", "F2L 12");
+    const html = renderToStaticMarkup(tree);
+    expect(html).toContain("Cube slot FR"); expect(html).toContain("Inserted at FL"); expect(html).toContain("History Session");
+    expect(html).toContain("1st pair"); expect(html).toContain("4th pair");
+    expect(table().props.hideSkips).toBe(true);
+    for (const column of ["case", "count", "best", "median", "recognition", "execution", "moves", "tps"]) {
+      table().props.sort.onSort(column); expect(table().props.sort.column).toBe(column);
+    }
+    find(render(), element => element.props.children === "Close case").props.onClick();
+    expect(table().props.expanded).toBeUndefined();
+  });
+  it.each(["analysis only", "missing state", "short move stream", "missing slot", "missing cross face"])("omits exact practice for %s", async reason => {
+    const { solve } = await f2lHistory();
+    if (reason === "analysis only") solve.moves = [];
+    if (reason === "missing state") solve.scramble = "";
+    if (reason === "short move stream") solve.moves = solve.moves.slice(0, 2);
+    if (reason === "missing slot") solve.analysis.steps.forEach(step => { step.slot = ""; });
+    if (reason === "missing cross face") Reflect.deleteProperty(solve.analysis, "crossFace");
+    const scoped = deriveStatistics({ ...snapshot, solves: [solve] }, { event: "333", sessionId: "B" }, "A");
+    const render = () => renderRoot(() => StatisticsF2lCaseTable({ model: scoped, onOpenSolve: vi.fn(), onTrainCase: vi.fn(), onPracticePair: vi.fn() }));
+    find(render(), element => element.type === PerformanceTable).props.onSelect(scoped.f2lCases[0]);
+    expect(elements(render()).some(element => element.props.children === "Practice recorded pair")).toBe(false);
+    expect(renderToStaticMarkup(render())).not.toContain("<th>Session</th>");
+  });
+  it("renders the section order, canonical diagrams, pair counts, timing caveat and all three overlapping recommendations", async () => {
+    const { model: history } = await f2lHistory();
+    const props = { model: history, onOpenSolve: vi.fn(), onTrainCase: vi.fn() };
+    const html = renderToStaticMarkup(StatisticsAnalysisTables(props));
+    expect(html.indexOf('id="stats-f2l"')).toBeLessThan(html.indexOf('id="stats-f2l-cases"'));
+    expect(html.indexOf('id="stats-f2l-cases"')).toBeLessThan(html.indexOf('id="stats-oll-cases"'));
+    expect(html.indexOf('id="stats-oll-cases"')).toBeLessThan(html.indexOf('id="stats-pll-cases"'));
+    expect(html).toContain("4 recognised pair occurrences"); expect(html).toContain("setup before");
+    expect(html).toContain("canonical front-right case diagram"); expect(html).toContain('class="f2l-case-thumbnail"');
+    expect(html).toContain("Worst total time"); expect(html).toContain("Worst recognition"); expect(html).toContain("Worst execution");
+    const table = find(renderRoot(() => StatisticsF2lCaseTable(props)), element => element.type === PerformanceTable);
+    const markup = renderToStaticMarkup(PerformanceTable(table.props as Parameters<typeof PerformanceTable>[0]));
+    expect(markup).not.toContain(">Skips");
+    expect(renderToStaticMarkup(PerformanceTable({ rows: history.f2lPositions }))).toContain(">Skips");
+  });
+  it("App routes standard F2L to Basic Single and resolves exact practice from the effective correction", async () => {
+    const { solve } = await f2lHistory();
+    const controller = new Controller(); hooks.controller = controller;
+    controller.state.update(state => ({ ...state, ready: true, area: "statistics" }));
+    controller.training.state.update(state => ({ ...state, f2lSelection: { library: "advanced", position: "BL" } }));
+    const select = vi.spyOn(controller, "selectF2lCase").mockResolvedValue();
+    const library = vi.spyOn(controller, "setF2lLibrary");
+    const activity = vi.spyOn(controller, "setTrainingActivity");
+    const practice = vi.spyOn(controller, "practiceSolveStep").mockResolvedValue();
+    const view = find(renderRoot(App), element => element.type === StatisticsView);
+    view.props.onTrainCase("f2l", "F2L 12");
+    expect(activity).toHaveBeenCalledWith("single"); expect(library).toHaveBeenCalledWith("basic"); expect(select).toHaveBeenCalledWith("F2L 12");
+    expect(controller.training.state.get().f2lSelection.position).toBe("BL");
+    const corrected = { ...solve.analysis, steps: solve.analysis.steps.map(step => ({ ...step, case: "F2L 41" })) };
+    const accepted = { ...solve, cfopAnalysisCorrection: { mode: "state-only" as const, acceptedAt: 1, analysis: corrected } };
+    view.props.onPracticePair(accepted, "F2L Slot 2");
+    expect(practice).toHaveBeenCalledWith(accepted, corrected.steps[2]);
+    expect(select).toHaveBeenCalledTimes(1);
+  });
   it("renders both F2L datasets with independent sorting and expansion", () => {
     const both = StatisticsF2lPerformance({ model, onOpenSolve: vi.fn() });
     expect(elements(both).filter(element => element.type === StatisticsF2lPerformancePanel).map(element => element.props.mode)).toEqual(["slot", "order"]);

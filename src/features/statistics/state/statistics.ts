@@ -1,5 +1,6 @@
 import { analysedSolveFacts, averageWindow, countedSolves, percentile, sessionStats, type AverageWindow, type AnalysedSolveFacts, type CfopPhaseMedian, type SessionStats } from "./stats";
-import type { SolveStep } from "../../../cube/analysis";
+import type { SolveStep, StepName } from "../../../cube/analysis";
+import { F2L_CASES } from "../../../cube/f2lCases";
 import { eventInfo, type EventId } from "../../../cube/scramble";
 import { effectiveMs, type Session, type Solve } from "../../../app/types";
 
@@ -108,6 +109,10 @@ export type StatisticsViewModel = {
   averageProgression: AverageProgressionPoint[];
   pbHistory: Record<PbMetric, RankingRow[]>;
   f2lPositions: PerformanceSummary[];
+  f2lCases: CasePerformance[];
+  f2lFocus: CaseFocus[];
+  f2lUnrecognizedCount: number;
+  f2lSkippedCount: number;
   ollCases: CasePerformance[];
   pllCases: CasePerformance[];
   ollSkips: number;
@@ -218,6 +223,8 @@ export type AverageProgressionPoint = {
 export type RecognitionTrendPoint = { index: number; solveId: string; sessionId: string; createdAt: number; segmentKey: string; recognitionMs: number; executionMs: number; unclassifiedMs: number };
 export type PerformanceSample = {
   solveId: string; timeMs: number; recognitionMs: number; executionMs: number; moves: number; tps?: number;
+  /** Exact canonical occurrence identity, supplied for F2L case samples only. */
+  stepName?: StepName;
 };
 export type PerformanceSummary = {
   label: string; count: number; skipCount: number; solveIds: string[]; samples: PerformanceSample[];
@@ -362,12 +369,12 @@ function recordModels(solves: readonly Solve[], facts: readonly AnalysedSolveFac
   return { records, averageProgression: progression, pbHistory, bestSplits };
 }
 
-function performance(label: string, samples: { fact: AnalysedSolveFacts; step: SolveStep }[]): PerformanceSummary {
+function performance(label: string, samples: { fact: AnalysedSolveFacts; step: SolveStep }[], retainStepName = false): PerformanceSummary {
   const performed = samples.filter(({ step }) => !skipped(step));
   const sum = (key: "sliceTurns" | "executionMs") => performed.reduce((total, { step }) => total + step[key], 0);
   return {
     label, count: performed.length, skipCount: samples.length - performed.length,
-    samples: performed.map(({ fact, step }) => ({ solveId: fact.id, timeMs: step.timeMs, recognitionMs: step.recognitionMs, executionMs: step.executionMs, moves: step.sliceTurns, tps: executionTps(step.sliceTurns, step.executionMs) })),
+    samples: performed.map(({ fact, step }) => ({ solveId: fact.id, timeMs: step.timeMs, recognitionMs: step.recognitionMs, executionMs: step.executionMs, moves: step.sliceTurns, tps: executionTps(step.sliceTurns, step.executionMs), ...(retainStepName ? { stepName: step.name } : {}) })),
     solveIds: performed.map(({ fact }) => fact.id), bestMs: performed.length ? Math.min(...performed.map(({ step }) => step.timeMs)) : undefined,
     medianMs: median(performed.map(({ step }) => step.timeMs)), recognitionMs: median(performed.map(({ step }) => step.recognitionMs)),
     executionMs: median(performed.map(({ step }) => step.executionMs)), moves: median(performed.map(({ step }) => step.sliceTurns)),
@@ -375,15 +382,18 @@ function performance(label: string, samples: { fact: AnalysedSolveFacts; step: S
   };
 }
 
-function casePerformance(facts: readonly AnalysedSolveFacts[], index: 5 | 6): CasePerformance[] {
+function casePerformance(facts: readonly AnalysedSolveFacts[], caseSource: "f2l" | 5 | 6): CasePerformance[] {
   const groups = new Map<string, { fact: AnalysedSolveFacts; step: SolveStep }[]>();
+  const standardF2lCases = new Set(F2L_CASES.map(row => row.name));
   for (const fact of facts) {
-    const step = fact.steps[index];
-    if (!step.case || skipped(step)) continue;
-    const samples = groups.get(step.case) ?? [];
-    samples.push({ fact, step }); groups.set(step.case, samples);
+    for (const step of caseSource === "f2l" ? fact.steps.slice(1, 5) : [fact.steps[caseSource]]) {
+      if (!step.case || skipped(step)) continue;
+      if (caseSource === "f2l" && !standardF2lCases.has(step.case)) continue;
+      const samples = groups.get(step.case) ?? [];
+      samples.push({ fact, step }); groups.set(step.case, samples);
+    }
   }
-  return sortCasePerformance([...groups].map(([caseId, samples]) => ({ ...performance(caseId, samples), caseId })), "case", "asc");
+  return sortCasePerformance([...groups].map(([caseId, samples]) => ({ ...performance(caseId, samples, caseSource === "f2l"), caseId })), "case", "asc");
 }
 
 export function sortCasePerformance(rows: readonly CasePerformance[], sort: CaseSort, direction: SortDirection): CasePerformance[] {
@@ -697,6 +707,8 @@ export function deriveStatistics(
     p10Ms: percentile(finished, 0.1), p25Ms: percentile(finished, 0.25), p75Ms: percentile(finished, 0.75), p90Ms: percentile(finished, 0.9),
   };
   const ollCases = casePerformance(facts, 5), pllCases = casePerformance(facts, 6);
+  const f2lCases = casePerformance(facts, "f2l");
+  const f2lSkippedCount = pairs.filter(pair => skipped(pair.step)).length;
   const bySession = new Map<string, Solve[]>();
   for (const solve of eventSolves) {
     const list = bySession.get(solve.sessionId) ?? [];
@@ -729,6 +741,8 @@ export function deriveStatistics(
     f2lUnassignedCount: pairs.filter((pair) => !skipped(pair.step) && !slots.some((slot) => pair.slot === slot)).length,
     f2lInferredCount: pairs.filter((pair) => !skipped(pair.step) && pair.step.insertedAtSource === "inferred" && slots.some((slot) => pair.slot === slot)).length,
     f2lPositions: ["1st pair", "2nd pair", "3rd pair", "4th pair"].map((label, index) => performance(label, facts.map((fact) => ({ fact, step: fact.steps[index + 1] })))),
+    f2lCases, f2lFocus: focusCases(f2lCases), f2lSkippedCount,
+    f2lUnrecognizedCount: pairs.length - f2lSkippedCount - f2lCases.reduce((sum, row) => sum + row.count, 0),
     ollCases, pllCases, ollFocus: focusCases(ollCases), pllFocus: focusCases(pllCases),
     ollSkips: facts.filter((fact) => skipped(fact.steps[5])).length,
     pllSkips: facts.filter((fact) => skipped(fact.steps[6])).length,

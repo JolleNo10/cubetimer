@@ -1528,6 +1528,9 @@ button.icon { display: inline-grid; place-items: center; padding: 8px; }
 .focus-case { grid-template-columns: 96px minmax(0, 1fr); align-content: start; }
 .focus-case-diagram { grid-row: span 6; }
 .focus-case > .stat-label { text-transform: none; }
+.stats-f2l-case-label { display: inline-flex; align-items: center; gap: 8px; }
+.stats-f2l-diagram { display: inline-block; width: 48px; flex-shrink: 0; }
+.statistics-f2l-cases .focus-case > .stats-f2l-diagram { grid-row: span 6; width: 96px; }
 @media (min-width: 821px) { .dialog.wide.statistics-solve-detail { width: min(1480px, 100%); max-height: 92vh; max-height: 92dvh; } }
 .statistics-solve-detail .dialog-head { flex: none; }
 .statistics-solve-detail .dialog-body { min-height: 0; min-width: 0; grid-auto-rows: max-content; align-content: start; }
