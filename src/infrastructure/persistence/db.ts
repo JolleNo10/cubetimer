@@ -69,6 +69,23 @@ async function store(
   return db.transaction(name, mode).objectStore(name);
 }
 
+/** Enqueue work synchronously and acknowledge only the committed transaction. */
+async function writeStore(name: string, write: (store: IDBObjectStore) => void): Promise<void> {
+  const db = await openDatabase();
+  await new Promise<void>((resolve, reject) => {
+    const transaction = db.transaction(name, "readwrite");
+    transaction.oncomplete = () => resolve();
+    transaction.onabort = () => reject(transaction.error ?? new Error(`${name} write aborted.`));
+    transaction.onerror = () => reject(transaction.error ?? new Error(`${name} write failed.`));
+    try {
+      write(transaction.objectStore(name));
+    } catch (error) {
+      transaction.abort();
+      reject(error);
+    }
+  });
+}
+
 type StoredSession = Omit<Session, "event" | "compareScope"> & { event?: unknown; compareScope?: unknown };
 type StoredSolve = Solve & { event?: unknown };
 
@@ -182,7 +199,7 @@ export async function loadSessions(): Promise<Session[]> {
 }
 
 export async function saveSession(session: Session): Promise<void> {
-  await promisify((await store("sessions", "readwrite")).put(session));
+  await writeStore("sessions", store => { store.put(session); });
 }
 
 export async function deleteSession(id: string): Promise<void> {
@@ -225,6 +242,26 @@ export async function loadSessionIdsWithSolves(): Promise<Set<string>> {
   });
 }
 
+/** Import preflight: inspect index keys, never complete Solve records or moves. */
+export async function loadExistingSolveOwners(incomingIds: ReadonlySet<string>): Promise<Map<string, string>> {
+  if (incomingIds.size === 0) return new Map();
+  const db = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = db.transaction("solves", "readonly");
+    const owners = new Map<string, string>();
+    transaction.oncomplete = () => resolve(owners);
+    transaction.onabort = () => reject(transaction.error ?? new Error("Solve ownership lookup aborted."));
+    transaction.onerror = () => reject(transaction.error ?? new Error("Solve ownership lookup failed."));
+    const request = transaction.objectStore("solves").index("sessionId").openKeyCursor();
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      if (incomingIds.has(cursor.primaryKey as string)) owners.set(cursor.primaryKey as string, cursor.key as string);
+      cursor.continue();
+    };
+  });
+}
+
 export async function loadSolve(id: string): Promise<Solve | undefined> {
   const solve = await promisify(
     (await store("solves", "readonly")).get(id) as IDBRequest<Solve | undefined>,
@@ -249,7 +286,7 @@ export async function loadAllSolves(): Promise<Solve[]> {
 
 export async function saveSolve(solve: Solve): Promise<void> {
   const { statisticsOutlier: _derivedOutlier, ...rawSolve } = solve;
-  await promisify((await store("solves", "readwrite")).put(rawSolve));
+  await writeStore("solves", store => { store.put(rawSolve); });
 }
 
 /** Write many solves in one transaction; one transaction per solve is slow at import scale. */
@@ -267,26 +304,18 @@ export async function saveSolves(solves: readonly Solve[]): Promise<void> {
 }
 
 export async function deleteSolve(id: string): Promise<void> {
-  await promisify((await store("solves", "readwrite")).delete(id));
+  await writeStore("solves", store => { store.delete(id); });
 }
 
 export async function loadSettings(): Promise<Settings> {
-  try {
-    const stored = await promisify(
-      (await store("settings", "readonly")).get("settings") as IDBRequest<
-        Partial<Settings> | undefined
-      >,
-    );
-    return mergeSettings(stored);
-  } catch {
-    return { ...DEFAULT_SETTINGS };
-  }
+  const stored = await promisify(
+    (await store("settings", "readonly")).get("settings") as IDBRequest<Partial<Settings> | undefined>,
+  );
+  return mergeSettings(stored);
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {
-  await promisify(
-    (await store("settings", "readwrite")).put(settings, "settings"),
-  );
+  await writeStore("settings", store => { store.put(settings, "settings"); });
 }
 
 const record = (value: unknown): value is Record<string, unknown> =>

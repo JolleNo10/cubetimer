@@ -14,7 +14,7 @@ These documents describe current state. Start at [SYSTEM.md](SYSTEM.md); load on
 | Full/2-Look OLL/PLL targets, AUF, variants or stage completion | `src/cube/lastLayerTraining.ts`, `lastLayerCases.ts`, `lastLayerTwoLookCases.ts` |
 | Training presentation | `src/features/training/components/Training.tsx`, `F2LTraining.tsx`, `TrainingWorkspace.tsx` |
 | Guided curriculum/planning and independent context browsing | `trainingCurriculum.ts`, `trainingPlanner.ts`, `trainingBrowseContext.ts`, `components/TrainingGuided.tsx`, `TrainingInsights.tsx` |
-| F2L thumbnails | `src/cube/f2lThumbnail.ts`, `src/features/training/components/F2lCaseThumbnail.tsx` |
+| F2L thumbnails | `src/cube/f2lThumbnail.ts`, `src/shared/ui/F2lCaseThumbnail.tsx` |
 | Generated OLL/PLL authority | `scripts/speedcubedb.ts`, `scripts/fetchAlgs.ts`, relevant domain tests; generated data only when needed |
 | Advanced F2L source authority | Relevant authority/generator module and its tests; generated data only when needed |
 
@@ -552,7 +552,10 @@ F2L catalogue thumbnail data and rendering have separate responsibilities.
 
 The Basic and Advanced libraries use the same model shape and presentation path.
 
-`src/features/training/components/F2lCaseThumbnail.tsx` is a renderer. It colours facelets selected by the model and renders all others with the common muted presentation.
+`src/shared/ui/F2lCaseThumbnail.tsx` is the shared UI renderer. It colours facelets selected by the model and renders all others with the common muted presentation. Training (`F2LTraining.tsx`) and Statistics (`StatisticsAnalysisTables.tsx`) both reuse it; canonical thumbnail data remains owned by `src/cube/f2lThumbnail.ts`.
+
+Rejected: Statistics depending directly on a sibling Training presentation component.
+The renderer is shared presentation infrastructure, rather than Training-owned behavior.
 
 The React renderer must not recreate Basic-versus-Advanced case logic that belongs in the domain/generated thumbnail authority.
 

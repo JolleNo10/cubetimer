@@ -4,7 +4,7 @@ import { buildLastLayerCatalogueTarget } from "../../../cube/lastLayerTraining";
 import { getLastLayerThumbnailModel } from "../../../cube/lastLayerThumbnail";
 import { LastLayerCaseThumbnail } from "../../../shared/ui/LastLayerCaseThumbnail";
 import type { ReactElement } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as puzzleLoading from "../../../cube/puzzle";
 import { StatsPanel, Stat } from "./StatsPanel";
 import { Header } from "../../../app/components/Header";
@@ -12,7 +12,7 @@ import { SolveAnalysisReview } from "../../history/components/SolveAnalysisRevie
 import { SolveActions } from "../../history/components/SolveActions";
 import { focusCases } from "../state/statistics";
 import { App } from "../../../app/App";
-import { CubeModel } from "../../../cube/model";
+import { CubeModel, SOLVED_FACELETS } from "../../../cube/model";
 import { Controller } from "../../../app/Controller";
 import { deriveStatistics, type StatisticsSnapshot } from "../state/statistics";
 import type { Solve } from "../../../app/types";
@@ -77,6 +77,19 @@ const clickEvent = () => ({ target: { closest: () => null } });
 const keyEvent = (key: string) => { const target = {}; return { key, target, currentTarget: target, preventDefault: vi.fn() }; };
 
 beforeEach(() => { hooks.values = []; hooks.cursor = 0; hooks.effectCursor = 0; hooks.dependencies = []; hooks.effects = []; vi.restoreAllMocks(); });
+afterEach(() => vi.unstubAllGlobals());
+
+it("shows initialization storage errors while the application remains not ready", async () => {
+  const controller = new Controller(); hooks.controller = controller;
+  vi.spyOn(db, "loadSettings").mockRejectedValue(new Error("Storage is blocked"));
+  await expect(controller.init()).rejects.toThrow("Storage is blocked");
+  const tree = renderRoot(App);
+  const message = find(tree, element => element.props.role === "alert").props.children;
+  expect(message).toContain("Local data could not be loaded"); expect(message).toContain("then reload");
+  expect(message).toContain("does not mean your data has been erased");
+  expect(controller.state.get().ready).toBe(false);
+  expect(elements(tree).some(element => element.type === Header)).toBe(false);
+});
 
 it("App owns correction preview, cancellation and explicit acceptance without automatic persistence", async () => {
   const kpuzzle = await get3x3x3();
@@ -535,6 +548,51 @@ describe("case presentation contracts", () => {
     find(render(), element => element.props.children === "Close case").props.onClick();
     expect(table().props.expanded).toBeUndefined();
   });
+  it.each([undefined, null, 42, {}, []].map(scramble => ({ scramble })))("renders imported analysis with malformed scramble $scramble without offering exact practice", async ({ scramble }) => {
+    const history = await f2lHistory();
+    const imported = db.migrateSolve({ ...history.solve, scramble, scrambledFacelets: "invalid" } as unknown as Solve);
+    const scoped = deriveStatistics({ ...snapshot, solves: [imported] }, { event: "333", sessionId: "B" }, "A");
+    const render = () => renderRoot(() => StatisticsF2lCaseTable({ model: scoped, onOpenSolve: vi.fn(), onTrainCase: vi.fn(), onPracticePair: vi.fn() }));
+    find(render(), element => element.type === PerformanceTable).props.onSelect(scoped.f2lCases[0]);
+    expect(elements(render()).some(element => element.props.children === "Practice recorded pair")).toBe(false);
+    expect(renderToStaticMarkup(render())).toContain("Review Solve");
+  });
+  it.each([undefined, null, 42, {}, "", "invalid", "U".repeat(54)].map(facelets => ({ facelets })))("rejects unusable stored facelets $facelets without a valid scramble", async ({ facelets }) => {
+    const history = await f2lHistory();
+    const imported = db.migrateSolve({ ...history.solve, scramble: null, scrambledFacelets: facelets } as unknown as Solve);
+    const scoped = deriveStatistics({ ...snapshot, solves: [imported] }, { event: "333", sessionId: "B" }, "A");
+    const render = () => renderRoot(() => StatisticsF2lCaseTable({ model: scoped, onOpenSolve: vi.fn(), onTrainCase: vi.fn(), onPracticePair: vi.fn() }));
+    render(); for (const effect of hooks.effects) effect();
+    await get3x3x3(); await Promise.resolve();
+    find(render(), element => element.type === PerformanceTable).props.onSelect(scoped.f2lCases[0]);
+    expect(renderToStaticMarkup(render())).toContain("Review Solve");
+    expect(elements(render()).some(element => element.props.children === "Practice recorded pair")).toBe(false);
+  });
+  it("does not offer exact practice for balanced facelet colours that cannot form cube pieces", async () => {
+    const history = await f2lHistory();
+    const facelets = SOLVED_FACELETS.split("");
+    [facelets[0], facelets[36]] = [facelets[36], facelets[0]];
+    const imported = db.migrateSolve({ ...history.solve, scramble: undefined, scrambledFacelets: facelets.join("") } as unknown as Solve);
+    const scoped = deriveStatistics({ ...snapshot, solves: [imported] }, { event: "333", sessionId: "B" }, "A");
+    const render = () => renderRoot(() => StatisticsF2lCaseTable({ model: scoped, onOpenSolve: vi.fn(), onTrainCase: vi.fn(), onPracticePair: vi.fn() }));
+    render(); for (const effect of hooks.effects) effect();
+    await get3x3x3(); await Promise.resolve();
+    find(render(), element => element.type === PerformanceTable).props.onSelect(scoped.f2lCases[0]);
+    expect(renderToStaticMarkup(render())).toContain("Review Solve");
+    expect(elements(render()).some(element => element.props.children === "Practice recorded pair")).toBe(false);
+  });
+  it("allows exact practice from usable stored facelets even without a scramble", async () => {
+    const history = await f2lHistory();
+    const imported = db.migrateSolve({ ...history.solve, scramble: undefined, scrambledFacelets: SOLVED_FACELETS } as unknown as Solve);
+    const scoped = deriveStatistics({ ...snapshot, solves: [imported] }, { event: "333", sessionId: "B" }, "A");
+    const practice = vi.fn();
+    const render = () => renderRoot(() => StatisticsF2lCaseTable({ model: scoped, onOpenSolve: vi.fn(), onTrainCase: vi.fn(), onPracticePair: practice }));
+    render(); for (const effect of hooks.effects) effect();
+    await get3x3x3(); await Promise.resolve();
+    find(render(), element => element.type === PerformanceTable).props.onSelect(scoped.f2lCases[0]);
+    find(render(), element => element.props.children === "Practice recorded pair").props.onClick();
+    expect(practice).toHaveBeenCalledExactlyOnceWith(imported, "F2L Slot 1");
+  });
   it.each(["analysis only", "missing state", "short move stream", "missing slot", "missing cross face"])("omits exact practice for %s", async reason => {
     const { solve } = await f2lHistory();
     if (reason === "analysis only") solve.moves = [];
@@ -836,11 +894,24 @@ describe("historical detail coherence", () => {
     await Promise.resolve(); await Promise.resolve();
     expect(detail().props.solve.comment).toBe("Updated note");
     detail().props.onSolveAgain(); expect(again).toHaveBeenCalledWith(detail().props.solve);
-    await detail().props.onDelete();
+    const confirm = vi.fn(() => false); vi.stubGlobal("window", { confirm });
+    find(controls(), element => element.props.children === "Delete").props.onClick();
+    expect(remove).not.toHaveBeenCalled(); expect(detail().props.solve.id).toBe("s0");
+    confirm.mockReturnValue(true);
+    remove.mockRejectedValueOnce(new Error("Deletion transaction aborted"));
+    find(controls(), element => element.props.children === "Delete").props.onClick();
+    await Promise.resolve(); await Promise.resolve();
+    expect(detail().props.solve.id).toBe("s0");
+    expect(detail().props.solves.some((solve: Solve) => solve.id === "s0")).toBe(true);
+    expect(renderToStaticMarkup(render())).toContain("Deletion transaction aborted");
+    find(controls(), element => element.props.children === "Delete").props.onClick();
+    await Promise.resolve(); await Promise.resolve();
     tree = render();
     expect(elements(tree).some(element => element.type === StatisticsSolveDetail)).toBe(false);
     expect(find(tree, element => element.type === StatisticsRecords).props.model.scopeSolves.some((solve: Solve) => solve.id === "s0")).toBe(false);
     expect(remove).toHaveBeenCalledWith("s0");
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(confirm).toHaveBeenCalledTimes(3);
     expect(update.mock.calls[0][0].sessionId).toBe("B");
     expect(controller.sessions.get().sessionId).toBe("A");
   });

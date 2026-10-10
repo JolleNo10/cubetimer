@@ -94,8 +94,12 @@ export function SolveList({ solves, selectedId, onSelect }: Props) {
                     aria-label={`Delete solve ${index}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      void controller.deleteSolve(solve.id);
+                      if (window.confirm("Permanently delete this Solve? This cannot be undone.")) {
+                        // Controller reports persistence failure and retains the Solve.
+                        void controller.deleteSolve(solve.id).catch(() => {});
+                      }
                     }}
+                    onKeyDown={(e) => e.stopPropagation()}
                   >
                     ×
                   </button>

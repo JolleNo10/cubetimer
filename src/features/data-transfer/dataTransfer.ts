@@ -16,6 +16,31 @@ export type ImportResult = {
   context: SessionContextTransition;
 };
 
+function collectSolveOwner(owners: Map<string, string>, solve: Solve): void {
+  const owner = owners.get(solve.id);
+  if (owner !== undefined && owner !== solve.sessionId) {
+    throw new Error(`Import contains the same Solve ID "${solve.id}" under conflicting Sessions.`);
+  }
+  owners.set(solve.id, solve.sessionId);
+}
+
+/** All integrity checks finish before the first write, for JSON and every CSV batch. */
+async function preflightImport(sessions: Session[], owners: Map<string, string>): Promise<void> {
+  const existingSessions = await sessionService.assertImportSessionCompatibility(sessions, new Set(owners.values()));
+  const allowedSessions = new Set([...existingSessions, ...sessions].map(session => session.id));
+  for (const [id, sessionId] of owners) {
+    if (!allowedSessions.has(sessionId)) {
+      throw new Error(`Imported Solve "${id}" references a Session that does not exist: "${sessionId}".`);
+    }
+  }
+  const existingOwners = await db.loadExistingSolveOwners(new Set(owners.keys()));
+  for (const [id, sessionId] of existingOwners) {
+    if (owners.get(id) !== sessionId) {
+      throw new Error(`Imported Solve ID "${id}" already belongs to another Session: "${sessionId}".`);
+    }
+  }
+}
+
 export async function exportData(): Promise<string> {
   const [sessions, solves, trainingAttempts, trainingDrillPresets, trainingAlgorithmPreferences, trainingRecognitionAttempts] = await Promise.all([
     db.loadSessions(),
@@ -55,6 +80,7 @@ export async function importData(
     .map((rawSession) => db.migrateSession(rawSession))
     .filter((session) => Boolean(session.id && session.name));
   const importedSolves: Solve[] = [];
+  const incomingOwners = new Map<string, string>();
   const attempts = (Array.isArray(data.trainingAttempts) ? data.trainingAttempts : [])
     .map(db.normalizeTrainingAttempt).filter(attempt => attempt !== null);
   const recognition = (Array.isArray(data.trainingRecognitionAttempts) ? data.trainingRecognitionAttempts : [])
@@ -72,14 +98,11 @@ export async function importData(
   }
   for (const rawSolve of data.solves) {
     if (!rawSolve?.id || !rawSolve.sessionId || typeof rawSolve.rawMs !== "number") continue;
-    importedSolves.push(
-      db.migrateSolve({ ...rawSolve, moves: rawSolve.moves ?? [] }),
-    );
+    const solve = db.migrateSolve({ ...rawSolve, moves: rawSolve.moves ?? [] });
+    collectSolveOwner(incomingOwners, solve);
+    importedSolves.push(solve);
   }
-  await sessionService.assertImportSessionCompatibility(
-    sessions,
-    new Set(importedSolves.map((solve) => solve.sessionId)),
-  );
+  await preflightImport(sessions, incomingOwners);
 
   for (const session of sessions) await db.saveSession(session);
   for (let offset = 0; offset < importedSolves.length; offset += 200) {
@@ -114,18 +137,15 @@ export async function importSolveCsv(
   let total = 0;
   const skipped: SkippedCsvRows = { count: 0, sample: [] };
   const incomingSessions = new Map<string, Session>();
-  const incomingSolveSessionIds = new Set<string>();
+  const incomingOwners = new Map<string, string>();
   for (const batch of solveCsvBatches(lines)) {
     mergeSolveCsvSessions(incomingSessions, batch.sessions);
-    for (const solve of batch.solves) incomingSolveSessionIds.add(solve.sessionId);
+    for (const solve of batch.solves) collectSolveOwner(incomingOwners, solve);
     total += batch.solves.length;
     skipped.count += batch.skipped.length;
     skipped.sample.push(...batch.skipped.slice(0, SKIPPED_SAMPLE_SIZE - skipped.sample.length));
   }
-  await sessionService.assertImportSessionCompatibility(
-    [...incomingSessions.values()],
-    incomingSolveSessionIds,
-  );
+  await preflightImport([...incomingSessions.values()], incomingOwners);
 
   // Sessions as dated by the whole file, not by whichever batch met them first.
   for (const session of incomingSessions.values()) await db.saveSession(session);

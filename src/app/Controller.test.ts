@@ -27,6 +27,7 @@ const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 const originalCancelAnimationFrame = globalThis.cancelAnimationFrame;
 
 beforeEach(() => {
+  vi.spyOn(db, "loadExistingSolveOwners").mockResolvedValue(new Map());
   vi.spyOn(db, "loadTrainingRecognitionAttempts").mockResolvedValue([]);
   vi.spyOn(db, "saveTrainingRecognitionAttempt").mockResolvedValue();
   vi.spyOn(db, "loadTrainingDrillPresets").mockResolvedValue([]);
@@ -91,6 +92,89 @@ function stubPersistence() {
 }
 
 describe("Controller Training settings integration", () => {
+  it("surfaces Settings read failure without initialization or replacement writes", async () => {
+    const error = new Error("IndexedDB unavailable");
+    vi.spyOn(db, "loadSettings").mockRejectedValue(error);
+    const sessions = vi.spyOn(db, "loadSessions").mockResolvedValue([]);
+    const saveSession = vi.spyOn(db, "saveSession").mockResolvedValue();
+    const saveSettings = vi.spyOn(db, "saveSettings").mockResolvedValue();
+    const controller = new Controller();
+    const scramble = vi.spyOn(controller, "newScramble").mockResolvedValue();
+    await expect(controller.init()).rejects.toBe(error);
+    expect(controller.state.get()).toMatchObject({ ready: false, error: expect.stringContaining("Local data could not be loaded") });
+    expect(controller.state.get().error).toContain("then reload");
+    expect(controller.sessions.get()).toMatchObject({ sessions: [], solves: [], sessionId: "" });
+    expect(sessions).not.toHaveBeenCalled(); expect(saveSession).not.toHaveBeenCalled();
+    expect(saveSettings).not.toHaveBeenCalled(); expect(scramble).not.toHaveBeenCalled();
+    expect(db.loadTrainingAttempts).not.toHaveBeenCalled();
+  });
+
+  it("initializes with defaults when Settings are legitimately absent", async () => {
+    vi.spyOn(db, "loadSettings").mockResolvedValue(db.mergeSettings(undefined));
+    vi.spyOn(db, "loadSessions").mockResolvedValue([]);
+    vi.spyOn(db, "loadSolves").mockResolvedValue([]);
+    const save = vi.spyOn(db, "saveSession").mockResolvedValue();
+    const settings = vi.spyOn(db, "saveSettings").mockResolvedValue();
+    const controller = new Controller(); vi.spyOn(controller, "newScramble").mockResolvedValue();
+    await controller.init();
+    expect(controller.state.get().ready).toBe(true);
+    expect(controller.settings.get()).toEqual(db.mergeSettings(undefined));
+    expect(save).toHaveBeenCalledOnce(); expect(settings).not.toHaveBeenCalled();
+  });
+
+  it("reads other stored collections before creating an initial Session", async () => {
+    vi.spyOn(db, "loadSettings").mockResolvedValue(DEFAULT_SETTINGS);
+    vi.mocked(db.loadTrainingAttempts).mockRejectedValue(new Error("History read failed"));
+    const save = vi.spyOn(db, "saveSession").mockResolvedValue();
+    const controller = new Controller();
+    await expect(controller.init()).rejects.toThrow("History read failed");
+    expect(controller.state.get().ready).toBe(false); expect(save).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])("publishes Settings and applies Training/Timer consequences only on committed success: %s", async success => {
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.setTrainingFamily("oll");
+    controller.timer.state.update(state => ({ ...state, scrambleGeneration: { kind: "cross" } }));
+    const previous = controller.settings.get();
+    let resolve!: () => void, reject!: (error: Error) => void;
+    const pending = new Promise<void>((done, fail) => { resolve = done; reject = fail; });
+    const save = vi.spyOn(db, "saveSettings").mockReturnValueOnce(pending).mockResolvedValue(undefined);
+    const training = vi.spyOn(controller.training, "catalogueContextChanged");
+    const cancel = vi.spyOn(controller.timer, "cancelSpecialScrambleGeneration").mockReturnValue("restored");
+    const reconcile = vi.spyOn(controller.timer, "reconcilePhysicalState").mockImplementation(() => {});
+    const publish = vi.fn(); controller.settings.subscribe(publish);
+    const updating = controller.updateSettings({ ollTrainingSet: "2look", slowSolve: false });
+    await Promise.resolve();
+    expect(save).toHaveBeenCalledOnce(); expect(controller.settings.get()).toBe(previous);
+    expect(publish).not.toHaveBeenCalled(); expect(training).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled(); expect(reconcile).not.toHaveBeenCalled();
+    if (success) resolve(); else reject(new Error("Settings commit failed"));
+    await updating;
+    if (success) {
+      expect(controller.settings.get().ollTrainingSet).toBe("2look"); expect(publish).toHaveBeenCalledOnce();
+      expect(training).toHaveBeenCalledOnce(); expect(cancel).toHaveBeenCalledOnce(); expect(reconcile).toHaveBeenCalledOnce();
+    } else {
+      expect(controller.settings.get()).toBe(previous); expect(publish).not.toHaveBeenCalled();
+      expect(training).not.toHaveBeenCalled(); expect(cancel).not.toHaveBeenCalled(); expect(reconcile).not.toHaveBeenCalled();
+      expect(controller.state.get().error).toContain("Settings commit failed");
+      await controller.updateSettings({ pllTrainingSet: "2look" });
+      expect(controller.settings.get()).toMatchObject({ ollTrainingSet: "full", pllTrainingSet: "2look" });
+    }
+  });
+
+  it("serializes closely spaced Settings edits from the latest committed values", async () => {
+    const controller = new Controller(new CubeModel(kpuzzle));
+    const pending = deferred<void>();
+    const save = vi.spyOn(db, "saveSettings").mockReturnValueOnce(pending.promise).mockResolvedValue(undefined);
+    const first = controller.updateSettings({ ollTrainingSet: "2look" });
+    const second = controller.updateSettings({ pllTrainingSet: "2look" });
+    await Promise.resolve(); expect(save).toHaveBeenCalledOnce();
+    expect(controller.settings.get()).toMatchObject({ ollTrainingSet: "full", pllTrainingSet: "full" });
+    pending.resolve(); await Promise.all([first, second]);
+    expect(controller.settings.get()).toMatchObject({ ollTrainingSet: "2look", pllTrainingSet: "2look" });
+    expect(save.mock.calls[1][0]).toMatchObject({ ollTrainingSet: "2look", pllTrainingSet: "2look" });
+  });
+
   it.each(["oll", "pll"] as const)("cancels a running %s target only when its own setting changes", async (family) => {
     stubTimerLoop();
     vi.spyOn(Math, "random").mockReturnValue(0);
@@ -780,6 +864,39 @@ describe("Controller Session-context synchronization", () => {
 });
 
 describe("Controller import runtime integration", () => {
+  it.each(["json", "csv"] as const)("rejects %s ownership collisions without changing history or writing collections", async format => {
+    stubTimerLoop();
+    const local = session("A"), historical = solveFor("A");
+    const controller = readyController([local], local.id, [historical], "ready");
+    const before = controller.sessions.get();
+    vi.spyOn(db, "loadSessions").mockResolvedValue([local]);
+    vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set([local.id]));
+    vi.mocked(db.loadExistingSolveOwners).mockResolvedValue(new Map([[historical.id, local.id]]));
+    const sessionWrite = vi.spyOn(db, "saveSession").mockResolvedValue();
+    const solveWrite = vi.spyOn(db, "saveSolves").mockResolvedValue();
+    const presetWrite = vi.spyOn(db, "saveTrainingDrillPreset").mockResolvedValue();
+    const preferenceWrite = vi.spyOn(db, "saveTrainingAlgorithmPreference").mockResolvedValue();
+    const settingsWrite = vi.spyOn(db, "saveSettings").mockResolvedValue();
+    const incoming = { ...session("B"), name: "Other" }, row = { ...historical, sessionId: incoming.id };
+    const importing = format === "json" ? controller.importData(jsonExport([incoming], [row]))
+      : controller.importSolveCsv(formatSolveCsv([row], new Map([[incoming.id, incoming.name]])));
+    await expect(importing).rejects.toThrow("already belongs to another Session");
+    expect(controller.sessions.get()).toBe(before);
+    for (const writing of [sessionWrite, solveWrite, presetWrite, preferenceWrite, settingsWrite,
+      db.saveTrainingAttempt, db.saveTrainingRecognitionAttempt]) expect(writing).not.toHaveBeenCalled();
+    controller.startFromKeyboard(); expect(controller.snapshot().phase).toBe("solving");
+  });
+
+  it("rejects an orphaned partial backup without replacing active history", async () => {
+    const local = session("A"), historical = solveFor("A");
+    const controller = readyController([local], local.id, [historical]);
+    const before = controller.sessions.get();
+    vi.spyOn(db, "loadSessions").mockResolvedValue([local]);
+    vi.spyOn(db, "loadSessionIdsWithSolves").mockResolvedValue(new Set([local.id]));
+    const write = vi.spyOn(db, "saveSolves").mockResolvedValue();
+    await expect(controller.importData(jsonExport([], [solveFor("unknown")]))).rejects.toThrow("Session that does not exist");
+    expect(controller.sessions.get()).toBe(before); expect(write).not.toHaveBeenCalled();
+  });
   function jsonExport(sessions: Session[], solves: Solve[] = []): string {
     return JSON.stringify({ format: "cubetimer", version: 2, sessions, solves });
   }
@@ -1371,6 +1488,24 @@ describe("Controller Saved Drill composition", () => {
 });
 
 describe("Saved Drill atomic application", () => {
+  it.each(["edit first", "preset first", "guided first"])("preserves concurrent Settings changes: %s", async order => {
+    const controller = presetController();
+    const preset = savedDrill({ context: { family: "pll", trainingSet: "2look" }, caseIds: ["Headlights"] });
+    controller.trainingDrillPresets.set([preset]);
+    const pending = deferred<void>();
+    const save = vi.spyOn(db, "saveSettings").mockReturnValueOnce(pending.promise).mockResolvedValue(undefined);
+    const edit = () => controller.updateSettings({ ollTrainingSet: "2look" });
+    const load = () => order === "guided first" ? controller.applyGuidedTrainingBlock({ context: preset.context,
+      caseIds: preset.caseIds, strategy: preset.strategy, task: preset.task } as TrainingPlanBlock) : controller.applyTrainingDrillPreset(preset.id);
+    const operations = order === "edit first" ? [edit(), load()] : [load(), edit()];
+    await Promise.resolve(); expect(save).toHaveBeenCalledOnce();
+    expect(controller.settings.get()).toMatchObject({ ollTrainingSet: "full", pllTrainingSet: "full" });
+    pending.resolve(); await Promise.all(operations);
+    expect(controller.settings.get()).toMatchObject({ ollTrainingSet: "2look", pllTrainingSet: "2look" });
+    expect(save.mock.calls[1][0]).toMatchObject({ ollTrainingSet: "2look", pllTrainingSet: "2look" });
+    expect(controller.training.state.get().family).toBe("pll");
+    expect(controller.training.state.get().drill.selectedCaseIds).toEqual(preset.caseIds);
+  });
   it.each(["oll", "pll"] as const)("failed %s Settings write preserves the exact live configuration", async family => {
     const controller = presetController(); controller.setTrainingFamily(family); controller.setTrainingActivity("drill");
     controller.setDrillCases(lastLayerCaseIds(family, "full").slice(0, 3));

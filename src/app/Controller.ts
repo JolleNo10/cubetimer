@@ -206,18 +206,28 @@ export class Controller {
   }
 
   async init(): Promise<void> {
-    const settings = await db.loadSettings();
-    const model = await CubeModel.create();
-    this.physical.setModel(model);
-    const { sessions, sessionId, solves } = await sessionService.loadInitialContext(model.kpuzzle);
-    this.settings.set(settings);
-    this.sessions.set({ sessions, sessionId, solves, lastSolve: solves.at(-1) ?? null });
-    this.trainingAttempts.set(await trainingHistory.loadTrainingAttempts());
-    this.trainingRecognitionAttempts.set(await recognitionHistory.loadTrainingRecognitionAttempts());
-    this.trainingDrillPresets.set(await trainingDrillPresets.loadTrainingDrillPresets());
-    this.trainingAlgorithmPreferences.set(await trainingAlgorithmPreferences.loadTrainingAlgorithmPreferences());
-    this.state.update((state) => ({ ...state, ready: true }));
-    await this.newScramble();
+    try {
+      const settings = await db.loadSettings();
+      const [attempts, recognition, presets, preferences] = await Promise.all([
+        trainingHistory.loadTrainingAttempts(), recognitionHistory.loadTrainingRecognitionAttempts(),
+        trainingDrillPresets.loadTrainingDrillPresets(), trainingAlgorithmPreferences.loadTrainingAlgorithmPreferences(),
+      ]);
+      const model = await CubeModel.create();
+      const { sessions, sessionId, solves } = await sessionService.loadInitialContext(model.kpuzzle);
+      this.physical.setModel(model);
+      this.settings.set(settings);
+      this.sessions.set({ sessions, sessionId, solves, lastSolve: solves.at(-1) ?? null });
+      this.trainingAttempts.set(attempts);
+      this.trainingRecognitionAttempts.set(recognition);
+      this.trainingDrillPresets.set(presets);
+      this.trainingAlgorithmPreferences.set(preferences);
+      this.state.update((state) => ({ ...state, ready: true }));
+      await this.newScramble();
+    } catch (error) {
+      this.state.update(state => ({ ...state, ready: false,
+        error: `Local data could not be loaded. Check that browser storage is available, then reload. This does not mean your data has been erased. ${String(error)}` }));
+      throw error;
+    }
   }
 
   setVirtualCube(enabled: boolean): void { this.physical.setVirtualCube(enabled); }
@@ -290,7 +300,7 @@ export class Controller {
   finishTrainingDrillSummary(weakOnly = false): void { this.training.finishDrillSummary(weakOnly); }
   skipTrainingDrillCase(): void { this.training.skipDrillCase(); }
 
-  /** User-authored Training configuration shares one narrow persistence queue. */
+  /** Settings and user-authored Training configuration share one persistence queue. */
   #queueTrainingConfigurationMutation<T>(operation: () => Promise<T>): Promise<T> {
     const pending = this.#trainingConfigurationMutationQueue.then(operation);
     this.#trainingConfigurationMutationQueue = pending.then(() => {}, () => {});
@@ -433,20 +443,23 @@ export class Controller {
         this.timer.state.get().phase === "solving" || this.timer.state.get().phase === "inspection" || this.trainingDrillConfigurationApplying.get()) return false;
     this.trainingDrillConfigurationApplying.set(true);
     try {
-
-      if (context.family !== "f2l") {
-        const key = context.family === "oll" ? "ollTrainingSet" : "pllTrainingSet";
-        if (this.settings.get()[key] !== context.trainingSet) {
-          // This application boundary persists before touching either live Store.
-          const settings = normaliseSettings({ ...this.settings.get(), [key]: context.trainingSet });
-          await db.saveSettings(settings);
-          this.settings.set(settings);
-          if (this.training.state.get().family === context.family) this.training.catalogueContextChanged();
+      return await this.#queueTrainingConfigurationMutation(async () => {
+        if (this.training.state.get().drill.status !== "configuring" || this.training.state.get().phase === "solving" ||
+            this.timer.state.get().phase === "solving" || this.timer.state.get().phase === "inspection") return false;
+        if (context.family !== "f2l") {
+          const key = context.family === "oll" ? "ollTrainingSet" : "pllTrainingSet";
+          if (this.settings.get()[key] !== context.trainingSet) {
+            // This application boundary persists before touching either live Store.
+            const settings = normaliseSettings({ ...this.settings.get(), [key]: context.trainingSet });
+            await db.saveSettings(settings);
+            this.settings.set(settings);
+            if (this.training.state.get().family === context.family) this.training.catalogueContextChanged();
+          }
         }
-      }
-      this.setArea("training");
-      this.training.applyDrillConfiguration(context, caseIds, strategy, task);
-      return true;
+        this.setArea("training");
+        this.training.applyDrillConfiguration(context, caseIds, strategy, task);
+        return true;
+      });
     } catch (error) {
       this.state.update(s => ({ ...s, error: `Could not load Drill configuration: ${String(error)}` }));
       return false;
@@ -619,7 +632,12 @@ export class Controller {
 
   async deleteSolve(id: string): Promise<void> {
     await this.#solveUpdates.get(id)?.catch(() => undefined);
-    await solveHistory.deleteSolve(id);
+    try {
+      await solveHistory.deleteSolve(id);
+    } catch (error) {
+      this.state.update(state => ({ ...state, error: `Could not delete Solve: ${String(error)}` }));
+      throw error;
+    }
     this.sessions.update((s) => {
       const solves = s.solves.filter((x) => x.id !== id);
       return {
@@ -707,33 +725,36 @@ export class Controller {
   // ---------------------------------------------------------------- settings
 
   async updateSettings(changes: Partial<Settings>): Promise<void> {
-    const current = this.snapshot();
-    const generation = current.scrambleGeneration;
-    const cancelsSpecialGeneration =
-      generation !== null &&
-      (changes.slowSolve === false ||
-        (generation.kind === "xcross" &&
-          (changes.xCrossMaxMoves !== undefined ||
-            changes.crossColour !== undefined ||
-            changes.frontColour !== undefined)) ||
-        (generation.kind === "cross" &&
-          (changes.whiteCrossMoves !== undefined ||
-            changes.crossColour !== undefined)));
-    const settings = normaliseSettings({
-      ...current.settings,
-      ...changes,
+    await this.#queueTrainingConfigurationMutation(async () => {
+      try {
+        const previous = this.settings.get();
+        const settings = normaliseSettings({ ...previous, ...changes });
+        await db.saveSettings(settings);
+        const generation = this.timer.state.get().scrambleGeneration;
+        const cancelsSpecialGeneration =
+          generation !== null &&
+          (changes.slowSolve === false ||
+            (generation.kind === "xcross" &&
+              (changes.xCrossMaxMoves !== undefined ||
+                changes.crossColour !== undefined ||
+                changes.frontColour !== undefined)) ||
+            (generation.kind === "cross" &&
+              (changes.whiteCrossMoves !== undefined ||
+                changes.crossColour !== undefined)));
+        const training = this.training.state.get();
+        const trainingSetChanged =
+          (training.family === "oll" && settings.ollTrainingSet !== previous.ollTrainingSet) ||
+          (training.family === "pll" && settings.pllTrainingSet !== previous.pllTrainingSet);
+        this.settings.set(settings);
+        if (trainingSetChanged) this.training.catalogueContextChanged();
+        const specialCancellation = cancelsSpecialGeneration
+          ? this.timer.cancelSpecialScrambleGeneration()
+          : null;
+        if (specialCancellation !== "started") this.timer.reconcilePhysicalState();
+      } catch (error) {
+        this.state.update(state => ({ ...state, error: `Could not save Settings: ${String(error)}` }));
+      }
     });
-    const training = this.training.state.get();
-    const trainingSetChanged =
-      (training.family === "oll" && settings.ollTrainingSet !== current.settings.ollTrainingSet) ||
-      (training.family === "pll" && settings.pllTrainingSet !== current.settings.pllTrainingSet);
-    if (trainingSetChanged) this.training.catalogueContextChanged();
-    this.settings.set(settings);
-    const specialCancellation = cancelsSpecialGeneration
-      ? this.timer.cancelSpecialScrambleGeneration()
-      : null;
-    await db.saveSettings(settings);
-    if (specialCancellation !== "started") this.timer.reconcilePhysicalState();
   }
 
   // ------------------------------------------------------------------ backup

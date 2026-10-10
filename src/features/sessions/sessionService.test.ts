@@ -18,6 +18,13 @@ const context = (sessions = [session("1")], solves: Solve[] = []): service.Sessi
 afterEach(() => vi.restoreAllMocks());
 
 describe("Session persisted transitions", () => {
+  it("does not create an initial Session when startup history loading fails", async () => {
+    vi.spyOn(db, "loadSessions").mockResolvedValue([]);
+    vi.spyOn(db, "loadSolves").mockRejectedValue(new Error("History storage failed"));
+    const save = vi.spyOn(db, "saveSession").mockResolvedValue();
+    await expect(service.loadInitialContext(kpuzzle)).rejects.toThrow("History storage failed");
+    expect(save).not.toHaveBeenCalled();
+  });
   it("creates Session 1 with the default event when no Sessions exist", async () => {
     vi.spyOn(db, "loadSessions").mockResolvedValue([]);
     const save = vi.spyOn(db, "saveSession").mockResolvedValue();
@@ -169,7 +176,7 @@ describe("Session import compatibility", () => {
     const fullHistory = vi.spyOn(db, "loadAllSolves").mockRejectedValue(new Error("Full history must not be loaded"));
     const operation = service.assertImportSessionCompatibility([session("1", event)], new Set(incomingHistory ? ["1"] : []));
     if (rejected) await expect(operation).rejects.toThrow(/different events while solve history exists/);
-    else await expect(operation).resolves.toBeUndefined();
+    else await expect(operation).resolves.toEqual([session("1")]);
     expect(indexed).toHaveBeenCalledOnce();
     expect(fullHistory).not.toHaveBeenCalled();
   });

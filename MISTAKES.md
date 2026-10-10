@@ -677,3 +677,22 @@ The initial availability guard checked raw moves, start state, slot and range,
 but missed the Cross face required by the existing exact-target builder.
 Review caught the gap. Prevention: check all required builder inputs when
 offering an action, and cover missing Cross face alongside analysis-only imports.
+
+## Reliability tests assumed obsolete import and error-view behavior
+
+An existing CSV fixture expected a Solve to move from its original Session into
+the CSV name-derived Session. A deletion-failure test also looked for the records
+table while Statistics displayed its error view. Prevention: keep valid CSV
+fixtures in their normalized owning Session and inspect the retained detail
+snapshot when exercising mutation failure, then verify recovery after success.
+The new import-lock recovery tests also omitted the existing RAF stub before
+starting Timer. Prevention: reuse runtime fixture setup for post-failure actions.
+
+## Facelet availability used colour counts without parsing cube pieces
+
+The first historical-practice guard accepted balanced 54-character facelet strings
+that could still contain unrecognizable cube pieces. The spec review caught this.
+Prevention: use the existing cube-domain parser before offering facelet-only
+practice, and test balanced but unreadable starting states alongside malformed types.
+Facelet-only interaction fixtures must await that resource rather than assume a
+fixed number of microtasks is enough for asynchronous cube loading.

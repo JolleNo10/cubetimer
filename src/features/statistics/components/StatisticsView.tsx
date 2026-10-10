@@ -308,6 +308,7 @@ export function StatisticsView({ currentEvent, activeSessionId, onReplay, onTrai
             await controller.deleteSolve(detailSolve.id);
             setSnapshot(current => current ? { ...current, solves: current.solves.filter(solve => solve.id !== detailSolve.id) } : current);
             setDetailSolve(current => current?.id === detailSolve.id ? null : current);
+            setError(null);
           } catch (mutationError) { setError(String(mutationError)); }
         }} /> : null}
     </main>

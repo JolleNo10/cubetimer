@@ -240,6 +240,12 @@ flags or manual penalties is rejected because changing policy must be reversible
 
 `src/infrastructure/persistence/db.ts` owns IndexedDB access.
 
+Durable writes report success only after their IndexedDB readwrite transaction
+commits. Session, Solve, Settings and Training writes reject transaction aborts or
+errors. Work is enqueued synchronously while the transaction is active.
+Rejected: using individual request success as write completion, because the
+containing transaction can still abort afterward.
+
 Deleting a Session and its associated solves is one atomic persistence operation.
 The adapter uses one readwrite transaction covering `sessions` and `solves`,
 deletes the matching Solve primary keys through the `sessionId` index, and reports
@@ -474,6 +480,24 @@ The JSON import path normalizes legacy Session/Solve shapes through the current 
 
 Import preserves stable IDs, so re-importing the same records updates rather than inherently creating new identities.
 
+JSON and CSV share DataTransfer preflight identity/reference checks. Every imported
+Solve must reference an existing persisted or valid incoming Session; partial JSON
+backups may omit an already-existing Session. A stable Solve ID cannot change its
+owning Session: conflicting incoming definitions and collisions with another
+persisted owner reject before any writes. Same-ID/same-Session upserts remain
+supported. SessionService retains event-compatibility ownership and returns the
+persisted Sessions used by preflight. The adapter looks up incoming Solve ownership
+with one `sessionId` index key cursor, without reading Solve records or move streams.
+CSV checks every batch before writing the first batch; writes remain bounded.
+
+Rejected: blindly overwriting a primary key regardless of Session ownership,
+because that can replace unrelated history. Rejected: saving orphaned Solves and
+expecting normal Session browsing to recover their context.
+
+These are preflight guarantees, not whole-file transactions. Session and other
+collection writes and Solve batches commit separately. An I/O failure after earlier
+commits can leave a partial import; compatible stable IDs make retries safe.
+
 ### Solve-analysis CSV
 
 `src/features/data-transfer/solveCsv.ts` owns the solve-analysis CSV compatibility boundary.
@@ -505,6 +529,21 @@ Since analysis version 2, `step_N_case` also holds the F2L catalogue case
 ## Settings
 
 `Settings` contains user preferences, not session identity or event ownership.
+
+Controller serializes Settings edits and Saved Drill/Guided Settings application
+through its existing Training configuration mutation queue. Each operation computes
+normalized prospective Settings from the latest committed values, persists them,
+then publishes and applies runtime consequences. A failed write preserves committed
+Settings and reports an error without applying the prospective change.
+
+An absent stored Settings record uses normalized defaults; a storage read/open
+failure propagates. Startup loads Settings before context hydration and exposes
+initialization failure through the existing Controller error Store while remaining
+not ready. The loading view explains the local-storage failure and reload guidance.
+
+Rejected: publishing prospective Settings before persistence, because live and
+stored preferences can diverge. Rejected: silently converting storage errors to
+defaults, because failure to read existing preferences is different from absence.
 
 Examples include:
 

@@ -7,6 +7,8 @@ import { get3x3x3 } from "../../cube/puzzle";
 import { DEFAULT_EVENT_ID } from "../../cube/scramble";
 import * as db from "../../infrastructure/persistence/db";
 import * as transfer from "./dataTransfer";
+import * as solveCsv from "./solveCsv";
+import { deriveStatistics } from "../statistics/state/statistics";
 import { formatSolveCsv, parseSolveCsv } from "./solveCsv";
 import type { SessionContext } from "../sessions/sessionService";
 import type { Session, Solve, TrainingAttempt, TrainingDrillPreset, TrainingAlgorithmPreference } from "../../app/types";
@@ -40,6 +42,9 @@ function storage(sessions: Session[] = previous.sessions, solves: Solve[] = [], 
   vi.spyOn(db, "loadSessions").mockImplementation(async () => [...sessionStore.values()]);
   vi.spyOn(db, "loadAllSolves").mockImplementation(async () => [...solveStore.values()]);
   vi.spyOn(db, "loadSessionIdsWithSolves").mockImplementation(async () => new Set([...solveStore.values()].map(value => value.sessionId)));
+  vi.spyOn(db, "loadExistingSolveOwners").mockImplementation(async ids => new Map(
+    [...solveStore.values()].filter(value => ids.has(value.id)).map(value => [value.id, value.sessionId]),
+  ));
   vi.spyOn(db, "loadSolves").mockImplementation(async (id) => [...solveStore.values()].filter((value) => value.sessionId === id));
   vi.spyOn(db, "saveSession").mockImplementation(async (value) => { sessionStore.set(value.id, value); });
   vi.spyOn(db, "saveSolve").mockImplementation(async (value) => { solveStore.set(value.id, value); });
@@ -50,6 +55,51 @@ function storage(sessions: Session[] = previous.sessions, solves: Solve[] = [], 
 afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); });
 
 describe("JSON backup workflow", () => {
+  it("accepts a partial backup referencing a persisted Session omitted from the file", async () => {
+    const { solveStore } = storage();
+    const row = solveFor("A");
+    const result = await transfer.importData(kpuzzle, previous, jsonExport([], [row]));
+    expect(result).toMatchObject({ sessions: 0, solves: 1 });
+    expect(solveStore.get(row.id)).toEqual(db.migrateSolve(row));
+    expect(db.saveSession).not.toHaveBeenCalled();
+    expect(db.loadExistingSolveOwners).toHaveBeenCalledExactlyOnceWith(new Set([row.id]));
+  });
+
+  it.each(["unknown reference", "existing owner", "incoming owners"])("rejects %s before writing any collection", async kind => {
+    const local = solveFor("A", "stable");
+    const stores = storage([session("A"), session("other", "222")], [local]);
+    const settings = vi.spyOn(db, "saveSettings").mockResolvedValue();
+    const rows = kind === "unknown reference" ? [solveFor("missing")]
+      : kind === "existing owner" ? [solveFor("B", local.id)]
+      : [solveFor("B", "duplicate"), solveFor("A", "duplicate")];
+    const target = buildLastLayerCatalogueTarget(kpuzzle, "oll", "27", 2);
+    const identity = catalogueIdentityForTarget(target.info)!;
+    const archive = JSON.stringify({ sessions: [session("B")], solves: rows,
+      trainingAttempts: [{ id: "training", createdAt: 0, mode: "virtual", target: { family: "f2l", origin: "catalog", library: "basic", caseName: "F2L 1", position: "FR" },
+        moves: [], stm: 0, elapsedMs: 0, recommendedStm: null, matchedReferenceRank: null, delta: null }],
+      trainingRecognitionAttempts: [{ id: "recognition", createdAt: 0, drillRunId: "run", drillRound: 1,
+        target: { family: "pll", trainingSet: "full", caseId: "T" }, answerCaseId: "T", responseMs: 1 }],
+      trainingDrillPresets: [{ id: "preset", name: "Preset", createdAt: 0, updatedAt: 0, context: { family: "pll", trainingSet: "full" }, caseIds: ["T"], strategy: "random" }],
+      trainingAlgorithmPreferences: [{ key: trainingCatalogueKey(identity), target: identity, algorithm: target.info.references[0].sourceAlg,
+        source: "catalog", note: null, createdAt: 0, updatedAt: 0 }],
+    });
+    await expect(transfer.importData(kpuzzle, previous, archive)).rejects.toThrow(kind === "unknown reference"
+      ? /references a Session that does not exist/ : kind === "existing owner" ? /already belongs to another Session/ : /conflicting Sessions/);
+    for (const writing of [db.saveSession, db.saveSolve, db.saveSolves, db.saveTrainingAttempt,
+      db.saveTrainingRecognitionAttempt, db.saveTrainingDrillPreset, db.saveTrainingAlgorithmPreference, settings]) {
+      expect(writing).not.toHaveBeenCalled();
+    }
+    expect([...stores.sessionStore.keys()]).toEqual(["A", "other"]);
+    expect([...stores.solveStore.values()]).toEqual([local]);
+    expect(db.loadAllSolves).not.toHaveBeenCalled();
+  });
+
+  it("retains last-write upsert semantics for repeated IDs with the same incoming owner", async () => {
+    const { solveStore } = storage();
+    await transfer.importData(kpuzzle, previous, jsonExport([], [solveFor("A"), { ...solveFor("A"), rawMs: 2000 }]));
+    expect(solveStore.size).toBe(1);
+    expect(solveStore.get("solve-A")?.rawMs).toBe(2000);
+  });
   it.each([1, 401])("imports %s Solves with bounded batches and stable upserts", async count => {
     const { solveStore } = storage(previous.sessions, [{ ...solveFor("A", "row-0"), rawMs: 9999 }]);
     const rows = Array.from({ length: count }, (_, i) => ({ ...solveFor("A", `row-${i}`), rawMs: 1000 + i }));
@@ -230,6 +280,42 @@ describe("solve-analysis CSV workflow", () => {
   const csvFor = (solves = [solveFor(imported.id)]) =>
     formatSolveCsv(solves, new Map([[imported.id, imported.name]]));
 
+  it("enforces reference integrity even if parsed CSV output is missing its Session", async () => {
+    // The current CSV parser normally supplies a Session for every accepted row.
+    storage();
+    vi.spyOn(solveCsv, "solveCsvBatches").mockImplementation(function* () {
+      yield { sessions: [], solves: [solveFor("unknown")], skipped: [] };
+    });
+    await expect(transfer.importSolveCsv(kpuzzle, previous, csvFor())).rejects.toThrow("Session that does not exist");
+    expect(db.saveSession).not.toHaveBeenCalled(); expect(db.saveSolves).not.toHaveBeenCalled();
+  });
+
+  it.each(["existing", "incoming"])("rejects %s ownership conflicts in the last CSV batch before all writes", async kind => {
+    const local = solveFor("A", "collision");
+    const { solveStore, sessionStore } = storage(previous.sessions, [local]);
+    const rows = Array.from({ length: 200 }, (_, i) => solveFor(imported.id, `row-${i}`));
+    rows.push(solveFor("another", kind === "existing" ? local.id : "row-0"));
+    const csv = formatSolveCsv(rows, new Map([[imported.id, imported.name], ["another", "Another"]]));
+    const progress = vi.fn();
+    await expect(transfer.importSolveCsv(kpuzzle, previous, csv, progress)).rejects.toThrow(
+      kind === "existing" ? /already belongs to another Session/ : /conflicting Sessions/);
+    expect(db.saveSession).not.toHaveBeenCalled(); expect(db.saveSolves).not.toHaveBeenCalled();
+    expect(db.saveSolve).not.toHaveBeenCalled(); expect(db.saveTrainingAttempt).not.toHaveBeenCalled();
+    expect(db.saveTrainingRecognitionAttempt).not.toHaveBeenCalled(); expect(db.saveTrainingDrillPreset).not.toHaveBeenCalled();
+    expect(db.saveTrainingAlgorithmPreference).not.toHaveBeenCalled(); expect(progress).not.toHaveBeenCalled();
+    expect([...solveStore.values()]).toEqual([local]); expect([...sessionStore.values()]).toEqual(previous.sessions);
+    expect(db.loadAllSolves).not.toHaveBeenCalled();
+  });
+
+  it("keeps CSV same-ID/same-Session upserts compatible with existing history", async () => {
+    const existing = solveFor(imported.id);
+    const { solveStore } = storage([imported], [existing]);
+    const csv = csvFor([{ ...existing, rawMs: 2000 }, { ...existing, rawMs: 3000 }]);
+    await transfer.importSolveCsv(kpuzzle, previous, csv);
+    await transfer.importSolveCsv(kpuzzle, previous, csv);
+    expect(solveStore.size).toBe(1); expect(solveStore.get(existing.id)?.rawMs).toBe(3000);
+  });
+
   it("keeps compatible repeat imports idempotent and returns Session/Solve counts", async () => {
     const { sessionStore, solveStore } = storage();
     const progress = vi.fn();
@@ -326,6 +412,34 @@ describe("solve-analysis CSV workflow", () => {
   });
 });
 
+describe("import recovery and event integrity", () => {
+  it.each(["json", "csv"])("permits safe retry after a partially committed %s import", async format => {
+    const imported = { ...session("import:Imported"), name: "Imported" };
+    const { solveStore, sessionStore } = storage();
+    const rows = Array.from({ length: 201 }, (_, i) => solveFor(imported.id, `row-${i}`));
+    const write = vi.mocked(db.saveSolves);
+    const persist = write.getMockImplementation()!;
+    write.mockImplementationOnce(persist).mockRejectedValueOnce(new Error("Second batch failed"));
+    const document = format === "json" ? jsonExport([imported], rows) : formatSolveCsv(rows, new Map([[imported.id, imported.name]]));
+    const run = () => format === "json" ? transfer.importData(kpuzzle, previous, document) : transfer.importSolveCsv(kpuzzle, previous, document);
+    await expect(run()).rejects.toThrow("Second batch failed");
+    expect(solveStore.size).toBe(200); expect(sessionStore.has(imported.id)).toBe(true);
+    expect(await run()).toMatchObject({ solves: 201 });
+    expect(solveStore.size).toBe(201); expect(sessionStore.size).toBe(2);
+  });
+
+  it("prevents an import collision from leaking another event's history into Statistics", async () => {
+    const other = { ...solveFor("other", "stable"), rawMs: 2345 };
+    const { solveStore, sessionStore } = storage([session("A"), session("other", "222")], [other]);
+    await expect(transfer.importData(kpuzzle, previous, jsonExport([], [solveFor("A", other.id)])))
+      .rejects.toThrow("already belongs to another Session");
+    const snapshot = { sessions: [...sessionStore.values()], solves: [...solveStore.values()] };
+    expect(deriveStatistics(snapshot, { event: "333", sessionId: null }, "A").scopeSolves).toEqual([]);
+    expect(deriveStatistics(snapshot, { event: "222", sessionId: null }, "A").scopeSolves).toEqual([other]);
+    expect(solveStore.get(other.id)).toBe(other);
+  });
+});
+
 describe("JSON v5 saved drills", () => {
   const preset: TrainingDrillPreset = { id: "preset", name: "Same name", createdAt: 10, updatedAt: 20,
     context: { family: "oll", trainingSet: "2look" }, caseIds: ["L-Shape"], strategy: "weighted", task: "execution" };
@@ -351,8 +465,9 @@ describe("JSON v5 saved drills", () => {
     expect([...presetStore.values()]).toEqual([preset]); expect(db.saveTrainingDrillPreset).not.toHaveBeenCalled();
   });
   it("CSV remains Solve-only and does not write or include presets", async () => {
-    storage(previous.sessions, [solveFor("A")], [], [preset]);
-    const csv = await transfer.exportSolveCsv("all", previous.sessions, []);
+    const imported = { ...session("import:Imported"), name: "Imported" };
+    storage([imported], [solveFor(imported.id)], [], [preset]);
+    const csv = await transfer.exportSolveCsv("all", [imported], []);
     expect(csv).not.toContain("Same name");
     await transfer.importSolveCsv(kpuzzle, previous, csv);
     expect(db.saveTrainingDrillPreset).not.toHaveBeenCalled();

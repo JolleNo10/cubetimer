@@ -321,7 +321,7 @@ export function App() {
     return (
       <div className="app">
         <div className="empty" style={{ marginTop: "20vh" }}>
-          Loading…
+          {state.error ? <p role="alert">{state.error}</p> : "Loading…"}
         </div>
       </div>
     );

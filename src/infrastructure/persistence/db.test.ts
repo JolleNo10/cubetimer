@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_EVENT_ID } from "../../cube/scramble";
 import { mergeSettings, migrateSession, migrateSolve, normalizeTrainingAttempt, normalizeTrainingDrillPreset, normalizeTrainingAlgorithmPreference, normalizeTrainingRecognitionAttempt } from "./db";
-import type { Session, Solve, TrainingAttempt, TrainingDrillPreset, TrainingAlgorithmPreference, TrainingRecognitionAttempt } from "../../app/types";
+import { DEFAULT_SETTINGS, type Settings, type Session, type Solve, type TrainingAttempt, type TrainingDrillPreset, type TrainingAlgorithmPreference, type TrainingRecognitionAttempt } from "../../app/types";
 
 import { f2lTrainingCatalogue } from "../../cube/f2lTrainingCases";
 import { lastLayerCaseIds } from "../../cube/lastLayerTraining";
@@ -22,9 +22,10 @@ const base = {
 } as unknown as Solve;
 
 /** Focused key-only adapter double: staged writes commit together, requests run in active tasks. */
-function historyDatabase(sessions: Session[], solves: Solve[]) {
+function historyDatabase(sessions: Session[], solves: Solve[], settings?: Settings) {
   const sessionStore = new Map(sessions.map(row => [row.id, row]));
   const solveStore = new Map(solves.map(row => [row.id, row]));
+  const settingsStore = new Map(settings ? [["settings", settings]] : []);
   const requests: Array<() => void> = [];
   let active = true;
   let started!: () => void;
@@ -34,13 +35,19 @@ function historyDatabase(sessions: Session[], solves: Solve[]) {
     oncomplete: null as null | (() => void),
     onerror: null as null | (() => void),
     onabort: null as null | (() => void),
-    objectStore: (name: string) => name === "sessions" ? sessionObjectStore : solveObjectStore,
+    objectStore: (name: string) => name === "sessions" ? sessionObjectStore : name === "settings" ? settingsObjectStore : solveObjectStore,
   };
   const stagedSessions = new Map(sessionStore);
   const stagedSolves = new Map(solveStore);
+  const stagedSettings = new Map(settingsStore);
+  let readError: Error | null = null;
   const request = <T>(read: () => T) => {
-    const req = { result: undefined as T | undefined, onsuccess: null as null | (() => void) };
-    requests.push(() => { req.result = read(); req.onsuccess?.(); });
+    const req = { result: undefined as T | undefined, error: null as Error | null,
+      onsuccess: null as null | (() => void), onerror: null as null | (() => void) };
+    requests.push(() => {
+      try { req.result = read(); req.onsuccess?.(); }
+      catch (error) { req.error = error as Error; req.onerror?.(); }
+    });
     return req;
   };
   const deletesSucceeded = vi.fn();
@@ -52,8 +59,15 @@ function historyDatabase(sessions: Session[], solves: Solve[]) {
       return undefined;
     });
   };
-  const sessionObjectStore = { delete: vi.fn((id: string) => remove("sessions", id)) };
-  const openKeyCursor = vi.fn((query: string | null, direction?: string) => {
+  const sessionObjectStore = {
+    delete: vi.fn((id: string) => remove("sessions", id)),
+    put: vi.fn((row: Session) => { expect(active).toBe(true); return request(() => stagedSessions.set(row.id, row)); }),
+  };
+  const settingsObjectStore = {
+    get: vi.fn((key: string) => request(() => { if (readError) throw readError; return settingsStore.get(key); })),
+    put: vi.fn((row: Settings, key: string) => { expect(active).toBe(true); return request(() => stagedSettings.set(key, row)); }),
+  };
+  const openKeyCursor = vi.fn((query: string | null = null, direction?: string) => {
     let keys = [...stagedSolves.values()]
       .filter(row => query === null || row.sessionId === query)
       .map(row => ({ key: row.sessionId, primaryKey: row.id }))
@@ -75,6 +89,7 @@ function historyDatabase(sessions: Session[], solves: Solve[]) {
   const solveObjectStore = {
     delete: vi.fn((id: string) => remove("solves", id)),
     get: vi.fn((id: string) => request(() => solveStore.get(id))),
+    put: vi.fn((row: Solve) => { expect(active).toBe(true); return request(() => stagedSolves.set(row.id, row)); }),
     // A record scan, value cursor or getAllKeys is intentionally unsupported.
     index: vi.fn((name: string) => { expect(name).toBe("sessionId"); return { openKeyCursor }; }),
   };
@@ -87,7 +102,8 @@ function historyDatabase(sessions: Session[], solves: Solve[]) {
   vi.stubGlobal("indexedDB", { open });
   vi.resetModules();
   return {
-    sessionStore, solveStore, transactionStarted, transaction, openKeyCursor, solveObjectStore, deletesSucceeded,
+    sessionStore, solveStore, settingsStore, transactionStarted, transaction, openKeyCursor, solveObjectStore, deletesSucceeded,
+    failReads(error: Error) { readError = error; },
     drain(limit = Infinity) {
       active = false;
       while (requests.length && limit-- > 0) {
@@ -100,6 +116,7 @@ function historyDatabase(sessions: Session[], solves: Solve[]) {
       expect(requests).toHaveLength(0);
       sessionStore.clear(); stagedSessions.forEach((value, key) => sessionStore.set(key, value));
       solveStore.clear(); stagedSolves.forEach((value, key) => solveStore.set(key, value));
+      settingsStore.clear(); stagedSettings.forEach((value, key) => settingsStore.set(key, value));
       tx.oncomplete?.();
     },
     abort(error: Error | null = null, emitError = false) {
@@ -118,6 +135,112 @@ describe("Session and Solve IndexedDB operations", () => {
     { id: "other", name: "Other", event: "222", createdAt: 1 },
   ];
   const solves = [base, { ...base, id: "2" }, { ...base, id: "3", sessionId: "other" }];
+
+  const writeKinds = ["Session", "Solve", "deletion", "Settings"] as const;
+  function write(adapter: typeof import("./db"), kind: typeof writeKinds[number]) {
+    if (kind === "Session") return adapter.saveSession({ ...sessions[0], name: "Updated" });
+    if (kind === "Solve") return adapter.saveSolve({ ...base, rawMs: 2000,
+      statisticsOutlier: { action: "exclude", baselineMs: 1000, multiplier: 3 } });
+    if (kind === "deletion") return adapter.deleteSolve(base.id);
+    return adapter.saveSettings({ ...DEFAULT_SETTINGS, inspection: !DEFAULT_SETTINGS.inspection });
+  }
+
+  it.each(writeKinds)("%s write waits for commit after request success and leaves unrelated history intact", async kind => {
+    const database = historyDatabase(sessions, solves, DEFAULT_SETTINGS);
+    const adapter = await import("./db");
+    const acknowledged = vi.fn();
+    const saving = write(adapter, kind).then(acknowledged);
+    await database.transactionStarted;
+    database.drain(); await Promise.resolve();
+    expect(acknowledged).not.toHaveBeenCalled();
+    expect([...database.sessionStore.values()]).toEqual(sessions);
+    expect([...database.solveStore.values()]).toEqual(solves);
+    expect(database.settingsStore.get("settings")).toEqual(DEFAULT_SETTINGS);
+    database.complete(); await saving;
+    expect(acknowledged).toHaveBeenCalledOnce();
+    expect(database.sessionStore.get("other")).toEqual(sessions[1]);
+    expect(database.solveStore.get("3")).toEqual(solves[2]);
+    expect(database.solveStore.get("2")).toEqual(solves[1]);
+    if (kind === "Session") expect(database.sessionStore.get("s")?.name).toBe("Updated");
+    if (kind === "Solve") {
+      expect(database.solveStore.get("1")?.rawMs).toBe(2000);
+      expect(database.solveStore.get("1")).not.toHaveProperty("statisticsOutlier");
+    }
+    if (kind === "deletion") expect(database.solveStore.has("1")).toBe(false);
+    if (kind === "Settings") expect(database.settingsStore.get("settings")?.inspection).toBe(!DEFAULT_SETTINGS.inspection);
+  });
+
+  it.each(writeKinds)("%s write rejects late transaction abort/error without reporting committed data", async kind => {
+    for (const emitError of [false, true]) {
+      const database = historyDatabase(sessions, solves, DEFAULT_SETTINGS);
+      const adapter = await import("./db");
+      const acknowledged = vi.fn();
+      const saving = write(adapter, kind).then(acknowledged);
+      await database.transactionStarted; database.drain(); await Promise.resolve();
+      expect(acknowledged).not.toHaveBeenCalled();
+      const error = new Error("Late transaction failure");
+      const rejected = expect(saving).rejects.toBe(error);
+      database.abort(error, emitError); await rejected;
+      expect(acknowledged).not.toHaveBeenCalled();
+      expect([...database.sessionStore.values()]).toEqual(sessions);
+      expect([...database.solveStore.values()]).toEqual(solves);
+      expect(database.settingsStore.get("settings")).toEqual(DEFAULT_SETTINGS);
+    }
+  });
+
+  it("returns normalized defaults only for absent Settings", async () => {
+    const database = historyDatabase(sessions, solves);
+    const adapter = await import("./db");
+    const loading = adapter.loadSettings();
+    await database.transactionStarted; await Promise.resolve(); database.drain();
+    expect(await loading).toEqual(mergeSettings(undefined));
+    expect(database.settingsStore.size).toBe(0);
+  });
+
+  it("propagates Settings read failures instead of returning defaults", async () => {
+    const stored = { ...DEFAULT_SETTINGS, slowSolve: true };
+    const database = historyDatabase(sessions, solves, stored);
+    const error = new Error("Settings read failed"); database.failReads(error);
+    const adapter = await import("./db");
+    const loading = adapter.loadSettings();
+    const rejected = expect(loading).rejects.toBe(error);
+    await database.transactionStarted; await Promise.resolve(); database.drain(); await rejected;
+    expect(database.settingsStore.get("settings")).toEqual(stored);
+  });
+
+  it("propagates database open failures when loading Settings", async () => {
+    vi.resetModules();
+    const error = new Error("Cannot open browser storage");
+    vi.stubGlobal("indexedDB", { open: () => {
+      const request = { error, onerror: null as null | (() => void) };
+      queueMicrotask(() => request.onerror?.()); return request;
+    } });
+    const adapter = await import("./db");
+    await expect(adapter.loadSettings()).rejects.toBe(error);
+  });
+
+  it("looks up only incoming Solve owners through index keys, without loading records", async () => {
+    const database = historyDatabase(sessions, solves);
+    const adapter = await import("./db");
+    const loading = adapter.loadExistingSolveOwners(new Set(["1", "3", "missing"]));
+    await database.transactionStarted; database.drain(); database.complete();
+    expect(await loading).toEqual(new Map([["1", "s"], ["3", "other"]]));
+    expect(database.openKeyCursor).toHaveBeenCalledExactlyOnceWith();
+    expect(database.solveObjectStore.get).not.toHaveBeenCalled();
+    expect(database.solveObjectStore.put).not.toHaveBeenCalled();
+    expect(database.solveObjectStore.delete).not.toHaveBeenCalled();
+  });
+
+  it("rejects an aborted ownership lookup and skips empty lookups", async () => {
+    const database = historyDatabase(sessions, solves);
+    const adapter = await import("./db");
+    expect(await adapter.loadExistingSolveOwners(new Set())).toEqual(new Map());
+    expect(database.transaction).not.toHaveBeenCalled();
+    const loading = adapter.loadExistingSolveOwners(new Set(["1"]));
+    await database.transactionStarted; database.drain();
+    const rejected = expect(loading).rejects.toThrow("Solve ownership lookup aborted.");
+    database.abort(); await rejected;
+  });
 
   it("deletes a Session and its indexed solves only when the entire transaction commits", async () => {
     const database = historyDatabase(sessions, solves);

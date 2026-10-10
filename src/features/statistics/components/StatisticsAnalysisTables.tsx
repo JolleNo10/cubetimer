@@ -12,7 +12,10 @@ import { LastLayerCaseThumbnail } from "../../../shared/ui/LastLayerCaseThumbnai
 import { F2lCaseThumbnail } from "../../../shared/ui/F2lCaseThumbnail";
 import { getF2lThumbnailModel } from "../../../cube/f2lThumbnail";
 import { STEP_NAMES, type SolveStep, type StepName } from "../../../cube/analysis";
-import { effectiveCfopAnalysis } from "../../../app/solveAnalysis";
+import { effectiveCfopAnalysis, isUsableCfopAnalysis } from "../../../app/solveAnalysis";
+import { FACES, f2lSlotsForCrossFace } from "../../../cube/moves";
+import { faceletsToPattern } from "../../../cube/facelets";
+import type { KPuzzle } from "cubing/kpuzzle";
 import type { TrainingFamily } from "../../training/TrainingRuntime";
 import { statisticsActivationProps } from "./statisticsInteraction";
 import { SplitBar, StatCard, StatsSection } from "./StatisticsPrimitives";
@@ -162,10 +165,22 @@ export function StatisticsF2lPerformance({ model, onOpenSolve }: { model: Statis
 }
 
 /** Raw source facts must cover the exact pair; analysis-only imports cannot supply them. */
-function canPracticeRecordedPair(solve: Solve, step: SolveStep): boolean {
-  return Boolean(effectiveCfopAnalysis(solve)?.crossFace && STEP_NAMES.slice(1, 5).includes(step.name) && !step.skipped && step.slot &&
+function canPracticeRecordedPair(solve: Solve, step: SolveStep, kpuzzle: KPuzzle | null): boolean {
+  const facelets = solve.scrambledFacelets;
+  let hasFacelets = false;
+  if (kpuzzle && typeof facelets === "string" && /^[URFDLB]{54}$/.test(facelets) &&
+      FACES.every(face => facelets.split(face).length - 1 === 9)) {
+    try {
+      faceletsToPattern(kpuzzle, facelets);
+      hasFacelets = true;
+    } catch { /* Review remains available even when stored starting-state facts are unreadable. */ }
+  }
+  const hasScramble = typeof solve.scramble === "string" && solve.scramble.trim().length > 0;
+  const crossFace = effectiveCfopAnalysis(solve)?.crossFace;
+  return Boolean(isUsableCfopAnalysis(solve) && crossFace && FACES.includes(crossFace) &&
+    STEP_NAMES.slice(1, 5).includes(step.name) && !step.skipped && f2lSlotsForCrossFace(crossFace).some(slot => slot.name === step.slot) &&
     Number.isInteger(step.fromMove) && Number.isInteger(step.toMove) && step.fromMove >= 0 && step.toMove > step.fromMove &&
-    solve.moves && solve.moves.length >= step.toMove && (solve.scrambledFacelets || solve.scramble.trim()));
+    Array.isArray(solve.moves) && solve.moves.length >= step.toMove && (hasFacelets || hasScramble));
 }
 
 function F2lCaseDiagram({ caseId }: { caseId: string }) {
@@ -182,6 +197,12 @@ export function StatisticsF2lCaseTable({ model, onOpenSolve, onTrainCase, onPrac
   const { date } = useDateTimeFormat();
   const sort = usePerformanceSort("case");
   const [caseId, setCaseId] = useState<string | null>(null);
+  const [kpuzzle, setKpuzzle] = useState<KPuzzle | null>(null);
+  useEffect(() => {
+    let active = true;
+    void get3x3x3().then(puzzle => { if (active) setKpuzzle(puzzle); }).catch(() => {});
+    return () => { active = false; };
+  }, []);
   const rows = sortPerformanceRows(model.f2lCases, sort.column ?? "case", sort.direction);
   const selected = model.f2lCases.find(row => row.caseId === caseId);
   const members = new Map(model.scopeSolves.map(solve => [solve.id, solve]));
@@ -215,7 +236,7 @@ export function StatisticsF2lCaseTable({ model, onOpenSolve, onTrainCase, onPrac
               <td>{order} pair</td><td>{[step.slot ? `Cube slot ${step.slot}` : "", step.insertedAt ? `Inserted at ${step.insertedAt}${step.insertedAtSource === "inferred" ? " (inferred)" : ""}` : ""].filter(Boolean).join(" · ") || "—"}</td>
               <td>{formatTime(sample.timeMs)}</td><td>{formatTime(sample.recognitionMs)}</td><td>{formatTime(sample.executionMs)}</td><td>{sample.moves}</td><td>{sample.tps?.toFixed(2) ?? "—"}</td><td>{formatSolveTime(solve)}</td>
               {model.sessionId === null ? <td>{model.eventSessions.find(session => session.id === solve.sessionId)?.name}</td> : null}<td>{date(solve.createdAt)}</td>
-              <td><button className="ghost small" onClick={() => onOpenSolve(solve)}>Review Solve</button>{onPracticePair && canPracticeRecordedPair(solve, step) ? <button className="small" onClick={() => onPracticePair(solve, step.name)}>Practice recorded pair</button> : null}</td>
+              <td><button className="ghost small" onClick={() => onOpenSolve(solve)}>Review Solve</button>{onPracticePair && canPracticeRecordedPair(solve, step, kpuzzle) ? <button className="small" onClick={() => onPracticePair(solve, step.name)}>Practice recorded pair</button> : null}</td>
             </tr>;
           })}</tbody>
         </table></div>

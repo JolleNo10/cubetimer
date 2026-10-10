@@ -60,7 +60,12 @@ export function SolveActions({ solve, onUpdate, onReplay, onSolveAgain, onDelete
           </button>
           <button
             className="ghost danger"
-            onClick={() => void onDelete()}
+            onClick={() => {
+              if (window.confirm("Permanently delete this Solve? This cannot be undone.")) {
+                // Callers report failure and update their snapshots only after commit.
+                void Promise.resolve(onDelete()).catch(() => {});
+              }
+            }}
           >
             Delete
           </button>

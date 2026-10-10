@@ -1,6 +1,6 @@
 import { CfopAnalysisBadge } from "./CfopAnalysisQuality";
 import type { ReactElement } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Solve } from "../../../app/types";
 import { SolveList } from "./SolveList";
 
@@ -26,9 +26,37 @@ const solves = [solve("normal"), solve("slow", { slowSolve: true }), solve("repl
   solve("dnf", { penalty: "DNF" }), solve("autoDnf", { statisticsOutlier: { action: "dnf", baselineMs: 10000, multiplier: 3 } })];
 const rows = (tree: unknown) => elements(tree).filter(element => element.props.className?.startsWith("solve-row"));
 const chooser = (tree: unknown) => elements(tree).find(element => element.props["aria-label"] === "History solves")!;
-beforeEach(() => { hooks.filter = "all"; hooks.deleteSolve.mockClear(); });
+beforeEach(() => {
+  hooks.filter = "all"; hooks.deleteSolve.mockReset().mockResolvedValue(undefined);
+  vi.stubGlobal("window", { confirm: vi.fn(() => true) });
+});
+afterEach(() => vi.unstubAllGlobals());
 
 describe("History solve chooser", () => {
+  it.each([true, false])("requires confirmation and never selects the row on deletion, confirmed: %s", async confirmed => {
+    vi.mocked(window.confirm).mockReturnValue(confirmed);
+    const onSelect = vi.fn();
+    const tree = SolveList({ solves, selectedId: null, onSelect });
+    const deletion = elements(tree).find(element => element.props["aria-label"] === "Delete solve 1")!;
+    const stopPropagation = vi.fn();
+    deletion.props.onClick({ stopPropagation });
+    expect(stopPropagation).toHaveBeenCalledOnce(); expect(onSelect).not.toHaveBeenCalled();
+    expect(window.confirm).toHaveBeenCalledExactlyOnceWith("Permanently delete this Solve? This cannot be undone.");
+    expect(hooks.deleteSolve).toHaveBeenCalledTimes(confirmed ? 1 : 0);
+    if (confirmed) expect(hooks.deleteSolve).toHaveBeenCalledWith("normal");
+    const stopKeyPropagation = vi.fn(); deletion.props.onKeyDown({ stopPropagation: stopKeyPropagation });
+    expect(stopKeyPropagation).toHaveBeenCalledOnce();
+  });
+  it("handles a rejected fire-and-forget delete without selecting the row", async () => {
+    hooks.deleteSolve.mockRejectedValue(new Error("Deletion failed"));
+    const onSelect = vi.fn();
+    const tree = SolveList({ solves, selectedId: null, onSelect });
+    const deletion = elements(tree).find(element => element.props["aria-label"] === "Delete solve 1")!;
+    deletion.props.onClick({ stopPropagation: vi.fn() });
+    await Promise.resolve(); await Promise.resolve();
+    expect(hooks.deleteSolve).toHaveBeenCalledExactlyOnceWith("normal");
+    expect(onSelect).not.toHaveBeenCalled(); expect(rows(SolveList({ solves, selectedId: null, onSelect }))).toHaveLength(6);
+  });
   it("switches between full history and counted solves, keeping both DNF kinds", () => {
     const props = { solves, selectedId: null, onSelect: vi.fn() };
     expect(rows(SolveList(props))).toHaveLength(6);

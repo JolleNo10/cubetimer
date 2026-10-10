@@ -22,13 +22,13 @@ function newSession(name: string, event: EventId): Session {
 
 export async function loadInitialContext(kpuzzle: KPuzzle): Promise<SessionContext> {
   let sessions = await db.loadSessions();
-  if (sessions.length === 0) {
-    const session = newSession("Session 1", DEFAULT_EVENT_ID);
-    await db.saveSession(session);
-    sessions = [session];
-  }
+  const initial = sessions.length === 0 ? newSession("Session 1", DEFAULT_EVENT_ID) : null;
+  if (initial) sessions = [initial];
   const sessionId = sessions[sessions.length - 1].id;
-  return { sessions, sessionId, solves: await loadSessionHistory(kpuzzle, sessionId) };
+  const solves = await loadSessionHistory(kpuzzle, sessionId);
+  // Finish startup reads before creating the first durable Session.
+  if (initial) await db.saveSession(initial);
+  return { sessions, sessionId, solves };
 }
 
 export async function selectSession(
@@ -132,7 +132,7 @@ export async function reloadContext(
 export async function assertImportSessionCompatibility(
   incomingSessions: Session[],
   incomingSolveSessionIds: Set<string>,
-): Promise<void> {
+): Promise<Session[]> {
   const [existingSessions, existingHistory] = await Promise.all([
     db.loadSessions(), db.loadSessionIdsWithSolves(),
   ]);
@@ -156,4 +156,5 @@ export async function assertImportSessionCompatibility(
       );
     }
   }
+  return existingSessions;
 }

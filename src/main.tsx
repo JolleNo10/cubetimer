@@ -12,7 +12,8 @@ const controller = new Controller();
 // `cubeDebug.grip()` turns the trace on; `cubeDebug.cubetimer` is the controller
 // itself, for asking it things directly while working out why a reading looks wrong.
 installDebugConsole({ cubetimer: controller });
-void controller.init();
+// init publishes storage failures through the Controller error Store.
+void controller.init().catch(() => {});
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

@@ -6,6 +6,24 @@ import * as solveHistory from "../features/history/solveHistory";
 const solve = (id: string, sessionId: string): Solve => ({ id, sessionId, createdAt: 1, rawMs: 1000, penalty: "none", source: "keyboard", moves: [], scramble: "R U" });
 afterEach(() => vi.restoreAllMocks());
 describe("historical Solve mutations", () => {
+  it("retains active history and latest Solve until deletion commits, including failed deletion", async () => {
+    const active = solve("active", "A"), earlier = solve("earlier", "A");
+    const controller = new Controller();
+    controller.sessions.update(state => ({ ...state, sessionId: "A", solves: [earlier, active], lastSolve: active }));
+    const before = controller.sessions.get();
+    let reject!: (error: Error) => void;
+    const pending = new Promise<void>((_resolve, fail) => { reject = fail; });
+    const remove = vi.spyOn(db, "deleteSolve").mockReturnValueOnce(pending).mockResolvedValue(undefined);
+    const deleting = controller.deleteSolve(active.id);
+    await Promise.resolve(); expect(remove).toHaveBeenCalledWith(active.id);
+    expect(controller.sessions.get()).toBe(before);
+    const rejected = expect(deleting).rejects.toThrow("Delete transaction aborted");
+    reject(new Error("Delete transaction aborted")); await rejected;
+    expect(controller.sessions.get()).toBe(before);
+    expect(controller.state.get().error).toContain("Could not delete Solve");
+    await controller.deleteSolve(active.id);
+    expect(controller.sessions.get()).toMatchObject({ sessionId: "A", solves: [earlier], lastSolve: earlier });
+  });
   it("persists another Session's Solve and returns it without selecting that Session", async () => {
     const saved = vi.spyOn(db, "saveSolve").mockResolvedValue();
     const update = vi.spyOn(solveHistory, "updateSolve");
