@@ -108,7 +108,9 @@ Selectors return primitive values or stable references contained in their store.
 
 One Controller RAF scheduler calls `TimerRuntime.tick(now)` or
 `TrainingRuntime.tick(now)` for the active area. Training tick owns live elapsed
-publication and initial/inter-round Drill countdown progression/expiry. The narrow
+publication and initial Drill countdown progression/expiry. Completed Drill rounds wait for
+explicit Next, Retry or a runtime-handled result-screen D4 shortcut; React owns
+neither a progression timer nor a second gesture detector. The narrow
 `drillCountdown` Store keeps RAF updates out of aggregate TrainingState and case
 libraries; React only presents the remaining milliseconds. There is no React timer
 or second RAF. The runtimes own their timestamps and request shared

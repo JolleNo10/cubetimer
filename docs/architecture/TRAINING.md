@@ -210,11 +210,18 @@ pattern; the physical CubeModel is never replaced. During ready/solving the cube
 visible but its identity, group, metrics, algorithms, token guide and arrows are
 concealed. Library styling shows only pool membership, never the active answer.
 
-Completion publishes/persists one Drill fact and keeps the completed target, result
-and references visible during the next 2-second countdown. The next expiry replaces
-the virtual target and clears the result. Skip is available only before any turn;
-it reveals identity/references and begins the same countdown without persisting an
-attempt. Stop cancels every phase, abandons incomplete work and clears target/result. It
+Completion publishes/persists one Drill fact and holds the completed target,
+case statistics and references until explicit progression. Next case reveals the
+next target immediately, with no inter-round countdown. Four consecutive D or D'
+quarter-turns on the result screen invoke the same operation for all families and
+both tasks. Those command turns remain physical moves but never enter the next
+virtual attempt. Turns during a revealed execution case remain immediate solve
+input, never shortcut detection. Recognition and held results render static patterns.
+Skip is available before or during execution; it reveals the answer and appends
+only an ephemeral skipped outcome. Retry case restores the exact target, discards
+unfinished moves and resets reveal timing without saving an incomplete attempt.
+Retrying a finished round starts a fresh round without rewriting its completed fact.
+The initial countdown remains two seconds. Stop cancels every phase, abandons incomplete work and clears target/result. It
 retains pool/strategy and enters an explicit ephemeral summary when outcomes exist;
 otherwise it returns to configuration. Family changes stop and clear incompatible
 pools. F2L library changes clear pools; position changes preserve case names during
@@ -333,8 +340,7 @@ it has no separate runtime. The target and bounded textual choices publish after
 preparation completes, with `caseRevealedAt` at publication. No RAF is kept alive
 while awaiting an answer. One offered case ID ends the round, with response time
 from publication to answer; an incorrect answer is final. The correct identity,
-chosen identity, outcome and response time remain visible during inter-round
-countdown. Cube turns return before altering the virtual target or execution state.
+chosen identity, outcome and response time remain visible until explicit Next. Cube turns return before altering the virtual target or execution state.
 Skip reveals the target but persists no answer. Concealment hides identity, group,
 references, My Algorithm, performance, active catalogue and guide until answer/skip.
 
@@ -573,7 +579,7 @@ case while the real smart cube only supplies turns.
 ### React-owned countdown or answers while solving
 
 Countdown is lifecycle state and must cancel consistently with navigation. Runtime
-owns it through Controller's existing RAF, not a React timer or another RAF. Showing
+owns the initial countdown through Controller's existing RAF, not a React timer or another RAF. Showing
 algorithms/arrows during a case would turn recognition practice into guided
 execution; answers appear only after solving or Skip.
 
@@ -760,3 +766,30 @@ performance distinct. Cube turns cannot complete Recognition.
 Rejected: sparse catalogue/solve observations, personal algorithm changes and broader
 skill changes do not establish causality. Keep descriptive execution, recognition,
 STM and timing dimensions separate; label within-run comparisons Later-round change.
+
+## Training presentation focus and input
+
+`cube/trainingFocus.ts` owns piece-identity focus masks shared by the 3D and 2D
+renderers. F2L retains the solved first two layers, cross, centres and target pair
+in colour. Irrelevant last-layer pieces, including those temporarily occupying the
+target slot, are grey; the target pair stays coloured while moving. OLL retains
+orientation-colour stickers only, with corners grey for the edge-orientation stage.
+PLL retains permutation colours. These masks never change patterns or completion.
+
+F2L alone opts into settled gyro grip presentation, measured directly against the
+existing shared reference, including while that reference is unlocked. This is
+view state, not a Training calibration or a change to the target's notation,
+completion or historical facts. OLL/PLL retain fixed target grips. The shared move
+guide projects its existing interpreted arrows into the displayed grip. Static
+checkpoint previews retain their exact target frame.
+
+Touch turn buttons and keyboard opt-in provide disconnected practice through the
+existing Controller move route. They do not create another cube model. Recognition
+uses answer choices and needs no hardware input.
+
+Rejected: forced inter-round countdowns with disappearing results, and recovery
+available only before the first turn. These prevent meaningful feedback review
+and leave a mistaken attempt with no recovery except abandoning the run. Results
+now wait for the user; Retry/Skip remain runtime-owned actions. Independent
+Training gyro calibration is rejected because it could disagree with the shared
+physical reference. Visual masks cannot replace sticker state or weaken completion.

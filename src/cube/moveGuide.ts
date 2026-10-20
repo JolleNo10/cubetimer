@@ -14,6 +14,15 @@ export type MoveGuide = {
   halfTurn: boolean;
 };
 
+/** Carry an already interpreted guide into a different presentation grip. */
+export function reorientMoveGuide(move: MoveGuide, orientation: Orientation): MoveGuide {
+  const positive = { x: "R", y: "U", z: "F" } as const;
+  const { axis, side } = GUIDE_FACES[orientation[positive[move.axis]]];
+  return { ...move, axis,
+    layers: side === 1 ? move.layers : [-move.layers[1], -move.layers[0]],
+    direction: (move.direction * side) as -1 | 1 };
+}
+
 const GUIDE_FACES = {
   R: { axis: "x", side: 1 }, L: { axis: "x", side: -1 },
   U: { axis: "y", side: 1 }, D: { axis: "y", side: -1 },

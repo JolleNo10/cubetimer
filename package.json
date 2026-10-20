@@ -17,6 +17,7 @@
     "test:replay": "node scripts/replayCheck.mjs",
     "test:slow": "node scripts/slowSolveCheck.mjs",
     "test:coach": "node scripts/coachCheck.mjs",
+    "test:training": "node scripts/trainingCheck.mjs",
     "test:pwa-build": "node scripts/pwaCheck.mjs",
     "test:pwa-offline": "node scripts/pwaOfflineCheck.mjs"
   },

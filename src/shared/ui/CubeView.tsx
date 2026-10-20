@@ -5,20 +5,24 @@ import type { KPattern } from "cubing/kpuzzle";
 import { faceOfColour } from "../../cube/colours";
 import {
   IDENTITY,
+  compose,
+  invert,
   reorientMove,
   rotationForCrossFace,
   rotationForGrip,
   rotationTokensBetween,
   type Orientation,
 } from "../../cube/orientation";
+import { snapOrientation } from "../../cube/gyroGrip";
 import { solveAlg } from "../../cube/solver";
+import { trainingFocusMask, trainingFocusFacelets, type TrainingFocusTarget } from "../../cube/trainingFocus";
 import { GyroInset } from "./GyroInset";
 import { useController } from "../../app/useController";
 import type { Settings } from "../../app/types";
 import { FaceletNet } from "./FaceletNet";
 import { faceletsToPattern } from "../../cube/facelets";
 import { previewFacelets } from "../../cube/preview";
-import type { MoveGuide } from "../../cube/moveGuide";
+import { reorientMoveGuide, type MoveGuide } from "../../cube/moveGuide";
 import { CubeMoveGuide } from "./CubeMoveGuide";
 import { orientFaceletsForDisplay } from "../../cube/frames";
 
@@ -26,6 +30,8 @@ import { orientFaceletsForDisplay } from "../../cube/frames";
 const COMPACT_AFTER_MOVES = 400;
 
 type Props = {
+  followTrainingGrip?: boolean;
+  trainingFocus?: TrainingFocusTarget;
   showGyroInset?: boolean;
   gyroResetDisabled?: boolean;
   settings: Settings;
@@ -53,6 +59,8 @@ type Props = {
 
 export function CubeView({
   settings,
+  trainingFocus,
+  followTrainingGrip = false,
   showGyroInset = false,
   gyroResetDisabled = false,
   facelets,
@@ -82,7 +90,9 @@ export function CubeView({
   useEffect(() => () => clearTimeout(flashTimeout.current), []);
 
   const use3D = settings.visualization === "3D";
+  const trainingGyro = followTrainingGrip && settings.useGyroscope && gyroSupported && !staticDisplay;
   const guiding = use3D && Boolean(guideMove);
+  const [trainingHeld, setTrainingHeld] = useState<Orientation | null>(null);
 
   // A solver applies the scramble white on top, then turns the cube over to build the
   // cross. Showing the live cube the same way up means the screen matches their hands.
@@ -127,6 +137,7 @@ export function CubeView({
       background: "none",
       controlPanel: "none",
       hintFacelets: "floating",
+      experimentalStickeringMaskOrbits: trainingFocus ? trainingFocusMask(trainingFocus) : undefined,
       backView: "none",
       experimentalSetupAnchor: "start",
       cameraLatitude: 27,
@@ -138,6 +149,7 @@ export function CubeView({
     host.appendChild(player);
     playerRef.current = player;
 
+    setTrainingHeld(null);
     let disposed = false;
     let revision = 0;
     let pendingMoves: string[] | null = null;
@@ -221,6 +233,26 @@ export function CubeView({
         })
       : () => {};
 
+    // F2L view-only grip tracking also works while the shared reference is unlocked.
+    // It uses the authoritative reference directly, without recalibrating Training.
+    let candidate: Orientation | null = null;
+    let candidateSince = 0;
+    const offTrainingGyro = trainingGyro ? controller.onGyro(q => {
+      const reference = controller.gripReference;
+      if (!reference) return;
+      const snapped = snapOrientation(q, reference);
+      if (snapped.margin < 0.1) { candidate = null; return; }
+      const next = snapped.orientation;
+      const key = (value: Orientation | null) => value && Object.values(value).join("");
+      if (key(next) === key(held)) { candidate = null; return; }
+      if (key(next) !== key(candidate)) { candidate = next; candidateSince = performance.now(); return; }
+      if (performance.now() - candidateSince < 120) return;
+      for (const token of rotationTokensBetween(held ?? IDENTITY, next)) append(token);
+      held = next;
+      setTrainingHeld(next);
+      candidate = null;
+    }) : () => {};
+
     const offMove = controller.onCubeMove((move) => {
       const token = held ? reorientMove(move, held) : move;
       append(token);
@@ -239,10 +271,12 @@ export function CubeView({
         : controller.onPatternReset((pattern) => void resync(pattern));
 
     const offReference = controller.onGyroReferenceChange(() => {
-      if (gyroDriven && held) {
+      candidate = null;
+      setTrainingHeld(trainingGyro ? IDENTITY : null);
+      if ((gyroDriven || trainingGyro) && held) {
         for (const token of rotationTokensBetween(held, IDENTITY)) append(token);
       }
-      held = gyroDriven ? IDENTITY : heldOverride;
+      held = gyroDriven || trainingGyro ? IDENTITY : heldOverride;
       const pattern = displayedPattern();
       if (pattern) void resync(pattern);
     });
@@ -253,6 +287,7 @@ export function CubeView({
       disposed = true;
       offReference();
       offGrip();
+      offTrainingGyro();
       offMove();
       offReset();
       player.remove();
@@ -270,6 +305,8 @@ export function CubeView({
     displaySource,
     guiding,
     staticDisplay,
+    trainingFocus,
+    trainingGyro,
   ]);
 
   useEffect(() => {
@@ -290,6 +327,15 @@ export function CubeView({
 
   if (settings.visualization === "off") return null;
 
+  const displayedGuide = guideMove && trainingGyro && trainingHeld
+    ? reorientMoveGuide(guideMove, compose(invert(heldOverride ?? IDENTITY), trainingHeld)) : guideMove;
+  const focusMask = trainingFocus ? trainingFocusMask(trainingFocus) : undefined;
+  const sourcePattern = focusMask && displayFacelets && controller.pattern ? faceletsToPattern(controller.pattern.kpuzzle, displayFacelets) : null;
+  let visibleStickers = focusMask && sourcePattern ? trainingFocusFacelets(sourcePattern, focusMask) : undefined;
+  if (visibleStickers && orientationOverride && controller.pattern) {
+    const tokens = rotationTokensBetween(IDENTITY, orientationOverride);
+    visibleStickers = trainingFocusFacelets(sourcePattern!.applyAlg(new Alg(tokens.join(" "))), focusMask!);
+  }
   const shownFacelets =
     orientedDisplayFacelets || (live ? facelets : previewFacelets(scramble));
 
@@ -324,10 +370,10 @@ export function CubeView({
         {use3D ? (
           <div ref={hostRef} className={guiding ? "cube-player-host guided" : "cube-player-host"} style={{ width: "100%", height: "100%" }} />
         ) : (
-          <FaceletNet facelets={shownFacelets} size={22} />
+          <FaceletNet facelets={shownFacelets} visibleStickers={visibleStickers} size={22} />
         )}
         {use3D && gyroActive && settings.showGyroView && !displayFacelets && !orientationOverride ? <GyroInset /> : null}
-        {use3D && guideMove ? <CubeMoveGuide move={guideMove} /> : null}
+        {use3D && displayedGuide ? <CubeMoveGuide move={displayedGuide} /> : null}
       </div>
     </div>
   );

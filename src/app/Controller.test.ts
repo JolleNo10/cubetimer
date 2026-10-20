@@ -1310,7 +1310,8 @@ describe("Controller Drill composition", () => {
     controller.injectMove("B"); expect(hasFrame()).toBe(true);
     controller.injectMove("B'"); solve();
     expect(controller.trainingAttempts.get()[0].caseTimeMs).toBeGreaterThan(1500);
-    expect(hasFrame()).toBe(true); advance(2000); expect(hasFrame()).toBe(false);
+    expect(hasFrame()).toBe(false); advance(2000);
+    controller.nextTrainingDrillCase();
     controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
     expect(controller.training.state.get().drill.status).toBe("summary");
     controller.finishTrainingDrillSummary(true);
@@ -1330,7 +1331,7 @@ describe("Controller Drill composition", () => {
     expect(history).toHaveLength(1); expect(history[0]).toMatchObject({ activity: "drill", mode: "virtual" });
     expect(history[0].caseTimeMs).toBeGreaterThan(500); expect(db.saveTrainingAttempt).toHaveBeenCalledOnce();
     const saved = vi.spyOn(db, "saveSolve"); expect(saved).not.toHaveBeenCalled();
-    advance(2000); expect(select).toHaveBeenCalledTimes(2); expect(select.mock.calls[1][4]).toBe(history);
+    controller.nextTrainingDrillCase(); expect(select).toHaveBeenCalledTimes(2); expect(select.mock.calls[1][4]).toBe(history);
     expect(select.mock.calls[1][6]).toEqual(controller.training.state.get().drill.outcomes);
     expect(controller.training.state.get().drill.lastCaseId).toBe("F2L 5");
     controller.stopTrainingDrill(); expect(globalThis.cancelAnimationFrame).toHaveBeenCalled();

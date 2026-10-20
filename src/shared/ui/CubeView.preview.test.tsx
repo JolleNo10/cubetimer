@@ -262,3 +262,36 @@ it("counts replayed post-snapshot moves toward main-view compaction", async () =
   expect(solveAlg).toHaveBeenCalledTimes(3);
   await settle();
 });
+
+
+describe("Training cube focus and grip", () => {
+  it("follows settled F2L gyro rotations without changing the shared reference or needing a move", async () => {
+    const controller = fixture.controller!;
+    const callbacks: ((q: { x: number; y: number; z: number; w: number }) => void)[] = [];
+    const off = vi.fn();
+    vi.spyOn(controller, "onGyro").mockImplementation(listener => { callbacks.push(listener); return off; });
+    vi.spyOn(controller, "gripReference", "get").mockReturnValue({ x: 0, y: 0, z: 0, w: 1 });
+    let now = 100;
+    vi.spyOn(performance, "now").mockImplementation(() => now);
+    fixture.cursor = 0; fixture.pending = [];
+    CubeView({ settings: { ...controller.settings.get(), useGyroscope: true },
+      facelets: controller.physical.state.get().cubeFacelets, gyroSupported: true, live: true, scramble: "",
+      orientationOverride: IDENTITY, followTrainingGrip: true, displaySource: "virtual" });
+    fixture.pending.forEach(run => run()); await Promise.resolve();
+    const player = fixture.players[0];
+    const y = { x: 0, y: 0, z: -Math.SQRT1_2, w: Math.SQRT1_2 };
+    callbacks.forEach(cb => cb(y));
+    expect(player.experimentalAddMove).not.toHaveBeenCalled();
+    now += 121; callbacks.forEach(cb => cb(y));
+    expect(player.experimentalAddMove).toHaveBeenCalledWith("y", { cancel: false });
+    expect(controller.gripReference).toEqual({ x: 0, y: 0, z: 0, w: 1 });
+    fixture.slots.forEach(slot => slot.cleanup?.());
+    expect(off).toHaveBeenCalledOnce();
+  });
+  it("keeps last-layer training fixed and static displays unsubscribed from raw gyro", async () => {
+    const controller = fixture.controller!;
+    const gyro = vi.spyOn(controller, "onGyro");
+    await render(controller.physical.state.get().cubeFacelets, "fixed", false);
+    expect(gyro).not.toHaveBeenCalled();
+  });
+});

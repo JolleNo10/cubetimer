@@ -917,6 +917,46 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     };
     return { runtime, model, completed, advance, solve, wait: (ms: number) => { now += ms; } };
   }
+  it("lets a messed-up active round be skipped without saving a solve", () => {
+    const { runtime, advance, completed } = drill();
+    runtime.setDrillCases(["F2L 4"]); runtime.startDrill(); advance(2000);
+    feedMove(runtime, "B"); runtime.skipDrillCase();
+    expect(runtime.state.get().phase).toBe("result");
+    expect(runtime.state.get().drill.lastOutcome).toBe("skipped");
+    expect(completed).not.toHaveBeenCalled();
+  });
+  it("keeps case statistics visible until the user chooses to continue", () => {
+    const { runtime, advance, solve } = drill();
+    runtime.setDrillCases(["F2L 4"]); runtime.startDrill(); advance(2000); solve();
+    const result = runtime.state.get().result;
+    advance(10000);
+    expect(runtime.state.get().phase).toBe("result");
+    expect(runtime.state.get().result).toBe(result);
+    expect(runtime.drillCountdown.get()).toBeNull();
+  });
+  it.each(["f2l", "oll", "pll"] as const)("advances %s results immediately with D4 and keeps gesture turns outside the new attempt", family => {
+    const { runtime, advance, solve, completed } = drill(family);
+    runtime.setDrillCases([family === "f2l" ? "F2L 4" : family === "oll" ? "27" : "T"]);
+    runtime.startDrill(); advance(2000); solve();
+    for (const token of ["D", "D", "U", "D'", "D", "D2"]) feedMove(runtime, token);
+    expect(runtime.state.get().drill.round).toBe(1);
+    for (let i = 0; i < 3; i++) feedMove(runtime, "D'");
+    expect(runtime.state.get().phase).toBe("result");
+    feedMove(runtime, "D'");
+    expect(runtime.state.get()).toMatchObject({ phase: "ready", liveMoves: [], result: null, drill: { round: 2 } });
+    expect(completed).toHaveBeenCalledOnce();
+  });
+  it("retries the exact messed-up target without saving it, and counts a completed repeat as a fresh round", () => {
+    const { runtime, advance, solve, completed } = drill();
+    runtime.setDrillCases(["F2L 4"]); runtime.startDrill(); advance(2000);
+    const target = runtime.state.get().target, initial = runtime.state.get().displayFacelets;
+    feedMove(runtime, "B"); runtime.retryTrainingCase();
+    expect(runtime.state.get()).toMatchObject({ phase: "ready", target, displayFacelets: initial, liveMoves: [], drill: { round: 1, outcomes: [] } });
+    expect(completed).not.toHaveBeenCalled();
+    solve(); runtime.retryTrainingCase();
+    expect(runtime.state.get()).toMatchObject({ phase: "ready", target, displayFacelets: initial, result: null, drill: { round: 2 } });
+    solve(); expect(completed.mock.calls.map(([fact]) => fact.drillRound)).toEqual([1, 2]);
+  });
   it("snapshots the completed round identity before publishing its result", () => {
     const { runtime, advance, solve, completed } = drill("f2l", { createId: () => "completed-run" });
     runtime.setDrillCases(["F2L 4"]); runtime.startDrill(); advance(2000);
@@ -936,7 +976,7 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     expect(result.matchedPreferred).toBe(false);
     expect(runtime.state.get().drill.outcomes[0]).toMatchObject({ outcome: "solved", delta: result.preferredDelta });
     preference = { algorithm: built.info.references[0].sourceAlg };
-    advance(2000); expect(runtime.state.get().preferredReference?.alg).toBe(runtime.state.get().target!.references[0].alg);
+    runtime.nextDrillCase(); expect(runtime.state.get().preferredReference?.alg).toBe(runtime.state.get().target!.references[0].alg);
     expect(runtime.state.get().preferredReference?.alg).not.toBe(built.info.references[0].alg);
     solve(); expect(completed.mock.calls[1][0].result.matchedPreferred).toBe(true);
   });
@@ -952,8 +992,8 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     feedMove(runtime, "B"); expect(startClock).toHaveBeenCalledOnce();
     expect(advance(100)).toBe(true); feedMove(runtime, "B'"); solve();
     expect(completed).toHaveBeenCalledOnce(); expect(completed.mock.calls[0][0].result.caseTimeMs).toBeGreaterThan(1500);
-    expect(advance(1000)).toBe(true); expect(advance(1000)).toBe(false);
-    expect(runtime.state.get().phase).toBe("ready");
+    expect(advance(1000)).toBe(false); expect(runtime.state.get().phase).toBe("result");
+    runtime.nextDrillCase(); expect(runtime.state.get().phase).toBe("ready");
   });
   it("records solved/skip outcomes once and discards only incomplete work on Stop", () => {
     const { runtime, advance, solve, completed } = drill();
@@ -961,10 +1001,10 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     const result = runtime.state.get().result!;
     expect(runtime.state.get().drill.outcomes).toEqual([expect.objectContaining({ caseId: "F2L 4", outcome: "solved",
       caseTimeMs: result.caseTimeMs, moveSpanMs: result.elapsedMs, stm: result.stm, delta: result.delta, completedAt: expect.any(Number) })]);
-    advance(2000); runtime.skipDrillCase(); runtime.skipDrillCase();
+    runtime.nextDrillCase(); runtime.skipDrillCase(); runtime.skipDrillCase();
     expect(runtime.state.get().drill.outcomes).toHaveLength(2);
     expect(runtime.state.get().drill.outcomes[1]).toMatchObject({ caseId: "F2L 5", outcome: "skipped" });
-    advance(2000); feedMove(runtime, "B"); runtime.stopDrill();
+    runtime.nextDrillCase(); feedMove(runtime, "B"); runtime.stopDrill();
     expect(completed).toHaveBeenCalledOnce(); expect(runtime.state.get().drill).toMatchObject({ status: "summary", outcomes: expect.any(Array) });
     expect(runtime.state.get().drill.outcomes).toHaveLength(2);
     runtime.startDrill(); expect(runtime.state.get().drill.running).toBe(false);
@@ -1038,7 +1078,7 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     expect(completed).toHaveBeenCalledOnce();
     expect(completed.mock.calls[0][0].result.caseTimeMs).toBe(100);
   });
-  it.each(["f2l", "oll", "pll"] as const)("completes %s through the shared virtual path and preserves result until countdown expiry", family => {
+  it.each(["f2l", "oll", "pll"] as const)("completes %s through the shared virtual path and preserves result until Next", family => {
     const { runtime, completed, advance, solve } = drill(family);
     runtime.setDrillCases([family === "f2l" ? "F2L 4" : family === "oll" ? "27" : "T"]);
     runtime.startDrill(); advance(2000); advance(500);
@@ -1049,10 +1089,11 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     expect(fact).toMatchObject({ activity: "drill", mode: "virtual", target, result: { matchedReferenceRank: 1 } });
     expect(fact.result.caseTimeMs).toBeGreaterThan(500);
     expect(runtime.state.get()).toMatchObject({ phase: "result", drill: { lastOutcome: "solved" } });
-    expect(runtime.drillCountdown.get()).toBe(2000);
+    expect(runtime.drillCountdown.get()).toBeNull();
     feedMove(runtime, "R"); expect(completed).toHaveBeenCalledOnce();
     advance(1999); expect(runtime.state.get().target).toBe(target); expect(runtime.state.get().result).toBe(fact.result);
-    advance(1); expect(runtime.state.get()).toMatchObject({ phase: "ready", result: null, drill: { round: 2, lastOutcome: null } });
+    advance(10000); expect(runtime.state.get().phase).toBe("result");
+    runtime.nextDrillCase(); expect(runtime.state.get()).toMatchObject({ phase: "ready", result: null, drill: { round: 2, lastOutcome: null } });
     expect(runtime.state.get().target).not.toBe(target);
   });
   it("cycles catalogue order, clears results each round, and restarts from the first selected case", () => {
@@ -1061,7 +1102,8 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     expect(runtime.state.get().drill.selectedCaseIds).toEqual(["F2L 4", "F2L 5"]);
     runtime.startDrill();
     for (const name of ["F2L 4", "F2L 5", "F2L 4"]) {
-      advance(2000); expect(runtime.state.get().drill.lastCaseId).toBe(name);
+      if (runtime.state.get().phase === "result") runtime.nextDrillCase(); else advance(2000);
+      expect(runtime.state.get().drill.lastCaseId).toBe(name);
       runtime.skipDrillCase();
     }
     runtime.stopDrill(); expect(runtime.state.get().drill.selectedCaseIds).toEqual(["F2L 4", "F2L 5"]);
@@ -1072,22 +1114,22 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     const { runtime, advance } = drill("f2l", { rng: runtimeRandom, getTrainingAttempts: history });
     runtime.setDrillCases(["F2L 4", "F2L 5"]); runtime.setDrillStrategy("random"); runtime.startDrill();
     advance(2000); expect(runtime.state.get().drill.lastCaseId).toBe("F2L 4");
-    runtime.skipDrillCase(); advance(2000); expect(runtime.state.get().drill.lastCaseId).toBe("F2L 5");
+    runtime.skipDrillCase(); runtime.nextDrillCase(); expect(runtime.state.get().drill.lastCaseId).toBe("F2L 5");
     runtime.stopDrill(); runtime.finishDrillSummary(); runtime.setDrillStrategy("weighted"); runtime.startDrill();
-    advance(2000); runtime.skipDrillCase(); advance(2000);
+    advance(2000); runtime.skipDrillCase(); runtime.nextDrillCase();
     expect(history).toHaveBeenCalledTimes(4);
     expect(runtime.state.get().drill.lastCaseId).toBe("F2L 5");
   });
-  it("skip emits no completion, reveals the same target, and is unavailable after any turn", () => {
+  it("skip emits no completion, reveals the same target, and is available after turns", () => {
     const { runtime, completed, advance } = drill();
     runtime.setDrillCases(["F2L 4"]); runtime.startDrill(); advance(2000);
     const target = runtime.state.get().target;
     runtime.skipDrillCase(); runtime.skipDrillCase();
     expect(runtime.state.get()).toMatchObject({ phase: "result", target, drill: { lastOutcome: "skipped" } });
-    expect(runtime.drillCountdown.get()).toBe(2000); expect(completed).not.toHaveBeenCalled();
-    advance(2000); feedMove(runtime, "B");
+    expect(runtime.drillCountdown.get()).toBeNull(); expect(completed).not.toHaveBeenCalled();
+    runtime.nextDrillCase(); feedMove(runtime, "B");
     expect(runtime.state.get().phase).toBe("solving"); runtime.skipDrillCase();
-    expect(runtime.state.get().phase).toBe("solving"); expect(runtime.drillCountdown.get()).toBeNull();
+    expect(runtime.state.get().phase).toBe("result"); expect(runtime.drillCountdown.get()).toBeNull();
   });
   it.each(["countdown", "ready", "solving", "solved", "skipped"])("stop safely cancels %s and retains configuration without recording an incomplete attempt", phase => {
     const { runtime, completed, advance, solve } = drill();
@@ -1235,9 +1277,9 @@ describe("Recognition Drill lifecycle and shared smart generation", () => {
     expect(executionCompleted).not.toHaveBeenCalled();
     const result = runtime.state.get(); expect(result.target).toBe(revealed.target);
     expect(result.recognition?.result).toMatchObject({ correct, answerCaseId: answer, correctCaseId: "F2L 4", responseMs: 700 });
-    expect(result.drill.outcomes).toHaveLength(1); expect(runtime.drillCountdown.get()).toBe(2000);
+    expect(result.drill.outcomes).toHaveLength(1); expect(runtime.drillCountdown.get()).toBeNull();
     runtime.submitTrainingRecognition(answer); expect(completed).toHaveBeenCalledOnce();
-    advance(1999); expect(runtime.state.get()).toBe(result); advance(1);
+    advance(10000); expect(runtime.state.get()).toBe(result); runtime.nextDrillCase();
     expect(runtime.state.get().recognition?.result).toBeNull(); expect(runtime.state.get().drill.round).toBe(2);
     runtime.submitTrainingRecognition("F2L 5"); expect(completed.mock.calls[1][0]).toMatchObject({ drillRunId: "run-1", drillRound: 2 });
     runtime.stopDrill(); expect(runtime.state.get().drill.status).toBe("summary");
@@ -1255,7 +1297,7 @@ describe("Recognition Drill lifecycle and shared smart generation", () => {
     for (const turn of ["R", "U", "R'", "U'"]) feedMove(runtime, turn);
     expect(runtime.state.get()).toBe(state); expect(runtime.state.get().liveMoves).toEqual([]);
     clock = publishedAt + 300; runtime.submitTrainingRecognition("F2L 4"); expect(completed.mock.calls[0][0].responseMs).toBe(300);
-    clock += 2000; runtime.tick(clock); runtime.skipDrillCase(); expect(completed).toHaveBeenCalledOnce();
+    clock += 2000; runtime.tick(clock); runtime.nextDrillCase(); runtime.skipDrillCase(); expect(completed).toHaveBeenCalledOnce();
     expect(runtime.state.get().drill.lastOutcome).toBe("skipped"); expect(runtime.state.get().target).not.toBeNull();
   });
   it("weak-case action retains Recognition task and context cancellation clears answer state", () => {

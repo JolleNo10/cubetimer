@@ -10,9 +10,9 @@ import type { TrainingResult, TrainingState } from "../TrainingRuntime";
 import { type MoveGuide } from "../../../cube/moveGuide";
 import { TrainingActions, TrainingAttemptResult, TrainingCubeStage, TrainingReferences, TrainingSetupPanel, TrainingWorkspace } from "./TrainingWorkspace";
 
-vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { displaySource: string; live: boolean; displayFacelets: string; physicalSyncAvailable: boolean; displayRevision: string | number; staticDisplay: boolean; guideMove?: MoveGuide | null }) =>
+vi.mock("../../../shared/ui/CubeView", () => ({ CubeView: (props: { displaySource: string; live: boolean; displayFacelets: string; physicalSyncAvailable: boolean; displayRevision: string | number; staticDisplay: boolean; guideMove?: MoveGuide | null; followTrainingGrip?: boolean; trainingFocus?: { family: string } }) =>
   <div data-source={props.displaySource} data-live={props.live} data-facelets={props.displayFacelets} data-sync={props.physicalSyncAvailable} data-revision={props.displayRevision} data-static={props.staticDisplay}
-    data-guide-token={props.guideMove?.token} data-guide-axis={props.guideMove?.axis} /> }));
+    data-follow-grip={props.followTrainingGrip} data-focus={props.trainingFocus?.family} data-guide-token={props.guideMove?.token} data-guide-axis={props.guideMove?.axis} /> }));
 const kpuzzle = await get3x3x3();
 function render(controller: Controller, element: React.ReactElement) {
   return renderToStaticMarkup(<ControllerContext.Provider value={controller}>{element}</ControllerContext.Provider>);
@@ -33,6 +33,18 @@ describe("shared Training presentation", () => {
     const html = render(controller, <TrainingWorkspace library={<button>Choose a Training case</button>} details={<div />} emptyMessage="Choose a case" />);
     expect(html).toMatch(/^<div class="app-body[^"]*"><div class="column left training-library-column"><button>Choose a Training case<\/button><\/div>/);
     expect(html).not.toContain("connection-panel");
+  });
+
+  it("limits grip following to F2L and freezes recognition/result cube input", async () => {
+    const controller = await selected();
+    expect(render(controller, <TrainingCubeStage />)).toContain('data-follow-grip="true"');
+    expect(render(controller, <TrainingCubeStage />)).toContain('data-focus="f2l"');
+    controller.training.state.update(s => ({ ...s, activity: "drill", drill: { ...s.drill, running: true, task: "recognition" } }));
+    expect(render(controller, <TrainingCubeStage />)).toContain('data-static="true"');
+    for (const family of ["oll", "pll"] as const) {
+      controller.training.state.update(s => ({ ...s, family }));
+      expect(render(controller, <TrainingCubeStage />)).toContain('data-follow-grip="false"');
+    }
   });
 
   it("uses live state by default, and binds each preview move to its checkpoint and reset key", async () => {
@@ -65,7 +77,7 @@ describe("shared Training presentation", () => {
     controller.training.state.update(state => ({ ...state, phase, result: phase === "ready" ? result : null }));
     const html = render(controller, <TrainingCubeStage preview={preview} />);
     expect(html).not.toContain("data-guide-token");
-    expect(html).toContain('data-static="false"');
+    expect(html).toContain(`data-static="${phase === "result"}"`);
     expect(html).toContain(`data-facelets="${controller.training.state.get().displayFacelets}"`);
   });
 

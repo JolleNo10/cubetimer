@@ -308,17 +308,43 @@ export class TrainingRuntime {
         { caseId: state.drill.lastCaseId!, outcome: "answered", answerCaseId, correct, responseMs, completedAt }] } }));
     this.#dependencies.onRecognitionCompleted?.({ drillRunId: state.drill.runId, drillRound: state.drill.round,
       target: identity, answerCaseId, responseMs });
-    this.#beginDrillCountdown();
+    this.#dependencies.stopClock();
   }
 
   skipDrillCase(): void {
     const state = this.state.get();
-    if (!state.drill.running || state.phase !== "ready" || state.liveMoves.length) return;
+    if (!state.drill.running || !state.target || (state.phase !== "ready" && state.phase !== "solving")) return;
     this.#dependencies.stopClock();
     this.state.update(s => ({ ...s, phase: "result", drill: { ...s.drill, lastOutcome: "skipped", outcomes: [...s.drill.outcomes,
         { caseId: s.drill.lastCaseId!, outcome: "skipped", completedAt: this.#now() }] },
       guide: s.guide ? { ...s.guide, currentMove: null } : null }));
-    this.#beginDrillCountdown();
+    this.#f2lAgainTurns = [];
+  }
+
+  /** Results wait for an explicit action; the next reveal needs no countdown. */
+  nextDrillCase(): void {
+    const state = this.state.get();
+    if (!state.drill.running || state.phase !== "result") return;
+    this.#f2lAgainTurns = [];
+    this.#revealDrillCase();
+  }
+
+  /** Abandon incomplete work, retaining the exact target and the run's history. */
+  retryTrainingCase(): void {
+    const state = this.state.get(), target = this.#trainingTarget;
+    if (!target) return;
+    if (state.activity === "drill") {
+      if (!state.drill.running || state.drill.task !== "execution" ||
+          !["ready", "solving", "result"].includes(state.phase)) return;
+      const recognition = state.recognition;
+      this.#dependencies.stopClock();
+      // Repeating a completed round is a fresh round; restarting unfinished work is not.
+      this.state.update(s => ({ ...s, drill: { ...s.drill,
+        round: s.phase === "result" ? s.drill.round + 1 : s.drill.round, lastOutcome: null } }));
+      void this.#prepareTarget(target, false, recognition);
+    } else {
+      void this.#prepareTarget(target);
+    }
   }
 
   stopDrill(): void {
@@ -761,13 +787,12 @@ export class TrainingRuntime {
   handleMove(move: GanCubeMove & { serial: number }): void {
     const training = this.state.get();
     const target = this.#trainingTarget;
-    if (!target || training.activity === "drill" && training.drill.task === "recognition") return;
+    if (!target) return;
     if (training.phase === "result") {
-      if (!isLastLayerTarget(target) && training.mode === "setup" && this.#observeF2lAgainMove(move.move)) {
-        void this.#reloadF2lTraining();
-      }
+      this.#handleResultMove(move.move);
       return;
     }
+    if (training.activity === "drill" && training.drill.task === "recognition") return;
     if (training.phase !== "ready" && training.phase !== "solving") return;
     const displayMove = handMove(move.move, this.#trainingGrip(target));
 
@@ -806,6 +831,17 @@ export class TrainingRuntime {
       })()
     ) {
       this.#finishTrainingAttempt();
+    }
+  }
+
+  #handleResultMove(move: string): void {
+    const { activity, drill, family, mode } = this.state.get();
+    if (activity === "drill") {
+      if (drill.running && this.#observeF2lAgainMove(move)) this.nextDrillCase();
+      return;
+    }
+    if (family === "f2l" && mode === "setup" && this.#observeF2lAgainMove(move)) {
+      void this.#reloadF2lTraining();
     }
   }
 
@@ -895,9 +931,8 @@ export class TrainingRuntime {
     }));
     if (target) this.#dependencies.onAttemptCompleted?.({ activity, mode, target: target.info, result,
       drillRunId: activity === "drill" ? drill.runId : null, drillRound: activity === "drill" ? drill.round : null });
-    if (activity === "drill" && this.state.get().drill.running) {
-      this.#beginDrillCountdown();
-    } else if (this.state.get().mode === "virtual") {
+    this.#f2lAgainTurns = [];
+    if (activity !== "drill" && this.state.get().mode === "virtual") {
       if (target && isLastLayerTarget(target)) void this.#reloadLastLayerTraining(true);
       else void this.#reloadF2lTraining(true);
     }

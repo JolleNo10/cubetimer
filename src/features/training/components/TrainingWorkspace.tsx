@@ -29,6 +29,7 @@ export function TrainingWorkspace({ library, details, emptyMessage }: {
   const error = useStoreValue(controller.state, state => state.error);
   const target = useStoreValue(controller.training.state, state => state.target);
   const guide = useStoreValue(controller.training.state, state => state.guide);
+  const roundResult = useStoreValue(controller.training.state, state => state.activity === "drill" && state.phase === "result");
   const [preview, setPreview] = useState<{
     index: number; target: TrainingState["target"]; guide: TrainingGuideProgress;
   } | null>(null);
@@ -48,7 +49,9 @@ export function TrainingWorkspace({ library, details, emptyMessage }: {
         {error ? <div className="notice error"><span className="grow">{error}</span><button className="ghost" onClick={() => controller.dismissError()}>Dismiss</button></div> : null}
         {drill.status === "summary" ? <TrainingDrillSummary /> : <>
           {activity === "drill" ? drill.running ? <TrainingDrillControls /> : <TrainingDrillPanel /> : <TrainingSetupPanel />}
+          {roundResult ? <div className="panel training-round-feedback" aria-label="Case result"><TrainingRecognition /><TrainingAttempt />{drill.lastOutcome === "skipped" ? <><strong>Case skipped</strong><p className="small dim">No completed attempt saved. Review the solution or continue.</p></> : null}</div> : null}
           <TrainingCubeStage preview={stepPreview} />
+          <TrainingInputControls />
         </>}
       </div>
       <div className="column right training-target-column">
@@ -74,12 +77,12 @@ function TrainingTargetPanel({ details, emptyMessage, previewIndex, onPreviewSte
           {training.drill.task === "recognition" ? <TrainingRecognition /> : <><div className="small dim">Recognize and solve the cube case.</div><TrainingAttempt /></>}
         </> : <>
           {training.drill.lastOutcome === "skipped" ? <div className="chip">Skipped</div> : null}
-          <TrainingRecognition />
+          {training.activity !== "drill" ? <TrainingRecognition /> : null}
+          {training.activity !== "drill" ? <TrainingAttempt /> : null}
+          <TrainingActions />
           {details}
           <TrainingPersonalPerformance />
           <TrainingReferences previewIndex={previewIndex} onPreviewStep={onPreviewStep} />
-          <TrainingAttempt />
-          <TrainingActions />
         </>}
       </div>
     </div>
@@ -109,14 +112,38 @@ export function TrainingCubeStage({ preview }: { preview?: TrainingStepPreview }
     {training.drill.running ? <DrillCountdown initial /> : <div className="empty">Select cases to practise in a virtual drill.</div>}
   </div>;
   return <div className={`stage ${training.family === "f2l" ? "f2l" : "training"}-stage`}>
-    <CubeView settings={settings} facelets={cubeFacelets} gyroSupported={gyroSupported}
+    <CubeView followTrainingGrip={training.family === "f2l"} trainingFocus={target ?? undefined} settings={settings} facelets={cubeFacelets} gyroSupported={gyroSupported}
       live={training.mode === "virtual" ? Boolean(target) : physicalLive} scramble=""
       displayFacelets={viewed?.facelets ?? (training.displayFacelets || cubeFacelets)}
-      displayRevision={`${training.displayRevision}:${viewed ? `preview:${viewed.index}` : "live"}`} staticDisplay={Boolean(viewed)}
+      displayRevision={`${training.displayRevision}:${viewed ? `preview:${viewed.index}` : "live"}`} staticDisplay={Boolean(viewed) || training.phase === "result" || training.activity === "drill" && training.drill.task === "recognition"}
       displaySource={training.mode === "virtual" ? "virtual" : "physical"} orientationOverride={target?.trainingRotation.orientation}
       physicalSyncAvailable={cubeStatus === "connected"}
       guideMove={guideActive ? viewed?.move ?? training.guide?.currentMove : null} />
   </div>;
+}
+
+/** Alternative input uses the same Controller move route as the smart cube. */
+export function TrainingInputControls() {
+  const controller = useController();
+  const training = useTrainingState();
+  const connected = useStoreValue(controller.physical.state, s => s.cubeStatus === "connected");
+  const keyboard = useStoreValue(controller.physical.state, s => s.virtualCube);
+  if (!training.target || training.phase === "result" || training.phase === "selecting" ||
+      training.activity === "drill" && training.drill.task === "recognition") return null;
+  return <section className="training-input-controls" aria-label="Training cube input">
+    <p className="small dim">{connected ? "Turn your smart cube to practise." : "Connect a smart cube, use the turn buttons, or enable keyboard turns."}
+      {training.mode === "virtual" ? " The displayed case is virtual; your physical stickers do not need to match." : " Follow the setup before solving."}</p>
+    {!connected ? <>
+      <button className="ghost small" aria-pressed={keyboard} onClick={() => controller.setVirtualCube(!keyboard)}>
+        {keyboard ? "Disable keyboard turns" : "Enable keyboard turns"}
+      </button>
+      {keyboard ? <p className="small dim">I/K: R/R' / J/F: U/U' / H/G: F/F' / D/E: L/L' / L/S: D/D' / O/W: B/B'</p> : null}
+      <div className="training-turn-buttons" role="group" aria-label="Cube turns">
+        {["U", "R", "F", "D", "L", "B"].map(face => <div key={face}>{[face, `${face}'`, `${face}2`].map(move =>
+          <button type="button" key={move} onClick={() => controller.injectMove(move)} aria-label={`Turn ${move}`}>{move}</button>)}</div>)}
+      </div>
+    </> : null}
+  </section>;
 }
 
 export function TrainingActions() {
@@ -125,6 +152,7 @@ export function TrainingActions() {
   if (training.activity === "drill") return null;
   const again = Boolean(training.result);
   return <div className="row wrap f2l-actions">
+    {!again && training.target ? <button onClick={() => controller.retryTrainingCase()}>Retry case</button> : null}
     {again ? <button className="primary" onClick={() => controller.againTraining()}>Again</button> : null}
     {again && training.target?.origin.kind === "catalog" ? <button onClick={() => void controller.reviewTrainingCase(training.family)}>Next review</button> : null}
     <button className="ghost" onClick={() => controller.resetTraining()}>Clear case</button>

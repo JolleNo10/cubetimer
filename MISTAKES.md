@@ -718,3 +718,16 @@ fixed number of microtasks is enough for asynchronous cube loading.
   changed the object but could not request a redraw. Await puzzle initialization
   before acquiring vantages; test delayed scene readiness and multiple real-browser
   solve/result/remount cycles, not just a single initial mount.
+
+- 2026-10-20: Drill skipped-case recovery was restricted to zero turns and results
+  auto-advanced after two seconds. Tests asserted those restrictions rather than
+  exercising a mistaken active round and time to review feedback. Keep results
+  until explicit progression and test retry/skip after real input, including no
+  persistence of abandoned attempts. Recognition ignored turns in the runtime
+  but its cube renderer still appended them; static recognition/result rendering
+  must be tested at the presentation seam as well.
+
+- 2026-10-20: The first custom Training mask supplied only the visible stickers
+  per piece. Twisty queries auxiliary facelets too, causing undefined-mask errors
+  in WebGL despite passing pure mask tests. Match its built-in five-slot masks and
+  verify custom presentation through a real renderer, not only mocked players.

@@ -310,6 +310,8 @@ export class Controller {
   startTrainingDrill(): void { if (this.trainingDrillConfigurationApplying.get()) return; this.setArea("training"); this.training.startDrill(); }
   stopTrainingDrill(): void { this.training.stopDrill(); }
   finishTrainingDrillSummary(weakOnly = false): void { this.training.finishDrillSummary(weakOnly); }
+  nextTrainingDrillCase(): void { this.training.nextDrillCase(); }
+  retryTrainingCase(): void { this.training.retryTrainingCase(); }
   skipTrainingDrillCase(): void { this.training.skipDrillCase(); }
 
   /** Settings and user-authored Training configuration share one persistence queue. */

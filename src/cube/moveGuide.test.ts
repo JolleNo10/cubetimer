@@ -42,3 +42,15 @@ describe("move guide frame and notation boundary", () => {
     expect(moveGuideForToken("Rw", orientation)?.axis).toBe(moveGuideForToken(face)?.axis);
   });
 });
+
+
+it("reorients an interpreted guide with its layer interval and turn direction", async () => {
+  const { reorientMoveGuide } = await import("./moveGuide");
+  const { GENERATORS, compose } = await import("./orientation");
+  for (const token of ["R", "r'", "M", "U2", "F", "x"]) {
+    const guide = moveGuideForToken(token)!;
+    for (const orientation of [GENERATORS.y, GENERATORS.x, compose(GENERATORS.x, GENERATORS.z)]) {
+      expect(reorientMoveGuide(guide, orientation)).toEqual(moveGuideForToken(token, orientation));
+    }
+  }
+});

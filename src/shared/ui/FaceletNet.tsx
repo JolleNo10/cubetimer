@@ -15,9 +15,11 @@ const LAYOUT: { face: Face; column: number; row: number }[] = [
 export function FaceletNet({
   facelets,
   size = 14,
+  visibleStickers,
 }: {
   facelets: string;
   size?: number;
+  visibleStickers?: readonly boolean[];
 }) {
   const valid = facelets.length === 54;
   return (
@@ -35,7 +37,7 @@ export function FaceletNet({
         >
           {Array.from({ length: 9 }, (_, i) => {
             const sticker = facelets[FACE_OFFSET[face] + i] as Face;
-            const color = valid ? FACE_COLOURS[sticker]?.hex : undefined;
+            const color = visibleStickers?.[FACE_OFFSET[face] + i] === false ? "#666" : valid ? FACE_COLOURS[sticker]?.hex : undefined;
             return (
               <div
                 key={i}

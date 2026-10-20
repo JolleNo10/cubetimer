@@ -13,7 +13,7 @@ import type { TrainingDrillPreset } from "../../../app/types";
 import type { MoveGuide } from "../../../cube/moveGuide";
 import { Training } from "./Training";
 import { TrainingDrillPanel, TrainingDrillControls, TrainingDrillSummary, SavedDrills } from "./TrainingDrill";
-import { TrainingWorkspace, TrainingCubeStage, TrainingActions, TrainingReferences, TrainingAttemptResult } from "./TrainingWorkspace";
+import { TrainingWorkspace, TrainingCubeStage, TrainingActions, TrainingReferences, TrainingAttemptResult, TrainingInputControls } from "./TrainingWorkspace";
 import { TrainingPersonalPerformance } from "./TrainingPerformance";
 const hooks = vi.hoisted(() => ({ controller: null as Controller | null, inlineState: null as unknown[] | null, cursor: 0 }));
 vi.mock("react", async original => ({ ...await original<typeof import("react")>(),
@@ -104,7 +104,7 @@ describe("Single and Drill presentation", () => {
     expect(initial).toContain("Case starting"); expect(initial).toContain(">2</strong>"); expect(initial).not.toContain("data-cube");
     controller.training.tick(2100);
     const active = renderToStaticMarkup(workspace);
-    expect(active).toContain("Skip case"); expect(active).toContain("Stop drill"); expect(active).not.toContain("ANSWER ID AND GROUP");
+    expect(active).toContain("Skip case"); expect(active).toContain("Finish drill"); expect(active).not.toContain("ANSWER ID AND GROUP");
     expect(active).not.toContain("RECOMMENDED"); expect(active).not.toContain("Personal performance"); expect(active).not.toContain("data-guide=");
     expect(renderToStaticMarkup(<TrainingReferences />)).toBe(""); expect(renderToStaticMarkup(<TrainingPersonalPerformance />)).toBe("");
     const cards = buttons(<Training />).filter(b => b["aria-label"]?.startsWith("F2L "));
@@ -112,15 +112,15 @@ describe("Single and Drill presentation", () => {
     const run = renderToStaticMarkup(<Training />);
     expect(run).toContain("Round 1"); expect(run).toContain("Solved"); expect(run).toContain("Skipped"); expect(run).toContain("2 selected");
     controller.injectMove("B"); expect(controller.training.state.get().phase).toBe("solving");
-    expect(renderToStaticMarkup(workspace)).not.toContain("Skip case"); expect(renderToStaticMarkup(<TrainingActions />)).toBe("");
+    expect(renderToStaticMarkup(workspace)).toContain("Skip case"); expect(renderToStaticMarkup(<TrainingActions />)).toBe("");
   });
-  it("reveals skipped-case identity/reference during countdown with Stop and no Single actions", () => {
+  it("holds skipped-case identity/reference with Finish and no Single actions", () => {
     const { controller, reveal } = fixture(); reveal(); button("Skip case", <TrainingDrillControls />).onClick();
     const html = renderToStaticMarkup(workspace);
     expect(html).toContain("Skipped"); expect(html).toContain("ANSWER ID AND GROUP"); expect(html).toContain("RECOMMENDED");
-    expect(html).toContain("Personal performance"); expect(html).toContain("Next case in 2"); expect(html).toContain("Stop drill");
+    expect(html).toContain("Personal performance"); expect(html).toContain("Next case"); expect(html).toContain("Finish drill");
     for (const label of ["Again", "Next review", "Clear case", "Skip case"]) expect(html).not.toContain(label);
-    button("Stop drill", <TrainingDrillPanel />).onClick(); expect(controller.training.state.get().target).toBeNull();
+    button("Finish drill", <TrainingDrillPanel />).onClick(); expect(controller.training.state.get().target).toBeNull();
   });
   it("shows run summary and weak-case/repeat actions without automatically starting", () => {
     const { controller, reveal } = fixture(); controller.setDrillStrategy("random"); reveal();
@@ -136,6 +136,27 @@ describe("Single and Drill presentation", () => {
     reveal(); controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
     expect(button("Done")).toBeUndefined();
     expect(controller.training.state.get().activity).toBe("drill");
+  });
+  it("offers recovery during solving and immediate Next/Retry from held results", () => {
+    const { controller, reveal } = fixture(); reveal();
+    const initial = controller.training.state.get().displayFacelets;
+    controller.injectMove("B");
+    button("Retry case", <TrainingDrillControls />).onClick();
+    expect(controller.training.state.get()).toMatchObject({ phase: "ready", displayFacelets: initial });
+    controller.injectMove("B"); button("Skip case", <TrainingDrillControls />).onClick();
+    expect(renderToStaticMarkup(workspace)).toContain("Result stays until you continue");
+    button("Next case", <TrainingDrillControls />).onClick();
+    expect(controller.training.state.get()).toMatchObject({ phase: "ready", drill: { round: 2 } });
+  });
+  it("provides working touch turns and keyboard opt-in without a connected cube", () => {
+    const { controller, reveal } = fixture(); reveal();
+    expect(renderToStaticMarkup(<TrainingInputControls />)).toContain("Connect a smart cube");
+    button("Turn B", <TrainingInputControls />).onClick();
+    expect(controller.training.state.get().phase).toBe("solving");
+    button("Enable keyboard turns", <TrainingInputControls />).onClick();
+    expect(controller.physical.state.get().virtualCube).toBe(true);
+    controller.physical.state.update(s => ({ ...s, cubeStatus: "connected" }));
+    expect(button("Turn B", <TrainingInputControls />)).toBeUndefined();
   });
   it("shows valid solved summary metrics and disables weak-case action for a clean run", () => {
     const { controller, reveal } = fixture(); reveal(); controller.stopTrainingDrill();

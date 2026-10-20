@@ -48,7 +48,7 @@ export function TrainingDrillPanel() {
         <div className="row wrap small"><strong>{drill.task === "recognition" ? "Recognition" : "Execution"} · {strategy.label}</strong><span>{drill.selectedCaseIds.length} selected</span></div>
         <DrillTaskMetrics />
         <div className="row wrap drill-actions">
-          <button className="ghost" onClick={() => controller.stopTrainingDrill()}>Stop drill</button>
+          <button className="ghost" onClick={() => controller.stopTrainingDrill()}>Finish drill</button>
         </div>
       </> : drill.status === "configuring" ? <>
         <div className="drill-strategies" role="group" aria-label="Drill task">
@@ -198,11 +198,21 @@ function RecognitionDrillSummary({ attempts }: { attempts: readonly TrainingReco
 
 export function TrainingDrillControls() {
   const controller = useController();
-  const { phase } = useTrainingState();
-  return <div className="row wrap drill-actions drill-stage-controls">
-    {phase === "ready" ? <button onClick={() => controller.skipTrainingDrillCase()}>Skip case</button> : null}
-    {phase === "result" ? <DrillCountdown /> : null}
-  </div>;
+  const { phase, drill } = useTrainingState();
+  if (!drill.running) return null;
+  return <section className="drill-stage-controls" aria-label="Case controls">
+    <div className="row wrap drill-actions">
+      {phase === "ready" || phase === "solving" ? <>
+        <button onClick={() => controller.skipTrainingDrillCase()}>Skip case</button>
+        {drill.task === "execution" ? <button onClick={() => controller.retryTrainingCase()}>Retry case</button> : null}
+      </> : null}
+      {phase === "result" ? <>
+        <button className="primary" onClick={() => controller.nextTrainingDrillCase()}>Next case</button>
+        {drill.task === "execution" ? <button onClick={() => controller.retryTrainingCase()}>Retry case</button> : null}
+        <span className="small dim">Result stays until you continue. Turn D x4 or D' x4 to start the next case now.</span>
+      </> : phase === "ready" ? <span role="status" className="small">{drill.task === "recognition" ? "Choose the case below." : "Ready: recognize the case, then turn to start."}</span> : null}
+    </div>
+  </section>;
 }
 
 export function TrainingDrillSummary() {
