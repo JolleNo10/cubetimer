@@ -712,3 +712,9 @@ fixed number of microtasks is enough for asynchronous cube loading.
 - 2026-10-20: GyroInset introduced an unnecessary perpetual RAF despite having a
   high-frequency gyro event seam. Render directly per sample and assert that the
   inset never starts its own scheduler.
+
+- 2026-10-20: Acquiring the gyro inset puzzle and vantages concurrently captured
+  an empty view list after the solve-result screen remounted the Timer. Raw gyro
+  changed the object but could not request a redraw. Await puzzle initialization
+  before acquiring vantages; test delayed scene readiness and multiple real-browser
+  solve/result/remount cycles, not just a single initial mount.

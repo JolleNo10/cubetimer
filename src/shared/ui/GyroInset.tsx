@@ -43,9 +43,11 @@ export function GyroInset() {
     const bindRenderTarget = async () => {
       const binding = ++bindingRevision;
       object = null;
-      const [puzzle, views] = await Promise.all([
-        player.experimentalCurrentThreeJSPuzzleObject(), player.experimentalCurrentVantages(),
-      ]);
+      const puzzle = await player.experimentalCurrentThreeJSPuzzleObject();
+      if (disposed || binding !== bindingRevision) return;
+      // The scene's vantages can be empty until its puzzle initializes, especially
+      // when this player remounts after a solve. Acquire them in that order.
+      const views = await player.experimentalCurrentVantages();
       if (disposed || binding !== bindingRevision) return;
       if (!home) {
         const { x, y, z, w } = puzzle.quaternion;

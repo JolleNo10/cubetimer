@@ -37,18 +37,24 @@ const home = normalize({ x: 0.1, y: 0, z: 0, w: 1 });
 function renderObject() { return { quaternion: new Quaternion().copy(home), scheduleRender: vi.fn() }; }
 vi.mock("cubing/twisty", () => ({ TwistyPlayer: class {
   remove = vi.fn(); experimentalAddMove = vi.fn();
-  alg = ""; setup = new Alg(""); object = renderObject();
+  alg = ""; setup = new Alg(""); object = renderObject(); objectReady = false;
   constructor(public options: Record<string, unknown>) { f.players.push(this); }
   set experimentalSetupAlg(alg: Alg) {
     this.setup = alg;
+    this.objectReady = false;
     if (!f.reuseObject) {
       const previous = this.object;
       this.object = renderObject();
       if (f.inheritRotation) this.object.quaternion.copy(previous.quaternion);
     }
   }
-  experimentalCurrentThreeJSPuzzleObject = vi.fn(() => Promise.resolve(this.object));
-  experimentalCurrentVantages() { return Promise.resolve([this.object].values()); }
+  experimentalCurrentThreeJSPuzzleObject = vi.fn(async () => {
+    await Promise.resolve();
+    this.objectReady = true;
+    return this.object;
+  });
+  // After remount Twisty can expose no vantages until its puzzle has initialized.
+  experimentalCurrentVantages() { return Promise.resolve((this.objectReady ? [this.object] : []).values()); }
 } }));
 const kpuzzle = await get3x3x3();
 let cleanup: (() => void) | undefined;
@@ -204,4 +210,22 @@ it("counts replayed moves toward the next compaction", async () => {
   f.controller!.injectMove("R");
   expect(solveAlg).toHaveBeenCalledTimes(3);
   await settle();
+});
+
+it("keeps raw-only rendering live across repeated Timer/result remounts", async () => {
+  handlers.onGyro!(tilt(0));
+  for (let cycle = 0; cycle < 3; cycle++) {
+    f.effects = [];
+    await mount();
+    const player = f.players.at(-1)!, object = player.object;
+    const count = object.scheduleRender.mock.calls.length;
+    handlers.onGyro!(tilt(5 + cycle * 10));
+    expect(object.scheduleRender).toHaveBeenCalledTimes(count + 1);
+    expectOrientation(object.quaternion, displayed(tilt(0), tilt(5 + cycle * 10)));
+    expect(player.experimentalAddMove).not.toHaveBeenCalled();
+    cleanup?.(); cleanup = undefined;
+    expect(player.remove).toHaveBeenCalledOnce();
+    f.controller!.physical.resetGrip();
+  }
+  expect(requestAnimationFrame).not.toHaveBeenCalled();
 });
