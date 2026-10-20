@@ -76,6 +76,7 @@ export class Controller {
   #solveRecordedListeners = new Set<(solve: Solve) => void>();
   #sessionContextBusy = false;
   #sessionMutationQueue: Promise<void> = Promise.resolve();
+  #queuedPersistenceOperations = 0;
 
   constructor(model: CubeModel | null = null) {
     this.physical = new PhysicalCubeRuntime({
@@ -146,6 +147,15 @@ export class Controller {
   snapshot(): ControllerSnapshot {
     return { ...this.state.get(), ...this.physical.state.get(), ...this.timer.state.get(), ...this.sessions.get(), settings: this.settings.get() };
   }
+  /** Runtime and persistence owners remain authoritative for update/reload safety. */
+  canReloadForUpdate(): boolean {
+    const timer = this.timer.state.get(), training = this.training.state.get();
+    return this.state.get().ready && timer.phase !== "inspection" && timer.phase !== "solving" &&
+      training.phase !== "solving" && !training.drill.running &&
+      !this.#sessionContextBusy && this.#queuedPersistenceOperations === 0 &&
+      this.#pendingTrainingWrites.size === 0 && this.#solveUpdates.size === 0 && !db.isWritingData();
+  }
+
   get cube() { return this.physical.cube; }
   get pattern() { return this.physical.model?.pattern ?? null; }
   get hasCube(): boolean { return this.physical.hasCube; }
@@ -201,9 +211,10 @@ export class Controller {
 
   /** Serialize persistence and live application together; failures leave the queue usable. */
   #queueSessionMutation<T>(operation: () => Promise<T>): Promise<T> {
+    this.#queuedPersistenceOperations++;
     const pending = this.#sessionMutationQueue.then(operation);
     this.#sessionMutationQueue = pending.then(() => { }, () => { });
-    return pending;
+    return pending.finally(() => { this.#queuedPersistenceOperations--; });
   }
 
   async init(): Promise<void> {
@@ -303,9 +314,10 @@ export class Controller {
 
   /** Settings and user-authored Training configuration share one persistence queue. */
   #queueTrainingConfigurationMutation<T>(operation: () => Promise<T>): Promise<T> {
+    this.#queuedPersistenceOperations++;
     const pending = this.#trainingConfigurationMutationQueue.then(operation);
     this.#trainingConfigurationMutationQueue = pending.then(() => {}, () => {});
-    return pending;
+    return pending.finally(() => { this.#queuedPersistenceOperations--; });
   }
 
   #canEditTrainingAlgorithm(): boolean {

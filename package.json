@@ -16,7 +16,9 @@
     "test:gesture": "node scripts/gestureCheck.mjs",
     "test:replay": "node scripts/replayCheck.mjs",
     "test:slow": "node scripts/slowSolveCheck.mjs",
-    "test:coach": "node scripts/coachCheck.mjs"
+    "test:coach": "node scripts/coachCheck.mjs",
+    "test:pwa-build": "node scripts/pwaCheck.mjs",
+    "test:pwa-offline": "node scripts/pwaOfflineCheck.mjs"
   },
   "dependencies": {
     "cubing": "^0.63.6",
@@ -35,6 +37,7 @@
     "playwright-core": "^1.63.0",
     "typescript": "^5.9.0",
     "vite": "^7.1.0",
+    "vite-plugin-pwa": "^2.0.0",
     "vitest": "^3.2.0"
   },
   "allowScripts": {

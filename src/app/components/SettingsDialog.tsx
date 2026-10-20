@@ -1,3 +1,4 @@
+import { PwaSettings } from "./PwaSettings";
 import { DATE_FORMATS, TIME_FORMATS, formatDateTime, availableTimeZones } from "../../shared/time";
 import { useState } from "react";
 import { forgetStoredMacs } from "../../infrastructure/bluetooth/smartCube";
@@ -267,6 +268,10 @@ export function SettingsDialog({
                 {progress}
               </div>
             ) : null}
+          </Section>
+
+          <Section title="Offline app and updates">
+            <PwaSettings />
           </Section>
 
           <Section title="Bluetooth">

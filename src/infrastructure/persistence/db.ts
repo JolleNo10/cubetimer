@@ -19,6 +19,11 @@ const DB_NAME = "cubetimer";
 const DB_VERSION = 5;
 
 let dbPromise: Promise<IDBDatabase> | null = null;
+let pendingWrites = 0;
+
+/** Read-only activity fact; application updates must wait for writes to settle. */
+export function isWritingData(): boolean { return pendingWrites > 0; }
+
 
 function openDatabase(): Promise<IDBDatabase> {
   dbPromise ??= new Promise((resolve, reject) => {
@@ -71,19 +76,22 @@ async function store(
 
 /** Enqueue work synchronously and acknowledge only the committed transaction. */
 async function writeStore(name: string, write: (store: IDBObjectStore) => void): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(name, "readwrite");
-    transaction.oncomplete = () => resolve();
-    transaction.onabort = () => reject(transaction.error ?? new Error(`${name} write aborted.`));
-    transaction.onerror = () => reject(transaction.error ?? new Error(`${name} write failed.`));
-    try {
-      write(transaction.objectStore(name));
-    } catch (error) {
-      transaction.abort();
-      reject(error);
-    }
-  });
+  pendingWrites++;
+  try {
+    const db = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(name, "readwrite");
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () => reject(transaction.error ?? new Error(`${name} write aborted.`));
+      transaction.onerror = () => reject(transaction.error ?? new Error(`${name} write failed.`));
+      try {
+        write(transaction.objectStore(name));
+      } catch (error) {
+        transaction.abort();
+        reject(error);
+      }
+    });
+  } finally { pendingWrites--; }
 }
 
 type StoredSession = Omit<Session, "event" | "compareScope"> & { event?: unknown; compareScope?: unknown };
@@ -206,24 +214,27 @@ export async function saveSession(session: Session): Promise<void> {
 }
 
 export async function deleteSession(id: string): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(["sessions", "solves"], "readwrite");
-    transaction.oncomplete = () => resolve();
-    transaction.onabort = () => reject(transaction.error ?? new Error("Session deletion aborted."));
-    transaction.onerror = () => reject(transaction.error ?? new Error("Session deletion failed."));
-    const solves = transaction.objectStore("solves");
-    const request = solves.index("sessionId").openKeyCursor(id);
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (cursor) {
-        solves.delete(cursor.primaryKey);
-        cursor.continue();
-      } else {
-        transaction.objectStore("sessions").delete(id);
-      }
-    };
-  });
+  pendingWrites++;
+  try {
+    const db = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(["sessions", "solves"], "readwrite");
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () => reject(transaction.error ?? new Error("Session deletion aborted."));
+      transaction.onerror = () => reject(transaction.error ?? new Error("Session deletion failed."));
+      const solves = transaction.objectStore("solves");
+      const request = solves.index("sessionId").openKeyCursor(id);
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (cursor) {
+          solves.delete(cursor.primaryKey);
+          cursor.continue();
+        } else {
+          transaction.objectStore("sessions").delete(id);
+        }
+      };
+    });
+  } finally { pendingWrites--; }
 }
 
 /** Read distinct Session index keys without loading Solve records or move streams. */
@@ -294,16 +305,19 @@ export async function saveSolve(solve: Solve): Promise<void> {
 
 /** Write many solves in one transaction; one transaction per solve is slow at import scale. */
 export async function saveSolves(solves: readonly Solve[]): Promise<void> {
-  if (solves.length === 0) return;
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction("solves", "readwrite");
-    transaction.oncomplete = () => resolve();
-    transaction.onabort = () => reject(transaction.error ?? new Error("Solve write aborted."));
-    transaction.onerror = () => reject(transaction.error ?? new Error("Solve write failed."));
-    const objectStore = transaction.objectStore("solves");
-    for (const { statisticsOutlier: _derivedOutlier, ...rawSolve } of solves) objectStore.put(rawSolve);
-  });
+  pendingWrites++;
+  try {
+    if (solves.length === 0) return;
+    const db = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction("solves", "readwrite");
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () => reject(transaction.error ?? new Error("Solve write aborted."));
+      transaction.onerror = () => reject(transaction.error ?? new Error("Solve write failed."));
+      const objectStore = transaction.objectStore("solves");
+      for (const { statisticsOutlier: _derivedOutlier, ...rawSolve } of solves) objectStore.put(rawSolve);
+    });
+  } finally { pendingWrites--; }
 }
 
 export async function deleteSolve(id: string): Promise<void> {
@@ -394,15 +408,18 @@ export async function loadTrainingAttempts(): Promise<TrainingAttempt[]> {
 }
 
 export async function saveTrainingAttempt(attempt: TrainingAttempt): Promise<void> {
-  const db = await openDatabase();
-  // Wait for transaction commit, so an abort after a successful put still reports failure.
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction("trainingAttempts", "readwrite");
-    transaction.oncomplete = () => resolve();
-    transaction.onabort = () => reject(transaction.error ?? new Error("Training history write aborted."));
-    transaction.onerror = () => reject(transaction.error ?? new Error("Training history write failed."));
-    transaction.objectStore("trainingAttempts").put(attempt);
-  });
+  pendingWrites++;
+  try {
+    const db = await openDatabase();
+    // Wait for transaction commit, so an abort after a successful put still reports failure.
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction("trainingAttempts", "readwrite");
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () => reject(transaction.error ?? new Error("Training history write aborted."));
+      transaction.onerror = () => reject(transaction.error ?? new Error("Training history write failed."));
+      transaction.objectStore("trainingAttempts").put(attempt);
+    });
+  } finally { pendingWrites--; }
 }
 
 /** Strict current configuration shape. Unknown cases invalidate the entire preset. */
@@ -454,14 +471,17 @@ export async function deleteTrainingDrillPreset(id: string): Promise<void> {
 }
 
 async function writeTrainingRecord(name: "trainingDrillPresets" | "trainingAlgorithmPreferences" | "trainingRecognitionAttempts", write: (store: IDBObjectStore) => void): Promise<void> {
-  const db = await openDatabase();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = db.transaction(name, "readwrite");
-    transaction.oncomplete = () => resolve();
-    transaction.onabort = () => reject(transaction.error ?? new Error("Training record write aborted."));
-    transaction.onerror = () => reject(transaction.error ?? new Error("Training record write failed."));
-    write(transaction.objectStore(name));
-  });
+  pendingWrites++;
+  try {
+    const db = await openDatabase();
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(name, "readwrite");
+      transaction.oncomplete = () => resolve();
+      transaction.onabort = () => reject(transaction.error ?? new Error("Training record write aborted."));
+      transaction.onerror = () => reject(transaction.error ?? new Error("Training record write failed."));
+      write(transaction.objectStore(name));
+    });
+  } finally { pendingWrites--; }
 }
 
 /** Record shape/catalogue normalization only; semantic validation belongs to Training. */

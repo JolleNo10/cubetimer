@@ -1,6 +1,8 @@
 /// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { VitePWA } from "vite-plugin-pwa";
+import { devPwaCleanup } from "./scripts/pwaPlugin";
 import basicSsl from "@vitejs/plugin-basic-ssl";
 import { cubingSearchWorker } from "./scripts/cubingSearchWorkerPlugin";
 
@@ -29,7 +31,34 @@ const https = process.env.HTTPS === "1" || process.env.HTTPS === "true";
 const watchUsePolling = process.env.WATCH_USE_POLLING === "1" || process.env.WATCH_USE_POLLING === "true";
 
 export default defineConfig({
-  plugins: [react(), cubingSearchWorker(), ...(https ? [basicSsl()] : [])],
+  plugins: [
+    devPwaCleanup(), react(), cubingSearchWorker(), ...(https ? [basicSsl()] : []),
+    VitePWA({
+      registerType: "prompt", injectRegister: null,
+      includeAssets: ["favicon.svg", "apple-touch-icon.png"],
+      manifest: {
+        name: "Cubetimer", short_name: "Cubetimer", id: "/", start_url: "/", scope: "/",
+        description: "Offline cube timer, smart-cube tracking, training and solve analysis.",
+        display: "standalone", theme_color: "#0a0c10", background_color: "#0a0c10",
+        icons: [
+          { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+          { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+        ],
+      },
+      workbox: {
+        cacheId: "cubetimer", globPatterns: ["**/*.{html,js,css,png,svg,ico,wasm,json,woff,woff2}"],
+        // Current search worker is ~1.2 MB. Include every lazy chunk with headroom;
+        // the build verification checks emitted assets against the precache.
+        maximumFileSizeToCacheInBytes: 4 * 1024 * 1024,
+        navigateFallback: "/index.html", cleanupOutdatedCaches: true,
+        skipWaiting: false, clientsClaim: false,
+        // Only hashed filenames can skip revisioning. The stable search worker
+        // must receive a content revision and a new cache entry each deployment.
+        dontCacheBustURLsMatching: /-[A-Za-z0-9_-]{8}\./,
+      },
+    }),
+  ],
   server: {
     port,
     // Bind to every interface so the port is reachable when running in a container.

@@ -373,3 +373,40 @@ Rejected: continuously replacing the shared reference with every unlocked gyro
 sample. relative(reference, sample) collapses to identity and freezes the live gyro
 view. Independent inset calibration is also rejected because it could disagree
 with stabilized grip and solve reconstruction.
+
+## Production offline delivery and updates
+
+The production Workbox service worker owns application asset caching and update
+installation only. The precache includes the shell, lazy feature chunks, install
+icons and the self-contained cubing search worker at assets/search-worker-entry.js.
+The fixed worker is content-revisioned in the precache and revalidated by HTTP;
+only hashed assets have immutable HTTP caching. Development serves a scoped cleanup
+worker instead of enabling offline caching. Cleanup removes only Cubetimer asset
+caches and its own registration, without deleting IndexedDB or reloading clients.
+
+IndexedDB remains authoritative for user data (database cubetimer version 5 and JSON
+backup version 7 are unchanged). CacheStorage is disposable delivery storage.
+Persistent-storage enrollment is best effort and never gates initialization or
+turns a storage error into empty defaults. JSON backup remains the recovery path,
+particularly on iOS where storage retention is not guaranteed.
+
+PwaUpdates registers once from main, exposes narrow Settings status/actions and
+leaves new workers waiting. Only explicit Apply requests may activate and reload.
+Controller.canReloadForUpdate reads the existing Timer/Training states, complete
+Session/import and Settings/configuration queues, pending Training/history updates
+and IndexedDB write activity. Inspection, solving, a running Drill (including
+countdown/ready), initialization and pending writes block reload. Requested updates
+wait and recheck safety both before activation and after activation before reload;
+no runtime lifecycle is reproduced in React or the worker. Background discovery or
+another tab's controller change never initiates a reload here.
+
+Bluetooth stays exclusively in SmartCube -> PhysicalCubeRuntime -> Controller.
+Network offline status is unrelated to Web Bluetooth capability. On iPhone the
+smart-cube browser is Bluefy; Safari/Home Screen installations retain the offline
+non-Bluetooth features. Device reconnection still depends on the browser/hardware.
+
+Rejected: worker ownership of user data, which would duplicate persistence ownership
+and risk history loss during cache cleanup. Unconditional automatic activation or
+reload is rejected because it can interrupt inspection, solves and Training. A
+native Bluetooth bridge is outside this scope: Bluefy provides the browser capability
+without changing the existing transport/runtime boundary.

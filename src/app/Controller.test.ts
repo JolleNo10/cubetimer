@@ -1817,3 +1817,49 @@ describe("Timer gyro shortcut move boundaries", () => {
     expect(reset).toHaveBeenCalledOnce(); expect(reset).toHaveReturnedWith(false);
   });
 });
+
+describe("PWA reload safety", () => {
+  it("uses authoritative Timer and Training activity including drill ready/countdown", () => {
+    const controller = readyController([session("1")], "1");
+    expect(controller.canReloadForUpdate()).toBe(true);
+    for (const phase of ["inspection", "solving"] as const) {
+      controller.timer.state.update(s => ({ ...s, phase }));
+      expect(controller.canReloadForUpdate()).toBe(false);
+    }
+    controller.timer.state.update(s => ({ ...s, phase: "ready" }));
+    controller.training.state.update(s => ({ ...s, phase: "solving" }));
+    expect(controller.canReloadForUpdate()).toBe(false);
+    for (const phase of ["ready", "countdown"] as const) {
+      controller.training.state.update(s => ({ ...s, phase: phase === "countdown" ? "ready" : phase,
+        drill: { ...s.drill, running: true } }));
+      expect(controller.canReloadForUpdate()).toBe(false);
+    }
+    controller.training.state.update(s => ({ ...s, drill: { ...s.drill, running: false } }));
+    expect(controller.canReloadForUpdate()).toBe(true);
+    vi.spyOn(db, "isWritingData").mockReturnValue(true);
+    expect(controller.canReloadForUpdate()).toBe(false);
+  });
+  it("blocks queued settings writes until they finish, including before execution starts", async () => {
+    const controller = readyController([session("1")], "1"), writing = deferred<void>();
+    vi.spyOn(db, "saveSettings").mockReturnValue(writing.promise);
+    const operation = controller.updateSettings({ sound: false });
+    expect(controller.canReloadForUpdate()).toBe(false);
+    writing.resolve(); await operation;
+    expect(controller.canReloadForUpdate()).toBe(true);
+  });
+});
+
+it("keeps reload blocked throughout a JSON import, not just individual writes", async () => {
+  const transfer = await import("../features/data-transfer/dataTransfer");
+  const importing = deferred<Awaited<ReturnType<typeof transfer.importData>>>();
+  vi.spyOn(transfer, "importData").mockReturnValue(importing.promise);
+  const controller = readyController([session("1")], "1");
+  const operation = controller.importData("{}");
+  expect(controller.canReloadForUpdate()).toBe(false);
+  await Promise.resolve(); expect(controller.canReloadForUpdate()).toBe(false);
+  importing.resolve({ sessions: 0, solves: 0, trainingAttempts: 0, trainingRecognitionAttempts: 0,
+    trainingDrillPresets: 0, trainingAlgorithmPreferences: 0,
+    context: { sessions: controller.sessions.get().sessions, sessionId: "1", solves: [], eventChanged: false } });
+  await operation;
+  expect(controller.canReloadForUpdate()).toBe(true);
+});

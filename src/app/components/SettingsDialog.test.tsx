@@ -71,3 +71,14 @@ it("offers Gyro view independently of main gyro stabilization", () => {
   const row = html.split('class="switch-row"').find(part => part.includes('class="title">Gyro view'))!;
   expect(row).toContain('checked=""'); expect(row).not.toContain('disabled=""');
 });
+
+it("explains automatic offline use, Bluefy capability and local-history backups", () => {
+  const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}>
+    <SettingsDialog settings={DEFAULT_SETTINGS} onClose={() => {}} />
+  </ControllerContext.Provider>);
+  expect(html).toContain("Offline app and updates");
+  expect(html).toContain("Check for update");
+  expect(html).toContain("Bluefy");
+  expect(html).toContain("JSON backup regularly");
+  expect(html).not.toContain("Offline mode");
+});
