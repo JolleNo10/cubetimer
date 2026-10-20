@@ -47,7 +47,8 @@ export class LiveGrip {
    * since, and is kept for the reconstruction.
    */
   sample(q: Quat, t: number): void {
-    this.#latest = q;
+    if (![q.x, q.y, q.z, q.w].every(Number.isFinite) || Math.hypot(q.x, q.y, q.z, q.w) === 0) return;
+    this.#latest = { ...q };
     this.#latestAt = t;
     if (!this.#locked) {
       this.#reference = q;
@@ -79,6 +80,16 @@ export class LiveGrip {
     this.#bottom = null;
     // The reference is deliberately kept. It is still the best guess at the scrambling
     // pose, so the live view has something to work from before the next reading lands.
+  }
+
+  /** Explicit calibration, independent of the automatic scramble lifecycle. */
+  rebaseToCurrentPose(): boolean {
+    if (!this.#latest) return false;
+    this.reset();
+    this.#reference = { ...this.#latest };
+    this.#locked = true;
+    this.sample(this.#latest, this.#latestAt);
+    return true;
   }
 
   get locked(): boolean {

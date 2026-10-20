@@ -206,7 +206,7 @@ export type Settings = {
   crossColour: string;
   /** Colour you keep facing you, so the on-screen cube matches the one in your hands. */
   frontColour: string;
-  showBackView: boolean;
+  showGyroView: boolean;
   useGyroscope: boolean;
   sound: boolean;
   theme: "dark" | "light";
@@ -241,7 +241,7 @@ export const DEFAULT_SETTINGS: Settings = {
   visualization: "3D",
   crossColour: "white",
   frontColour: "green",
-  showBackView: true,
+  showGyroView: true,
   useGyroscope: true,
   sound: true,
   theme: "dark",

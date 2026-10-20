@@ -1793,3 +1793,27 @@ it("updates durable CFOP veto and undo in active History and last Result without
   expect(controller.sessions.get().solves[0].cfopAnalysisExcluded).toBeUndefined();
   expect(controller.sessions.get().lastSolve?.cfopAnalysisExcluded).toBeUndefined();
 });
+
+describe("Timer gyro shortcut move boundaries", () => {
+  it.each(["inspection", "solving"] as const)("retains the protected pre-move phase %s after a transition", phase => {
+    const controller = readyController([session("1")], "1", [], phase);
+    const observe = vi.spyOn(controller.physical, "observeTimerMove");
+    vi.spyOn(controller.timer, "handleMove").mockImplementation(() => {
+      controller.timer.state.update(state => ({ ...state, phase: "finished" }));
+    });
+    controller.injectMove("U");
+    expect(observe).toHaveBeenCalledWith("U", phase);
+  });
+  it("processes the incoming move's new Timer phase before asking the runtime to reset", () => {
+    const controller = readyController([session("1")], "1", [], "finished");
+    controller.physical.state.update(state => ({ ...state, cubeStatus: "connected", hardware: { deviceName: "GAN", deviceMAC: "test", gyroSupported: true } }));
+    const reset = vi.spyOn(controller.physical, "resetGyro");
+    vi.spyOn(controller.timer, "handleMove").mockImplementation(() => {});
+    for (let i = 0; i < 3; i++) controller.injectMove("U");
+    vi.mocked(controller.timer.handleMove).mockImplementation(() => {
+      controller.timer.state.update(state => ({ ...state, phase: "solving" }));
+    });
+    controller.injectMove("U");
+    expect(reset).toHaveBeenCalledOnce(); expect(reset).toHaveReturnedWith(false);
+  });
+});

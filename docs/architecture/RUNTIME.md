@@ -333,3 +333,24 @@ catalogue key is ephemeral and never enters history or preferences. Exact histor
 practice never randomizes. Personal source preferences resolve each generated target
 through the existing injected lookup and family resolver. No additional state machine,
 physical CubeModel, preference Store or persistence owner exists.
+
+## Shared gyro reference
+
+LiveGrip.reference is the single calibration reference for continuous Timer gyro
+presentation, stabilized grip and subsequent solve reconstruction. Explicit
+rebaseToCurrentPose captures the latest valid pose, clears settled/candidate and
+bottom constraints and locks a neutral orientation. Ordinary reset/lockReference
+retain their automatic scramble lifecycle semantics.
+
+PhysicalCubeRuntime owns reset eligibility (connected gyro source and valid sample,
+never inspection or solving), the U×4/U'×4 gesture and successful reference-change
+notification. Controller routes moves using the pre-move Timer phase after Timer
+processing so neither a solve's first nor final move can bypass the guards. Face
+turns remain ordinary physical moves. Completed solve facts are unchanged.
+
+CubeView rebuilds the main display orientation from the current pattern on reference
+change; only Timer opts into GyroInset. The inset consumes raw samples through a
+narrow listener after LiveGrip processing, with presentation-only smoothing and
+proper subscription cleanup. Main stabilization and inset visibility are independent
+settings. Reject separate inset calibration: it could disagree with stabilized grip
+and solve reconstruction. No quaternion stream enters an observable React Store.

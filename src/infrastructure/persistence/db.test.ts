@@ -854,3 +854,16 @@ describe("solve-start bottom observation", () => {
 it.each([true, false, undefined, null, "true", 1])("strictly normalizes manual CFOP veto %s", value => {
   expect(migrateSolve({ ...base, cfopAnalysisExcluded: value } as unknown as Solve).cfopAnalysisExcluded).toBe(value === true ? true : undefined);
 });
+
+describe("gyro view settings migration", () => {
+  it.each([true, false])("preserves legacy preference %s and drops its field", value => {
+    const migrated = mergeSettings({ showBackView: value } as Partial<Settings>);
+    expect(migrated.showGyroView).toBe(value);
+    expect(migrated).not.toHaveProperty("showBackView");
+    expect(mergeSettings(JSON.parse(JSON.stringify(migrated))).showGyroView).toBe(value);
+    expect(mergeSettings({ showBackView: !value, showGyroView: value } as Partial<Settings>).showGyroView).toBe(value);
+  });
+  it("defaults to enabled independently of stabilization", () => {
+    expect(mergeSettings({ useGyroscope: false }).showGyroView).toBe(true);
+  });
+});

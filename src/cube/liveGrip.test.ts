@@ -169,3 +169,30 @@ describe("holdBottom", () => {
     expect(grip.heldBottom).toBeNull();
   });
 });
+
+describe("explicit gyro rebase", () => {
+  it("requires a valid sample", () => {
+    const grip = new LiveGrip();
+    expect(grip.rebaseToCurrentPose()).toBe(false);
+    grip.sample({ x: NaN, y: 0, z: 0, w: 1 }, 0);
+    expect(grip.rebaseToCurrentPose()).toBe(false);
+  });
+  it("replaces a locked reference and clears the bottom constraint and settled pose", () => {
+    const grip = new LiveGrip();
+    grip.sample(DRIFTED, 0); grip.lockReference(); grip.holdBottom("R");
+    const latest = turn(DRIFTED, Z2);
+    grip.sample(latest, 200);
+    expect(grip.rebaseToCurrentPose()).toBe(true);
+    expect(grip.reference).toEqual(latest);
+    expect(grip.heldBottom).toBeNull();
+    expect(grip.locked).toBe(true);
+    expect(facesAtPositions(grip.steady!)).toMatchObject({ U: "U", F: "F" });
+    grip.sample(turn(latest, Y), 400);
+    expect(front(grip)).not.toBe("F");
+    grip.reset();
+    expect(grip.reference).toEqual(latest);
+    grip.sample(DRIFTED, 500); grip.lockReference();
+    expect(grip.reference).toEqual(DRIFTED);
+    expect(front(grip)).toBe("F");
+  });
+});

@@ -172,15 +172,15 @@ export function SettingsDialog({
               </span>
             </div>
             <Toggle
-              title="Back view"
-              help="Shows the three hidden faces alongside the cube."
-              checked={settings.showBackView}
+              title="Gyro view"
+              help="Shows a small cube following the physical gyro continuously."
+              checked={settings.showGyroView}
               disabled={settings.visualization !== "3D"}
-              onChange={(showBackView) => set({ showBackView })}
+              onChange={(showGyroView) => set({ showGyroView })}
             />
             <Toggle
               title="Follow the cube's gyroscope"
-              help="Turns the 3D cube as you turn the real one. Needs a cube with a gyroscope. Turn the top face three times, while nothing is being timed, to line the view up with how you are holding it."
+              help="Turns the 3D cube as you turn the real one. Needs a cube with a gyroscope. Turn the top face four times, while nothing is being timed, to line the view up with how you are holding it."
               checked={settings.useGyroscope}
               disabled={settings.visualization !== "3D"}
               onChange={(useGyroscope) => set({ useGyroscope })}

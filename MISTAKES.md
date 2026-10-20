@@ -696,3 +696,11 @@ Prevention: use the existing cube-domain parser before offering facelet-only
 practice, and test balanced but unreadable starting states alongside malformed types.
 Facelet-only interaction fixtures must await that resource rather than assume a
 fixed number of microtasks is enough for asynchronous cube loading.
+
+- 2026-10-20: A Windows PowerShell-to-Python edit replaced the multiplication sign
+  in gyro shortcut help with a question mark. The pipe used a legacy encoding.
+  Use Unicode escapes in piped Python source and inspect the resulting diff.
+
+- 2026-10-20: The initial gyro inset retained cubing.js's one-use vantage iterator,
+  so only its first frame could schedule rendering. Store Array.from(vantages),
+  and make the player mock return an iterator to cover repeated render requests.

@@ -5,7 +5,7 @@
 import { parseMove } from "./notation";
 
 /** Turns of the same face, in the same direction, that make up the recentre gesture. */
-export const RECENTRE_GESTURE_TURNS = 3;
+export const RECENTRE_GESTURE_TURNS = 4;
 
 /** Four turns of the down face, used to repeat a completed F2L setup. */
 export const F2L_AGAIN_GESTURE_TURNS = 4;
@@ -25,11 +25,11 @@ function isRepeatedQuarterTurnGesture(
 }
 
 /**
- * Three turns of the top face in the same direction: hold the cube the way you want
- * the screen to show it and turn `U` three times.
+ * Four turns of the top face in the same direction: hold the cube the way you want
+ * the screen to show it and turn `U` four times.
  *
  * A scramble can never ask for this — generated scrambles never turn the same face
- * twice in a row, let alone three times — so it cannot be made by accident while
+ * twice in a row, let alone four times — so it cannot be made by accident while
  * setting a scramble up.
  */
 export function isRecentreGesture(moves: readonly string[]): boolean {

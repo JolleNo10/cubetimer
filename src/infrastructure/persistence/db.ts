@@ -168,12 +168,15 @@ function isReadableCorrectionAnalysis(value: unknown): value is SolveAnalysis {
 }
 
 export function mergeSettings(stored: Partial<Settings> | undefined): Settings {
-  const { event: _legacyEvent, ...withoutLegacyEvent } = (stored ?? {}) as Partial<Settings> & {
+  const { event: _legacyEvent, showBackView, ...withoutLegacyEvent } = (stored ?? {}) as Partial<Settings> & {
     event?: unknown;
+    showBackView?: unknown;
   };
   const settings = { ...DEFAULT_SETTINGS, ...withoutLegacyEvent };
   return {
     ...settings,
+    showGyroView: typeof stored?.showGyroView === "boolean" ? stored.showGyroView
+      : typeof showBackView === "boolean" ? showBackView : DEFAULT_SETTINGS.showGyroView,
     ...normaliseSolveThreshold(settings),
     timeZone: normaliseTimeZone(settings.timeZone),
     dateFormat: DATE_FORMATS.includes(settings.dateFormat) ? settings.dateFormat : "locale",

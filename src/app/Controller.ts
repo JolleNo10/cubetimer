@@ -152,7 +152,8 @@ export class Controller {
   get grip() { return this.physical.grip; }
   get heldAs() { return this.physical.heldAs; }
   get gripReference() { return this.physical.gripReference; }
-  recentreGrip(): void { this.physical.recentreGrip(); }
+  resetGyro(): boolean { return this.physical.resetGyro(); }
+  onGyro(listener: Parameters<PhysicalCubeRuntime["onGyro"]>[0]) { return this.physical.onGyro(listener); }
   onCubeMove(listener: (move: string) => void) { return this.physical.onCubeMove(listener); }
   onPatternReset(listener: (pattern: KPattern) => void) { return this.physical.onPatternReset(listener); }
   onGripChange(listener: (orientation: Orientation) => void) { return this.physical.onGripChange(listener); }
@@ -542,8 +543,9 @@ export class Controller {
     const area = this.state.get().area;
     if (area === "training") this.training.handleMove(move);
     else if (area === "timer") {
-      this.physical.observeTimerMove(move.move, this.timer.state.get().phase);
+      const phaseBefore = this.timer.state.get().phase;
       this.timer.handleMove(move, before);
+      this.physical.observeTimerMove(move.move, phaseBefore);
     }
   }
   #reconcilePhysicalState(): void {

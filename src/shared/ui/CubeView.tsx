@@ -12,6 +12,7 @@ import {
   type Orientation,
 } from "../../cube/orientation";
 import { solveAlg } from "../../cube/solver";
+import { GyroInset } from "./GyroInset";
 import { useController } from "../../app/useController";
 import type { Settings } from "../../app/types";
 import { FaceletNet } from "./FaceletNet";
@@ -25,6 +26,8 @@ import { orientFaceletsForDisplay } from "../../cube/frames";
 const COMPACT_AFTER_MOVES = 400;
 
 type Props = {
+  showGyroInset?: boolean;
+  gyroResetDisabled?: boolean;
   settings: Settings;
   facelets: string;
   gyroSupported: boolean;
@@ -50,6 +53,8 @@ type Props = {
 
 export function CubeView({
   settings,
+  showGyroInset = false,
+  gyroResetDisabled = false,
   facelets,
   gyroSupported,
   live,
@@ -65,9 +70,9 @@ export function CubeView({
   const controller = useController();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const playerRef = useRef<TwistyPlayer | null>(null);
-  const [gyroActive, setGyroActive] = useState(false);
-  const [flash, setFlash] = useState(false);
-  const resetGyroRef = useRef<() => void>(() => {});
+  const gyroActive = showGyroInset && live && gyroSupported && !staticDisplay && displaySource === "physical";
+  const [gyroReady, setGyroReady] = useState(Boolean(controller.gripReference));
+  const [flash, setFlash] = useState("");
 
   const use3D = settings.visualization === "3D";
   const guiding = use3D && Boolean(guideMove);
@@ -115,7 +120,7 @@ export function CubeView({
       background: "none",
       controlPanel: "none",
       hintFacelets: "floating",
-      backView: settings.showBackView ? "top-right" : "none",
+      backView: "none",
       experimentalSetupAnchor: "start",
       cameraLatitude: 27,
       cameraLongitude: 32,
@@ -126,6 +131,9 @@ export function CubeView({
     host.appendChild(player);
     playerRef.current = player;
 
+    let disposed = false;
+    let revision = 0;
+    let pendingMoves: string[] | null = null;
     let appended = 0;
     let compacting = false;
     // How the cube is being held. Measured when there is a gyroscope to measure it
@@ -149,19 +157,26 @@ export function CubeView({
     };
 
     const resync = async (pattern: KPattern) => {
+      const current = ++revision;
+      pendingMoves = [];
+      const orientation = held;
       try {
         const setup = (await solveAlg(pattern)).invert();
+        if (disposed || current !== revision) return;
         player.alg = "";
         // Turn the cube over after building the state, so the cross colour ends up
         // underneath. The moves fed in afterwards are relabelled to match, which is
         // what keeps `U` turning the face that is now on top.
-        const tokens = held ? rotationTokensBetween(IDENTITY, held) : [];
+        const tokens = orientation ? rotationTokensBetween(IDENTITY, orientation) : [];
         player.experimentalSetupAlg = tokens.length
           ? setup.concat(new Alg(tokens.join(" ")))
           : setup;
         appended = 0;
+        for (const move of pendingMoves ?? []) player.experimentalAddMove(move, { cancel: false });
       } catch {
         // Leave the view as it is; the next reset will try again.
+      } finally {
+        if (current === revision) pendingMoves = null;
       }
     };
 
@@ -174,6 +189,7 @@ export function CubeView({
         player.alg = "";
       }
       return () => {
+        disposed = true;
         player.remove();
         playerRef.current = null;
       };
@@ -185,7 +201,8 @@ export function CubeView({
       ? controller.onGripChange((orientation) => {
           if (held) {
             for (const token of rotationTokensBetween(held, orientation)) {
-              player.experimentalAddMove(token, { cancel: false });
+              if (pendingMoves) pendingMoves.push(token);
+              else player.experimentalAddMove(token, { cancel: false });
               appended++;
             }
           }
@@ -194,9 +211,9 @@ export function CubeView({
       : () => {};
 
     const offMove = controller.onCubeMove((move) => {
-      player.experimentalAddMove(held ? reorientMove(move, held) : move, {
-        cancel: false,
-      });
+      const token = held ? reorientMove(move, held) : move;
+      if (pendingMoves) pendingMoves.push(token);
+      else player.experimentalAddMove(token, { cancel: false });
       appended++;
       if (appended > COMPACT_AFTER_MOVES && !compacting) {
         // The alg is replayed from the start on every change, so fold it back into
@@ -212,10 +229,17 @@ export function CubeView({
         ? () => {}
         : controller.onPatternReset((pattern) => void resync(pattern));
 
+    const offReference = controller.onRecentreView(() => {
+      held = gyroDriven ? IDENTITY : heldOverride;
+      const pattern = displayedPattern();
+      if (pattern) void resync(pattern);
+    });
     const initial = displayedPattern();
     if (initial) void resync(initial);
 
     return () => {
+      disposed = true;
+      offReference();
       offGrip();
       offMove();
       offReset();
@@ -225,7 +249,6 @@ export function CubeView({
   }, [
     controller,
     use3D,
-    settings.showBackView,
     live,
     scramble,
     solveOrientation,
@@ -237,28 +260,25 @@ export function CubeView({
     staticDisplay,
   ]);
 
-  // The gyroscope no longer turns the drawn cube directly â€” the grip it settles into
-  // does, through the rotations added above. All that is left here is knowing whether
-  // there is a grip being followed at all, which is what the centring button acts on.
   useEffect(() => {
-    if (!use3D || !live || !gyroDriven || staticDisplay) {
-      setGyroActive(false);
-      return;
-    }
-    resetGyroRef.current = () => controller.recentreGrip();
-    setGyroActive(true);
-    return () => setGyroActive(false);
-  }, [controller, use3D, live, gyroDriven, staticDisplay]);
-
-  // Turning U three times lines the view up with however the cube is being held, so
-  // the solver never has to put it down to reach the button.
-  useEffect(() => {
-    return controller.onRecentreView(() => {
-      resetGyroRef.current();
-      setFlash(true);
-      setTimeout(() => setFlash(false), 1400);
+    let ready = Boolean(controller.gripReference) && gyroActive;
+    setGyroReady(ready);
+    if (!gyroActive) return;
+    return controller.onGyro(() => {
+      if (!ready && controller.gripReference) { ready = true; setGyroReady(true); }
     });
-  }, [controller]);
+  }, [controller, gyroActive]);
+
+  useEffect(() => {
+    if (!showGyroInset) return;
+    let timeout: ReturnType<typeof setTimeout>;
+    const off = controller.onRecentreView(() => {
+      setFlash("Gyro orientation reset");
+      clearTimeout(timeout);
+      timeout = setTimeout(() => setFlash(""), 1400);
+    });
+    return () => { off(); clearTimeout(timeout); };
+  }, [controller, showGyroInset]);
 
   if (settings.visualization === "off") return null;
 
@@ -270,13 +290,14 @@ export function CubeView({
       <div className="panel-head">
         <span className="panel-title">{live ? "Cube" : "Scramble preview"}</span>
         <div className="row">
-          {gyroActive ? (
+          {gyroActive && gyroReady ? (
             <button
               className="ghost small"
-              onClick={() => resetGyroRef.current()}
-              title="Or turn the top face three times on the cube"
+              disabled={gyroResetDisabled}
+              onClick={() => { if (!controller.resetGyro()) setFlash("Gyro reset unavailable"); }}
+              title="Treat the cube's current position as level, with white on top and green in front. Shortcut: U×4 or U'×4."
             >
-              Centre view
+              Reset gyro
             </button>
           ) : null}
           {(physicalSyncAvailable ?? live) ? (
@@ -289,9 +310,7 @@ export function CubeView({
       <div className="cube-view">
         {flash ? (
           <div className="cube-flash" role="status">
-            {gyroActive
-              ? "View centred"
-              : "Nothing to centre â€” this cube has no gyroscope"}
+            {flash}
           </div>
         ) : null}
         {use3D ? (
@@ -299,6 +318,7 @@ export function CubeView({
         ) : (
           <FaceletNet facelets={shownFacelets} size={22} />
         )}
+        {use3D && gyroActive && settings.showGyroView && !displayFacelets && !orientationOverride ? <GyroInset /> : null}
         {use3D && guideMove ? <CubeMoveGuide move={guideMove} /> : null}
       </div>
     </div>

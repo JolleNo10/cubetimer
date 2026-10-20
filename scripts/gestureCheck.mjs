@@ -1,4 +1,4 @@
-// Turning the top face three times should line the view up, but only while idle.
+// Gyro reset shortcuts require connected gyro hardware; virtual turns never calibrate.
 import { chromium } from "playwright-core";
 import { Alg } from "cubing/alg";
 
@@ -40,10 +40,10 @@ const turn = async (key, times = 1) => {
   }
 };
 
-// Idle: three U turns fire it.
-await turn("j", 3);
+// Virtual idle input cannot reset a physical gyro reference.
+await turn("j", 4);
 await page.waitForTimeout(300);
-check("three U turns while idle centre the view", await flash.count() === 1,
+check("four virtual U turns cannot reset gyro", await flash.count() === 0,
       (await flash.innerText().catch(() => "")).trim());
 await page.waitForTimeout(1600);
 
@@ -57,16 +57,16 @@ await turn("f", 1);
 await page.waitForTimeout(300);
 check("alternating turns do nothing", await flash.count() === 0);
 
-// Mid-solve, three U turns are just three turns.
+// Mid-solve, four U turns remain ordinary physical moves.
 const scramble = (await page.locator(".scramble").innerText()).split("\n").join(" ");
 for (const m of quarters(scramble)) await turn(KEY[m]);
 await page.waitForTimeout(300);
 await turn("i");                       // first turn starts the timer
 await page.waitForTimeout(200);
 const solving = (await page.locator(".timer-hint").innerText()).includes("stop the timer");
-await turn("j", 3);
+await turn("j", 4);
 await page.waitForTimeout(400);
-check("three U turns while solving do nothing", solving && await flash.count() === 0,
+check("four U turns while solving do nothing", solving && await flash.count() === 0,
       solving ? "" : "timer never started");
 
 check("no console or page errors", problems.length === 0, problems.join(" | "));

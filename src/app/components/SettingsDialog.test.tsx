@@ -59,3 +59,13 @@ it("explains the automatic slow-solve policy and offers exclusion, DNF and Off",
   expect(html).toContain("previous 20 counted, finished solves in the same session");
   expect(html).toContain("Needs at least 5 baseline solves"); expect(html).toContain("existing and future solves");
 });
+it("offers Gyro view independently of main gyro stabilization", () => {
+  const html = renderToStaticMarkup(<ControllerContext.Provider value={new Controller()}>
+    <SettingsDialog settings={{ ...DEFAULT_SETTINGS, visualization: "3D", showGyroView: true, useGyroscope: false }} onClose={() => {}} />
+  </ControllerContext.Provider>);
+  expect(html).toContain("Gyro view");
+  expect(html).toContain("Shows a small cube following the physical gyro continuously.");
+  expect(html).not.toContain("Back view");
+  const row = html.split('class="switch-row"').find(part => part.includes('class="title">Gyro view'))!;
+  expect(row).toContain('checked=""'); expect(row).not.toContain('disabled=""');
+});

@@ -32,6 +32,7 @@ export class PhysicalCubeRuntime {
   #tracedGrip = "";
   #gripListeners = new Set<(orientation: Orientation) => void>();
   #gyroReadings = 0;
+  #gyroListeners = new Set<(q: Quaternion) => void>();
   #gripHeartbeatAt = 0;
   #recentreListeners = new Set<() => void>();
   #recentTurns: string[] = [];
@@ -45,6 +46,7 @@ export class PhysicalCubeRuntime {
       onMove: (move) => this.handleMove(move),
       onFacelets: (facelets) => this.receiveFacelets(facelets),
       onGyro: (q) => {
+        if (![q.x, q.y, q.z, q.w].every(Number.isFinite) || Math.hypot(q.x, q.y, q.z, q.w) === 0) return;
         if (this.#gyroReadings === 0) {
           debugLog("grip", "first gyro reading — following the cube");
         }
@@ -55,6 +57,7 @@ export class PhysicalCubeRuntime {
         if (after && after !== before) {
           for (const listener of this.#gripListeners) listener(after);
         }
+        for (const listener of this.#gyroListeners) listener(q);
         this.#traceGrip();
       },
       onBattery: (battery) => this.state.update((s) => ({ ...s, battery })),
@@ -68,6 +71,11 @@ export class PhysicalCubeRuntime {
         this.state.update((s) => ({ ...s, hardware }));
       },
       onStatus: (cubeStatus, error) => {
+        if (cubeStatus !== "connected") {
+          this.#grip = new LiveGrip();
+          this.#gyroReadings = 0;
+          this.#recentTurns = [];
+        }
         this.state.update(state => ({
           ...state, cubeStatus,
           hardware: cubeStatus === "connected" ? state.hardware : null,
@@ -112,15 +120,23 @@ export class PhysicalCubeRuntime {
    * Normally this happens on its own when the scramble is finished. The solver can also
    * ask for it, which is what the recentre gesture and the button under the 3D view do.
    *
-   * Refused mid-solve. The reference means "white on top, green in front", which is not
-   * true of a cube halfway through a solve, and moving it would throw away the readings
-   * the reconstruction is built from.
+   * Inspection and solving keep one coherent reference for their recorded readings.
+   * Only connected gyro hardware with a valid sample can establish a new reference.
    */
-  recentreGrip(): void {
-    if (this.#dependencies.getTimerPhase() === "solving") return;
-    this.#grip.reset();
-    this.#grip.lockReference();
+  resetGyro(): boolean {
+    const phase = this.#dependencies.getTimerPhase();
+    const state = this.state.get();
+    if (phase === "inspection" || phase === "solving" ||
+        state.cubeStatus !== "connected" || !state.hardware?.gyroSupported ||
+        !this.#grip.rebaseToCurrentPose()) return false;
     this.#tracedGrip = "";
+    for (const listener of this.#recentreListeners) listener();
+    return true;
+  }
+
+  onGyro(listener: (q: Quaternion) => void): () => void {
+    this.#gyroListeners.add(listener);
+    return () => { this.#gyroListeners.delete(listener); };
   }
 
   /**
@@ -229,8 +245,7 @@ export class PhysicalCubeRuntime {
   }
 
   /**
-   * Fires when the solver asks, on the cube, for the view to be lined up with how they
-   * are holding it.
+   * Successful reference changes only, whether requested by button or cube gesture.
    */
   onRecentreView(listener: () => void): () => void {
     this.#recentreListeners.add(listener);
@@ -326,7 +341,7 @@ export class PhysicalCubeRuntime {
     if (this.#recentTurns.length > RECENTRE_GESTURE_TURNS) this.#recentTurns.shift();
     if (!isRecentreGesture(this.#recentTurns)) return;
     this.#recentTurns = [];
-    for (const listener of this.#recentreListeners) listener();
+    this.resetGyro();
   }
 
   receiveFacelets(facelets: string): void {
