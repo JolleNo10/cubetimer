@@ -5,6 +5,8 @@ import { useController } from "../../app/useController";
 import { solveAlg } from "../../cube/solver";
 import { normalize, relative, type Quat } from "../../util/quat";
 
+type PuzzleObject = Awaited<ReturnType<TwistyPlayer["experimentalCurrentThreeJSPuzzleObject"]>>;
+
 /** Timer-only presentation: calibration always comes from LiveGrip via Controller. */
 export function GyroInset() {
   const controller = useController();
@@ -19,17 +21,18 @@ export function GyroInset() {
     hostRef.current?.appendChild(player);
     let disposed = false;
     let revision = 0;
+    let bindingRevision = 0;
     let pending: string[] | null = null;
     let appended = 0;
     let target: Quat = { x: 0, y: 0, z: 0, w: 1 };
-    let object: Awaited<ReturnType<TwistyPlayer["experimentalCurrentThreeJSPuzzleObject"]>> | null = null;
+    let object: PuzzleObject | null = null;
+    // One presentation home for this player, not a calibration reference. A rebound
+    // object may already carry our gyro rotation, so never sample its home again.
     let home: Quat | null = null;
     let vantages: Awaited<ReturnType<TwistyPlayer["experimentalCurrentVantages"]>> = [];
-    let frame = 0;
     const render = (immediate = false) => {
       if (!object || !home) return;
       // GAN body axes R/B/U map to Three's R/U/F: (x, z, -y).
-      // The puzzle's home quaternion is presentation only, never a calibration.
       const mapped = { x: target.x, y: target.z, z: -target.y, w: target.w };
       const goal = object.quaternion.clone().set(mapped.x, mapped.y, mapped.z, mapped.w);
       goal.multiply(object.quaternion.clone().set(home.x, home.y, home.z, home.w));
@@ -37,54 +40,67 @@ export function GyroInset() {
       else object.quaternion.slerp(goal, 0.35);
       for (const vantage of vantages) vantage.scheduleRender();
     };
-    const animate = () => {
-      if (disposed) return;
-      render();
-      frame = requestAnimationFrame(animate);
+    const bindRenderTarget = async () => {
+      const binding = ++bindingRevision;
+      object = null;
+      const [puzzle, views] = await Promise.all([
+        player.experimentalCurrentThreeJSPuzzleObject(), player.experimentalCurrentVantages(),
+      ]);
+      if (disposed || binding !== bindingRevision) return;
+      if (!home) {
+        const { x, y, z, w } = puzzle.quaternion;
+        home = { x, y, z, w };
+      }
+      object = puzzle;
+      vantages = Array.from(views);
+      render(true);
     };
-    void Promise.all([player.experimentalCurrentThreeJSPuzzleObject(), player.experimentalCurrentVantages()])
-      .then(([puzzle, views]) => {
-        if (disposed) return;
-        object = puzzle;
-        home = { x: puzzle.quaternion.x, y: puzzle.quaternion.y, z: puzzle.quaternion.z, w: puzzle.quaternion.w };
-        vantages = Array.from(views);
-        render(true);
-        frame = requestAnimationFrame(animate);
-      }).catch(() => { /* A later mount can retry unavailable WebGL. */ });
     const resync = async (pattern: KPattern) => {
       const current = ++revision;
-      pending = [];
+      const moves: string[] = [];
+      pending = moves;
       try {
         const setup = (await solveAlg(pattern)).invert();
         if (disposed || current !== revision) return;
         player.alg = "";
         player.experimentalSetupAlg = setup;
-        appended = 0;
-        for (const move of pending ?? []) player.experimentalAddMove(move, { cancel: false });
+        for (const move of moves) player.experimentalAddMove(move, { cancel: false });
+        appended = moves.length;
+        pending = null;
+        // Acquire only after setup replacement. Binding has its own generation:
+        // a newer calculation may fail while this committed setup stays current.
+        await bindRenderTarget();
+      } catch {
+        // Moves already reached the visible player. Initial setup failure can still
+        // bind the default render target; later failures keep the current target.
+        if (!disposed && current === revision && !object) await bindRenderTarget();
       } finally {
         if (current === revision) pending = null;
       }
     };
     const sync = (pattern: KPattern) => { void resync(pattern).catch(() => {}); };
     const offMove = controller.onCubeMove(move => {
-      if (pending) pending.push(move);
-      else player.experimentalAddMove(move, { cancel: false });
+      player.experimentalAddMove(move, { cancel: false });
+      pending?.push(move);
       if (++appended > 400 && !pending && controller.pattern) sync(controller.pattern);
     });
     const offPattern = controller.onPatternReset(sync);
+    // Samples arriving during setup only update the latest presentation target.
+    // Once bound, each raw event itself updates the object and requests rendering.
     const offGyro = controller.onGyro(q => {
       const reference = controller.gripReference;
-      if (reference) target = normalize(relative(reference, q));
+      if (reference) { target = normalize(relative(reference, q)); render(); }
     });
-    const offReference = controller.onRecentreView(() => {
+    const offReference = controller.onGyroReferenceChange(() => {
       target = { x: 0, y: 0, z: 0, w: 1 };
       render(true);
     });
     if (controller.pattern) sync(controller.pattern);
+    else void bindRenderTarget().catch(() => {});
     return () => {
       disposed = true;
       revision++;
-      cancelAnimationFrame(frame);
+      bindingRevision++;
       offMove(); offPattern(); offGyro(); offReference();
       player.remove();
     };

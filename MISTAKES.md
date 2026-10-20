@@ -704,3 +704,11 @@ fixed number of microtasks is enough for asynchronous cube loading.
 - 2026-10-20: The initial gyro inset retained cubing.js's one-use vantage iterator,
   so only its first frame could schedule rendering. Store Array.from(vantages),
   and make the player mock return an iterator to cover repeated render requests.
+
+- 2026-10-20: The initial shared gyro reference doubled as the mutable latest
+  scramble sighting, so relative orientation collapsed to identity while unlocked.
+  Fixed-reference tests missed the real lifecycle. Prevention: drive multiple raw
+  samples through the real unlocked-to-locked runtime without any face moves.
+- 2026-10-20: GyroInset introduced an unnecessary perpetual RAF despite having a
+  high-frequency gyro event seam. Render directly per sample and assert that the
+  inset never starts its own scheduler.

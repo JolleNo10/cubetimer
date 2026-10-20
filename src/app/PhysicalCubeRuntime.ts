@@ -12,6 +12,8 @@ import { debugEnabled, debugLog } from "../util/debug";
 import { Store } from "../shared/store";
 import type { TimerPhase } from "../features/timer/TimerRuntime";
 
+export type GyroReferenceChangeReason = "reset" | "scramble-lock";
+
 export type CubeState = { cubeStatus: CubeStatus; virtualCube: boolean; hardware: CubeHardware | null; battery: number | null; cubeFacelets: string };
 export type PhysicalCubeDependencies = {
   getTimerPhase: () => TimerPhase;
@@ -34,7 +36,7 @@ export class PhysicalCubeRuntime {
   #gyroReadings = 0;
   #gyroListeners = new Set<(q: Quaternion) => void>();
   #gripHeartbeatAt = 0;
-  #recentreListeners = new Set<() => void>();
+  #referenceListeners = new Set<(reason: GyroReferenceChangeReason) => void>();
   #recentTurns: string[] = [];
   #moveListeners = new Set<(move: string) => void>();
   #patternListeners = new Set<(pattern: KPattern) => void>();
@@ -130,7 +132,7 @@ export class PhysicalCubeRuntime {
         state.cubeStatus !== "connected" || !state.hardware?.gyroSupported ||
         !this.#grip.rebaseToCurrentPose()) return false;
     this.#tracedGrip = "";
-    for (const listener of this.#recentreListeners) listener();
+    for (const listener of this.#referenceListeners) listener("reset");
     return true;
   }
 
@@ -209,7 +211,13 @@ export class PhysicalCubeRuntime {
 
   lockGripReference(): void {
     if (this.#grip.locked) return;
-    this.#grip.lockReference();
+    const before = this.#grip.steady;
+    const changed = this.#grip.lockReference();
+    if (changed) {
+      for (const listener of this.#referenceListeners) listener("scramble-lock");
+    } else if (this.#grip.steady && this.#grip.steady !== before) {
+      for (const listener of this.#gripListeners) listener(this.#grip.steady);
+    }
     this.#tracedGrip = "";
     debugLog(
       "grip",
@@ -245,11 +253,11 @@ export class PhysicalCubeRuntime {
   }
 
   /**
-   * Successful reference changes only, whether requested by button or cube gesture.
+   * Authoritative gyro reference changes, including automatic scramble locking.
    */
-  onRecentreView(listener: () => void): () => void {
-    this.#recentreListeners.add(listener);
-    return () => this.#recentreListeners.delete(listener);
+  onGyroReferenceChange(listener: (reason: GyroReferenceChangeReason) => void): () => void {
+    this.#referenceListeners.add(listener);
+    return () => this.#referenceListeners.delete(listener);
   }
 
   /** Every cube move, for driving the 3D view without going through React state. */

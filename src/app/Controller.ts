@@ -157,7 +157,7 @@ export class Controller {
   onCubeMove(listener: (move: string) => void) { return this.physical.onCubeMove(listener); }
   onPatternReset(listener: (pattern: KPattern) => void) { return this.physical.onPatternReset(listener); }
   onGripChange(listener: (orientation: Orientation) => void) { return this.physical.onGripChange(listener); }
-  onRecentreView(listener: () => void) { return this.physical.onRecentreView(listener); }
+  onGyroReferenceChange(listener: Parameters<PhysicalCubeRuntime["onGyroReferenceChange"]>[0]) { return this.physical.onGyroReferenceChange(listener); }
   onSolveRecorded(listener: (solve: Solve) => void) { this.#solveRecordedListeners.add(listener); return () => { this.#solveRecordedListeners.delete(listener); }; }
   connect(prompt?: MacPrompt): Promise<void> { return this.physical.connect(prompt); }
   disconnect(): Promise<void> { return this.physical.disconnect(); }

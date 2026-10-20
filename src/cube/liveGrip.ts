@@ -3,11 +3,12 @@
  *
  * The gyroscope has no idea which way is up. It reports a pose in a frame of its own
  * choosing that drifts as the solve goes on, so a reading only means something next to
- * another reading. What gives it meaning here is the scramble: scrambles are applied
- * white on top and green in front, and the cube is not turned over while they are being
- * applied, so every reading taken during the scramble is a fresh sighting of that one
- * known pose. Keeping the last of them as the reference throws away all the drift that
- * built up beforehand, and leaves the solve measured against the grip it started from.
+ * another reading. Scramble completion supplies the known white-up, green-front
+ * solve pose. The latest raw sighting is retained separately from the stable published
+ * reference: continuous presentation needs that baseline even while scrambling.
+ * Scramble completion adopts the last sighting as the solve reference, removing the
+ * drift built up beforehand. Explicit Reset gyro instead establishes and locks the
+ * current pose immediately.
  *
  * Only the latest reading is kept. What the reconstruction works from is the pose as
  * each move landed, which the controller takes a copy of move by move; a running log
@@ -42,18 +43,16 @@ export class LiveGrip {
   /**
    * Take a reading.
    *
-   * Until the reference is locked this is a sighting of the scrambling pose and simply
-   * replaces it. Afterwards it is a measurement of how far the cube has been turned
-   * since, and is kept for the reconstruction.
+   * Keep the latest scramble sighting without moving the published reference. The
+   * first valid sample supplies an initial baseline. Only locked readings produce
+   * snapped and settled grip for presentation and solve reconstruction.
    */
   sample(q: Quat, t: number): void {
     if (![q.x, q.y, q.z, q.w].every(Number.isFinite) || Math.hypot(q.x, q.y, q.z, q.w) === 0) return;
     this.#latest = { ...q };
     this.#latestAt = t;
-    if (!this.#locked) {
-      this.#reference = q;
-      return;
-    }
+    this.#reference ??= this.#latest;
+    if (!this.#locked) return;
     const reference = this.#reference ?? q;
     this.#snapped = this.#bottom
       ? snapWithBottom(q, reference, this.#bottom)
@@ -63,23 +62,29 @@ export class LiveGrip {
 
   /**
    * The scramble is finished: whatever pose the cube is in now is white on top and
-   * green in front, and everything from here is measured against it.
+   * green in front, and everything from here is measured against it. Returns whether
+   * the published reference changed; an explicit locked reset is left intact.
    */
-  lockReference(): void {
-    if (this.#locked) return;
+  lockReference(): boolean {
+    if (this.#locked) return false;
+    const before = this.#reference;
+    this.#reference = this.#latest ?? before;
     this.#locked = true;
     if (this.#latest) this.sample(this.#latest, this.#latestAt);
+    const after = this.#reference;
+    return after !== null && (before === null ||
+      after.x !== before.x || after.y !== before.y || after.z !== before.z || after.w !== before.w);
   }
 
-  /** Forget everything: a new scramble is being applied. */
+  /** Clear solve grip for a new scramble, retaining the stable live baseline. */
   reset(): void {
     this.#locked = false;
     this.#snapped = null;
     this.#steady = null;
     this.#candidate = null;
     this.#bottom = null;
-    // The reference is deliberately kept. It is still the best guess at the scrambling
-    // pose, so the live view has something to work from before the next reading lands.
+    // Raw motion stays relative to this baseline until the latest scramble sighting
+    // is adopted at lockReference(), or the user explicitly rebases.
   }
 
   /** Explicit calibration, independent of the automatic scramble lifecycle. */

@@ -1,9 +1,9 @@
 /**
  * Just enough quaternion maths to read the cube's orientation off its gyroscope.
  *
- * Nothing here turns anything on screen. The drawn cube is placed by the grip the
- * tracker settles on, not by the raw pose, so what these are for is comparing one
- * orientation against another.
+ * Compares gyro poses for stabilized grip and solve reconstruction, and calculates
+ * relative orientation for continuous Timer gyro presentation. These operations are
+ * independent of the rendering and application layers.
  */
 export type Quat = { x: number; y: number; z: number; w: number };
 

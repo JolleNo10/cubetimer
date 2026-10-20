@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { LiveGrip } from "./liveGrip";
 import { facesAtPositions } from "./gyroGrip";
-import { IDENTITY, multiply, normalize, type Quat } from "../util/quat";
+import { IDENTITY, multiply, normalize, relative, type Quat } from "../util/quat";
 import { FACE_AXES } from "./gyroGrip";
 
 function aboutAxis(axis: readonly [number, number, number], degrees: number): Quat {
@@ -195,4 +195,41 @@ describe("explicit gyro rebase", () => {
     expect(grip.reference).toEqual(DRIFTED);
     expect(front(grip)).toBe("F");
   });
+});
+
+describe("unlocked live gyro lifecycle", () => {
+  it("retains a stable display reference until the latest scramble sighting is locked", () => {
+    const grip = new LiveGrip();
+    grip.sample(DRIFTED, 0);
+    expect(grip.reference).toEqual(DRIFTED);
+    for (const degrees of [5, 12, 25]) {
+      const tilt = aboutAxis(FACE_AXES.R, degrees);
+      const latest = turn(DRIFTED, tilt);
+      grip.sample(latest, degrees);
+      expect(grip.reference).toEqual(DRIFTED);
+      expect(normalize(relative(grip.reference!, latest)).x).toBeCloseTo(tilt.x);
+      expect(grip.steady).toBeNull(); expect(grip.snapped).toBeNull();
+    }
+    const final = turn(DRIFTED, aboutAxis(FACE_AXES.R, 25));
+    grip.lockReference();
+    expect(grip.reference).toEqual(final);
+    expect(grip.pose).toEqual(final);
+    expect(facesAtPositions(grip.steady!)).toMatchObject({ U: "U", F: "F" });
+    grip.reset(); grip.sample(DRIFTED, 100);
+    expect(grip.reference).toEqual(final);
+    grip.lockReference(); expect(grip.reference).toEqual(DRIFTED);
+  });
+});
+
+it("ignores invalid sightings without losing the stable reference or latest valid lock pose", () => {
+  const grip = new LiveGrip();
+  grip.sample(IDENTITY, 0);
+  grip.sample(DRIFTED, 100);
+  for (const invalid of [{ x: 0, y: 0, z: 0, w: 0 }, { x: NaN, y: 0, z: 0, w: 1 }]) {
+    grip.sample(invalid, 200);
+    expect(grip.reference).toEqual(IDENTITY);
+  }
+  grip.lockReference();
+  expect(grip.reference).toEqual(DRIFTED);
+  expect(grip.pose).toEqual(DRIFTED);
 });

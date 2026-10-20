@@ -26,7 +26,7 @@ Settings persistence, public UI facades, and the shared elapsed RAF scheduler.
 
 PhysicalCubeRuntime owns physical/device/grip facts: the single physical CubeModel,
 SmartCube handlers, hardware/battery state, facelet synchronization, gyro readings,
-LiveGrip and recentre listeners. It publishes each physical move after updating the
+LiveGrip and gyro-reference listeners. It publishes each physical move after updating the
 model; Controller routes it to the active runtime. Synthetic turns enter the same
 path through `Controller.injectMove()`.
 
@@ -125,7 +125,7 @@ The Controller also exposes targeted listener seams for events such as:
 - cube moves;
 - grip changes;
 - full pattern replacement;
-- view recentering;
+- gyro reference changes (explicit reset or automatic scramble lock);
 - completed solve recording.
 
 High-frequency or narrowly scoped events should not require unrelated application-wide React updates.
@@ -336,21 +336,40 @@ physical CubeModel, preference Store or persistence owner exists.
 
 ## Shared gyro reference
 
-LiveGrip.reference is the single calibration reference for continuous Timer gyro
-presentation, stabilized grip and subsequent solve reconstruction. Explicit
-rebaseToCurrentPose captures the latest valid pose, clears settled/candidate and
-bottom constraints and locks a neutral orientation. Ordinary reset/lockReference
-retain their automatic scramble lifecycle semantics.
+LiveGrip.reference is the single authoritative calibration for continuous Timer gyro
+presentation, stabilized grip and subsequent solve reconstruction. Its latest valid
+raw sample is a scramble sighting, not a second calibration. While unlocked, the
+first sample may establish an initial reference, but later samples retain that
+stable published baseline so continuous relative motion remains visible. Normal
+scramble completion adopts the latest sighting as the solve reference and locks a
+neutral white-up/green-front grip. Ordinary reset clears solve grip and bottom
+constraints while retaining the published reference until that lock.
 
-PhysicalCubeRuntime owns reset eligibility (connected gyro source and valid sample,
-never inspection or solving), the U×4/U'×4 gesture and successful reference-change
-notification. Controller routes moves using the pre-move Timer phase after Timer
-processing so neither a solve's first nor final move can bypass the guards. Face
-turns remain ordinary physical moves. Completed solve facts are unchanged.
+Explicit rebaseToCurrentPose establishes and locks the latest valid pose immediately,
+clearing stale snapped, candidate, settled and held-bottom state. Later raw samples
+cannot overwrite that explicit calibration. PhysicalCubeRuntime owns reset eligibility
+(connected gyro hardware and a valid sample, never inspection or solving), UÃ—4/U'Ã—4
+recognition, raw gyro listeners and onGyroReferenceChange notifications. Successful
+explicit resets emit "reset"; automatic locking emits "scramble-lock" only when the
+reference changes. Only "reset" produces user success feedback.
 
-CubeView rebuilds the main display orientation from the current pattern on reference
-change; only Timer opts into GyroInset. The inset consumes raw samples through a
-narrow listener after LiveGrip processing, with presentation-only smoothing and
-proper subscription cleanup. Main stabilization and inset visibility are independent
-settings. Reject separate inset calibration: it could disagree with stabilized grip
-and solve reconstruction. No quaternion stream enters an observable React Store.
+Controller routes physical moves using the pre-move Timer phase after Timer processing,
+so neither a solve's first nor final move bypasses the guards. Turns remain ordinary
+physical moves and ready-state timing starts immediately. The shortcut is useful
+while scrambling or otherwise idle before a turn legitimately starts a solve; the
+button remains reliable when ready. Completed solve facts remain unchanged.
+
+CubeView establishes the new presentation baseline on either reference change and
+rebuilds from the current physical pattern. Only Timer opts into GyroInset. Its raw
+presentation is event-driven: one update/smoothing step per sample and Twisty render
+requests, with no React Store or perpetual RAF. After initial setup and every setup
+replacement it reacquires the current Three.js object/vantages, retaining original
+presentation homes for reused objects. Disposal and generation guards reject stale
+work. Both renderers apply moves to the existing visible player during asynchronous
+setup calculation and replay post-snapshot moves only after successful replacement.
+Main stabilization and inset visibility remain independent settings.
+
+Rejected: continuously replacing the shared reference with every unlocked gyro
+sample. relative(reference, sample) collapses to identity and freezes the live gyro
+view. Independent inset calibration is also rejected because it could disagree
+with stabilized grip and solve reconstruction.

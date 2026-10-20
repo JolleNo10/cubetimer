@@ -66,6 +66,8 @@ it("offers Gyro view independently of main gyro stabilization", () => {
   expect(html).toContain("Gyro view");
   expect(html).toContain("Shows a small cube following the physical gyro continuously.");
   expect(html).not.toContain("Back view");
+  expect(html).toContain("before turns start timing");
+  expect(html).toContain("Use Reset gyro when ready.");
   const row = html.split('class="switch-row"').find(part => part.includes('class="title">Gyro view'))!;
   expect(row).toContain('checked=""'); expect(row).not.toContain('disabled=""');
 });

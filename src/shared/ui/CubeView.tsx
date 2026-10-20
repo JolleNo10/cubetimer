@@ -73,6 +73,13 @@ export function CubeView({
   const gyroActive = showGyroInset && live && gyroSupported && !staticDisplay && displaySource === "physical";
   const [gyroReady, setGyroReady] = useState(Boolean(controller.gripReference));
   const [flash, setFlash] = useState("");
+  const flashTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  function showFeedback(message: string) {
+    clearTimeout(flashTimeout.current);
+    setFlash(message);
+    flashTimeout.current = setTimeout(() => setFlash(""), 1400);
+  }
+  useEffect(() => () => clearTimeout(flashTimeout.current), []);
 
   const use3D = settings.visualization === "3D";
   const guiding = use3D && Boolean(guideMove);
@@ -171,7 +178,7 @@ export function CubeView({
         player.experimentalSetupAlg = tokens.length
           ? setup.concat(new Alg(tokens.join(" ")))
           : setup;
-        appended = 0;
+        appended = pendingMoves?.length ?? 0;
         for (const move of pendingMoves ?? []) player.experimentalAddMove(move, { cancel: false });
       } catch {
         // Leave the view as it is; the next reset will try again.
@@ -195,15 +202,19 @@ export function CubeView({
       };
     }
 
+    const append = (token: string) => {
+      player.experimentalAddMove(token, { cancel: false });
+      pendingMoves?.push(token);
+      appended++;
+    };
+
     // Turning the real cube over turns the drawn one over the same way, so the two
     // stay in step and the moves fed in afterwards go on meaning what they say.
     const offGrip = gyroDriven
       ? controller.onGripChange((orientation) => {
           if (held) {
             for (const token of rotationTokensBetween(held, orientation)) {
-              if (pendingMoves) pendingMoves.push(token);
-              else player.experimentalAddMove(token, { cancel: false });
-              appended++;
+              append(token);
             }
           }
           held = orientation;
@@ -212,10 +223,8 @@ export function CubeView({
 
     const offMove = controller.onCubeMove((move) => {
       const token = held ? reorientMove(move, held) : move;
-      if (pendingMoves) pendingMoves.push(token);
-      else player.experimentalAddMove(token, { cancel: false });
-      appended++;
-      if (appended > COMPACT_AFTER_MOVES && !compacting) {
+      append(token);
+      if (appended > COMPACT_AFTER_MOVES && !compacting && !pendingMoves) {
         // The alg is replayed from the start on every change, so fold it back into
         // the setup periodically to keep long sessions responsive.
         compacting = true;
@@ -229,7 +238,10 @@ export function CubeView({
         ? () => {}
         : controller.onPatternReset((pattern) => void resync(pattern));
 
-    const offReference = controller.onRecentreView(() => {
+    const offReference = controller.onGyroReferenceChange(() => {
+      if (gyroDriven && held) {
+        for (const token of rotationTokensBetween(held, IDENTITY)) append(token);
+      }
       held = gyroDriven ? IDENTITY : heldOverride;
       const pattern = displayedPattern();
       if (pattern) void resync(pattern);
@@ -271,13 +283,9 @@ export function CubeView({
 
   useEffect(() => {
     if (!showGyroInset) return;
-    let timeout: ReturnType<typeof setTimeout>;
-    const off = controller.onRecentreView(() => {
-      setFlash("Gyro orientation reset");
-      clearTimeout(timeout);
-      timeout = setTimeout(() => setFlash(""), 1400);
+    return controller.onGyroReferenceChange(reason => {
+      if (reason === "reset") showFeedback("Gyro orientation reset");
     });
-    return () => { off(); clearTimeout(timeout); };
   }, [controller, showGyroInset]);
 
   if (settings.visualization === "off") return null;
@@ -294,8 +302,8 @@ export function CubeView({
             <button
               className="ghost small"
               disabled={gyroResetDisabled}
-              onClick={() => { if (!controller.resetGyro()) setFlash("Gyro reset unavailable"); }}
-              title="Treat the cube's current position as level, with white on top and green in front. Shortcut: U×4 or U'×4."
+              onClick={() => { if (!controller.resetGyro()) showFeedback("Gyro reset unavailable"); }}
+              title="Treat the cube's current position as level, with white on top and green in front. Shortcut: UÃ—4 or U'Ã—4 while scrambling, before turns start timing."
             >
               Reset gyro
             </button>

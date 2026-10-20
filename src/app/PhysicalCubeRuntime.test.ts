@@ -48,13 +48,13 @@ describe("PhysicalCubeRuntime", () => {
     expect(reset).toHaveBeenCalledOnce(); f.handlers.onFacelets!("garbled", 3); expect(reset).toHaveBeenCalledOnce();
   });
   it("owns gyro reference and U-turn recentre observations", () => {
-    const f = fixture(), recentre = vi.fn(); f.physical.onRecentreView(recentre);
+    const f = fixture(), recentre = vi.fn(); f.physical.onGyroReferenceChange(recentre);
     f.handlers.onStatus!("connected");
     f.handlers.onHardware!({ deviceName: "GAN", deviceMAC: "test", gyroSupported: true });
     f.handlers.onGyro!({ x: 0, y: 0, z: 0, w: 1 }); f.physical.lockGripReference();
     expect(f.physical.gripLocked).toBe(true); expect(f.physical.gripReference).not.toBeNull();
     for (let i = 0;i < 4;i++) f.physical.observeTimerMove("U", "ready");
-    expect(recentre).toHaveBeenCalledOnce(); f.physical.resetGrip(); expect(f.physical.gripLocked).toBe(false);
+    expect(recentre).toHaveBeenCalledExactlyOnceWith("reset"); f.physical.resetGrip(); expect(f.physical.gripLocked).toBe(false);
   });
 });
 
@@ -66,7 +66,7 @@ describe("shared gyro reset", () => {
     return f;
   }
   it("refuses missing samples, unsupported hardware, disconnects and protected phases", () => {
-    const f = connected(), changed = vi.fn(); f.physical.onRecentreView(changed);
+    const f = connected(), changed = vi.fn(); f.physical.onGyroReferenceChange(changed);
     expect(f.physical.resetGyro()).toBe(false);
     f.handlers.onGyro!({ x: 0, y: 0, z: 0, w: 1 });
     for (const phase of ["inspection", "solving"] as const) {
@@ -85,7 +85,7 @@ describe("shared gyro reset", () => {
   });
   it("rebases direct and gesture requests identically, notifying once per complete sequence", () => {
     const f = connected(), changed = vi.fn(), gyro = vi.fn();
-    const off = f.physical.onRecentreView(changed), offGyro = f.physical.onGyro(gyro);
+    const off = f.physical.onGyroReferenceChange(changed), offGyro = f.physical.onGyro(gyro);
     f.handlers.onGyro!({ x: 0, y: 0, z: 0, w: 1 }); f.physical.lockGripReference();
     const q = { x: Math.SQRT1_2, y: 0, z: 0, w: Math.SQRT1_2 };
     f.handlers.onGyro!(q);
@@ -100,10 +100,52 @@ describe("shared gyro reset", () => {
     f.physical.observeTimerMove("U'", "scrambling"); expect(changed).toHaveBeenCalledOnce();
     f.physical.observeTimerMove("U'", "scrambling"); expect(changed).toHaveBeenCalledOnce();
     for (let i = 0; i < 3; i++) f.physical.observeTimerMove("U'", "scrambling");
-    expect(changed).toHaveBeenCalledTimes(2);
+    expect(changed.mock.calls).toEqual([["reset"], ["reset"]]);
     off(); offGyro();
     expect(f.physical.resetGyro()).toBe(true);
     f.handlers.onGyro!(q);
     expect(changed).toHaveBeenCalledTimes(2); expect(gyro).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("raw gyro reference lifecycle", () => {
+  it("publishes unlocked samples without chasing the shared reference, and announces only actual scramble changes", () => {
+    const f = fixture(), raw = vi.fn(), changes = vi.fn();
+    f.setPhase("scrambling");
+    const offRaw = f.physical.onGyro(raw), offChanges = f.physical.onGyroReferenceChange(changes);
+    const zero = { x: 0, y: 0, z: 0, w: 1 };
+    const tilted = { x: 0.1, y: 0, z: 0, w: Math.sqrt(0.99) };
+    f.handlers.onGyro!(zero); f.handlers.onGyro!(tilted);
+    expect(raw.mock.calls).toEqual([[zero], [tilted]]);
+    expect(f.onMove).not.toHaveBeenCalled();
+    expect(f.physical.gripReference).toEqual(zero);
+    expect(f.physical.heldAs).toBeNull();
+    f.physical.lockGripReference();
+    expect(f.physical.gripReference).toEqual(tilted);
+    expect(f.physical.heldAs).toMatchObject({ U: "U", F: "F" });
+    expect(changes.mock.calls).toEqual([["scramble-lock"]]);
+    f.physical.lockGripReference();
+    f.physical.resetGrip(); f.physical.lockGripReference();
+    expect(changes).toHaveBeenCalledOnce();
+    offRaw(); offChanges();
+    f.physical.resetGrip(); f.handlers.onGyro!(zero); f.physical.lockGripReference();
+    expect(raw).toHaveBeenCalledTimes(2); expect(changes).toHaveBeenCalledOnce();
+    f.handlers.onStatus!("disconnected");
+    expect(f.physical.gripReference).toBeNull(); expect(f.physical.pose).toBeNull();
+    expect(f.physical.gripLocked).toBe(false);
+  });
+  it("ignores invalid raw samples and retains an explicit reset across later scrambling samples", () => {
+    const f = fixture(), raw = vi.fn(), changes = vi.fn();
+    f.handlers.onStatus!("connected");
+    f.handlers.onHardware!({ deviceName: "GAN", deviceMAC: "test", gyroSupported: true });
+    f.physical.onGyro(raw); f.physical.onGyroReferenceChange(changes);
+    f.handlers.onGyro!({ x: 0, y: 0, z: 0, w: 0 });
+    f.handlers.onGyro!({ x: Infinity, y: 0, z: 0, w: 1 });
+    expect(f.physical.resetGyro()).toBe(false); expect(raw).not.toHaveBeenCalled();
+    const q = { x: 0, y: 0, z: 0, w: 1 };
+    f.handlers.onGyro!(q); expect(f.physical.resetGyro()).toBe(true);
+    f.handlers.onGyro!({ x: 0.1, y: 0, z: 0, w: Math.sqrt(0.99) });
+    expect(f.physical.gripReference).toEqual(q);
+    expect(changes.mock.calls).toEqual([["reset"]]);
   });
 });

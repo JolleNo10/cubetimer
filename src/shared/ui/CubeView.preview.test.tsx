@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Alg } from "cubing/alg";
+import type { GyroReferenceChangeReason } from "../../app/PhysicalCubeRuntime";
 import { Controller } from "../../app/Controller";
 import { CubeModel } from "../../cube/model";
 import { get3x3x3 } from "../../cube/puzzle";
@@ -25,7 +27,10 @@ vi.mock("react", async original => ({
     const index = fixture.cursor++;
     return (fixture.slots[index] ??= { value: { current: index === 0 ? fixture.host : initial } }).value;
   },
-  useState: (initial: unknown) => { fixture.cursor++; return [initial, () => {}]; },
+  useState: (initial: unknown) => {
+    const index = fixture.cursor++, slot = fixture.slots[index] ??= { value: initial };
+    return [slot.value, (value: unknown) => { slot.value = value; }];
+  },
   useMemo: (make: () => unknown, deps: readonly unknown[]) => {
     const index = fixture.cursor++, previous = fixture.slots[index];
     if (!sameDependencies(previous?.deps, deps)) fixture.slots[index] = { value: make(), deps };
@@ -56,10 +61,12 @@ beforeEach(() => {
   fixture.cursor = 0; fixture.slots = []; fixture.pending = []; fixture.players = [];
   fixture.controller = new Controller(new CubeModel(kpuzzle));
   vi.clearAllMocks();
+  vi.mocked(solveAlg).mockReset().mockResolvedValue(new Alg(""));
 });
 afterEach(() => {
   fixture.slots.forEach(slot => slot?.cleanup?.());
   vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 async function render(displayFacelets: string, displayRevision: string, staticDisplay = true) {
@@ -147,13 +154,13 @@ describe("Timer gyro presentation", () => {
   it("rebuilds accumulated main grip rotations immediately on a reference notification", async () => {
     const controller = fixture.controller!;
     vi.spyOn(controller, "heldAs", "get").mockReturnValue(ALL_ORIENTATIONS.find(rotation => rotation.tokens.length > 0)!.orientation);
-    const listeners: Array<() => void> = [];
-    vi.spyOn(controller, "onRecentreView").mockImplementation(listener => { listeners.push(listener); return vi.fn(); });
+    const listeners: Array<(reason: GyroReferenceChangeReason) => void> = [];
+    vi.spyOn(controller, "onGyroReferenceChange").mockImplementation(listener => { listeners.push(listener); return vi.fn(); });
     renderLive(); await Promise.resolve();
     controller.injectMove("R");
     const player = fixture.players[0];
     expect(player.experimentalSetupAlg?.toString()).not.toBe("");
-    listeners.forEach(listener => listener()); await Promise.resolve();
+    listeners.forEach(listener => listener("reset")); await Promise.resolve();
     expect(solveAlg).toHaveBeenLastCalledWith(controller.pattern);
     expect(player.alg).toBe("");
     expect(player.experimentalSetupAlg?.toString()).toBe("");
@@ -171,4 +178,87 @@ it("disables Reset gyro in protected phases and reports only successful runtime 
   const enabled = findElement(renderLive({ gyroResetDisabled: false }), "button")!;
   expect(enabled.props.disabled).toBe(false);
   (enabled.props.onClick as () => void)(); expect(action).toHaveBeenCalledOnce();
+});
+
+function deferredSetup() {
+  let resolve!: (value: Alg) => void, reject!: (error: Error) => void;
+  const promise = new Promise<Alg>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+async function settle() { for (let i = 0; i < 5; i++) await Promise.resolve(); }
+function replacePattern() { fixture.controller!.physical.setModel(new CubeModel(kpuzzle)); }
+
+it("makes reset feedback transient, replaces its timer and keeps scramble-lock silent", async () => {
+  vi.useFakeTimers();
+  const controller = fixture.controller!, listeners: Array<(reason: GyroReferenceChangeReason) => void> = [];
+  vi.spyOn(controller, "gripReference", "get").mockReturnValue({ x: 0, y: 0, z: 0, w: 1 });
+  vi.spyOn(controller, "onGyroReferenceChange").mockImplementation(listener => { listeners.push(listener); return () => {}; });
+  const action = vi.spyOn(controller, "resetGyro").mockReturnValue(false);
+  renderLive(); await settle();
+  listeners.forEach(listener => listener("scramble-lock"));
+  expect(JSON.stringify(renderLive())).not.toContain("Gyro orientation reset");
+  const button = findElement(renderLive(), "button")!;
+  (button.props.onClick as () => void)();
+  expect(action).toHaveBeenCalledOnce();
+  expect(JSON.stringify(renderLive())).toContain("Gyro reset unavailable");
+  vi.advanceTimersByTime(1000);
+  listeners.forEach(listener => listener("reset"));
+  expect(JSON.stringify(renderLive())).toContain("Gyro orientation reset");
+  vi.advanceTimersByTime(500);
+  expect(JSON.stringify(renderLive())).toContain("Gyro orientation reset");
+  vi.advanceTimersByTime(900);
+  expect(JSON.stringify(renderLive())).not.toContain("Gyro orientation reset");
+  (button.props.onClick as () => void)();
+  vi.advanceTimersByTime(1400);
+  expect(JSON.stringify(renderLive())).not.toContain("Gyro reset unavailable");
+  listeners.forEach(listener => listener("reset"));
+  fixture.slots.forEach(slot => { slot?.cleanup?.(); if (slot) slot.cleanup = undefined; });
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it.each([false, true])("keeps face and settled-grip moves visible while resync is pending (success=%s)", async success => {
+  const controller = fixture.controller!;
+  let grip!: (orientation: typeof IDENTITY) => void;
+  vi.spyOn(controller, "onGripChange").mockImplementation(listener => { grip = listener; return () => {}; });
+  renderLive(); await settle();
+  const player = fixture.players[0], beforeSetup = player.experimentalSetupAlg, pending = deferredSetup();
+  vi.mocked(solveAlg).mockReturnValueOnce(pending.promise);
+  replacePattern();
+  controller.injectMove("R");
+  grip(ALL_ORIENTATIONS.find(rotation => rotation.tokens.length > 0)!.orientation);
+  const immediateMoves = player.experimentalAddMove.mock.calls.map(call => call[0]);
+  expect(immediateMoves[0]).toBe("R"); expect(immediateMoves.length).toBeGreaterThan(1);
+  if (success) pending.resolve(new Alg("F")); else pending.reject(new Error("failed setup"));
+  await settle();
+  const allMoves = player.experimentalAddMove.mock.calls.map(call => call[0]);
+  expect(allMoves).toEqual(success ? [...immediateMoves, ...immediateMoves] : immediateMoves);
+  expect(player.experimentalSetupAlg?.toString()).toBe(success ? "F'" : beforeSetup?.toString());
+});
+
+it("lets only the newest async setup replace the player and ignores work after unmount", async () => {
+  renderLive(); await settle();
+  const older = deferredSetup(), newer = deferredSetup(), player = fixture.players[0];
+  vi.mocked(solveAlg).mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise);
+  replacePattern(); replacePattern();
+  newer.resolve(new Alg("U")); await settle();
+  older.resolve(new Alg("R")); await settle();
+  expect(player.experimentalSetupAlg?.toString()).toBe("U'");
+  const removed = deferredSetup(); vi.mocked(solveAlg).mockReturnValueOnce(removed.promise);
+  replacePattern();
+  fixture.slots.forEach(slot => { slot?.cleanup?.(); if (slot) slot.cleanup = undefined; });
+  removed.resolve(new Alg("F")); await settle();
+  expect(player.experimentalSetupAlg?.toString()).toBe("U'");
+  expect(player.remove).toHaveBeenCalledOnce();
+});
+
+it("counts replayed post-snapshot moves toward main-view compaction", async () => {
+  renderLive(); await settle();
+  const pending = deferredSetup(); vi.mocked(solveAlg).mockReturnValueOnce(pending.promise);
+  replacePattern();
+  for (let i = 0; i < 400; i++) fixture.controller!.injectMove("R");
+  expect(solveAlg).toHaveBeenCalledTimes(2);
+  pending.resolve(new Alg("")); await settle();
+  fixture.controller!.injectMove("R");
+  expect(solveAlg).toHaveBeenCalledTimes(3);
+  await settle();
 });
