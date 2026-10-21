@@ -187,12 +187,14 @@ describe("shared Training presentation", () => {
 });
 
 describe("family result presentation", () => {
-  it.each(["oll", "pll"] as const)("keeps %s virtual reload Complete while ready with a previous result", async family => {
+  it.each(["f2l", "oll", "pll"] as const)("explains that %s virtual reload is ready while retaining the previous result", async family => {
     const controller = await selected();
     controller.training.state.update(state => ({ ...state, family, phase: "ready", result }));
     const html = render(controller, <TrainingSetupPanel />);
-    expect(html).toContain("<strong>Complete</strong>");
-    expect(html).not.toContain("<strong>Ready</strong>");
+    expect(html).toContain("<strong>Next attempt ready</strong>");
+    expect(html).toContain("Make one turn to start. Your previous result stays visible until then.");
+    expect(html).not.toContain("Choose Again");
+    expect(render(controller, <TrainingActions />)).toContain("Another variation");
   });
 
   it("keeps F2L alternatives available when showing a completed attempt", async () => {

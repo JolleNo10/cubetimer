@@ -151,9 +151,10 @@ export function TrainingActions() {
   const training = useTrainingState();
   if (training.activity === "drill") return null;
   const again = Boolean(training.result);
+  const anotherVariation = training.mode === "virtual" && training.phase === "ready" && training.target?.origin.kind === "catalog";
   return <div className="row wrap f2l-actions">
     {!again && training.target ? <button onClick={() => controller.retryTrainingCase()}>Retry case</button> : null}
-    {again ? <button className="primary" onClick={() => controller.againTraining()}>Again</button> : null}
+    {again ? <button className="primary" onClick={() => controller.againTraining()}>{anotherVariation ? "Another variation" : "Again"}</button> : null}
     {again && training.target?.origin.kind === "catalog" ? <button onClick={() => void controller.reviewTrainingCase(training.family)}>Next review</button> : null}
     <button className="ghost" onClick={() => controller.resetTraining()}>Clear case</button>
   </div>;
@@ -203,7 +204,12 @@ export function TrainingSetupPanel() {
             {virtual ? "Choose a case to load it virtually." : "Choose a case to guide the cube into position."}
           </div>
         ) : virtual ? (
-          complete ? (
+          training.phase === "ready" && training.result ? (
+            <div className="training-ready" role="status">
+              <strong>Next attempt ready</strong>
+              <span className="small faint">Make one turn to start. Your previous result stays visible until then.</span>
+            </div>
+          ) : complete ? (
             <div className="training-ready" role="status">
               <strong>Complete</strong>
               <span className="small faint">Choose Again to repeat this setup.</span>

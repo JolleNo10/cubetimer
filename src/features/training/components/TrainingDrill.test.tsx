@@ -8,12 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Controller } from "../../../app/Controller";
 import { CubeModel } from "../../../cube/model";
 import { get3x3x3 } from "../../../cube/puzzle";
+import { referenceExecutionSignature } from "../../../cube/f2lTraining";
 import * as db from "../../../infrastructure/persistence/db";
 import type { TrainingDrillPreset } from "../../../app/types";
 import type { MoveGuide } from "../../../cube/moveGuide";
 import { Training } from "./Training";
 import { TrainingDrillPanel, TrainingDrillControls, TrainingDrillSummary, SavedDrills } from "./TrainingDrill";
-import { TrainingWorkspace, TrainingCubeStage, TrainingActions, TrainingReferences, TrainingAttemptResult, TrainingInputControls } from "./TrainingWorkspace";
+import { TrainingWorkspace, TrainingCubeStage, TrainingActions, TrainingReferences, TrainingAttemptResult, TrainingInputControls, TrainingSetupPanel } from "./TrainingWorkspace";
 import { TrainingPersonalPerformance } from "./TrainingPerformance";
 const hooks = vi.hoisted(() => ({ controller: null as Controller | null, inlineState: null as unknown[] | null, cursor: 0 }));
 vi.mock("react", async original => ({ ...await original<typeof import("react")>(),
@@ -183,6 +184,22 @@ describe("Single and Drill presentation", () => {
     expect(controller.training.state.get().liveMoves).toEqual(["U"]);
     button("Turn U'", <TrainingInputControls />).onClick();
     expect(controller.training.state.get().liveMoves).toEqual(["U", "U'"]);
+  });
+  it.each(["f2l", "oll", "pll"] as const)("explains the actual %s Single completion-to-next-attempt transition", async family => {
+    vi.spyOn(db, "saveTrainingAttempt").mockResolvedValue();
+    const { controller, caseId } = fixture(family);
+    controller.setTrainingActivity("single");
+    await controller.setTrainingMode("virtual");
+    if (family === "f2l") await controller.selectF2lCase(caseId);
+    else await controller.selectLastLayerCase(family, caseId);
+    const reference = controller.training.state.get().target!.references[0].alg;
+    for (const move of referenceExecutionSignature(reference)!) controller.injectVirtualMove(move);
+    expect(controller.training.state.get()).toMatchObject({ phase: "ready", result: { matchedReferenceRank: 1 } });
+    expect(renderToStaticMarkup(<TrainingSetupPanel />)).toContain("Next attempt ready");
+    expect(button("Another variation", <TrainingActions />)).toBeDefined();
+    controller.injectVirtualMove("B");
+    expect(controller.training.state.get()).toMatchObject({ phase: "solving", result: null });
+    expect(renderToStaticMarkup(<TrainingSetupPanel />)).toContain("<strong>Solving</strong>");
   });
   it("shows valid solved summary metrics and disables weak-case action for a clean run", () => {
     const { controller, reveal } = fixture(); reveal(); controller.stopTrainingDrill();

@@ -764,3 +764,8 @@ fixed number of microtasks is enough for asynchronous cube loading.
   move subscriptions. Track and display the existing model independently of input
   capability, and test setup plus completion through actual touch controls with
   keyboard input disabled.
+
+- 2026-10-21: Single virtual practice automatically prepared its next attempt,
+  but OLL/PLL still displayed Complete and instructed users to press Again.
+  Present Ready-with-previous-result explicitly, label catalogue rerandomization
+  Another variation, and test the real completion/next-turn flow in all families.
