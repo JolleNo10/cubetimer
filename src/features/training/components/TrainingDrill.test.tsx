@@ -129,7 +129,7 @@ describe("Single and Drill presentation", () => {
     let html = renderToStaticMarkup(<Training />);
     expect(html).toContain("Drill complete"); expect(html).toContain("1 round · 0 solved · 1 skipped");
     expect(html).toContain("Needs work"); expect(html).toContain("1 skip");
-    expect(html).not.toContain("Avg case time"); expect(button("Drill weak cases").disabled).toBe(false);
+    expect(html).not.toContain("<dt>Avg case time</dt>"); expect(button("Drill weak cases").disabled).toBe(false);
     button("Drill weak cases").onClick();
     expect(controller.training.state.get().drill).toMatchObject({ status: "configuring", running: false, task: "execution", strategy: "weighted", selectedCaseIds: ["F2L 4"], outcomes: [] });
     reveal(); controller.skipTrainingDrillCase(); controller.stopTrainingDrill();
@@ -209,6 +209,33 @@ describe("Single and Drill presentation", () => {
     expect(html).toContain("1 round · 1 solved · 0 skipped"); expect(html).toContain("Avg case time"); expect(html).toContain("Best case time");
     expect(html).toContain("2.30"); expect(html).toContain("Avg STM"); expect(html).toContain("8.0");
     expect(button("Drill weak cases", <TrainingDrillSummary />).disabled).toBe(true);
+  });
+  it.each(["execution", "recognition"] as const)("breaks down %s run results by attempted case without mixing skips into metrics", task => {
+    const { controller } = fixture("oll");
+    controller.training.state.update(s => ({ ...s, drill: { ...s.drill, task, running: false, status: "summary",
+      context: { family: "oll", trainingSet: "full" }, selectedCaseIds: ["26", "27", "28"],
+      outcomes: task === "execution" ? [
+        { caseId: "26", outcome: "solved", caseTimeMs: 1000, moveSpanMs: 800, stm: 8, delta: 0, completedAt: 1 },
+        { caseId: "26", outcome: "solved", caseTimeMs: 3000, moveSpanMs: 1800, stm: 10, delta: 2, completedAt: 2 },
+        { caseId: "26", outcome: "skipped", completedAt: 3 },
+        { caseId: "27", outcome: "skipped", completedAt: 4 },
+      ] : [
+        { caseId: "26", outcome: "answered", answerCaseId: "26", correct: true, responseMs: 1000, completedAt: 1 },
+        { caseId: "26", outcome: "answered", answerCaseId: "26", correct: true, responseMs: 3000, completedAt: 2 },
+        { caseId: "26", outcome: "answered", answerCaseId: "27", correct: false, responseMs: 100, completedAt: 3 },
+        { caseId: "26", outcome: "skipped", completedAt: 4 },
+        { caseId: "27", outcome: "skipped", completedAt: 5 },
+      ] } }));
+    const html = renderToStaticMarkup(<TrainingDrillSummary />);
+    const table = html.match(/<table[^>]*aria-label="Case results"[\s\S]*?<\/table>/)![0];
+    const rows = [...table.matchAll(/<tr><th scope="row">([\s\S]*?)<\/tr>/g)];
+    expect(rows).toHaveLength(2); // selected but unattempted case 28 is excluded
+    const cells = rows.map(row => [...row[0].matchAll(/<td[^>]*>(.*?)<\/td>/g)].map(cell => cell[1]));
+    expect(cells).toEqual(task === "execution"
+      ? [["2", "1", "2.00", "1.00", "9.0"], ["0", "1", "—", "—", "—"]]
+      : [["2", "1", "1", "67%", "2.00", "1.00"], ["0", "0", "1", "—", "—", "—"]]);
+    expect(table).not.toContain("NaN");
+    expect(html).toContain("This drill only.");
   });
   it("shows complete Drill case time more prominently than registered move span, including zero spans", () => {
     const result = { moves: ["R"], stm: 1, elapsedMs: 0, caseTimeMs: 2300, recommendedStm: 1, preferredAlg: null, recommendedAlg: "R", matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0 };

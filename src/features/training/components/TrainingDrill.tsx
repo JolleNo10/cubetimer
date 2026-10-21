@@ -181,6 +181,7 @@ function RecognitionDrillSummary({ attempts }: { attempts: readonly TrainingReco
     <div className="panel-head"><span className="panel-title">Recognition drill complete</span></div>
     <div className="panel-body"><p>{summary.rounds} {summary.rounds === 1 ? "round" : "rounds"}</p>
       <RecognitionMetrics summary={summary} />
+      <DrillCaseResults />
       {weak.length ? <><h3>Needs work</h3><ul className="drill-weak-cases">{weak.map(c => <li key={c.caseId}>
         <strong>{drillCaseMetadata(c.target).label}</strong><span>{[
           c.runIncorrect ? `${c.runIncorrect} incorrect this drill` : null,
@@ -229,6 +230,7 @@ export function TrainingDrillSummary() {
     <div className="panel-body">
       <p>{summary.rounds} {summary.rounds === 1 ? "round" : "rounds"} · {summary.solved} solved · {summary.skipped} skipped</p>
       <DrillRunMetrics summary={summary} />
+      <DrillCaseResults />
       {weak.length ? <><h3>Needs work</h3><ul className="drill-weak-cases">{weak.map(c => <li key={c.caseId}>
         <strong>{c.target.family === "f2l" ? c.caseId : `${c.target.family.toUpperCase()} ${c.caseId}`}</strong>
         <span>{c.skipped > 0 ? `${c.skipped} ${c.skipped === 1 ? "skip" : "skips"}` :
@@ -238,4 +240,40 @@ export function TrainingDrillSummary() {
       <DrillSummaryActions hasWeakCases={weak.length > 0} />
     </div>
   </section>;
+}
+
+/** Current-run outcomes only; historical mastery remains in Training Insights. */
+function DrillCaseResults() {
+  const { drill } = useTrainingState();
+  if (!drill.context) return null;
+  const rows = drillCatalogue(drill.context).map(target => ({
+    target,
+    outcomes: drill.outcomes.filter(outcome => outcome.caseId === drillCaseId(target)),
+  })).filter(row => row.outcomes.length > 0);
+  if (!rows.length) return null;
+  const recognition = drill.task === "recognition";
+  const time = (ms: number | null) => ms === null ? "—" : formatTime(ms);
+  return <>
+    <h3>Case results</h3>
+    <p className="small dim">This drill only. {recognition
+      ? "Accuracy excludes skips. Times include correct answers only."
+      : "Times and STM include solved attempts only."}</p>
+    <div className="table-scroll" role="region" aria-label="Scrollable case results" tabIndex={0}>
+      <table className="stats-table" aria-label="Case results">
+        <thead><tr><th scope="col">Case</th>{(recognition
+          ? ["Correct", "Incorrect", "Skipped", "Accuracy", "Median correct", "Best correct"]
+          : ["Solved", "Skipped", "Avg case time", "Best case time", "Avg STM"]
+        ).map(label => <th key={label} scope="col">{label}</th>)}</tr></thead>
+        <tbody>{rows.map(({ target, outcomes }) => {
+          const execution = trainingDrillSummary(outcomes), answers = recognitionDrillSummary(outcomes);
+          const values = recognition
+            ? [answers.correct, answers.incorrect, answers.skipped, answers.accuracy === null ? "—" : `${Math.round(answers.accuracy * 100)}%`, time(answers.medianCorrectResponseMs), time(answers.bestCorrectResponseMs)]
+            : [execution.solved, execution.skipped, time(execution.averageCaseTimeMs), time(execution.bestCaseTimeMs), execution.averageStm?.toFixed(1) ?? "—"];
+          return <tr key={drillCaseId(target)}><th scope="row">{drillCaseMetadata(target).label}</th>
+            {values.map((value, index) => <td className="number" key={index}>{value}</td>)}
+          </tr>;
+        })}</tbody>
+      </table>
+    </div>
+  </>;
 }

@@ -76,6 +76,12 @@ try {
   await page.getByRole('button', { name: 'Next case', exact: true }).click();
   await page.getByRole('button', { name: 'Finish drill', exact: true }).click();
   await page.getByRole('region', { name: 'Drill summary', exact: true }).waitFor();
+  assert.equal(await page.getByRole('table', { name: 'Case results', exact: true }).locator('tbody tr').count(), 2);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('table', { name: 'Case results', exact: true }).scrollIntoViewIfNeeded();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  assert.equal(await page.getByRole('region', { name: 'Scrollable case results', exact: true }).evaluate(el => el.scrollWidth > el.clientWidth), true);
+  await page.setViewportSize({ width: 1280, height: 900 });
   assert.equal(await page.evaluate(() => window.cubeDebug.cubetimer.trainingAttempts.get().length), 2);
   for (const family of ['oll', 'pll']) {
     await page.evaluate(family => { const c=window.cubeDebug.cubetimer; c.setTrainingFamily(family); c.setTrainingActivity('drill'); c.setDrillTask('recognition'); c.setDrillCases(family === 'oll' ? ['26','27'] : ['T','H']); }, family);
