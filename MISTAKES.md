@@ -747,3 +747,9 @@ fixed number of microtasks is enough for asynchronous cube loading.
   Separate cancellation from release, clear pending arming timeouts, and test
   blur, dialog/navigation interruption, Escape and cancelled pointers alongside
   legitimate starts and ongoing inspection/solves in the production browser.
+
+- 2026-10-21: Training setup presentation treated an empty setup string as
+  proof the cube matched its target, even while async search was pending, then
+  showed no status after failure. Publish runtime-owned setupPending and render
+  loading/failure guidance explicitly. Test deferred, rejected, retried and
+  superseded searches through the real runtime and presentation.

@@ -219,6 +219,16 @@ export function TrainingSetupPanel() {
               <span className="small faint">The case is loaded virtually. Make one turn to start.</span>
             </div>
           )
+        ) : training.setupPending ? (
+          <div role="status">
+            <strong>Calculating setup</strong>
+            <p className="small dim">Keep the cube still while the setup is calculated.</p>
+          </div>
+        ) : training.phase === "selecting" ? (
+          <div role="status">
+            <strong>Setup unavailable</strong>
+            <p className="small dim">Choose Retry case to calculate the setup again, or switch to Virtual case to practise without a physical setup.</p>
+          </div>
         ) : preparing ? (
           <>
             <div className="small dim">

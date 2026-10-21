@@ -1,6 +1,8 @@
 import { createTrainingAlgorithmPreference } from "../trainingAlgorithmPreferences";
 import { catalogueIdentityForTarget } from "../../../app/trainingCatalogue";
 import { renderToStaticMarkup } from "react-dom/server";
+import { Alg } from "cubing/alg";
+import * as solver from "../../../cube/solver";
 import { describe, expect, it, vi } from "vitest";
 import { CubeModel } from "../../../cube/model";
 import { get3x3x3 } from "../../../cube/puzzle";
@@ -28,6 +30,36 @@ const result: TrainingResult = { moves: ["R", "U", "R'"], stm: 3, caseTimeMs: nu
   preferredAlg: null, recommendedAlg: "R U R'", matchedReferenceRank: 1, preferredStm: null, matchedPreferred: null, preferredDelta: null, delta: 0 };
 
 describe("shared Training presentation", () => {
+  it("distinguishes a pending setup search from an already matched target", async () => {
+    let finish!: (alg: Alg) => void;
+    const search = vi.spyOn(solver, "algBetween").mockImplementation(() => new Promise(resolve => { finish = resolve; }));
+    try {
+      const controller = new Controller(new CubeModel(kpuzzle));
+      controller.setArea("training");
+      const pending = controller.selectLastLayerCase("oll", "27", "full");
+      const html = render(controller, <TrainingSetupPanel />);
+      expect(html).toContain("Calculating setup");
+      expect(html).not.toContain("Already at the target");
+      finish(new Alg("R"));
+      await pending;
+      expect(render(controller, <TrainingSetupPanel />)).not.toContain("Calculating setup");
+    } finally { search.mockRestore(); }
+  });
+
+  it("offers explicit recovery when a setup search fails", async () => {
+    const search = vi.spyOn(solver, "algBetween").mockRejectedValue(new Error("Search unavailable"));
+    try {
+      const controller = new Controller(new CubeModel(kpuzzle));
+      controller.setArea("training");
+      await controller.selectLastLayerCase("pll", "T", "full");
+      const html = render(controller, <TrainingSetupPanel />);
+      expect(html).toContain("Setup unavailable");
+      expect(html).toContain("Retry case");
+      expect(html).not.toContain("Already at the target");
+      expect(html).not.toContain("<strong>Ready</strong>");
+    } finally { search.mockRestore(); }
+  });
+
   it("leads with the case library and leaves smart cube controls to the header", async () => {
     const controller = await selected();
     const html = render(controller, <TrainingWorkspace library={<button>Choose a Training case</button>} details={<div />} emptyMessage="Choose a case" />);

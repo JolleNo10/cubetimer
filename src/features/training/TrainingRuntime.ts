@@ -87,6 +87,7 @@ export type TrainingState = {
   target: TrainingTargetInfo | null;
   preferredReference: { alg: string; stm: number } | null;
   setup: string;
+  setupPending: boolean;
   setupProgress: ScrambleProgress | null;
   recovery: Recovery | null;
   recoveryPending: boolean;
@@ -110,6 +111,7 @@ function emptyTrainingState(): TrainingState {
     target: null,
     preferredReference: null,
     setup: "",
+    setupPending: false,
     setupProgress: null,
     recovery: null,
     recoveryPending: false,
@@ -683,6 +685,7 @@ export class TrainingRuntime {
       target: target.info,
       preferredReference: this.#preferredReference ? { alg: this.#preferredReference.alg, stm: this.#preferredReference.stm } : null,
       setup: "",
+      setupPending: mode === "setup",
       setupProgress: null,
       recovery: null,
       recoveryPending: false,
@@ -719,12 +722,13 @@ export class TrainingRuntime {
       this.state.update((s) => ({
         ...s,
         setup: displayedSetup ?? "",
+        setupPending: false,
       }));
       this.reconcilePhysicalState();
     } catch (error) {
       if (token === this.#trainingSelectionToken) {
         this.#dependencies.reportError(String(error));
-        this.state.update((s) => ({ ...s, phase: "selecting" }));
+        this.state.update((s) => ({ ...s, phase: "selecting", setupPending: false }));
       }
     }
   }

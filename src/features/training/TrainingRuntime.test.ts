@@ -727,6 +727,40 @@ describe("TrainingRuntime async ownership", () => {
     expect(runtime.state.get()).toBe(latest);
     expect(latest.target).toMatchObject({ family: "oll", caseId: "27" });
     expect(latest.phase).toBe("ready");
+    expect(latest.setupPending).toBe(false);
+  });
+
+  it("keeps the newer setup pending when an obsolete search completes", async () => {
+    const runtime = createRuntime(new CubeModel(kpuzzle));
+    const first = deferred<Alg>(), second = deferred<Alg>();
+    vi.spyOn(solver, "algBetween").mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const oldSelection = runtime.selectLastLayerCase("oll", "27");
+    const newSelection = runtime.selectLastLayerCase("pll", "T");
+    expect(runtime.state.get().setupPending).toBe(true);
+    first.resolve(new Alg("R"));
+    await oldSelection;
+    expect(runtime.state.get()).toMatchObject({ family: "pll", setupPending: true, setup: "" });
+    second.resolve(new Alg("F"));
+    await newSelection;
+    expect(runtime.state.get().setupPending).toBe(false);
+  });
+
+  it("retries a failed setup without changing the case or physical cube", async () => {
+    const model = new CubeModel(kpuzzle);
+    const completed = vi.fn();
+    const runtime = createRuntime(model, completed);
+    const retry = deferred<Alg>();
+    vi.spyOn(solver, "algBetween").mockRejectedValueOnce(new Error("Search failed")).mockReturnValueOnce(retry.promise);
+    await runtime.selectLastLayerCase("oll", "27");
+    const target = runtime.state.get().target;
+    expect(runtime.state.get()).toMatchObject({ phase: "selecting", setupPending: false });
+    runtime.retryTrainingCase();
+    expect(runtime.state.get()).toMatchObject({ phase: "preparing", setupPending: true, target });
+    retry.resolve(new Alg("R"));
+    await vi.waitFor(() => expect(runtime.state.get().setupPending).toBe(false));
+    expect(runtime.state.get().target).toBe(target);
+    expect(model.pattern).toEqual(kpuzzle.defaultPattern());
+    expect(completed).not.toHaveBeenCalled();
   });
 
   it.each(["f2l", "oll"] as const)("transforms every move of %s recovery into the Training frame", async (family) => {
