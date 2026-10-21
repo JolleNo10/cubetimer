@@ -1864,3 +1864,36 @@ it("keeps reload blocked throughout a JSON import, not just individual writes", 
   await operation;
   expect(controller.canReloadForUpdate()).toBe(true);
 });
+
+
+describe("virtual Training input frames", () => {
+  it("converts virtual notation once, keeps raw hardware injection unchanged, and preserves Timer input", async () => {
+    globalThis.requestAnimationFrame = () => 1;
+    globalThis.cancelAnimationFrame = () => {};
+    const model = new CubeModel(kpuzzle), controller = new Controller(model);
+    controller.setArea("training");
+    await controller.setTrainingMode("virtual");
+    await controller.selectF2lCase("F2L 4");
+    const original = model.pattern;
+    controller.injectVirtualMove("U");
+    expect(controller.training.state.get().liveMoves).toEqual(["U"]);
+    expect(model.pattern.isIdentical(original.applyMove("D"))).toBe(true);
+    controller.injectMove("U");
+    expect(controller.training.state.get().liveMoves).toEqual(["U", "D"]);
+    controller.setArea("timer");
+    const before = model.pattern;
+    controller.injectVirtualMove("U");
+    expect(model.pattern.isIdentical(before.applyMove("U"))).toBe(true);
+  });
+  it("retains result-screen D4 for virtual keyboard input", () => {
+    globalThis.requestAnimationFrame = () => 1;
+    globalThis.cancelAnimationFrame = () => {};
+    vi.spyOn(performance, "now").mockReturnValue(100);
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.setArea("training"); controller.setTrainingActivity("drill");
+    controller.setDrillCases(["F2L 4"]); controller.startTrainingDrill(); controller.training.tick(2100);
+    controller.skipTrainingDrillCase();
+    for (let i = 0; i < 4; i++) controller.injectVirtualMove("D");
+    expect(controller.training.state.get()).toMatchObject({ phase: "ready", liveMoves: [], drill: { round: 2 } });
+  });
+});

@@ -925,6 +925,24 @@ describe("TrainingRuntime continuous virtual Drill", () => {
     expect(runtime.state.get().drill.lastOutcome).toBe("skipped");
     expect(completed).not.toHaveBeenCalled();
   });
+  it.each(["f2l", "oll", "pll"] as const)("restores the original %s case after skipping mistaken turns so the revealed solution matches", family => {
+    const { runtime, model, advance, completed, solve } = drill(family);
+    runtime.setDrillCases([family === "f2l" ? "F2L 4" : family === "oll" ? "27" : "T"]);
+    runtime.startDrill(); advance(2000);
+    const initial = runtime.state.get();
+    feedMove(runtime, "B");
+    expect(runtime.state.get().displayFacelets).not.toBe(initial.displayFacelets);
+    const physical = model.facelets;
+    runtime.skipDrillCase();
+    expect(runtime.state.get()).toMatchObject({ phase: "result", target: initial.target,
+      displayFacelets: initial.displayFacelets, liveMoves: [], result: null });
+    expect(runtime.state.get().guide?.confirmed).toBe(0);
+    expect(model.facelets).toBe(physical);
+    expect(completed).not.toHaveBeenCalled();
+    runtime.retryTrainingCase(); solve();
+    expect(completed).toHaveBeenCalledOnce();
+    expect(completed.mock.calls[0][0].result.moves).not.toContain("B");
+  });
   it("keeps case statistics visible until the user chooses to continue", () => {
     const { runtime, advance, solve } = drill();
     runtime.setDrillCases(["F2L 4"]); runtime.startDrill(); advance(2000); solve();

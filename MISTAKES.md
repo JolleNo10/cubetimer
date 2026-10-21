@@ -731,3 +731,13 @@ fixed number of microtasks is enough for asynchronous cube loading.
   per piece. Twisty queries auxiliary facelets too, causing undefined-mask errors
   in WebGL despite passing pure mask tests. Match its built-in five-slot masks and
   verify custom presentation through a real renderer, not only mocked players.
+
+- 2026-10-21: Training touch buttons injected cube-frame turns despite displaying
+  training-frame labels: U became D in the white-down view. Tests only checked
+  that a turn started an attempt. Test the recorded notation and execute a full
+  reference using the real controls. Convert keyboard/touch notation once at the
+  Controller boundary, keeping hardware injection cube-relative.
+- 2026-10-21: Allowing Skip after wrong turns left the altered virtual pattern
+  beside a reference for the original target. Restore the original virtual case
+  and reset guide progress for review; test all three families and verify that
+  the physical cube and completed history are not rewritten.

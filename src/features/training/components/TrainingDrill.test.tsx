@@ -158,6 +158,13 @@ describe("Single and Drill presentation", () => {
     controller.physical.state.update(s => ({ ...s, cubeStatus: "connected" }));
     expect(button("Turn B", <TrainingInputControls />)).toBeUndefined();
   });
+  it.each(["f2l", "oll", "pll"] as const)("touch buttons execute %s notation in the displayed training frame", family => {
+    const { controller, reveal } = fixture(family); reveal();
+    button("Turn U", <TrainingInputControls />).onClick();
+    expect(controller.training.state.get().liveMoves).toEqual(["U"]);
+    button("Turn U'", <TrainingInputControls />).onClick();
+    expect(controller.training.state.get().liveMoves).toEqual(["U", "U'"]);
+  });
   it("shows valid solved summary metrics and disables weak-case action for a clean run", () => {
     const { controller, reveal } = fixture(); reveal(); controller.stopTrainingDrill();
     controller.training.state.update(s => ({ ...s, drill: { ...s.drill, status: "summary", context: { family: "f2l", library: "basic", position: "FR" },

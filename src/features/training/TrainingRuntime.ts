@@ -312,12 +312,17 @@ export class TrainingRuntime {
   }
 
   skipDrillCase(): void {
-    const state = this.state.get();
-    if (!state.drill.running || !state.target || (state.phase !== "ready" && state.phase !== "solving")) return;
+    const state = this.state.get(), target = this.#trainingTarget;
+    if (!state.drill.running || !target || (state.phase !== "ready" && state.phase !== "solving")) return;
     this.#dependencies.stopClock();
-    this.state.update(s => ({ ...s, phase: "result", drill: { ...s.drill, lastOutcome: "skipped", outcomes: [...s.drill.outcomes,
+    this.#trainingRawMoves = [];
+    this.#trainingVirtualPattern = target.pattern;
+    const guide = state.drill.task === "execution" && this.#trainingGuide ? trainingGuideProgress(this.#trainingGuide) : null;
+    this.state.update(s => ({ ...s, phase: "result", liveMoves: [], result: null,
+      displayFacelets: patternToFacelets(target.pattern), displayRevision: s.displayRevision + 1,
+      drill: { ...s.drill, lastOutcome: "skipped", outcomes: [...s.drill.outcomes,
         { caseId: s.drill.lastCaseId!, outcome: "skipped", completedAt: this.#now() }] },
-      guide: s.guide ? { ...s.guide, currentMove: null } : null }));
+      guide: guide ? { ...guide, currentMove: null } : null }));
     this.#f2lAgainTurns = [];
   }
 

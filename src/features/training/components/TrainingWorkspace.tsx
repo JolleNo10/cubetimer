@@ -49,7 +49,7 @@ export function TrainingWorkspace({ library, details, emptyMessage }: {
         {error ? <div className="notice error"><span className="grow">{error}</span><button className="ghost" onClick={() => controller.dismissError()}>Dismiss</button></div> : null}
         {drill.status === "summary" ? <TrainingDrillSummary /> : <>
           {activity === "drill" ? drill.running ? <TrainingDrillControls /> : <TrainingDrillPanel /> : <TrainingSetupPanel />}
-          {roundResult ? <div className="panel training-round-feedback" aria-label="Case result"><TrainingRecognition /><TrainingAttempt />{drill.lastOutcome === "skipped" ? <><strong>Case skipped</strong><p className="small dim">No completed attempt saved. Review the solution or continue.</p></> : null}</div> : null}
+          {roundResult ? <div className="panel training-round-feedback" aria-label="Case result"><TrainingRecognition /><TrainingAttempt />{drill.lastOutcome === "skipped" ? <><strong>Case skipped</strong><p className="small dim">Original case restored for review. No completed attempt saved.</p></> : null}</div> : null}
           <TrainingCubeStage preview={stepPreview} />
           <TrainingInputControls />
         </>}
@@ -140,7 +140,7 @@ export function TrainingInputControls() {
       {keyboard ? <p className="small dim">I/K: R/R' / J/F: U/U' / H/G: F/F' / D/E: L/L' / L/S: D/D' / O/W: B/B'</p> : null}
       <div className="training-turn-buttons" role="group" aria-label="Cube turns">
         {["U", "R", "F", "D", "L", "B"].map(face => <div key={face}>{[face, `${face}'`, `${face}2`].map(move =>
-          <button type="button" key={move} onClick={() => controller.injectMove(move)} aria-label={`Turn ${move}`}>{move}</button>)}</div>)}
+          <button type="button" key={move} onClick={() => controller.injectVirtualMove(move)} aria-label={`Turn ${move}`}>{move}</button>)}</div>)}
       </div>
     </> : null}
   </section>;

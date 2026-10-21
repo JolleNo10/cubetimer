@@ -10,6 +10,7 @@ import {
   type LastLayerFamily,
   type LastLayerTrainingSet,
 } from "../cube/lastLayerTraining";
+import { cubeMove } from "../cube/frames";
 import { CubeModel } from "../cube/model";
 import type { Orientation } from "../cube/orientation";
 import {
@@ -174,6 +175,14 @@ export class Controller {
   syncFromCube(): Promise<void> { return this.physical.syncFromCube(); }
   markCubeSolved(): Promise<void> { return this.physical.markCubeSolved(); }
   injectMove(move: string): void { this.physical.injectMove(move); }
+  /** Keyboard/touch notation follows the displayed Training frame during a case. */
+  injectVirtualMove(move: string): void {
+    const training = this.training.state.get();
+    const inTraining = this.state.get().area === "training";
+    // Result-screen D4 is a physical shortcut, not part of the next attempt.
+    const grip = inTraining && training.phase !== "result" ? training.target?.trainingRotation.orientation : null;
+    this.injectMove(grip ? cubeMove(move, grip) : move);
+  }
 
   #currentSession(): Session | undefined {
     return sessionService.currentSession(this.sessions.get());

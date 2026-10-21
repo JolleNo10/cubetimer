@@ -277,7 +277,7 @@ export function App() {
         const move = VIRTUAL_CUBE_KEYS[event.key.toLowerCase()];
         if (move) {
           event.preventDefault();
-          controller.injectMove(move);
+          controller.injectVirtualMove(move);
           return;
         }
       }

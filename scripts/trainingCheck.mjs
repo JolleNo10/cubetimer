@@ -27,22 +27,26 @@ try {
   await page.waitForFunction(() => document.querySelector('twisty-player')?.shadowRoot?.querySelector('canvas') || document.querySelector('twisty-player'));
   await page.waitForTimeout(1000);
   if (process.env.TRAINING_SCREENSHOTS) await page.screenshot({ path: 'training-desktop-check.png' });
-  await page.evaluate(() => {
-    const c = window.cubeDebug.cubetimer, t = c.training.state.get().target;
-    const inverse = Object.fromEntries(Object.entries(t.trainingRotation.orientation).map(([a,b]) => [b,a]));
-    for (const token of t.references[0].alg.split(/\s+/)) {
-      if (!/^[URFDLB](2'?|')?$/.test(token)) throw new Error('Unexpected smoke-test reference ' + token);
-      c.injectMove(inverse[token[0]] + token.slice(1));
-    }
-  });
+  await page.getByRole('button', { name: 'Enable keyboard turns', exact: true }).click();
+  await page.keyboard.press('j');
+  assert.deepEqual(await page.evaluate(() => window.cubeDebug.cubetimer.training.state.get().liveMoves), ['U']);
+  await page.keyboard.press('f');
+  await page.getByRole('button', { name: 'Retry case', exact: true }).click();
+  const reference = await page.evaluate(() => window.cubeDebug.cubetimer.training.state.get().target.references[0].alg.split(/\s+/));
+  for (const token of reference) {
+    if (!/^[URFDLB](2'?|')?$/.test(token)) throw new Error('Unexpected smoke-test reference ' + token);
+    await page.getByRole('button', { name: `Turn ${token.replace("2'", "2")}`, exact: true }).click();
+  }
   await page.locator('[aria-label="Case result"]').waitFor();
   assert.equal(await page.locator('.training-round-feedback').getByText('case time', { exact: true }).count(), 1);
   await page.waitForTimeout(2300);
   assert.equal(await page.evaluate(() => window.cubeDebug.cubetimer.training.state.get().phase), 'result');
   await page.evaluate(() => { const c = window.cubeDebug.cubetimer; for (let i=0;i<4;i++) c.injectMove('D'); });
   await page.waitForFunction(() => window.cubeDebug.cubetimer.training.state.get().drill.round === 2);
+  const originalCase = await page.evaluate(() => window.cubeDebug.cubetimer.training.state.get().displayFacelets);
   await page.getByRole('button', { name: 'Turn B', exact: true }).click();
   await page.getByRole('button', { name: 'Skip case', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.cubeDebug.cubetimer.training.state.get().displayFacelets), originalCase);
   await page.getByRole('button', { name: 'Next case', exact: true }).click();
   await page.getByRole('button', { name: 'Finish drill', exact: true }).click();
   await page.getByRole('region', { name: 'Drill summary', exact: true }).waitFor();

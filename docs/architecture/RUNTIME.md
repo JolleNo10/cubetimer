@@ -185,7 +185,12 @@ Timer policy, session policy, scramble behavior, training behavior, and solve in
 
 `Controller.injectMove()` delegates to the same PhysicalCubeRuntime move-processing seam used by smart-cube moves.
 
-This is used by virtual cube interaction and provides tests with a way to exercise the normal runtime path without a separate implementation.
+`Controller.injectVirtualMove()` is the keyboard/touch entry point. During Training
+it converts target-frame notation through `cube/frames.ts` before delegating to
+`injectMove()`. Timer input and result-screen physical D4 shortcuts retain their
+existing cube-frame meaning. Hardware and raw test injection remain cube-frame facts.
+This keeps one move-processing path while making virtual Training controls agree
+with the reference algorithm's notation.
 
 Avoid creating parallel move-processing pipelines when the existing injection seam is sufficient.
 

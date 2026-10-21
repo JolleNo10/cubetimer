@@ -218,7 +218,9 @@ both tasks. Those command turns remain physical moves but never enter the next
 virtual attempt. Turns during a revealed execution case remain immediate solve
 input, never shortcut detection. Recognition and held results render static patterns.
 Skip is available before or during execution; it reveals the answer and appends
-only an ephemeral skipped outcome. Retry case restores the exact target, discards
+only an ephemeral skipped outcome. The virtual pattern and guide return to the
+original target for solution review, without changing the physical cube. Abandoned
+turns are cleared. Retry case restores the exact target, discards
 unfinished moves and resets reveal timing without saving an incomplete attempt.
 Retrying a finished round starts a fresh round without rewriting its completed fact.
 The initial countdown remains two seconds. Stop cancels every phase, abandons incomplete work and clears target/result. It
@@ -784,7 +786,9 @@ guide projects its existing interpreted arrows into the displayed grip. Static
 checkpoint previews retain their exact target frame.
 
 Touch turn buttons and keyboard opt-in provide disconnected practice through the
-existing Controller move route. They do not create another cube model. Recognition
+existing Controller move route. Their notation is converted from the target
+Training frame into cube-frame moves once, at the Controller boundary. They do
+not create another cube model. Recognition
 uses answer choices and needs no hardware input.
 
 Rejected: forced inter-round countdowns with disappearing results, and recovery
