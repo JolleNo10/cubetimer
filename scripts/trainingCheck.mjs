@@ -39,7 +39,16 @@ try {
   await page.waitForTimeout(1000);
   if (process.env.TRAINING_SCREENSHOTS) await page.screenshot({ path: 'training-desktop-check.png' });
   await page.getByRole('button', { name: 'Enable keyboard turns', exact: true }).click();
-  await page.keyboard.press('j');
+  // One held key is one turn, even when the OS emits repeated keydowns.
+  await page.keyboard.down('j');
+  await page.keyboard.down('j');
+  await page.keyboard.down('j');
+  await page.keyboard.up('j');
+  assert.deepEqual(await page.evaluate(() => window.cubeDebug.cubetimer.training.state.get().liveMoves), ['U']);
+  // Browser shortcuts must not leak into a Training attempt.
+  for (const modifier of ['altKey', 'ctrlKey', 'metaKey']) {
+    await page.evaluate(modifier => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'd', bubbles: true, [modifier]: true })), modifier);
+  }
   assert.deepEqual(await page.evaluate(() => window.cubeDebug.cubetimer.training.state.get().liveMoves), ['U']);
   await page.keyboard.press('f');
   await page.getByRole('button', { name: 'Retry case', exact: true }).click();
@@ -52,7 +61,13 @@ try {
   assert.equal(await page.locator('.training-round-feedback').getByText('case time', { exact: true }).count(), 1);
   await page.waitForTimeout(2300);
   assert.equal(await page.evaluate(() => window.cubeDebug.cubetimer.training.state.get().phase), 'result');
-  await page.evaluate(() => { const c = window.cubeDebug.cubetimer; for (let i=0;i<4;i++) c.injectMove('D'); });
+  // Holding D must not be mistaken for four intentional shortcut turns.
+  for (let i = 0; i < 4; i++) await page.keyboard.down('l');
+  await page.keyboard.up('l');
+  assert.equal(await page.evaluate(() => window.cubeDebug.cubetimer.training.state.get().phase), 'result');
+  await page.keyboard.press('j');
+  await page.keyboard.press('f');
+  for (let i = 0; i < 4; i++) await page.keyboard.press('l');
   await page.waitForFunction(() => window.cubeDebug.cubetimer.training.state.get().drill.round === 2);
   const originalCase = await page.evaluate(() => window.cubeDebug.cubetimer.training.state.get().displayFacelets);
   await page.getByRole('button', { name: 'Turn B', exact: true }).click();

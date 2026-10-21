@@ -287,7 +287,8 @@ export function App() {
       target instanceof HTMLButtonElement;
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (isTextEntry(event.target)) return;
+      if (event.defaultPrevented || isTextEntry(event.target)) return;
+      if (event.altKey || event.ctrlKey || event.metaKey) { cancelHold(); return; }
       if (event.key === "Escape") {
         cancelHold();
         if (resultSolveId !== null) {
@@ -297,11 +298,11 @@ export function App() {
         controller.cancel();
         return;
       }
-      if (controller.snapshot().virtualCube && !event.metaKey && !event.ctrlKey) {
+      if (controller.snapshot().virtualCube) {
         const move = VIRTUAL_CUBE_KEYS[event.key.toLowerCase()];
         if (move) {
           event.preventDefault();
-          controller.injectVirtualMove(move);
+          if (!event.repeat) controller.injectVirtualMove(move);
           return;
         }
       }
@@ -314,7 +315,7 @@ export function App() {
 
     const onKeyUp = (event: KeyboardEvent) => {
       if (event.key !== " ") return;
-      if (isTextEntry(event.target) || isToggle(event.target)) { cancelHold(); return; }
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey || isTextEntry(event.target) || isToggle(event.target)) { cancelHold(); return; }
       pressEnd();
     };
 

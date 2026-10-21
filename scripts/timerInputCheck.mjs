@@ -28,6 +28,12 @@ try {
   const reset = async () => {
     await page.evaluate(() => { window.cubeDebug.cubetimer.cancel(); document.activeElement?.blur(); });
   };
+  for (const modifier of ['altKey', 'ctrlKey', 'metaKey']) {
+    await page.evaluate(modifier => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true, [modifier]: true })), modifier);
+    await page.waitForTimeout(400);
+    await page.evaluate(modifier => document.body.dispatchEvent(new KeyboardEvent('keyup', { key: ' ', bubbles: true, [modifier]: true })), modifier);
+    assert.equal(await phase(), 'scrambling', modifier + '+Space must not start timing');
+  }
   for (const interruption of ['blur', 'escape', 'settings', 'training']) {
     await arm();
     if (interruption === 'blur') await page.evaluate(() => window.dispatchEvent(new Event('blur')));

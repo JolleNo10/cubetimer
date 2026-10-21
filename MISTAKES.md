@@ -769,3 +769,8 @@ fixed number of microtasks is enough for asynchronous cube loading.
   but OLL/PLL still displayed Complete and instructed users to press Again.
   Present Ready-with-previous-result explicitly, label catalogue rerandomization
   Another variation, and test the real completion/next-turn flow in all families.
+
+- 2026-10-21: Global virtual-cube input accepted OS key repeats and Alt
+  shortcuts as turns. A held key could inflate attempt moves or complete D4.
+  Consume only distinct unmodified turn presses, keep browser shortcuts outside
+  Timer input, and test both held-key rejection and four deliberate D presses.
