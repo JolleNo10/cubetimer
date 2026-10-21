@@ -753,3 +753,8 @@ fixed number of microtasks is enough for asynchronous cube loading.
   showed no status after failure. Publish runtime-owned setupPending and render
   loading/failure guidance explicitly. Test deferred, rejected, retried and
   superseded searches through the real runtime and presentation.
+
+- 2026-10-21: A physical turn during Training setup search triggered a full
+  reset when the result arrived, silently discarding the selected case. Only the
+  calculated path was stale. Retain the target, report the changed cube and let
+  Retry capture its current state; cover F2L/OLL/PLL and cancellation in tests.

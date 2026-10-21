@@ -763,6 +763,38 @@ describe("TrainingRuntime async ownership", () => {
     expect(completed).not.toHaveBeenCalled();
   });
 
+  it.each(["f2l", "oll", "pll"] as const)("retains the selected %s case when the cube moves during setup calculation", async family => {
+    // A nonstandard base also sends F2L through the asynchronous setup search.
+    const model = new CubeModel(kpuzzle, kpuzzle.defaultPattern().applyAlg("R"));
+    const completed = vi.fn();
+    const runtime = createRuntime(model, completed);
+    configureInputs(runtime, input => ({ ...input, virtualCube: true }));
+    const initial = deferred<Alg>(), retry = deferred<Alg>();
+    const search = vi.spyOn(solver, "algBetween").mockReturnValueOnce(initial.promise).mockReturnValueOnce(retry.promise);
+    const selection = family === "f2l" ? runtime.selectF2lCase("F2L 4")
+      : runtime.selectLastLayerCase(family, family === "oll" ? "27" : "T");
+    const target = runtime.state.get().target;
+    feedMove(runtime, "R");
+    const moved = model.pattern;
+    initial.resolve(new Alg("F"));
+    await selection;
+    expect(runtime.state.get()).toMatchObject({ phase: "selecting", target, setupPending: false, setup: "", liveMoves: [] });
+    expect(inputs(runtime).error).toContain("Cube changed");
+    runtime.retryTrainingCase();
+    expect(search).toHaveBeenCalledTimes(2);
+    expect(search.mock.calls[1][0]).toBe(moved);
+    expect(runtime.state.get().target).toBe(target);
+    expect(runtime.state.get().setupPending).toBe(true);
+    // Cancel before the retry finishes: its result must not revive the old case.
+    runtime.resetTraining();
+    retry.resolve(new Alg("U"));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(runtime.state.get()).toMatchObject({ target: null, setupPending: false, phase: "selecting" });
+    expect(model.pattern).toBe(moved);
+    expect(completed).not.toHaveBeenCalled();
+  });
+
   it.each(["f2l", "oll"] as const)("transforms every move of %s recovery into the Training frame", async (family) => {
     runtimeRandom.mockReturnValue(0);
     const built = family === "oll" ? buildLastLayerCatalogueTarget(kpuzzle, "oll", "27") : null;

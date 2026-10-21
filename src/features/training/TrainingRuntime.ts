@@ -715,8 +715,9 @@ export class TrainingRuntime {
       }
       if (token !== this.#trainingSelectionToken) return;
       if (patternToFacelets(model.pattern) !== capturedFacelets) {
-        this.reset();
-        return;
+        // The calculated setup is stale, but the user's selected case is not.
+        // Keep it available for Retry, which captures the new physical state.
+        throw new Error("Cube changed while calculating setup. Keep it still and choose Retry case.");
       }
       this.#trainingTracker = tracker;
       this.state.update((s) => ({
