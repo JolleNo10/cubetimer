@@ -21,6 +21,56 @@ function fixture() {
   };
 }
 describe("PhysicalCubeRuntime", () => {
+  it.each(["inspection", "solving"] as const)("refuses Mark solved during Timer %s", async phase => {
+    const f = fixture(); f.model.applyMove("R");
+    f.setPhase(phase);
+    const reset = vi.spyOn(f.physical.cube, "requestReset").mockResolvedValue();
+    vi.spyOn(f.physical.cube, "connected", "get").mockReturnValue(true);
+    const before = f.model.pattern;
+    await f.physical.markCubeSolved();
+    expect(reset).not.toHaveBeenCalled();
+    expect(f.model.pattern).toBe(before);
+    expect(f.reportError).toHaveBeenCalled();
+  });
+  it("does not overwrite newer moves when a hardware reset completes late", async () => {
+    const f = fixture(); f.model.applyMove("R");
+    let finish!: () => void;
+    vi.spyOn(f.physical.cube, "connected", "get").mockReturnValue(true);
+    vi.spyOn(f.physical.cube, "requestReset").mockReturnValue(new Promise(resolve => { finish = resolve; }));
+    const pending = f.physical.markCubeSolved();
+    f.physical.injectMove("U"); const moved = f.model.pattern;
+    finish(); await pending;
+    expect(f.model.pattern).toBe(moved);
+  });
+  it("refuses Mark solved when Training owns an active attempt", async () => {
+    const f = fixture(); f.model.applyMove("R"); f.setReplace(false);
+    const before = f.model.pattern;
+    await f.physical.markCubeSolved();
+    expect(f.model.pattern).toBe(before);
+  });
+  it.each(["inspection", "disconnect", "reconnect", "failure"] as const)("preserves the pattern when %s interrupts Mark solved", async interruption => {
+    const f = fixture(); f.model.applyMove("R");
+    const before = f.model.pattern;
+    let finish!: () => void, fail!: (error: Error) => void;
+    vi.spyOn(f.physical.cube, "connected", "get").mockReturnValue(true);
+    vi.spyOn(f.physical.cube, "requestReset").mockReturnValue(new Promise((resolve, reject) => { finish = resolve; fail = reject; }));
+    const pending = f.physical.markCubeSolved();
+    if (interruption === "inspection") f.setPhase("inspection");
+    if (interruption === "disconnect" || interruption === "reconnect") f.handlers.onStatus!("disconnected");
+    if (interruption === "reconnect") f.handlers.onStatus!("connected");
+    if (interruption === "failure") fail(new Error("GATT failed"));
+    else finish();
+    await pending;
+    expect(f.model.pattern).toBe(before);
+    expect(f.onPatternChanged).not.toHaveBeenCalled();
+    if (interruption === "failure") expect(f.reportError).toHaveBeenCalledWith(expect.stringContaining("Could not mark"));
+  });
+  it("still marks an idle unchanged cube solved and publishes its pattern", async () => {
+    const f = fixture(); f.model.applyMove("R");
+    await f.physical.markCubeSolved();
+    expect(f.model.pattern.isIdentical(kpuzzle.defaultPattern())).toBe(true);
+    expect(f.onPatternChanged).toHaveBeenCalledExactlyOnceWith(true);
+  });
   it("routes hardware and injected input after applying the same physical model", () => {
     const f = fixture(), observer = vi.fn(); f.physical.onCubeMove(observer);
     const before = f.model.pattern; f.physical.injectMove("R");

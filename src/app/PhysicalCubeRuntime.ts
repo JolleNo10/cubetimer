@@ -38,6 +38,7 @@ export class PhysicalCubeRuntime {
   #gripHeartbeatAt = 0;
   #referenceListeners = new Set<(reason: GyroReferenceChangeReason) => void>();
   #recentTurns: string[] = [];
+  #connectionRevision = 0;
   #moveListeners = new Set<(move: string) => void>();
   #patternListeners = new Set<(pattern: KPattern) => void>();
   constructor(dependencies: PhysicalCubeDependencies, model: CubeModel | null = null) {
@@ -73,6 +74,7 @@ export class PhysicalCubeRuntime {
         this.state.update((s) => ({ ...s, hardware }));
       },
       onStatus: (cubeStatus, error) => {
+        this.#connectionRevision++;
         if (cubeStatus !== "connected") {
           this.#grip = new LiveGrip();
           this.#gyroReadings = 0;
@@ -335,9 +337,33 @@ export class PhysicalCubeRuntime {
 
   /** Declare the cube solved. Only meaningful when it physically is. */
   async markCubeSolved(): Promise<void> {
-    if (this.cube.connected) await this.cube.requestReset();
-    this.#model?.reset();
+    const model = this.#model;
+    if (!model || !this.#allowSolvedReset()) return;
+    const pattern = model.pattern;
+    const connectionRevision = this.#connectionRevision;
+    try {
+      if (this.cube.connected) await this.cube.requestReset();
+    } catch {
+      if (connectionRevision === this.#connectionRevision) {
+        this.#dependencies.reportError("Could not mark the cube solved. Check the connection and try again.");
+      }
+      return;
+    }
+    // New physical facts (including a reset facelet report) already supersede
+    // this request's snapshot. Never rewind them when the command completes.
+    if (connectionRevision !== this.#connectionRevision || this.#model !== model || model.pattern !== pattern) return;
+    if (!this.#allowSolvedReset()) return;
+    model.reset();
     this.#publishPattern(true);
+  }
+
+  #allowSolvedReset(): boolean {
+    const phase = this.#dependencies.getTimerPhase();
+    if (phase === "inspection" || phase === "solving" || !this.#dependencies.canReplacePattern()) {
+      this.#dependencies.reportError("Cannot mark the cube solved during inspection or an active attempt.");
+      return false;
+    }
+    return true;
   }
 
   #checkRecentreGesture(move: string, phase: TimerPhase): void {

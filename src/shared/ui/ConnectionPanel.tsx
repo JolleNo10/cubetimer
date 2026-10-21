@@ -17,6 +17,9 @@ export function ConnectionPanel({ open, onClose }: { open: boolean; onClose: () 
   const hardware = useStoreValue(controller.physical.state, state => state.hardware);
   const battery = useStoreValue(controller.physical.state, state => state.battery);
   const virtualCube = useStoreValue(controller.physical.state, state => state.virtualCube);
+  const timerPhase = useStoreValue(controller.timer.state, state => state.phase);
+  const trainingPhase = useStoreValue(controller.training.state, state => state.phase);
+  const resetBlocked = timerPhase === "inspection" || timerPhase === "solving" || trainingPhase === "solving";
   const [macRequest, setMacRequest] = useState<{
     deviceName: string;
     resolve: (mac: string | null) => void;
@@ -89,7 +92,8 @@ export function ConnectionPanel({ open, onClose }: { open: boolean; onClose: () 
               <button onClick={() => void controller.syncFromCube()}>Sync state</button>
               <button
                 onClick={() => void controller.markCubeSolved()}
-                title="Tell the cube that it is currently solved"
+                disabled={resetBlocked}
+                title={resetBlocked ? "Unavailable during inspection or an active attempt" : "Tell the cube that it is currently solved"}
               >
                 Mark solved
               </button>

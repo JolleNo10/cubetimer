@@ -787,3 +787,9 @@ fixed number of microtasks is enough for asynchronous cube loading.
   old work on connect/disconnect, detach resources before awaiting cleanup, and
   test deferred chooser/command completion and rejection across reconnects.
   Optional MAC storage and battery polling failures must not break usable input.
+
+- 2026-10-21: Mark solved bypassed active-attempt protection and reset the model
+  after awaiting Bluetooth even if newer moves, a new connection or inspection
+  had intervened. Guard before sending and after completion; retain newer model
+  facts, handle command rejection, and test delayed completion across lifecycle
+  changes. Disable the presentation control during protected phases too.
