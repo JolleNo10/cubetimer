@@ -774,3 +774,9 @@ fixed number of microtasks is enough for asynchronous cube loading.
   shortcuts as turns. A held key could inflate attempt moves or complete D4.
   Consume only distinct unmodified turn presses, keep browser shortcuts outside
   Timer input, and test both held-key rejection and four deliberate D presses.
+
+- 2026-10-21: PWA registration/check errors were handled, but a precache failure
+  after registration was not. The installing worker became redundant while
+  Settings kept displaying Installing. Track failed installation separately from
+  normal replacement of installed workers; test first install, existing offline
+  cache, successful retry, and Settings feedback without activating or reloading.

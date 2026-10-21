@@ -56,7 +56,17 @@ export class PwaUpdates {
   #watch(worker: ServiceWorker): void {
     if (this.#watched.has(worker)) return;
     this.#watched.add(worker);
+    // A rejected install (for example a failed precache request) becomes redundant.
+    // Successfully installed workers also become redundant later when replaced.
+    let installing = worker.state === "installing";
     const changed = () => {
+      if (installing && ["installed", "activating", "activated"].includes(worker.state)) {
+        installing = false;
+        this.state.update(s => ({ ...s, error: null }));
+      } else if (installing && worker.state === "redundant") {
+        installing = false;
+        this.state.update(s => ({ ...s, error: "Offline files could not finish installing. Connect to the internet and check for updates again." }));
+      }
       if (worker === this.#activationWorker && worker.state === "activated") {
         this.#activated = true;
         this.#advance();

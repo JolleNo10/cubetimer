@@ -8,7 +8,7 @@ export function PwaSettings() {
     unavailable: "Offline installation is unavailable in this browser.",
     registering: "Registering offline support...",
     error: "Offline installation could not start.",
-    registered: pwa.offlineReady ? "Offline files installed." : "Installing offline files...",
+    registered: pwa.offlineReady ? "Offline files installed." : pwa.error ? "Offline files are not installed yet." : "Installing offline files...",
   };
   return <>
     <p className="small faint">

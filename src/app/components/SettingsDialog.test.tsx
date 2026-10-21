@@ -4,6 +4,21 @@ import { ControllerContext } from "../useController";
 import { Controller } from "../Controller";
 import { DEFAULT_SETTINGS } from "../types";
 import { SettingsDialog } from "./SettingsDialog";
+import { PwaSettings } from "./PwaSettings";
+import { pwaUpdates } from "../pwaUpdates";
+
+it.each([false, true])("shows failed offline installation without a stuck installing message (existing copy: %s)", offlineReady => {
+  const previous = pwaUpdates.state.get();
+  try {
+    pwaUpdates.state.set({ ...previous, status: "registered", offlineReady,
+      error: "Offline files could not finish installing. Connect to the internet and check for updates again." });
+    const html = renderToStaticMarkup(<PwaSettings />);
+    expect(html).toContain(offlineReady ? "Offline files installed." : "Offline files are not installed yet.");
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("Check for update");
+    expect(html).not.toContain("Installing offline files...");
+  } finally { pwaUpdates.state.set(previous); }
+});
 
 describe("Settings Training libraries", () => {
   it("explains that full JSON backups include Training history and saved drills while retaining Solve CSV actions", () => {

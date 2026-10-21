@@ -27,6 +27,40 @@ beforeEach(() => vi.useFakeTimers());
 afterEach(() => { cleanup?.(); cleanup = undefined; vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("explicit safe PWA updates", () => {
+  it.each([false, true])("reports failed precache installation while preserving an existing offline copy (%s)", async existing => {
+    const f = fixture(); cleanup = () => f.updates.dispose();
+    f.registration.active = existing ? f.current : null;
+    f.registration.waiting = null;
+    f.next.state = "installing";
+    f.registration.installing = f.next;
+    await f.start();
+    f.registration.installing = null;
+    f.next.transition("redundant");
+    expect(f.updates.state.get()).toMatchObject({ status: "registered", offlineReady: existing, updateAvailable: false });
+    expect(f.updates.state.get().error).toContain("finish installing");
+    expect(f.reload).not.toHaveBeenCalled();
+    const retry = new Worker(); retry.state = "installing";
+    f.registration.installing = retry;
+    f.registration.dispatchEvent(new Event("updatefound"));
+    f.registration.installing = null; f.registration.waiting = retry;
+    retry.transition("installed");
+    expect(f.updates.state.get()).toMatchObject({ error: null, updateAvailable: true });
+    expect(retry.postMessage).not.toHaveBeenCalled();
+    expect(f.reload).not.toHaveBeenCalled();
+  });
+
+  it("does not report successful workers becoming obsolete as installation failures", async () => {
+    const f = fixture(); cleanup = () => f.updates.dispose();
+    f.registration.waiting = null; f.next.state = "installing"; f.registration.installing = f.next;
+    await f.start();
+    f.registration.installing = null; f.registration.waiting = f.next;
+    f.next.transition("installed");
+    f.activate();
+    f.current.transition("redundant");
+    f.next.transition("redundant");
+    expect(f.updates.state.get().error).toBeNull();
+  });
+
   it("registers without automatic activation or reload, including background controller changes", async () => {
     const f = fixture(); cleanup = () => f.updates.dispose(); await f.start();
     expect(f.container.register).toHaveBeenCalledWith("/sw.js", { scope: "/", updateViaCache: "none" });
