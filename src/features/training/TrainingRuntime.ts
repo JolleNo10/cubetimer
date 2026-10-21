@@ -693,7 +693,7 @@ export class TrainingRuntime {
       guide: !recognition && this.#trainingGuide ? trainingGuideProgress(this.#trainingGuide) : null,
       result: preserveResult ? s.result : null,
       recognition,
-      displayFacelets: mode === "virtual" || !this.hasCube ? targetFacelets : capturedFacelets,
+      displayFacelets: mode === "virtual" ? targetFacelets : capturedFacelets,
       displayRevision: s.displayRevision + 1,
     }));
 
@@ -768,7 +768,9 @@ export class TrainingRuntime {
     const model = this.#model;
     const tracker = this.#trainingTracker;
     const target = this.#trainingTarget;
-    if (training.mode === "virtual" || !model || !tracker || !target || !this.hasCube) {
+    // Touch buttons also update this model, independently of keyboard opt-in
+    // and Bluetooth availability. Setup progress depends on the pattern itself.
+    if (training.mode === "virtual" || !model || !tracker || !target) {
       if (training.setupProgress !== null || training.recovery !== null) {
         this.state.update((s) => ({ ...s, setupProgress: null, recovery: null }));
       }

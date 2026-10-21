@@ -113,7 +113,7 @@ export function TrainingCubeStage({ preview }: { preview?: TrainingStepPreview }
   </div>;
   return <div className={`stage ${training.family === "f2l" ? "f2l" : "training"}-stage`}>
     <CubeView followTrainingGrip={training.family === "f2l"} trainingFocus={target ?? undefined} settings={settings} facelets={cubeFacelets} gyroSupported={gyroSupported}
-      live={training.mode === "virtual" ? Boolean(target) : physicalLive} scramble=""
+      live={Boolean(target) || physicalLive} scramble=""
       displayFacelets={viewed?.facelets ?? (training.displayFacelets || cubeFacelets)}
       displayRevision={`${training.displayRevision}:${viewed ? `preview:${viewed.index}` : "live"}`} staticDisplay={Boolean(viewed) || training.phase === "result" || training.activity === "drill" && training.drill.task === "recognition"}
       displaySource={training.mode === "virtual" ? "virtual" : "physical"} orientationOverride={target?.trainingRotation.orientation}

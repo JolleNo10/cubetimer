@@ -758,3 +758,9 @@ fixed number of microtasks is enough for asynchronous cube loading.
   reset when the result arrived, silently discarding the selected case. Only the
   calculated path was stale. Retain the target, report the changed cube and let
   Retry capture its current state; cover F2L/OLL/PLL and cancellation in tests.
+
+- 2026-10-21: Training touch tests exercised only virtual cases. In Single setup,
+  hardware/keyboard gating left touch users stuck in Preparing and prevented live
+  move subscriptions. Track and display the existing model independently of input
+  capability, and test setup plus completion through actual touch controls with
+  keyboard input disabled.

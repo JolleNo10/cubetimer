@@ -153,6 +153,18 @@ describe("shared Training presentation", () => {
     expect(html).toContain('data-sync="true"');
   });
 
+  it("shows the current setup model and subscribes to touch turns while disconnected", async () => {
+    const controller = new Controller(new CubeModel(kpuzzle));
+    controller.setArea("training");
+    await controller.selectF2lCase("F2L 4");
+    const html = render(controller, <TrainingCubeStage />);
+    expect(html).toContain('data-live="true"');
+    expect(html).toContain('data-source="physical"');
+    expect(html).toContain('data-sync="false"');
+    expect(html).toContain(`data-facelets="${controller.physical.model!.facelets}"`);
+    expect(controller.training.state.get().setupProgress?.onTrack).toBe(true);
+  });
+
   it.each([
     [1, 0, "Recommended solution", "Same STM as recommended"],
     [2, 2, "Known alternative #2", "+2 STM vs recommended"],

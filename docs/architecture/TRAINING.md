@@ -788,7 +788,11 @@ checkpoint previews retain their exact target frame.
 Touch turn buttons and keyboard opt-in provide disconnected practice through the
 existing Controller move route. Their notation is converted from the target
 Training frame into cube-frame moves once, at the Controller boundary. They do
-not create another cube model. Recognition
+not create another cube model. In Single setup mode, the view and setup tracker
+follow that existing model even without hardware or keyboard opt-in: touch turns
+are a valid input source. Hardware availability controls physical sync, not
+pattern-based setup progress. Gating setup on Bluetooth/keyboard was rejected
+because it left visible touch controls unable to reach Ready. Recognition
 uses answer choices and needs no hardware input.
 
 Rejected: forced inter-round countdowns with disappearing results, and recovery

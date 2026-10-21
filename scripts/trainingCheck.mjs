@@ -18,6 +18,17 @@ try {
   const errors = []; page.on('pageerror', e => errors.push(e.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
   await page.waitForFunction(() => window.cubeDebug?.cubetimer.state.get().ready);
+  // Single setup must work through touch alone, without enabling global keyboard input.
+  await page.evaluate(async () => { const c = window.cubeDebug.cubetimer; c.setArea('training'); await c.selectF2lCase('F2L 4'); });
+  const setup = await page.evaluate(() => window.cubeDebug.cubetimer.training.state.get().setup.split(/\s+/));
+  for (const token of setup) await page.getByRole('button', { name: `Turn ${token}`, exact: true }).click();
+  await page.waitForFunction(() => window.cubeDebug.cubetimer.training.state.get().phase === 'ready');
+  await page.waitForFunction(async () => (await document.querySelector('twisty-player')?.experimentalGet.alg())?.toString().length > 0);
+  const singleReference = await page.evaluate(() => window.cubeDebug.cubetimer.training.state.get().target.references[0].alg.split(/\s+/));
+  for (const token of singleReference) await page.getByRole('button', { name: `Turn ${token}`, exact: true }).click();
+  await page.waitForFunction(() => window.cubeDebug.cubetimer.training.state.get().phase === 'result');
+  assert.equal(await page.evaluate(() => window.cubeDebug.cubetimer.physical.state.get().virtualCube), false);
+  await page.waitForFunction(() => window.cubeDebug.cubetimer.trainingAttempts.get().length === 1);
   await page.evaluate(() => { const c = window.cubeDebug.cubetimer; c.setArea('training'); c.setTrainingActivity('drill'); c.setDrillCases(['F2L 4', 'F2L 5']); });
   await page.getByRole('button', { name: 'Start drill', exact: true }).click();
   await page.waitForFunction(() => window.cubeDebug.cubetimer.training.state.get().phase === 'ready');
@@ -50,7 +61,7 @@ try {
   await page.getByRole('button', { name: 'Next case', exact: true }).click();
   await page.getByRole('button', { name: 'Finish drill', exact: true }).click();
   await page.getByRole('region', { name: 'Drill summary', exact: true }).waitFor();
-  assert.equal(await page.evaluate(() => window.cubeDebug.cubetimer.trainingAttempts.get().length), 1);
+  assert.equal(await page.evaluate(() => window.cubeDebug.cubetimer.trainingAttempts.get().length), 2);
   for (const family of ['oll', 'pll']) {
     await page.evaluate(family => { const c=window.cubeDebug.cubetimer; c.setTrainingFamily(family); c.setTrainingActivity('drill'); c.setDrillTask('recognition'); c.setDrillCases(family === 'oll' ? ['26','27'] : ['T','H']); }, family);
     await page.getByRole('button', { name: 'Start drill', exact: true }).click();
@@ -71,5 +82,5 @@ try {
   if (process.env.TRAINING_SCREENSHOTS) await page.screenshot({ path: 'training-mobile-check.png', fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   assert.deepEqual(errors, []);
-  console.log('Training browser checks passed: countdown, turns, retry, held statistics, D4 next, skip, summary, OLL/PLL recognition and mobile layout.');
+  console.log('Training browser checks passed: touch-only Single setup/solve, countdown, turns, retry, held statistics, D4 next, skip, summary, OLL/PLL recognition and mobile layout.');
 } finally { await browser?.close(); await new Promise(done => server.close(done)); }

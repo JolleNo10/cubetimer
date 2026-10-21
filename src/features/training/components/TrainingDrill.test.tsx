@@ -158,6 +158,25 @@ describe("Single and Drill presentation", () => {
     controller.physical.state.update(s => ({ ...s, cubeStatus: "connected" }));
     expect(button("Turn B", <TrainingInputControls />)).toBeUndefined();
   });
+  it("completes Single setup and an attempt using touch buttons with keyboard turns disabled", async () => {
+    const { controller } = fixture();
+    controller.setTrainingActivity("single");
+    await controller.setTrainingMode("setup");
+    await controller.selectF2lCase("F2L 4");
+    expect(controller.hasCube).toBe(false);
+    const target = controller.training.state.get().target!;
+    for (const token of controller.training.state.get().setup.split(/\s+/)) {
+      button(`Turn ${token}`, <TrainingInputControls />).onClick();
+    }
+    expect(controller.training.state.get().phase).toBe("ready");
+    for (const token of target.references[0].alg.split(/\s+/)) {
+      button(`Turn ${token}`, <TrainingInputControls />).onClick();
+    }
+    expect(controller.training.state.get().phase).toBe("result");
+    expect(controller.training.state.get().result?.matchedReferenceRank).toBe(1);
+    expect(controller.physical.state.get().virtualCube).toBe(false);
+    expect(controller.sessions.get().solves).toHaveLength(0);
+  });
   it.each(["f2l", "oll", "pll"] as const)("touch buttons execute %s notation in the displayed training frame", family => {
     const { controller, reveal } = fixture(family); reveal();
     button("Turn U", <TrainingInputControls />).onClick();
