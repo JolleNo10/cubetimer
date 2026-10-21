@@ -46,9 +46,11 @@ function readStoredMacs(): Record<string, string> {
 }
 
 function storeMac(deviceName: string, mac: string): void {
-  const macs = readStoredMacs();
-  macs[deviceName] = mac;
-  localStorage.setItem(MAC_STORAGE_KEY, JSON.stringify(macs));
+  try {
+    const macs = readStoredMacs();
+    macs[deviceName] = mac;
+    localStorage.setItem(MAC_STORAGE_KEY, JSON.stringify(macs));
+  } catch { /* Remembering the MAC is optional; storage denial must not break Bluetooth. */ }
 }
 
 export function forgetStoredMacs(): void {
@@ -72,6 +74,7 @@ export class SmartCube {
   #connection: GanCubeConnection | null = null;
   #subscription: Subscription | null = null;
   #batteryTimer: ReturnType<typeof setInterval> | null = null;
+  #connectionGeneration = 0;
   #handlers: SmartCubeHandlers = {};
   #status: CubeStatus = bluetoothAvailable() ? "disconnected" : "unsupported";
 
@@ -95,27 +98,38 @@ export class SmartCube {
       );
       return;
     }
-    if (this.#connection) await this.disconnect();
-
+    const generation = ++this.#connectionGeneration;
     this.#setStatus("connecting");
+    if (this.#connection) await this.#releaseConnection();
+    if (generation !== this.#connectionGeneration) return;
     try {
       const connection = await connectGanCube(this.#macProvider(macPrompt));
+      if (generation !== this.#connectionGeneration) {
+        await connection.disconnect().catch(() => {});
+        return;
+      }
       this.#connection = connection;
-      this.#subscription = connection.events$.subscribe((event) =>
-        this.#handleEvent(event),
-      );
+      this.#subscription = connection.events$.subscribe((event) => {
+        if (generation === this.#connectionGeneration) this.#handleEvent(event);
+      });
       this.#setStatus("connected");
       storeMac(connection.deviceName, connection.deviceMAC);
 
-      await connection.sendCubeCommand({ type: "REQUEST_HARDWARE" });
-      await connection.sendCubeCommand({ type: "REQUEST_BATTERY" });
-      await connection.sendCubeCommand({ type: "REQUEST_FACELETS" });
+      for (const type of ["REQUEST_HARDWARE", "REQUEST_BATTERY", "REQUEST_FACELETS"] as const) {
+        if (generation !== this.#connectionGeneration) return;
+        await connection.sendCubeCommand({ type });
+      }
+      if (generation !== this.#connectionGeneration) return;
 
       this.#batteryTimer = setInterval(() => {
-        void this.#connection?.sendCubeCommand({ type: "REQUEST_BATTERY" });
+        // A missed battery poll is retried next interval; it must not create an
+        // unhandled rejection or tear down otherwise usable move/gyro input.
+        void connection.sendCubeCommand({ type: "REQUEST_BATTERY" }).catch(() => {});
       }, BATTERY_POLL_MS);
     } catch (error) {
-      this.#connection = null;
+      if (generation !== this.#connectionGeneration) return;
+      await this.#releaseConnection();
+      if (generation !== this.#connectionGeneration) return;
       const message = error instanceof Error ? error.message : String(error);
       // A cancelled chooser is a normal outcome, not a failure worth shouting about.
       this.#setStatus(
@@ -128,13 +142,20 @@ export class SmartCube {
   }
 
   async disconnect(): Promise<void> {
+    ++this.#connectionGeneration;
+    const released = this.#releaseConnection();
+    this.#setStatus("disconnected");
+    await released;
+  }
+
+  /** Detach event delivery and polling before awaiting hardware cleanup. */
+  async #releaseConnection(): Promise<void> {
     this.#subscription?.unsubscribe();
     this.#subscription = null;
     if (this.#batteryTimer !== null) clearInterval(this.#batteryTimer);
     this.#batteryTimer = null;
     const connection = this.#connection;
     this.#connection = null;
-    this.#setStatus("disconnected");
     await connection?.disconnect().catch(() => {});
   }
 

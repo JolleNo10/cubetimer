@@ -780,3 +780,10 @@ fixed number of microtasks is enough for asynchronous cube loading.
   Settings kept displaying Installing. Track failed installation separately from
   normal replacement of installed workers; test first install, existing offline
   cache, successful retry, and Settings feedback without activating or reloading.
+
+- 2026-10-21: Bluetooth initialization had no attempt identity. Failed setup
+  left subscriptions alive; cancelled chooser results could reconnect, and old
+  initialization could start duplicate battery polling after reconnect. Invalidate
+  old work on connect/disconnect, detach resources before awaiting cleanup, and
+  test deferred chooser/command completion and rejection across reconnects.
+  Optional MAC storage and battery polling failures must not break usable input.
