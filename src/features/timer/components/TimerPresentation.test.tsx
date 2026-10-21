@@ -10,7 +10,7 @@ import { ScramblePanel } from "./ScramblePanel";
 const kpuzzle = await get3x3x3();
 function display(controller: Controller, holding = false, holdReady = false) {
   return renderToStaticMarkup(<ControllerContext.Provider value={controller}>
-    <TimerDisplay holding={holding} holdReady={holdReady} onPressStart={() => {}} onPressEnd={() => {}} />
+    <TimerDisplay holding={holding} holdReady={holdReady} onPressStart={() => {}} onPressEnd={() => {}} onPressCancel={() => {}} />
   </ControllerContext.Provider>);
 }
 

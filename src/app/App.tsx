@@ -211,6 +211,28 @@ export function App() {
     setHoldReady(value);
   }, []);
 
+  const cancelHold = useCallback(() => {
+    if (holdTimer.current) clearTimeout(holdTimer.current);
+    holdTimer.current = null;
+    setHoldingBoth(false);
+    setHoldReadyBoth(false);
+  }, [setHoldingBoth, setHoldReadyBoth]);
+
+  useEffect(() => {
+    const hidden = () => { if (document.hidden) cancelHold(); };
+    window.addEventListener("blur", cancelHold);
+    document.addEventListener("visibilitychange", hidden);
+    return () => {
+      window.removeEventListener("blur", cancelHold);
+      document.removeEventListener("visibilitychange", hidden);
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+    };
+  }, [cancelHold]);
+
+  useEffect(() => {
+    if (state.area !== "timer" || replaySolve || correctionPreview || correctionError || settingsOpen || connectionOpen) cancelHold();
+  }, [cancelHold, state.area, replaySolve, correctionPreview, correctionError, settingsOpen, connectionOpen]);
+
   const pressStart = useCallback(() => {
     if (resultSolveId !== null) {
       closeResult();
@@ -219,6 +241,7 @@ export function App() {
       if (resumeTimerAfterTrainingReview) return;
     }
     const current = controller.snapshot();
+    if (current.area !== "timer") return;
     if (current.phase === "solving") {
       // A solve the cube started is stopped by solving the cube, not by a key or a tap.
       if (current.solveSource === "keyboard") controller.startFromKeyboard();
@@ -266,6 +289,7 @@ export function App() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (isTextEntry(event.target)) return;
       if (event.key === "Escape") {
+        cancelHold();
         if (resultSolveId !== null) {
           closeResult();
           return;
@@ -289,7 +313,8 @@ export function App() {
     };
 
     const onKeyUp = (event: KeyboardEvent) => {
-      if (event.key !== " " || isTextEntry(event.target) || isToggle(event.target)) return;
+      if (event.key !== " ") return;
+      if (isTextEntry(event.target) || isToggle(event.target)) { cancelHold(); return; }
       pressEnd();
     };
 
@@ -299,7 +324,7 @@ export function App() {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
     };
-  }, [closeResult, controller, pressStart, pressEnd, replaySolve, correctionPreview, correctionError, resultSolveId, settingsOpen, connectionOpen]);
+  }, [cancelHold, closeResult, controller, pressStart, pressEnd, replaySolve, correctionPreview, correctionError, resultSolveId, settingsOpen, connectionOpen]);
 
   useEffect(
     () =>
@@ -394,6 +419,7 @@ export function App() {
                   holdReady={holdReady}
                   onPressStart={pressStart}
                   onPressEnd={pressEnd}
+                  onPressCancel={cancelHold}
                 />
                 <TimerCubeStage />
               </>

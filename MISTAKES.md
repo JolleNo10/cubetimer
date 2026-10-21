@@ -741,3 +741,9 @@ fixed number of microtasks is enough for asynchronous cube loading.
   beside a reference for the original target. Restore the original virtual case
   and reset guide progress for review; test all three families and verify that
   the physical cube and completed history are not rewritten.
+
+- 2026-10-21: Manual Timer holds survived focus loss, and pointer cancellation
+  reused the release handler, allowing interrupted gestures to start timing.
+  Separate cancellation from release, clear pending arming timeouts, and test
+  blur, dialog/navigation interruption, Escape and cancelled pointers alongside
+  legitimate starts and ongoing inspection/solves in the production browser.

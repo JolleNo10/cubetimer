@@ -9,6 +9,7 @@ type Props = {
   holdReady: boolean;
   onPressStart: () => void;
   onPressEnd: () => void;
+  onPressCancel: () => void;
 };
 
 export function TimerDisplay({
@@ -16,6 +17,7 @@ export function TimerDisplay({
   holdReady,
   onPressStart,
   onPressEnd,
+  onPressCancel,
 }: Props) {
   const controller = useController();
   const elapsed = useStore(controller.elapsed);
@@ -87,7 +89,8 @@ export function TimerDisplay({
         onPressStart();
       }}
       onPointerUp={onPressEnd}
-      onPointerCancel={onPressEnd}
+      onPointerCancel={onPressCancel}
+      onPointerLeave={onPressCancel}
       onContextMenu={(e) => e.preventDefault()}
       style={{ touchAction: "manipulation" }}
     >
